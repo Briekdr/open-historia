@@ -3346,7 +3346,7 @@ const SettingsMenu = ({
         panelContent = (
             <QuickMenuPanel title="Help" description="Guides, bug reporting and community links.">
                 <div style={grid}>
-                    <QuickAction title="Guides" description="How-to pages and setup help" symbol="?" href={GUIDES_HREF} />
+                    <QuickAction title="Wiki" description="How-to pages and setup help" symbol="?" href="/wiki/" />
                     <QuickAction
                         title={updateCheckResult.status === "checking" ? "Checking for updates…" : "Check for updates"}
                         description={appUpdateCheckDescription(updateCheckResult)}
