@@ -40,6 +40,11 @@ const hostOnly = (run) => async (...args) => {
   if (inSharedGame()) throw new SharedGameRefusal();
   return run(...args);
 };
+// What a screen starts on its own, with nobody waiting on the answer (a first
+// reading of a country when its panel opens, a rating of its services): there
+// it is simply not done, and settles with nothing. A refusal nobody catches is
+// a crash in the log for something the player never asked for.
+const hostQuietly = (run) => async (...args) => (inSharedGame() ? null : run(...args));
 
 export const prefetchGameplay = () => {
   // Deliberately swallowed: a warm-up that fails must not surface as an error.
@@ -52,10 +57,16 @@ export const simulateTimelineJump = hostOnly(async (...args) => (await gameplay(
 export const simulateAutoJump = hostOnly(async (...args) => (await gameplay()).simulateAutoJump(...args));
 export const retryPendingJumpSegment = hostOnly(async (...args) => (await gameplay()).retryPendingJumpSegment(...args));
 export const retryPendingProjectsJump = hostOnly(async (...args) => (await gameplay()).retryPendingProjectsJump(...args));
-export const maybeGeneratePregameHistory = hostOnly(async (...args) => (await gameplay()).maybeGeneratePregameHistory(...args));
+export const applyParkedTurn = hostOnly(async (...args) => (await gameplay()).applyParkedTurn(...args));
+// A kept skip is the host's, in the host's own store: a page playing a shared
+// game is told there is none, and never takes one in or throws one away.
+export const loadParkedTurn = hostQuietly(async (...args) => (await gameplay()).loadParkedTurn(...args));
+export const discardKeptTurn = hostOnly(async (...args) => (await gameplay()).discardKeptTurn(...args));
+export const maybeGeneratePregameHistory = hostQuietly(async (...args) => (await gameplay()).maybeGeneratePregameHistory(...args));
+// A scenario's own pre-history, written in the Workshop: not the game being played.
+export const generateScenarioPrehistory = async (...args) => (await gameplay()).generateScenarioPrehistory(...args);
 
 // --- Rollback ---------------------------------------------------------------
-export const loadRollbackSnapshots = async (...args) => (await gameplay()).loadRollbackSnapshots(...args);
 export const rollBackToSnapshot = hostOnly(async (...args) => (await gameplay()).rollBackToSnapshot(...args));
 // Intervene: stop the last turn after the events revealed so far (intervene.js).
 export const canInterveneInLastTurn = async (...args) => (await gameplay()).canInterveneInLastTurn(...args);
@@ -76,8 +87,8 @@ export const setAsideActiveInteractive = hostOnly(async (...args) => (await game
 // --- Chat and diplomacy -----------------------------------------------------
 // One request acts for every AI participant in a thread (AI/chatActions.js).
 export const runChatActionBatch = hostOnly(async (...args) => (await gameplay()).runChatActionBatch(...args));
-export const checkDemandReply = hostOnly(async (...args) => (await gameplay()).checkDemandReply(...args));
-export const ensureCountryAssessed = hostOnly(async (...args) => (await gameplay()).ensureCountryAssessed(...args));
+export const checkDemandReply = hostQuietly(async (...args) => (await gameplay()).checkDemandReply(...args));
+export const ensureCountryAssessed = hostQuietly(async (...args) => (await gameplay()).ensureCountryAssessed(...args));
 export const processPendingEventOutreach = hostOnly(async (...args) => (await gameplay()).processPendingEventOutreach(...args));
 
 // --- Actions ----------------------------------------------------------------
@@ -90,7 +101,13 @@ export const applyGameMasterPreview = hostOnly(async (...args) => (await gamepla
 export const consolidateHistoryNow = hostOnly(async (...args) => (await gameplay()).consolidateHistoryNow(...args));
 
 // --- Stats and intelligence -------------------------------------------------
-export const ensureIntelligenceRated = hostOnly(async (...args) => (await gameplay()).ensureIntelligenceRated(...args));
+export const ensureIntelligenceRated = hostQuietly(async (...args) => (await gameplay()).ensureIntelligenceRated(...args));
 export const readOpenedIntercepts = async (...args) => (await gameplay()).readOpenedIntercepts(...args);
 export const generateCountryStatSheet = hostOnly(async (...args) => (await gameplay()).generateCountryStatSheet(...args));
+// Settles with that reading's sheet (or null), or at once with null when none is running.
+export const pendingCountryStatSheet = async (...args) => (await gameplay()).pendingCountryStatSheet(...args);
 export const generateCountryStats = hostOnly(async (...args) => (await gameplay()).generateCountryStats(...args));
+// Listen in: one request for what people in a place are posting (runtime/listenIn.js).
+// It writes nothing to the game: asked with the player's own key, kept on the
+// player's own device, so a page playing a shared game asks it like any other.
+export const generateListenInFeed = async (...args) => (await gameplay()).generateListenInFeed(...args);

@@ -28,6 +28,7 @@ import {
     describeDay,
     describeJumpCost,
     jumpRequestCap,
+    requestsByTask,
     reviewSectionKey,
 } from "./requestBudget.js";
 
@@ -238,6 +239,22 @@ test("a reserved institutional ballot slot cannot be consumed by earlier optiona
     assert.deepEqual(budget.skipped, ["history", "stats"]);
 });
 
+test("a budget carried over a restart spends on from where it was, reservation and all", () => {
+    const budget = createJumpBudget({ cap: 4 });
+    budget.reserve("institutionBallots", 1);
+    budget.take("jump");
+    budget.take("review");
+    budget.take("history");
+    const carried = JSON.parse(JSON.stringify({ cap: budget.cap, state: budget.state }));
+    const resumed = createJumpBudget({ cap: carried.cap, state: carried.state });
+    assert.equal(resumed.spent, 3);
+    assert.equal(resumed.reserved, 1);
+    assert.equal(resumed.take("stats"), false, "the slot left is still the ballots'");
+    assert.equal(resumed.take("institutionBallots"), true);
+    assert.deepEqual(resumed.log.map((entry) => entry.spender), ["jump", "review", "history", "stats", "institutionBallots"]);
+    assert.deepEqual(resumed.skipped, ["stats"]);
+});
+
 test("a skip that is not saving requests is never refused, and still keeps its log", () => {
     const budget = createJumpBudget({ unlimited: true });
     for (let request = 0; request < 12; request += 1) assert.equal(budget.take("jump"), true);
@@ -266,4 +283,23 @@ test("the day is described for the panel: used, left, and never less than nothin
     assert.equal(day.limit, 2);
     assert.equal(day.left, 0);
     assert.deepEqual(day.byTask, { jumpForward: 1, afterJumpReview: 1, advisor: 1 });
+});
+
+test("Settings lists today's requests by task, most first, under their names", () => {
+    const { ledger } = setup();
+    for (const taskKey of ["advisor", "jumpForward", "jumpForward", "translation", "other", "direct", "diplomacy → France"]) {
+        ledger.note({ status: 200, taskKey });
+    }
+    ledger.note({ status: 429, taskKey: "advisor" });
+    const labels = { jumpForward: "Time skip", advisor: "Advisor chat", translation: "Translation", other: "Other", direct: "Other" };
+    assert.deepEqual(requestsByTask(ledger.today().byTask, labels), [
+        { label: "Other", named: true, count: 2 },
+        { label: "Time skip", named: true, count: 2 },
+        { label: "Advisor chat", named: true, count: 1 },
+        { label: "Translation", named: true, count: 1 },
+        { label: "diplomacy → France", named: false, count: 1 },
+    ]);
+    assert.deepEqual(requestsByTask({}, labels), []);
+    assert.deepEqual(requestsByTask(null), []);
+    assert.deepEqual(requestsByTask({ toString: 3 }), [{ label: "toString", named: false, count: 3 }], "a key is never read off the prototype");
 });

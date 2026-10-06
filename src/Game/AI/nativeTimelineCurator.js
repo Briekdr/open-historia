@@ -222,7 +222,7 @@ const recurrenceCueIsNegated = (text, cueIndex) => {
   );
 };
 
-const hasMaterialRecurrenceCue = (event) => {
+export const hasMaterialRecurrenceCue = (event) => {
   const text = normalizeText(eventText(event));
   if (!text) return false;
 
@@ -1270,6 +1270,7 @@ export const curateGeneratedEventsWithHidden = async ({
   mode = "",
   analyzeBatch = null,
   isSparedFromFiller = null,
+  signal = null,
 } = {}) => {
   const incoming = asArray(events);
 
@@ -1283,9 +1284,14 @@ export const curateGeneratedEventsWithHidden = async ({
   let analysisResult = null;
   let analysisError = "";
 
+  // The analyst is a request. When no candidate is one it could remove
+  // (candidatesWorthJudging: every event carries a transfer, a unit op or a
+  // war, or resembles nothing on record), every event is kept whatever it
+  // says, so it is not asked — the same rule the turn review applies.
   if (
     incoming.length &&
-    typeof analyzeBatch === "function"
+    typeof analyzeBatch === "function" &&
+    candidatesWorthJudging({ events: incoming, priorEvents, mode }).length > 0
   ) {
     try {
       analysisResult =
@@ -1293,6 +1299,8 @@ export const curateGeneratedEventsWithHidden = async ({
           buildCuratorInput({ events: incoming, priorEvents, mode }),
         );
     } catch (error) {
+      // The player's Cancel is not a failed analyst: it must reach the skip.
+      if (signal?.aborted) throw error;
       analysisError =
         normalizeString(
           error?.message || error,
@@ -1637,61 +1645,11 @@ droppedCount:
   return { events: keptEvents, hidden, dropped };
 };
 
-export const getLastNativeCuratorAudit =
-  () => lastAudit;
-
-const runNativeCuratorSelfTests = () => {
-  const make = (description) => ({
-    title: "Test",
-    description,
-    impacts: {
-      createdChats: [],
-      polityChanges: [],
-      politicalActorOps: [],
-      regionTransfers: [],
-      regionClaims: [],
-      unitOps: [],
-      markerOps: [],
-    },
-  });
-
-  const cases = [
-    {
-      name: "real disruption counts as material recurrence",
-      pass: hasMaterialRecurrenceCue(
-        make("Repeated shortages and transport disruption spread across the district."),
-      ) === true,
-    },
-    {
-      name: "without disruption is not material recurrence",
-      pass: hasMaterialRecurrenceCue(
-        make("Spring sowing concludes without major domestic disruption."),
-      ) === false,
-    },
-    {
-      name: "no shortages is not material recurrence",
-      pass: hasMaterialRecurrenceCue(
-        make("Officials report no shortages or unrest during the distribution period."),
-      ) === false,
-    },
-  ];
-
-  const passed = cases.every((entry) => entry.pass);
-  console.table(cases);
-  console.info(
-    `[OH Native Timeline Curator self-test] ${passed ? "PASS" : "FAIL"} — ` +
-    `${cases.filter((entry) => entry.pass).length}/${cases.length}`,
-  );
-
-  return { passed, cases };
-};
-
 if (typeof window !== "undefined") {
   window.__OH_NATIVE_TIMELINE_CURATOR__ = {
     version: VERSION,
     mode: "live",
     config: CONFIG,
     last: () => lastAudit,
-    selfTest: () => runNativeCuratorSelfTests(),
   };
 }

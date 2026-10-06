@@ -92,11 +92,26 @@ test("bounded diplomatic context pulls a seed actor's active Puppet counterpart 
   assert.deepEqual(active.actors, ["Germany", "Russia"]);
   assert.equal(active.puppets.length, 1);
   assert.match(active.text, /Germany directs Russia/);
+});
 
-  const disabled = buildBoundedDiplomaticContext(puppetWorld, { playerPolity: "Germany", maxActors: 2, puppetStates: false });
-  assert.deepEqual(disabled.actors, ["Germany"]);
-  assert.equal(disabled.puppets.length, 0);
-  assert.doesNotMatch(disabled.text, /SUBORDINATIONS/);
+test("bounded diplomatic context shows every standing subordination, the attention actors' first", () => {
+  const row = (id, overlord, puppet, status = "active") => ({
+    id, overlord, puppet, kind: "client", loyalty: 40, secrecy: "covert", status, startedDate: "1890-01-01", knownTo: [],
+  });
+  const puppetWorld = {
+    ...world,
+    puppets: [
+      row("far", "Britain", "Egypt"),
+      row("gone", "Britain", "Portugal", "released"),
+      row("near", "France", "Morocco"),
+    ],
+  };
+  const context = buildBoundedDiplomaticContext(puppetWorld, { playerPolity: "France", maxActors: 2 });
+  // Outside the attention slice, a covert client is still a client: the simulator
+  // must not narrate Egypt as independent.
+  assert.deepEqual(context.puppets.map((entry) => entry.id), ["near", "far"]);
+  assert.match(context.text, /France directs Morocco[^]*Britain directs Egypt/);
+  assert.doesNotMatch(context.text, /Portugal/);
 });
 
 test("a lifecycle change on an agreement that does not exist is refused for the GM and dropped in simulation", () => {
@@ -349,16 +364,56 @@ test("on the salvage pass a malformed ledger row is dropped and said, not fatal"
   const strict = JSON.parse(JSON.stringify(candidate));
   assert.match(validateDiplomaticLedgerPayload(strict, { world, allowNativeBinding: true }), /could not resolve both polities/, "strict: still fatal, naming the row");
 
-  const notes = salvageDiplomaticLedgerPayload(candidate, { world });
+  const playerNotes = [];
+  const notes = salvageDiplomaticLedgerPayload(candidate, { world, playerNotes });
   assert.deepEqual(notes, [
     "Relation update France ↔ Atlantis was dropped: \"Atlantis\" is not a polity on this map.",
-    "Agreement eu-turkey-statement start was dropped: fewer than two of its parties are polities on this map.",
     "Agreement phantom-pact end was dropped: no agreement \"phantom-pact\" exists to end.",
+    "Agreement eu-turkey-statement start was dropped: fewer than two of its parties are polities on this map.",
+  ]);
+  // The player's sentence for each, at the same index (I278).
+  assert.deepEqual(playerNotes.map((note) => note.text), [
+    "The change in relations between France and Atlantis was not recorded: Atlantis is not a country on this map.",
+    "A change to the agreement \"Phantom Pact\" was not recorded: no such agreement exists.",
+    "The agreement \"EU-Turkey Statement\" was not recorded: fewer than two of its parties are countries on this map.",
   ]);
   assert.equal(typeof candidate.relationUpdates, "string", "rewritten in the form it arrived");
   assert.equal(candidate.relationUpdates.split("\n").length, 1, "the good relation stays");
   assert.equal(candidate.agreementUpdates.split("\n").length, 1, "the good agreement stays");
   assert.equal(validateDiplomaticLedgerPayload(candidate, { world, allowNativeBinding: true }), "", "and what is left validates without a retry");
+});
+
+test("on the salvage pass a relation with a blank side is told to the player without a name", () => {
+  const candidate = { events: alliance(), relationUpdates: [{ a: "France", b: "", score: 10, status: "friendly" }], agreementUpdates: "" };
+  const playerNotes = [];
+  const notes = salvageDiplomaticLedgerPayload(candidate, { world, playerNotes });
+  assert.equal(notes.length, 1);
+  assert.deepEqual(playerNotes.map((note) => note.text), [
+    "A change in relations was not recorded: it did not name both of its sides.",
+  ]);
+});
+
+// Salvage runs BEFORE the validator on the final attempt (the only attempt
+// while requests are saved), and it used to drop exactly the rows the
+// validator's lifecycle repairs exist to fix: the pact the story ended stayed
+// active, and a re-signed or re-negotiated one lost its change.
+test("on the salvage pass the lifecycle repairs run before anything is dropped", () => {
+  const salvaged = (ledger, agreementUpdates) => {
+    const candidate = { events: breach(), relationUpdates: "", agreementUpdates };
+    assert.deepEqual(salvageDiplomaticLedgerPayload(candidate, { world: ledger }), [], "nothing dropped");
+    assert.equal(validateDiplomaticLedgerPayload(candidate, { world: ledger, allowNativeBinding: true }), "");
+    return decodeAgreementUpdates(candidate.agreementUpdates);
+  };
+
+  const reaimed = salvaged(allied(), endRow("dual-alliance-pact", "alliance", "Russia,France"));
+  assert.deepEqual(reaimed.map((update) => [update.id, update.op]), [["franco-russian-alliance", "end"]], "an end on an invented id is re-aimed");
+
+  const suspended = allied([{ ...allied().agreements[0], status: "suspended" }]);
+  const resumed = salvaged(suspended, "franco-russian-alliance~start~alliance~France,Russia~1~Franco-Russian Alliance~Mutual military assistance against Germany");
+  assert.deepEqual(resumed.map((update) => update.op), ["resume"], "re-signing a suspended pact resumes it");
+
+  const updated = salvaged(allied(), "franco-russian-alliance~start~alliance~France,Russia~1~Franco-Russian Alliance~Mutual assistance extended to Austria-Hungary");
+  assert.deepEqual(updated.map((update) => update.op), ["update"], "restating an active pact with new terms updates it");
 });
 
 test("the salvage pass leaves a clean answer exactly as it was", () => {

@@ -6,11 +6,13 @@ import assert from "node:assert/strict";
 import {
   activeWarIdsForPolity,
   applyWarUpdates,
+  bindWarUpdatesToEvents,
   buildCanonicalWarContext,
   decodeWarUpdates,
   eventNarratesHardCombat,
   reconcileCombatWarState,
   repairWarLedgerPayload,
+  splitWarStartNote,
   validateWarLedgerPayload,
 } from "./nativeWarLedger.js";
 
@@ -50,6 +52,29 @@ test("a declaration starts a canonical war bound to its event", () => {
   assert.deepEqual(merge.wars[0].sourceEventIds, ["e1"]);
   assert.deepEqual(activeWarIdsForPolity(merge.world, "France"), ["war-france-germany-1914"]);
   assert.match(buildCanonicalWarContext(merge.world), /war-france-germany-1914 \| ACTIVE \| SIDE A: Germany \| SIDE B: France/);
+});
+
+// Every war the model opened used to be called "A–B War": the record had no
+// place for the name the model gave it.
+test("a start's note can name the war; the rest of it is the cause", () => {
+  const events = declaration();
+  const named = applyWarUpdates({
+    world,
+    updates: "war-france-germany-1914~start~Germany~France~1~Title: The Great War; The ultimatum to Paris expired unanswered",
+    events,
+    stopDate: "1914-08-31",
+    round: 2,
+  });
+  assert.equal(named.wars[0].title, "The Great War");
+  assert.equal(named.wars[0].cause, "The ultimatum to Paris expired unanswered");
+  assert.equal(named.wars[0].note, "The ultimatum to Paris expired unanswered");
+
+  const unnamed = applyWarUpdates({ world, updates: "war-france-germany-1914~start~Germany~France~1~Declaration of war", events, stopDate: "1914-08-31", round: 2 });
+  assert.equal(unnamed.wars[0].title, "Germany–France War");
+  assert.equal(unnamed.wars[0].cause, "Declaration of war");
+
+  assert.deepEqual(splitWarStartNote("title: Winter War"), { title: "Winter War", cause: "" });
+  assert.deepEqual(splitWarStartNote("The title: a pretext"), { title: "", cause: "The title: a pretext" }, "only a leading Title: names the war");
 });
 
 test("a declaration with no matching warUpdates record is rejected", () => {
@@ -93,6 +118,65 @@ test("reconciliation binds unlabelled combat to the one matching active war", ()
   assert.deepEqual(repair.unresolved, []);
   assert.equal(candidate.events[0].warId, "war-france-germany-1914");
   assert.equal(validateWarLedgerPayload(candidate, { world: warWorld }), "");
+});
+
+// The prompt tells the model to tag fighting with the war's id. Tagged with a
+// ceasefire war's id and no record of its own, the segment used to be rejected
+// ("ceasefire, not active") — a corrective request — where the same event
+// untagged resumed the war.
+test("fighting tagged with a ceasefire war's id resumes that war", () => {
+  const truce = {
+    ...world,
+    wars: [{ id: "war-france-germany-1914", status: "ceasefire", sideA: ["Germany"], sideB: ["France"], startedDate: "1914-08-03" }],
+  };
+  const battle = (warId) => ({
+    events: [{
+      id: "e1",
+      date: "1915-03-10",
+      title: "Battle of Neuve Chapelle",
+      description: "French and German armies clash again along the border after the truce breaks down.",
+      kind: "military",
+      combatants: ["France", "Germany"],
+      warId,
+    }],
+    warUpdates: "",
+  });
+
+  const tagged = battle("war-france-germany-1914");
+  const repair = reconcileCombatWarState(tagged, { world: truce });
+  assert.equal(repair.resumed, 1);
+  assert.deepEqual(repair.unresolved, []);
+  assert.deepEqual(decodeWarUpdates(tagged.warUpdates).map((update) => [update.id, update.op]), [["war-france-germany-1914", "resume"]]);
+  assert.equal(validateWarLedgerPayload(tagged, { world: truce }), "");
+
+  const untagged = battle(undefined);
+  reconcileCombatWarState(untagged, { world: truce });
+  assert.deepEqual(decodeWarUpdates(untagged.warUpdates), decodeWarUpdates(tagged.warUpdates), "tagged or not, the same resume");
+
+  // A record the model wrote for the war itself is left for the validator.
+  const withRecord = { ...battle("war-france-germany-1914"), warUpdates: "war-france-germany-1914~resume~~~1~The truce collapses" };
+  assert.equal(reconcileCombatWarState(withRecord, { world: truce }).resumed, 0);
+  assert.equal(decodeWarUpdates(withRecord.warUpdates).length, 1);
+});
+
+// A record that already crossed a segment or hidden-pass boundary carries
+// stable eventIds; its eventIndexes point into the answer it came from, not
+// the combined batch it is bound against now. Reading them again rebinds the
+// record to an unrelated event — the ground BugReport1's dropped wars grew in.
+test("binding keeps a record's existing event ids over its pass-local indexes", () => {
+  const events = [
+    { id: "turn-event-1", date: "1915-01-01", title: "Unrelated", description: "", kind: "politics" },
+    { id: "turn-event-2", date: "1915-01-02", title: "Also unrelated", description: "", kind: "politics" },
+  ];
+  const [carried] = bindWarUpdatesToEvents([{ id: "w", op: "start", actors: ["A"], opponents: ["B"], eventIds: ["segment-1-event-4"], eventIndexes: [0] }], events);
+  assert.deepEqual(carried.eventIds, ["segment-1-event-4"], "the stable id wins");
+
+  const [fresh] = bindWarUpdatesToEvents("w~start~A~B~2,2,1~Declaration", events);
+  assert.deepEqual(fresh.eventIds, ["turn-event-2", "turn-event-1"], "indexes resolve against this batch, once each, in order");
+
+  const many = Array.from({ length: 30 }, (_, index) => `event-${index}`);
+  const [capped] = bindWarUpdatesToEvents([{ id: "w", op: "start", eventIds: [...many, many[0]] }], events);
+  assert.deepEqual(capped.eventIds, many.slice(0, 24), "de-duplicated and capped at 24");
 });
 
 test("a readiness event naming two allies is not combat and creates no war", () => {
@@ -176,6 +260,40 @@ test("ceasefire, resume and end move the status; a second start on a live war is
   assert.match(buildCanonicalWarContext(ended.world), /No active or ceasefire canonical wars/);
 });
 
+// An ended war dropped out of the context the moment it ended, so the next
+// skip's model had no word that the fighting had stopped.
+test("wars ended in the last two rounds are listed as ENDED, at most five", () => {
+  const war = (id, updatedRound, extra = {}) => ({
+    id, status: "ended", sideA: [`${id}-a`], sideB: [`${id}-b`],
+    startedDate: "1900-01-01", endedDate: "1901-06-01", updatedRound, ...extra,
+  });
+  const recent = { wars: [
+    { id: "live", status: "active", sideA: ["A"], sideB: ["B"], startedDate: "1900-01-01" },
+    war("just-now", 7, { endedDate: "1901-07-01" }),
+    war("last-round", 6),
+    war("long-ago", 5),
+  ] };
+
+  const text = buildCanonicalWarContext(recent, { round: 7 });
+  assert.match(text, /- live \| ACTIVE/);
+  assert.match(text, /- just-now \| ENDED 1901-07-01 \| SIDE A: just-now-a \| SIDE B: just-now-b/);
+  assert.match(text, /- last-round \| ENDED 1901-06-01/);
+  assert.doesNotMatch(text, /long-ago/, "three rounds back is no longer recent");
+  assert.ok(text.indexOf("just-now") < text.indexOf("last-round"), "newest first");
+  assert.match(text, /This ledger is authoritative belligerency/);
+
+  // Without the round nothing ended is listed.
+  assert.doesNotMatch(buildCanonicalWarContext(recent), /ENDED/);
+
+  // With no war running, the ended ones still follow the "no war" lines.
+  const quiet = buildCanonicalWarContext({ wars: recent.wars.slice(1) }, { round: 7 });
+  assert.match(quiet, /^No active or ceasefire canonical wars are recorded\./);
+  assert.match(quiet, /- just-now \| ENDED/);
+
+  const many = { wars: Array.from({ length: 8 }, (_, index) => war(`w${index}`, 7)) };
+  assert.equal(buildCanonicalWarContext(many, { round: 7 }).match(/\| ENDED /g).length, 5);
+});
+
 // A live run (2026-09-17) lost two real events to this: "Tragic Clashes and Fire
 // in Odessa" and "Explosion Rocks Regional Administration Building in Luhansk"
 // read as hard combat to the detector, named no two belligerents, and were
@@ -214,4 +332,20 @@ test("an unbindable combat event is reported for unbinding, never for deletion",
   assert.deepEqual(candidate.events[0].combatants, []);
   assert.deepEqual(decodeWarUpdates(candidate.warUpdates), [], "no war record was conjured either");
   assert.match(repair.residual, /no event.warId/, "the residual complaint is about the ledger, and is only logged");
+});
+
+test("a war starts on its earliest linked event by the calendar, BC years included", () => {
+  const events = [
+    { id: "e2", date: "-0217-01-15", title: "Carthage marches on Rome", description: "Carthage answers the declaration.", kind: "diplomacy", warId: "war-rome-carthage" },
+    { id: "e1", date: "-0218-12-20", title: "Rome declares war on Carthage", description: "Rome declares war on Carthage.", kind: "diplomacy", warId: "war-rome-carthage" },
+  ];
+  const [start] = decodeWarUpdates("war-rome-carthage~start~Rome~Carthage~1~Declaration of war");
+  const merge = applyWarUpdates({
+    world: { polityOverrides: {}, wars: [] },
+    updates: [{ ...start, eventIds: ["e2", "e1"] }],
+    events,
+    stopDate: "-0217-01-31",
+    round: 2,
+  });
+  assert.equal(merge.wars[0].startedDate, "-0218-12-20", "218 BC comes before 217 BC");
 });
