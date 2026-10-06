@@ -68,6 +68,7 @@ import { nativeHttpAvailable, nativeHttpFetch } from "../../runtime/native/http.
 import { createRelayOnlyOrigins } from "./relayOrigins.js";
 import { createFirstByteTimer, normalizeUsage, sumUsage } from "./usageStats.js";
 import { toGeminiSchema } from "./geminiSchema.js";
+import { buildAnswerFormatBlock } from "./schemaOutline.js";
 import {
     applyAnthropicFrame,
     applyGeminiFrame,
@@ -111,7 +112,10 @@ import {
 import { collapseRepeatedWorldContext } from "./promptDedupe.js";
 import { promptVariableDemand } from "./contextDiagnostics.js";
 import { filterChatsVisibleTo, isChatVisibleTo } from "./chatVisibility.js";
-import { foreignAgentBrief } from "../../runtime/spycraft.js";
+import { foreignAgentBrief, intelligenceOf } from "../../runtime/spycraft.js";
+import { describeCountryStatsForAdvisor, normalizeCountryStatsHistory } from "../../runtime/countryStats.js";
+import { describeWorldLedgersForAdvisor, polityEntry } from "./advisorLedgers.js";
+import { loadStatSheetDefinition } from "../../runtime/statsSheet.js";
 import { renderReminders } from "../../runtime/gmChanges.js";
 import { describeGoalForAdvisor, playerGoalOf } from "../../runtime/playerGoal.js";
 import { describeReportsForPrompt, normalizeReports } from "../../runtime/reports.js";
@@ -123,6 +127,7 @@ import { createConversationGeneration, removeEntry } from "./liveConversation.js
 import { buildDiplomaticPoliticalContext } from "./diplomaticPoliticalContext.js";
 import { buildAdvisorPoliticalDiplomacyContext } from "./advisorPoliticalDiplomacyContext.js";
 import { describeLeaderStanding, describeOurFigures, describeTerritoryForConversation } from "./standingContext.js";
+import { beginAiRequestScope } from "./aiRequestControl.js";
 
 // main.jsx - AI chat module
 // Supports Gemini, OpenAI, Anthropic, and OpenAI-compatible endpoints
@@ -368,22 +373,61 @@ function getGeminiStreamUrl(model, apiKey) {
     return getGeminiUrl(model, apiKey).replace(":generateContent?", ":streamGenerateContent?alt=sse&");
 }
 
-// Why a Gemini skip's events arrive together while every other provider's arrive
-// one by one (streamedEvents.js).
+// How a Gemini skip's events arrive one by one, as every other provider's do
+// (streamedEvents.js).
 //
 // Streaming a tool call's arguments needs partialArgs, and
 // toolConfig.functionCallingConfig.streamFunctionCallArguments is Vertex-only:
 // this API's v1beta discovery doc (revision 20260918) gives FunctionCallingConfig
 // only `mode` and `allowedFunctionNames`. Sending it buys a 400 and costs the
-// player a request, so it is not sent.
+// player a request, so it is not sent, and a skip asked for as a function call
+// arrives whole.
 //
-// The alternative, JSON mode, does stream but Gemini refuses it alongside tools
-// ("Function calling with a response mime type: 'application/json' is
-// unsupported"), so a skip would lose its lookup functions. Declined: the
-// simulator keeps the ability to ask the engine questions.
+// Text does stream, so a watched skip is asked for as JSON text: the answer's
+// mime type set to application/json, and the function's contract written out in
+// the prompt in place of its declaration (schemaOutline.js buildAnswerFormatBlock).
+// Gemini refuses a response mime type alongside tools ("Function calling with a
+// response mime type: 'application/json' is unsupported"), so it is used exactly
+// when nothing else needs the function channel: a watched skip (onToolStream)
+// with no lookup functions, which is every skip while requests are being saved,
+// the default. A skip that has lookup functions keeps the function call and its
+// questions, and arrives whole as before.
+//
+// Not generationConfig.responseSchema, which was built first and measured
+// against the live API on 2026-10-05 (gemini-3.5-flash-lite): the schema is
+// compiled into a grammar with a ceiling on its size, and the skip's contract
+// sits at it. As it stood it was refused, 400 "Request contains an invalid
+// argument"; with its four unions merged into single objects it passed; with the
+// Projects board's ops added it was refused again; and the same weight spent
+// anywhere else (the stats block, the institution ops) tipped it the same way.
+// That ceiling has moved before (geminiSchema.js), so a contract that passes
+// today is no promise. Written into the prompt, the contract's size costs tokens
+// and nothing else: measured the same day, the whole folded contract is about
+// 5,800 tokens there, fewer than its declaration, the answer arrived in 72
+// frames with no gap over 0.2 s, in the order the outline gives its fields, and
+// it passed the task's validation as written. What holds an answer to the
+// contract is that validation, as it does for every model that has no function
+// calling at all.
+//
+// A model that refuses the mime type itself is asked again at once as the
+// function call it always was, and that way for the rest of the session rather
+// than paying a refused request per skip.
 //
 // streamAssembly.js still assembles partialArgs if they ever arrive, so the day
 // the field reaches this API, asking for it is the only change.
+const geminiJsonAnswerRefusals = new Set();
+
+// The whole answer of a JSON-mode request, or null when it is not one object
+// (cut off, fenced, prose around it): the task's own salvage reads those from
+// the raw text.
+function parseGeminiJsonAnswer(text) {
+    try {
+        const value = JSON.parse(text);
+        return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+    } catch {
+        return null;
+    }
+}
 
 // AI calls go straight from the browser to the provider so the player's API key
 // only ever reaches the provider — never a server or a community node. Direct is
@@ -1120,6 +1164,16 @@ async function callGemini(systemPrompt, history, {
     }
 
     let retriedAfterOverload = false;
+    // The answer as JSON text rather than a function call, so a watched skip's
+    // events arrive one at a time (see geminiJsonAnswerRefusals above for when,
+    // and for what happens when it is refused).
+    let jsonAnswer = Boolean(tool && typeof onToolStream === "function" && !lookupDeclarations.length)
+        && !geminiJsonAnswerRefusals.has(model);
+    let jsonAnswerRefused = false;
+    // Events first: they are what the panel shows as they are written.
+    const answerFormat = jsonAnswer
+        ? buildAnswerFormatBlock(tool.schema, { first: Object.keys(tool.schema?.properties ?? {})[0] || "" })
+        : "";
 
     for (let attempt = 1; attempt <= retries; attempt++) {
         // Tool calls stream, for the same reason they do on the other three
@@ -1136,16 +1190,23 @@ async function callGemini(systemPrompt, history, {
         const generationConfig = {
             ...samplingConfig,
             ...(getReasoningEnabled() ? { thinkingConfig: { thinkingBudget: 8192 } } : {}),
+            ...(jsonAnswer ? { responseMimeType: "application/json" } : {}),
         };
         const response = await fetch(requestUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                system_instruction: { parts: [{ text: systemPrompt }] },
+                // The contract after the prompt, as a part of its own: nothing
+                // before it changes, so the prompt's cacheable prefix is the
+                // one a function-call request has.
+                system_instruction: { parts: [
+                    { text: systemPrompt },
+                    ...(jsonAnswer ? [{ text: answerFormat }] : []),
+                ] },
                 contents: geminiContentsFromHistory(history),
                 ...(Object.keys(generationConfig).length ? { generationConfig } : {}),
                 ...customParams,
-                ...(tool ? {
+                ...(tool && !jsonAnswer ? {
                     tools: [{ functionDeclarations: [
                         {
                             name: tool.name,
@@ -1183,11 +1244,32 @@ async function callGemini(systemPrompt, history, {
 
         if (!response.ok) {
             const payload = await readErrorPayload(response);
+            const failure = classifyProviderFailure({ status: response.status, payload });
+            // The JSON-text form of the answer, refused as a request: asked again
+            // at once as the function call it always was. Not one of the
+            // attempts, which are for a busy model; a key, a missing model or a
+            // request too large fails the same either way and is not asked twice.
+            if (jsonAnswer && [400, 422].includes(response.status) && !waitingCannotFix(failure) && failure.kind !== "tooBig") {
+                jsonAnswer = false;
+                jsonAnswerRefused = true;
+                console.warn("[ai] Gemini refused the skip's JSON-text form; asking again as a function call (its events will arrive together).");
+                logDebugEvent("ai", "Gemini refused a JSON-mode request; asked again as a function call.", {
+                    model,
+                    status: response.status,
+                    detail: extractErrorMessage(payload, "").slice(0, 300),
+                }, { verbose: true });
+                attempt -= 1;
+                continue;
+            }
             throw refusedRequestError("Gemini",
                 extractErrorMessage(payload, `Gemini API request failed (${response.status})`),
-                classifyProviderFailure({ status: response.status, payload }),
+                failure,
             );
         }
+        // Accepted as a function call straight after being refused as JSON text:
+        // it was the form that was refused, so this model is asked the function
+        // way for the rest of the session.
+        if (jsonAnswerRefused) geminiJsonAnswerRefusals.add(model);
 
         // Branch on what actually came back, not on what was asked for: an edge
         // or proxy that ignored alt=sse still answers plain JSON, and that must
@@ -1197,6 +1279,14 @@ async function callGemini(systemPrompt, history, {
             : await readJsonAnswer(response, "Gemini");
         onUsage?.(data);
         if (tool) {
+            // Asked for as JSON text: the text IS the function's arguments. One
+            // that will not parse whole (cut off mid-answer) goes on below as raw
+            // text, where the task's salvage and the busy-retry both read it.
+            const jsonText = jsonAnswer ? joinGeminiParts(data?.candidates?.[0]?.content?.parts) : "";
+            const jsonInput = jsonText ? parseGeminiJsonAnswer(jsonText) : null;
+            // answeredAsText: no function was declared, so a correction asks for
+            // the JSON again and not for a call (gameplay.js runJsonTask).
+            if (jsonInput) return { rawText: jsonText, toolInput: jsonInput, answeredAsText: true };
             const toolInput = extractGeminiToolInput(data, tool);
             if (toolInput) return { rawText: joinGeminiParts(data?.candidates?.[0]?.content?.parts), toolInput };
             // Not the answer but a question: the model called lookup functions.
@@ -2732,6 +2822,9 @@ export async function callAI(systemPrompt, history, opts = {}) {
         }
     };
 
+    const requestScope = beginAiRequestScope(providerOpts.signal);
+    providerOpts.signal = requestScope.signal;
+
     try {
         // The Fallback list (fallbackRunner.js): the task's own pick first,
         // then the list from the top, moving down only past an entry that is
@@ -2843,6 +2936,8 @@ export async function callAI(systemPrompt, history, opts = {}) {
             capture.error = cancelled ? "cancelled" : String(error?.message || error);
         }
         throw error;
+    } finally {
+        requestScope.finish();
     }
 }
 
@@ -2982,7 +3077,7 @@ When you recommend a concrete formal institutional step that the player can lega
 
 Allowed draft shapes:
 - Table a new agenda resolution: {"type":"table-proposal","institutionId":"<exact id>","proposalType":"resolution","title":"<short title>","summary":"<what the institution should decide>"}
-- Submit an EXISTING player-sponsored proposal for formal voting: {"type":"submit-proposal","institutionId":"<exact id>","proposalId":"<exact existing proposal id>"}
+- Call a formal vote on an EXISTING ready proposal when the player has that native procedural right: {"type":"submit-proposal","institutionId":"<exact id>","proposalId":"<exact existing proposal id>"}
 - Cast the player's ballot on an EXISTING open proposal: {"type":"vote","institutionId":"<exact id>","proposalId":"<exact existing proposal id>","choice":"yes|no|abstain|veto","reason":"<optional rationale>"}
 - Send a membership invitation through the institution lifecycle: {"type":"invite","institutionId":"<exact id>","polity":"<exact target polity name>","requestedStatus":"member|observer|associate|participant","reason":"<optional rationale>"}
 
@@ -3234,6 +3329,23 @@ Besides its countries, this world has these groups: ${ADVISOR_GROUPS_ARE}. Use t
 ${lines.join("\n")}${more > 0 ? `\n…and ${more} more.` : ""}`;
 };
 
+// The sheet the Stats panel reads (world.countryStats, keyed by the player's
+// country), with the scenario's own labels when it defines a custom sheet, and
+// the recorded samples its Advanced statistics chart. A definition that fails
+// to load still leaves the standard figures.
+async function describePlayerStatsForAdvisor(worldData, country) {
+    const name = String(country || "").trim();
+    const sheet = polityEntry(worldData?.countryStats, name);
+    if (!sheet) return "";
+    const definition = await loadStatSheetDefinition().catch(() => null);
+    return describeCountryStatsForAdvisor(sheet, {
+        name,
+        definition,
+        intelligence: intelligenceOf(worldData, name),
+        history: polityEntry(normalizeCountryStatsHistory(worldData?.countryStatsHistory), name),
+    });
+}
+
 async function buildAdvisorSystemPrompt() {
     await ensurePromptsLoaded();
     const [savedGame, actionData, savedChats, savedWorld, savedEvents, advisorData] = await Promise.all([
@@ -3268,6 +3380,7 @@ async function buildAdvisorSystemPrompt() {
         plannedActions: PLANNED_ACTIONS_IN_ACTION_PLANNING,
     };
     const helperValues = resolveHelperValues(promptPack.helpers, variables);
+    const officialStats = await describePlayerStatsForAdvisor(worldData, gameData?.country || "");
 
     // The briefing and the rules also ride inside the world summary; keep one
     // copy of each, as runJsonTask does for the gameplay tasks.
@@ -3320,6 +3433,11 @@ async function buildAdvisorSystemPrompt() {
         // advice serves. The advisor's alone of the conversations — a leader is
         // never told a government's aims.
         describeGoalForAdvisor(playerGoalOf(worldData, gameData?.country)),
+        // The player's own stat sheet, as the Stats panel shows it. The template
+        // tells the advisor to extrapolate statistics from history; without the
+        // real sheet it contradicted the panel the player was looking at.
+        officialStats,
+        describeWorldLedgersForAdvisor(worldData, chatData, gameData?.country || ""),
         // The Game Master's standing reminders (runtime/gmChanges.js): what is
         // true now, whatever the record says. Empty — and so absent — without any.
         renderReminders(worldData?.simulationReminders, { formatDate: formatDateReadable }),

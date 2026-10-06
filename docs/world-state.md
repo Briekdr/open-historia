@@ -36,6 +36,14 @@ _Avoid_: Process, thread, arc
 Anything physical the campaign builds and the map draws in one place: a base, shipyard, data centre, ground station, reactor, embassy. Kept in `world.markers[]` and written by an event's `markerOps`, so **marker** is the field name for the record while Structure is the thing itself. A satellite is not one; the ground station that serves it is. Something that moves is a unit.
 _Avoid_: Feature, facility, building (as the term for the record)
 
+**Approximate placement**:
+Where a Structure or unit goes when the place its event names is not on the map: near the capital of the country the place is said to be in, or in its owner's own territory when no country is named. The player may accept or move an approximate Structure of their own or their puppets'; everyone else's stays where it landed.
+_Avoid_: Fallback spot, guessed location, default position
+
+**Director**:
+A check that reads Canonical events and turns what they narrate into changes on the map: the unit director moves, raises and wears down units, the territory director marks who holds the ground, the structure director builds Structures. It runs after a jump and after a Scene, never invents what the event does not say, and the engine's rules decide which of its changes stand.
+_Avoid_: Reviewer, pass, reconciler (as the name of the check)
+
 ### Library
 
 **Scenario**:
@@ -63,6 +71,18 @@ _Avoid_: Wider-world event, background event
 **Player focus**:
 How much of each jump belongs to Player events: World first, Balanced, Focused or Spotlight. The Scenario sets the level a new Game starts on and the player changes it for their own Game, like any other feature setting. It is a minimum share that applies only as far as the player has something going on; in a quiet stretch the World fills the jump.
 _Avoid_: Player share, player weighting, attention balance
+
+**Interactive event**:
+A moment a jump offers the player to play out in person instead of reading about it. The player can play it or let it pass.
+_Avoid_: Interactive (as a noun), playable event
+
+**Scene**:
+An Interactive event the player chose to play: a run of choices that ends in one Scene outcome.
+_Avoid_: Interactive, episode
+
+**Scene outcome**:
+The Canonical event a Scene ends in. It changes the world as any event from a jump would, including the map, through the Directors.
+_Avoid_: Interactive event result, scene summary
 
 **Hidden event**:
 A Canonical event kept off the timeline because it was routine, low-value or already covered. It still happened. Distinct from a rejected event, which the simulation judged untrue and which never happened.
@@ -195,7 +215,7 @@ Only a **game's** `world.json` is written during play; the scenario copy stays p
 |---|---|---|---|
 | `internationalReputation` | `{ code: 0–100 }` | `{}` | Per-polity reputation, authoritative (not the on-demand stat sheet it was first read from). Evolved by AI `polityChanges.reputation` each turn and fed back into prompts. Normalized/clamped to `[0,100]` int. Keyed by country NAME verbatim. |
 | `countryTags` | `{ country: string[] }` | `{}` | Per-country tags the AI has CHANGED since the scenario started. Wins over the author's `tags.json` where present (see `resolveCountryTags`, `countryTags.js`). Keyed by country NAME verbatim (same namespace as reputation/colors — see the desync warning at). Normalized via `normalizeTagList`. |
-| `prehistory` | `{ version, prompt, summary, generatedAt?, events[], updates{ warUpdates, relationUpdates, agreementUpdates, puppetUpdates, storylineUpdates } } \| absent` | absent | **A scenario's** pre-game history (`runtime/scenarioPrehistory.js`), written or generated in the Workshop's Pre-history tab. Events: `{ id, date, title, description, importance, kind, tags, warId?, notable?, quote? }`; the updates are the Round-One ledger facts as a pregameHistory answer decodes them. A game inherits it (`TEMPLATE_WORLD_OVERRIDE_KEYS`) and `maybeGeneratePregameHistory` applies it on the first open without a request, then deletes it from the game's world. Absent = a scenario made before this, whose games still ask the model when they have a briefing; an empty record = no backstory. |
+| `prehistory` | `{ version, prompt, summary, generatedAt?, events[], updates{ warUpdates, relationUpdates, agreementUpdates, puppetUpdates, storylineUpdates, canonicalUpdates } } \| absent` | absent | **A scenario's** pre-game history (`runtime/scenarioPrehistory.js`), written or generated in the Workshop's Pre-history tab. Events: `{ id, date, title, description, importance, kind, tags, warId?, ref?, notable?, quote? }`; the updates are the Round-One ledger facts as a pregameHistory answer decodes them. A record holds them as its generation answered: lifecycle records in the first five families (a generation made before the answer became semantic facts), or semantic facts in `canonicalUpdates`, each citing its events by the event's `ref` (`AI/pregameBootstrapCompiler.js`). A game inherits it (`TEMPLATE_WORLD_OVERRIDE_KEYS`) and `maybeGeneratePregameHistory` applies it on the first open without a request, then deletes it from the game's world. Absent = a scenario made before this, whose games still ask the model when they have a briefing; an empty record = no backstory. |
 
 ### 2b-bis. Canonical ledgers — wars, relations, agreements, storylines
 
@@ -319,7 +339,7 @@ If a board ever genuinely needs more than this, the answer is not a bigger numbe
 
 Everything date-derived — overdue, due-soon, a slipped milestone, a programme untouched for several rounds — is **not stored**. It is computed from the game clock by `src/runtime/projects.js` (import-free, unit-tested in a bare checkout), so it cannot go stale between AI turns. That split is the point of the feature: the model owns what only it can know, the calendar owns the rest.
 
-Not in `TEMPLATE_WORLD_OVERRIDE_KEYS`, deliberately — `buildFreshWorldSeedFromScenario` carries *authored settings* across, and projects are play state. (`units` *is* in the list since the map editor gained a Units panel: a scenario's authored starting formations carry into every game made from it — map-editor.md §9b. So, since 2026-09-25, are `markers`, `puppets`, `groups` and `groupAreas`, which the Workshop now authors too: a scenario's structures, puppet states and groups reach every game made from it, even one that was played in place.)
+Not in `TEMPLATE_WORLD_OVERRIDE_KEYS`, deliberately — `buildFreshWorldSeedFromScenario` carries *authored settings* across, and projects are play state. (`units` *is* in the list since the map editor gained a Units panel: a scenario's authored starting formations carry into every game made from it — map-editor.md §9b. So, since 2026-09-25, are `markers`, `puppets`, `groups` and `groupAreas`, which the Workshop now authors too: a scenario's structures, puppet states and groups reach every game made from it, even one that was played in place. And `seas`, a scenario map's own named seas for placing fleets — `[{ "name", "aliases", "point": [lng, lat] }]`, see ai-overview.md, placing things by name.)
 
 #### Espionage on the board
 
@@ -375,7 +395,7 @@ Espionage resolves once per turn in `applySimulationResult`, **after** the stand
 | `simulationHistory` | `Turn[]` | `[]` | Last ≤12 turns: `{date,eventIds[],fallbackReason,fromDate,mode,plannedActions[],receipt?,round,summary,source,toDate}` (built in `applySimulationResult`, normalized in `normalizeWorldState`). `receipt` is the **application receipt** (`runtime/applicationReceipt.js`): `{version, applied:{events,regionTransfers,…}, notes:[{kind,text}], omitted}` — what the engine dropped, withheld or changed in that turn's answer, read once by the next jump. Only a jump writes one, and only the **newest** receipt keeps its `notes` (older turns keep `applied` alone), so this polled file never holds more than one receipt's text. It lives here rather than in a runtime asset so that a rollback restores the receipt belonging to the restored turn. |
 | `consolidatedHistory` | `Summary[]` | `[]` | The ledger of consolidation passes `{summary,chatIds[],actionIds[],throughDate,throughEventId,throughRound,source,createdAt}` (`normalizeConsolidatedHistory`) — appended by `compactHistoryIfNeeded`; the last entry's `throughEventId` is the boundary the prompt reads events from (`getUnconsolidatedEvents`, or its `throughDate` if that event was deleted). Consolidation never trims the event log. Rendered as the older history only while no `historyDocument` exists. |
 | `historyDocument` | `{text,revision,updatedAt,source,throughDate,throughEventId,throughRound}` \| `null` | `null` | The living history the AI is shown in place of the folded events: the first pass writes it, every later pass rewrites it with the new period folded in and unimportant older material condensed past ~1,500 words (`applyHistoryDocumentUpdate`, `historyConsolidation.js`; a pass that returns no document appends its summary instead). Editable in Cheats → History Document (`source: "manual"`). |
-| `boardReviewedRound` | `number` | `0` | The round the Projects board was last checked against a turn's events (the turn review's board job, or the board's own request). `0` = never. Lets a skip decide without asking anyone whether the calendar is due another look (`projects.js` `boardPassReasons`); a value later than the current round is another campaign's and counts as never. |
+| `boardReviewedRound` | `number` | `0` | The round the Projects board was last checked against a turn's events (the time skip's own board ops, the turn review's board job, or the board's own request). `0` = never. Lets a skip decide without asking anyone whether the calendar is due another look (`projects.js` `boardPassReasons`); a value later than the current round is another campaign's and counts as never. |
 | `lastJumpMode` | `string` | `""` | Mode of the most recent jump (`jump`/`auto`/…). |
 | `lastJumpSummary` | `string` | `""` | One-line summary of the last jump. |
 | `lastJumpTargetDate` | `string` | `""` | Target date the last jump advanced to. |

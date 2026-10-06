@@ -1,5 +1,6 @@
 import { DEMAND_CHECK_OUTCOMES } from "../../runtime/demandCheck.js";
 import { EVENT_TAG_ENUM, MAX_EVENT_TAGS } from "../../runtime/eventTags.js";
+import { normalizeEventPresentation } from "../../runtime/eventQuote.js";
 import {
   TERRITORY_BASIS_DESCRIPTION,
   TERRITORY_BASIS_DESCRIPTION_SHORT,
@@ -276,12 +277,14 @@ const polityChangeSchema = {
 // WHOLE turn's structured output into a fallback simulation, which is exactly
 // the failure the note field on the spawn op was added to prevent (see its
 // comment below).
-// WHERE, in words (AI/placement.js): "Kharkiv", "near Kharkiv", "eastern Ukraine",
-// "coast of Crimea", "off Sevastopol", "Donetsk Oblast facing Russia". The engine
-// finds the point. Stated once here and explained once in the call-time
-// directive ([Placing Things]) — the jump's schema has a size budget
-// (projectOpSchema.test.js) and five copies of a grammar would spend it.
-const atSchema = { type: "string", description: "Where, in words — see [Placing Things]. Preferred to lng/lat." };
+// WHERE, in words (AI/placement.js): "Kharkiv, Ukraine", "near Kharkiv, Ukraine",
+// "eastern Ukraine", "coast of Crimea", "off Sevastopol, Ukraine", "Donetsk
+// Oblast, Ukraine facing Russia". The engine finds the point. Stated once here
+// and explained once in the call-time directive ([Placing Things]) — the jump's
+// schema has a size budget (projectOpSchema.test.js) and five copies of a
+// grammar would spend it.
+// The country after the comma is not optional: two countries have a Montana.
+const atSchema = { type: "string", description: "Where, in words, WITH the country: \"Montana, United States\" — see [Placing Things]. Preferred to lng/lat." };
 
 const unitSchema = {
   type: "object",
@@ -507,7 +510,7 @@ const markerOpSchema = {
         kind: textSchema("New kind, when it materially changed."),
         ownerCode: textSchema("New operating polity's FULL name, when control changes."),
         status: markerStatusSchema,
-        at: { type: "string", description: "New place, only when it genuinely relocates." },
+        at: { type: "string", description: "New place, with its country, only when it genuinely relocates." },
         lng: { type: "number", description: "New longitude, only with no `at`.", minimum: -180, maximum: 180 },
         lat: { type: "number", description: "New latitude, only with no `at`.", minimum: -90, maximum: 90 },
         note: textSchema("Updated brief description."),
@@ -1041,12 +1044,87 @@ const jumpImpactsSchema = {
   ),
 };
 
+// ---- The folded time skip -------------------------------------------------------
+// While requests are being saved a skip is ONE request (requestBudget.js): no
+// second request checks its events afterwards, so each event carries every
+// consequence itself, the board included, and the agents' reports ride at the
+// end of the same answer. The contract a skip is SENT then is the lean one above
+// plus two things, added per call by foldJumpTool below:
+//   impacts.projectOps   the board, moved by the event that moved it;
+//   agentReports         one report per agent that is due one, when any is.
+// With saving off the checks are requests of their own and the skip is sent the
+// lean contract, exactly as before. The schema an answer is VALIDATED against
+// (JUMP_FORWARD_SCHEMA) accepts both, so neither answer costs a turn its schema
+// check; gameplay.js decides what each skip does with the extra fields.
+//
+// The board's op is the board's own (projectOpSchema) without the fields an
+// event never sets: the priority is the player's dial, the links and the map
+// focus are the board's bookkeeping, the nested spelling of a create is
+// tolerance for a habit this contract never teaches, and a completion's effects
+// (onComplete) are the completing event's own impacts here, since that event
+// moves the map itself. Fewer optional fields is also less grammar for a
+// provider that compiles the schema (geminiSchema.js), on a contract every
+// event of every skip carries. Its field notes are in the prompt
+// ([Projects & Operations]), as the other compact families' are.
+const FOLDED_PROJECT_OP_OMITS = new Set(["priority", "startedAt", "linkedUnitIds", "linkedMarkerIds", "focus", "project", "onComplete"]);
+
+const foldedProjectOpsSchema = compactJumpImpactSchema({
+  type: "array",
+  description:
+    "The Projects & Operations board, moved by THIS event: one op per effort the event itself started, advanced, "
+    + "set back, completed or ended. Shapes and rules under [Projects & Operations]. Most events have none.",
+  items: {
+    ...projectOpSchema,
+    properties: Object.fromEntries(
+      Object.entries(projectOpSchema.properties).filter(([key]) => !FOLDED_PROJECT_OP_OMITS.has(key)),
+    ),
+  },
+});
+
+// What the validation schema accepts under an event's impacts: the lean jump
+// impacts, and the board's op whole, so a folded answer and a habit both pass.
+const jumpAnswerImpactsSchema = {
+  ...jumpImpactsSchema,
+  properties: { ...jumpImpactsSchema.properties, projectOps: impactsSchema.properties.projectOps },
+};
+
+// The field a folded skip's agents' reports come back in (gameplay.js).
+export const AGENT_REPORTS_FIELD = "agentReports";
+
 // Category tags (runtime/eventTags.js): the timeline's filter chips.
 const eventTagsSchema = {
   type: "array",
   description: "Categorization tags for the timeline's filter chips: Military, Diplomacy, Economy, Politics, Culture or Disaster (up to three).",
   items: { type: "string", enum: [...EVENT_TAG_ENUM] },
   maxItems: MAX_EVENT_TAGS,
+};
+
+const eventQuoteSchema = {
+  type: "object",
+  description: "Optional quotation shown beneath the event prose. Use this instead of putting a Markdown blockquote in description.",
+  properties: {
+    text: nonEmptyTextSchema("The quotation itself, without surrounding quotation marks."),
+    speaker: textSchema("Speaker name or human-readable attribution, when known."),
+    role: textSchema("Speaker role/title, when known."),
+  },
+  required: ["text"],
+  additionalProperties: false,
+};
+
+// Timeline jumps carry this schema on every generated event, so keep the provider
+// contract compact while preserving the full quotation guidance for Game Master.
+// Runtime normalization still enforces the same canonical {text,speaker,role}
+// shape after either transport.
+const jumpEventQuoteSchema = {
+  type: "object",
+  description: "Optional direct quotation; keep it out of description.",
+  properties: {
+    text: { type: "string", minLength: 1 },
+    speaker: { type: "string" },
+    role: { type: "string" },
+  },
+  required: ["text"],
+  additionalProperties: false,
 };
 
 const eventSchema = {
@@ -1057,6 +1135,7 @@ const eventSchema = {
     date: textSchema("In-game date on which the event occurs."),
     title: textSchema("The headline: one sentence saying what happened."),
     description: textSchema("The story under the headline: what happened, how, where, by whom and with what result, told with its specifics - never the headline said again."),
+    quote: jumpEventQuoteSchema,
     importance: textSchema("Importance label, normally minor or major."),
     kind: textSchema("Event category, such as world, player, diplomacy, or military."),
     tags: eventTagsSchema,
@@ -1078,10 +1157,16 @@ const eventSchema = {
       maxItems: 8,
       items: nonEmptyTextSchema("One canonical belligerent polity name."),
     },
-    impacts: jumpImpactsSchema,
+    impacts: jumpAnswerImpactsSchema,
   },
   required: ["date", "title", "description"],
   additionalProperties: false,
+};
+
+// The event of the lean contract: no board (see "The folded time skip" above).
+const leanJumpEventSchema = {
+  ...eventSchema,
+  properties: { ...eventSchema.properties, impacts: jumpImpactsSchema },
 };
 
 const interactiveSchema = {
@@ -1135,18 +1220,18 @@ export const ACTIONS_SCHEMA = {
 
 export const JUMP_FORWARD_SCHEMA = {
   type: "object",
-  description: "A simulated timeline jump containing dated events and the resulting campaign state.",
+  description: "Timeline jump with dated events and campaign changes.",
   properties: {
     events: {
       type: "array",
-      description: "Events occurring during the simulated period.",
+      description: "Events in this period.",
       items: eventSchema,
     },
-    stopDate: textSchema("Date at which the simulation stops."),
-    summary: textSchema("Concise summary of the period and its strategic consequences."),
+    stopDate: textSchema("Simulation stop date."),
+    summary: textSchema("Concise period summary."),
     clearActions: {
       type: "boolean",
-      description: "Whether planned player actions were resolved by this jump. Defaults to true (resolved) when omitted.",
+      description: "Whether planned actions resolved; omitted means true.",
     },
     // No scene (the `catalyst` a skip used to write): a scene is played only
     // from an interactive event a skip offers, which costs the skip nothing
@@ -1154,9 +1239,7 @@ export const JUMP_FORWARD_SCHEMA = {
     // into a save nothing showed it from.
     diplomaticOutreach: {
       type: "array",
-      description:
-        "Polities reaching out to the player on their OWN initiative (feelers, proposals, warnings, "
-        + "invitations), not tied to one event. Empty when nobody plausibly would.",
+      description: "Independent outreach to the player; empty when none.",
       items: createdChatSchema,
     },
     // The canonical ledgers (nativeWarLedger.js, nativeDiplomaticDirector.js)
@@ -1165,24 +1248,37 @@ export const JUMP_FORWARD_SCHEMA = {
     // choke on, and the line formats are taught in the live prompt.
     storylineUpdates: {
       type: "string",
-      description: "Newline-separated storyline records, format in the prompt; unresolved multi-turn crises persist here. Empty string when none.",
+      description: "Storylines; format in prompt. Empty if none.",
     },
     warUpdates: {
       type: "string",
-      description: "Newline-separated war-state records, format in the prompt. Empty string when belligerency did not change.",
+      description: "Wars; format in prompt. Empty if none.",
     },
     relationUpdates: {
       type: "string",
-      description: "Newline-separated bilateral relation records, format in the prompt. Empty string when none changed materially.",
+      description: "Relations; format in prompt. Empty if none.",
     },
     agreementUpdates: {
       type: "string",
-      description: "Newline-separated treaty/agreement lifecycle records, format in the prompt. Empty string when none started, changed or ended.",
+      description: "Agreements; format in prompt. Empty if none.",
     },
     puppetUpdates: {
       type: "string",
-      description:
-        "Compact newline-separated subordination updates - one polity directing another while it remains a separate country. Ops: install, reclassify, loyalty, reveal, release, annex, revolt, suppress. Empty string when no subordination changes. Record format is documented in the live prompt.",
+      description: "Subordination; format in prompt. Empty if none.",
+    },
+    politicalClaims: {
+      type: "string",
+      description: "Political claims; format in prompt. Empty if none.",
+    },
+    // A folded skip's agents' reports (see "The folded time skip" above). Loose
+    // here on purpose: each report is checked against the agents' own schema
+    // (SPY_INTERCEPT_SCHEMA) when it is filed, so a malformed one costs that
+    // report and never the turn. The contract a skip is SENT declares the shape
+    // in full, and only when an agent is due (foldJumpTool).
+    [AGENT_REPORTS_FIELD]: {
+      type: "array",
+      description: "The player's agents' reports: one per agent listed under [Agents' Reports], and only when that block is present.",
+      items: { type: "object" },
     },
   },
   // clearActions is deliberately NOT required: simulateTimelineJump already
@@ -1198,6 +1294,16 @@ export const JUMP_FORWARD_SCHEMA = {
 };
 
 export const AUTO_JUMP_FORWARD_SCHEMA = JUMP_FORWARD_SCHEMA;
+
+// The lean contract a skip is SENT while its checks are requests of their own:
+// the answer schema without the board and without the agents' reports.
+const JUMP_FORWARD_LEAN_SCHEMA = (() => {
+  const { [AGENT_REPORTS_FIELD]: _agentReports, ...properties } = JUMP_FORWARD_SCHEMA.properties;
+  return {
+    ...JUMP_FORWARD_SCHEMA,
+    properties: { ...properties, events: { ...properties.events, items: leanJumpEventSchema } },
+  };
+})();
 
 // The bounded semantic geography pass: place wording that exact matching could
 // not resolve, mapped onto the losing side's real regions, or UNRESOLVED.
@@ -1355,96 +1461,110 @@ const pregameEventSchema = {
   type: "object",
   description: "One dated historical event from BEFORE the game's start date.",
   properties: {
+    ref: nonEmptyTextSchema("Candidate-local event ref such as e1. Native code binds this to the persisted event id and never stores the ref."),
     date: textSchema("Date the event occurred, strictly before the game start date."),
     title: textSchema("Concise event headline."),
     description: textSchema("Specific narrative description and its consequences."),
     importance: textSchema("Importance label, normally minor or major."),
     kind: textSchema("Event category, such as world, player, diplomacy, or military."),
     tags: eventTagsSchema,
-    warId: textSchema(
-      "Canonical war id when this pre-game event is the one that started, joined, paused or ended a war listed in canonicalUpdates. Blank otherwise.",
-    ),
   },
-  required: ["date", "title", "description"],
+  required: ["ref", "date", "title", "description"],
   additionalProperties: false,
 };
 
-// The pre-game bootstrap answers with ONE flat envelope for every canonical
-// ledger it seeds (wars, relations, agreements) instead of three mini-languages:
-// function-calling in "any" mode is sensitive to schema depth, so the transport
-// is deliberately flat and all-required - the model supplies the semantic values
-// and gameplay.js (expandCanonicalUpdateEnvelope) dispatches each item to the
-// ledger its "kind" names, ignoring the fields that kind does not use.
-const canonicalUpdateSchema = {
+// The provider transport stays deliberately shallow, but the JSON text inside
+// canonicalUpdatesJson is now a semantic Round-Zero baseline candidate rather
+// than a replay of normal-turn lifecycle operations. Persistent ids, operation
+// verbs, event indexes and other engine bookkeeping are intentionally absent;
+// pregameBootstrapCompiler.js owns identity and persisted shapes.
+const PREGAME_SEMANTIC_FACT_KINDS = ["war", "relation", "agreement", "storyline", "puppet"];
+const PREGAME_AGREEMENT_TYPES = [
+  "alliance",
+  "mutual_defense",
+  "guarantee",
+  "non_aggression",
+  "friendship_consultation",
+  "trade_economic",
+  "military_cooperation",
+  "military_access",
+  "neutrality",
+  "peace_settlement",
+  "other",
+];
+
+const pregameWarAssessmentSchema = {
+  type: "object",
+  description: "Optional scheduler-facing assessment native code merges into the derived war storyline mirror.",
+  properties: {
+    pressure: { type: "integer", minimum: 0, maximum: 100 },
+    momentum: { type: "integer", minimum: 0, maximum: 100 },
+    state: textSchema("What is currently true about the conflict and why it remains unresolved."),
+  },
+  additionalProperties: false,
+};
+
+const pregameCanonicalFactSchema = {
   type: "object",
   description:
-    "One canonical-state fact already true on the start date. Every field is required for provider reliability; use an empty string, empty array, or 0 for fields irrelevant to this kind.",
+    "One semantic Day-One fact. ref and sourceEventRefs are candidate-local only; native code owns every persistent id and lifecycle operation.",
   properties: {
-    kind: {
-      type: "string",
-      description:
-        "Semantic kind code. Use relation; storyline:active; storyline:dormant; war:start; war:join-a; war:join-b; war:leave; war:ceasefire; war:resume; war:end; agreement:start; puppet:open; puppet:covert.",
-    },
-    id: { type: "string", description: "Stable storyline/war/agreement id, or empty for a relation." },
-    polities: {
+    ref: nonEmptyTextSchema("Candidate-local fact ref such as f1. Never a persistent canonical id."),
+    kind: { type: "string", enum: PREGAME_SEMANTIC_FACT_KINDS },
+    sourceEventRefs: {
       type: "array",
-      description:
-        "Primary polities. Relation: exactly [A,B]. Storyline: participants. War: actors / side A. Agreement: parties. Puppet: exactly [overlord, puppet].",
-      items: { type: "string" },
+      maxItems: 16,
+      items: nonEmptyTextSchema("Candidate-local pre-game event ref such as e2."),
+      description: "Optional provenance refs to events in this same answer.",
     },
-    opponents: {
-      type: "array",
-      description: "War opponents / side B; empty for non-war items.",
-      items: { type: "string" },
-    },
-    score: {
-      type: "integer",
-      description: "Relation absolute score -100..100. Puppet: its loyalty to its overlord, 0-100. 0 for other items. The engine clamps it and derives the status.",
-    },
-    pressure: {
-      type: "integer",
-      description: "Storyline pressure 0-100 (unresolved stakes); 0 for other kinds.",
-    },
-    momentum: {
-      type: "integer",
-      description: "Storyline momentum 0-100 (current rate of change); 0 for other kinds.",
-    },
-    date: {
-      type: "string",
-      description: "Storyline start date YYYY-MM-DD when known; empty for other kinds.",
-    },
-    category: {
-      type: "string",
-      description: "Storyline process kind (war, crisis, revolution, diplomacy, politics, economy) or agreement type (alliance, mutual_defense, guarantee, non_aggression, friendship_consultation, trade_economic, military_cooperation, military_access, neutrality, peace_settlement, other), or puppet kind (protectorate, satellite, client); otherwise empty.",
-    },
-    title: {
-      type: "string",
-      description: "Agreement or storyline title when relevant; otherwise empty.",
-    },
-    detail: {
-      type: "string",
-      description: "Relation summary, war note, agreement terms, or storyline state (what is true now and why the process is unresolved).",
-    },
+
+    // War baseline.
+    title: textSchema("Human-readable title for a war, agreement or storyline when that family uses it."),
+    status: textSchema("War: active|ceasefire. Storyline: active|dormant."),
+    sideA: { type: "array", maxItems: 12, items: nonEmptyTextSchema("Current canonical polity name.") },
+    sideB: { type: "array", maxItems: 12, items: nonEmptyTextSchema("Current canonical polity name.") },
+    startedDate: textSchema("Known start date YYYY-MM-DD, or blank when genuinely unknown."),
+    note: textSchema("War baseline note."),
+    assessment: pregameWarAssessmentSchema,
+
+    // Relation baseline.
+    a: textSchema("First current canonical polity name for a bilateral relation."),
+    b: textSchema("Second current canonical polity name for a bilateral relation."),
+    score: { type: "integer", minimum: -100, maximum: 100 },
+    summary: textSchema("Bilateral political-climate summary."),
+
+    // Agreement baseline. Guarantee and military-access roles are directional.
+    type: { type: "string", enum: PREGAME_AGREEMENT_TYPES },
+    parties: { type: "array", maxItems: 12, items: nonEmptyTextSchema("Current canonical signatory polity name.") },
+    guarantor: textSchema("Guarantee issuer."),
+    beneficiary: textSchema("Guarantee beneficiary."),
+    grantor: textSchema("Military-access grantor."),
+    grantee: textSchema("Military-access grantee."),
+    reciprocal: { type: "boolean" },
+    terms: textSchema("Substantive agreement terms."),
+
+    // Non-war persistent process.
+    processKind: textSchema("Non-war process kind such as crisis, insurgency, diplomacy, politics or economy."),
+    participants: { type: "array", maxItems: 12, items: nonEmptyTextSchema("Current canonical polity name.") },
+    pressure: { type: "integer", minimum: 0, maximum: 100 },
+    momentum: { type: "integer", minimum: 0, maximum: 100 },
+    state: textSchema("What is currently true and why this non-war process remains unresolved."),
+    distinctFromWarRef: textSchema("Candidate-local war ref only when this independently justified process could otherwise look like that war."),
+
+    // Puppet/subordination baseline.
+    overlord: textSchema("Current canonical overlord polity name."),
+    puppet: textSchema("Current canonical subordinate polity name."),
+    puppetKind: { type: "string", enum: ["protectorate", "satellite", "client"] },
+    loyalty: { type: "integer", minimum: 0, maximum: 100 },
+    secrecy: { type: "string", enum: ["open", "covert"] },
   },
-  required: [
-    "kind",
-    "id",
-    "polities",
-    "opponents",
-    "score",
-    "pressure",
-    "momentum",
-    "date",
-    "category",
-    "title",
-    "detail",
-  ],
+  required: ["ref", "kind"],
   additionalProperties: false,
 };
 
 export const PREGAME_HISTORY_SCHEMA = {
   type: "object",
-  description: "The pre-game backstory: the events that led up to the start of the campaign.",
+  description: "The pre-game backstory plus semantic Day-One baseline facts compiled natively into canonical state.",
   properties: {
     events: {
       type: "array",
@@ -1457,9 +1577,9 @@ export const PREGAME_HISTORY_SCHEMA = {
     canonicalUpdates: {
       type: "array",
       description:
-        "Wars, bilateral relations and formal agreements ALREADY TRUE on the start date. Empty array only when no such Day-1 state exists. The engine dispatches and binds every item.",
+        "Semantic Day-One baseline facts. Persistent ids and lifecycle operations are forbidden; native code compiles these facts into the canonical ledgers.",
       maxItems: 32,
-      items: canonicalUpdateSchema,
+      items: pregameCanonicalFactSchema,
     },
   },
   required: ["events", "summary", "canonicalUpdates"],
@@ -1472,7 +1592,7 @@ export const PREGAME_HISTORY_TRANSPORT_SCHEMA = {
   properties: {
     eventsJson: textSchema("JSON array text for chronological pre-game event objects. Must contain at least one event."),
     summary: textSchema("One-paragraph summary of the era leading into the start date."),
-    canonicalUpdatesJson: textSchema("JSON array text for Day-One canonical-state facts. Use [] only when no qualifying state exists."),
+    canonicalUpdatesJson: textSchema("JSON array text for semantic Day-One baseline facts. Use [] only when no qualifying state exists; never put persistent ids or lifecycle operations in these facts."),
   },
   required: ["eventsJson", "summary", "canonicalUpdatesJson"],
   additionalProperties: false,
@@ -1480,13 +1600,38 @@ export const PREGAME_HISTORY_TRANSPORT_SCHEMA = {
 
 const parsePregameTransportArray = (value, field) => {
   if (Array.isArray(value)) return value;
-  const text = String(value ?? "").trim();
-  if (!text) return [];
-  try {
-    const parsed = JSON.parse(text);
+  if (value === undefined || value === null) {
+    throw new Error(`$.${field} is required and must contain JSON array text.`);
+  }
+  const text = String(value).trim();
+  if (!text) {
+    throw new Error(`$.${field} must contain explicit JSON array text; blank is not the same as [].`);
+  }
+
+  const parseArray = (candidate) => {
+    const parsed = JSON.parse(candidate);
     if (!Array.isArray(parsed)) throw new Error("decoded value is not an array");
     return parsed;
+  };
+
+  try {
+    return parseArray(text);
   } catch (strictError) {
+    // Gemini corrective tool calls can echo JSON-text fields with one extra
+    // quote-escaping layer (e.g. [{\"ref\":\"e1\"}]). This is a
+    // transport-only representation error: removing exactly one backslash
+    // before each quote recovers the same JSON value without inventing or
+    // rewriting any semantic fact. Only attempt it when the first object is
+    // visibly quote-escaped, so ordinary malformed JSON still fails closed.
+    if (/^\s*\[\s*\{\s*\\"/.test(text)) {
+      const deescaped = text.replace(/\\"/g, '"');
+      try {
+        return parseArray(deescaped);
+      } catch {
+        // Fall through to the existing bounded array salvage below.
+      }
+    }
+
     const salvaged = extractJsonArray(text);
     if (!Array.isArray(salvaged)) {
       throw new Error(`$.${field} must contain valid JSON array text: ${strictError?.message || strictError}.`);
@@ -1495,23 +1640,73 @@ const parsePregameTransportArray = (value, field) => {
   }
 };
 
+const decodePregameTransportSection = (value, field) => {
+  try {
+    return { ok: true, value: parsePregameTransportArray(value, field), error: "" };
+  } catch (error) {
+    return { ok: false, value: null, error: String(error?.message || error || `Invalid ${field}.`) };
+  }
+};
+
+// Provider compatibility keeps the two large arrays as JSON text, but one bad
+// text field must not erase a valid sibling section. Return the independently
+// decoded sections even when the overall transport is invalid so the retry path
+// can preserve every section that already decoded cleanly.
 export const decodePregameHistoryTransportPayload = (value) => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return { payload: value, error: "" };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { payload: value, error: "", validSections: {} };
+  }
   const isTransport = Object.prototype.hasOwnProperty.call(value, "eventsJson")
     || Object.prototype.hasOwnProperty.call(value, "canonicalUpdatesJson");
-  if (!isTransport) return { payload: value, error: "" };
-  try {
-    return {
-      payload: {
-        events: parsePregameTransportArray(value.eventsJson, "eventsJson"),
-        summary: String(value.summary ?? "").trim(),
-        canonicalUpdates: parsePregameTransportArray(value.canonicalUpdatesJson, "canonicalUpdatesJson"),
-      },
-      error: "",
-    };
-  } catch (error) {
-    return { payload: null, error: String(error?.message || error || "Invalid pre-game history transport payload.") };
+  if (!isTransport) return { payload: value, error: "", validSections: {} };
+
+  const events = decodePregameTransportSection(value.eventsJson, "eventsJson");
+  const canonicalUpdates = decodePregameTransportSection(value.canonicalUpdatesJson, "canonicalUpdatesJson");
+  const summary = String(value.summary ?? "").trim();
+  const errors = [events.error, canonicalUpdates.error].filter(Boolean);
+  const validSections = {
+    ...(events.ok ? { events: events.value } : {}),
+    ...(canonicalUpdates.ok ? { canonicalUpdates: canonicalUpdates.value } : {}),
+    ...(Object.prototype.hasOwnProperty.call(value, "summary") && summary ? { summary } : {}),
+  };
+
+  return {
+    payload: {
+      events: events.value,
+      summary,
+      canonicalUpdates: canonicalUpdates.value,
+    },
+    error: errors.join(" "),
+    validSections,
+  };
+};
+
+
+const clonePregameTransportEntry = (entry) => {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+  return {
+    ...entry,
+    ...(Array.isArray(entry.tags) ? { tags: [...entry.tags] } : {}),
+    ...(Array.isArray(entry.sourceEventRefs) ? { sourceEventRefs: [...entry.sourceEventRefs] } : {}),
+    ...(Array.isArray(entry.sideA) ? { sideA: [...entry.sideA] } : {}),
+    ...(Array.isArray(entry.sideB) ? { sideB: [...entry.sideB] } : {}),
+    ...(Array.isArray(entry.parties) ? { parties: [...entry.parties] } : {}),
+    ...(Array.isArray(entry.participants) ? { participants: [...entry.participants] } : {}),
+    ...(entry.assessment && typeof entry.assessment === "object" && !Array.isArray(entry.assessment)
+      ? { assessment: { ...entry.assessment } }
+      : {}),
+  };
+};
+
+export const mergePregameHistoryTransportSections = (payload, preserved = {}) => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  const next = { ...payload };
+  if (Array.isArray(preserved.events)) next.events = preserved.events.map(clonePregameTransportEntry);
+  if (Array.isArray(preserved.canonicalUpdates)) {
+    next.canonicalUpdates = preserved.canonicalUpdates.map(clonePregameTransportEntry);
   }
+  if (Object.prototype.hasOwnProperty.call(preserved, "summary")) next.summary = String(preserved.summary ?? "").trim();
+  return next;
 };
 
 // The idle-time diplomatic drip: while the player sits between jumps, a polity
@@ -1739,6 +1934,15 @@ export const INTERACTIVE_SUMMARY_SCHEMA = {
     title: textSchema("Concise event headline."),
     description: textSchema("Complete but concise account of the interactive event's outcome."),
     importance: textSchema("Event importance, normally major."),
+    // Land the Scene handed over by agreement (a treaty, cession, sale or trade).
+    // Land won in fighting is not a transfer: the territory Director marks it as
+    // occupied from the description.
+    regionTransfers: {
+      type: "array",
+      description: "Only regions whose legal sovereignty the Scene handed over by agreement (treaty, cession, sale, trade). Omit for anything won in fighting.",
+      maxItems: 12,
+      items: regionTransferSchema,
+    },
   },
   required: ["title", "description", "importance"],
   additionalProperties: false,
@@ -1920,6 +2124,7 @@ const gameMasterEventSchema = {
   ...eventSchema,
   properties: {
     ...eventSchema.properties,
+    quote: eventQuoteSchema,
     impacts: impactsSchema,
   },
 };
@@ -3098,14 +3303,63 @@ export const ACTIONS_TOOL = makeTool(
 export const JUMP_FORWARD_TOOL = makeTool(
   "submit_jump_result",
   "Submit the events, stop date, summary and resolved-action state from a timeline jump.",
-  JUMP_FORWARD_SCHEMA,
+  JUMP_FORWARD_LEAN_SCHEMA,
 );
 
 export const AUTO_JUMP_FORWARD_TOOL = makeTool(
   "submit_jump_result",
   "Submit the events and result of an automatic timeline jump that stops at the next notable moment.",
-  AUTO_JUMP_FORWARD_SCHEMA,
+  JUMP_FORWARD_LEAN_SCHEMA,
 );
+
+// A skip's tool as the folded contract (see "The folded time skip"): the board
+// under each event's impacts when `board` is set (a skip with nothing on the
+// board is not asked to keep one), and the agents' reports when `agentReports`
+// is. Takes the tool the task would have been sent, so a scenario's own stat
+// keys (getGameplayToolForStatIndices) are kept. The reports come last, written
+// after the events they have to agree with. Anything that is not a skip's tool,
+// and a skip with neither, comes back as it was.
+export const foldJumpTool = (tool, { board = true, agentReports = false } = {}) => {
+  const events = tool?.schema?.properties?.events;
+  const impacts = events?.items?.properties?.impacts;
+  if (!impacts?.properties || (!board && !agentReports)) return tool;
+  return {
+    ...tool,
+    schema: {
+      ...tool.schema,
+      properties: {
+        ...tool.schema.properties,
+        events: board ? {
+          ...events,
+          items: {
+            ...events.items,
+            properties: {
+              ...events.items.properties,
+              impacts: { ...impacts, properties: { ...impacts.properties, projectOps: foldedProjectOpsSchema } },
+            },
+          },
+        } : events,
+        ...(agentReports ? {
+          [AGENT_REPORTS_FIELD]: {
+            type: "array",
+            description:
+              "One report per agent listed under [Agents' Reports], written after the events and consistent with them. "
+              + "None for an agent that is not listed.",
+            items: {
+              type: "object",
+              properties: {
+                agent: nonEmptyTextSchema("The agent's key, copied exactly from [Agents' Reports], such as agent_1."),
+                ...SPY_INTERCEPT_SCHEMA.properties,
+              },
+              required: ["agent", "exchanges"],
+              additionalProperties: false,
+            },
+          },
+        } : {}),
+      },
+    },
+  };
+};
 
 export const DESCRIPTION_TO_ACTION_TOOL = makeTool(
   "submit_description_to_action",
@@ -3763,6 +4017,11 @@ const normalizeEventShape = (entry) => {
     for (const alias of fieldAliases) delete event[alias];
   }
 
+  const presentation = normalizeEventPresentation({ description: event.description, quote: event.quote });
+  if (event.description !== undefined || presentation.description) event.description = presentation.description;
+  if (presentation.quote) event.quote = presentation.quote;
+  else delete event.quote;
+
   if (isPlainRecord(event.impacts)) {
     const impacts = flattenImpactWrappers(event.impacts);
     const impactAliases = {
@@ -3961,8 +4220,59 @@ const normalizeCountryStatSheetShape = (value) => {
   return { ...value, statsSchemaVersion: 1 };
 };
 
+// Round-Zero semantic facts are already expressed in the compiler contract.
+// Do not adapt lifecycle verbs, invent padding, or otherwise normalize meaning
+// before the native compiler sees it. Legacy lifecycle-shaped answers remain
+// visible to schema validation and are rejected rather than silently migrated.
+const normalizePregameHistoryShape = (value) => {
+  if (!isPlainRecord(value) || !Array.isArray(value.canonicalUpdates)) return value;
+  let changed = false;
+  const canonicalUpdates = value.canonicalUpdates.map((fact) => {
+    if (!isPlainRecord(fact)) return fact;
+    let next = fact;
+    // These fields are semantically lists. A provider occasionally emits the
+    // unambiguous singleton spelling (sideA: "Alpha") even though the tool
+    // schema says array. Canonicalize only that lossless representation here;
+    // never split delimited text or infer additional actors.
+    for (const field of ["sourceEventRefs", "sideA", "sideB", "parties", "participants"]) {
+      if (typeof next[field] !== "string" || !next[field].trim()) continue;
+      if (next === fact) next = { ...fact };
+      next[field] = [next[field].trim()];
+      changed = true;
+    }
+    return next;
+  });
+  return changed ? { ...value, canonicalUpdates } : value;
+};
+
+// Corrective retries may freeze independently valid historical cards even when
+// the overall Round-Zero answer fails schema validation in canonical state. Do
+// not freeze canonicalUpdates here: shape-valid canonical facts still require
+// domain/identity validation before they are safe to preserve across a retry.
+// CP2's compiler will own that stronger guarantee at the cutover boundary.
+export const extractPregameHistoryStableRetrySections = (value, { includeCanonical = false } = {}) => {
+  if (!isPlainRecord(value)) return {};
+  const sections = {};
+  if (Array.isArray(value.events)) {
+    const error = validateAgainstSchema(PREGAME_HISTORY_SCHEMA.properties.events, value.events, "$.events");
+    if (!error) sections.events = value.events.map(clonePregameTransportEntry);
+  }
+  if (includeCanonical && Array.isArray(value.canonicalUpdates)) {
+    const error = validateAgainstSchema(
+      PREGAME_HISTORY_SCHEMA.properties.canonicalUpdates,
+      value.canonicalUpdates,
+      "$.canonicalUpdates",
+    );
+    if (!error) sections.canonicalUpdates = value.canonicalUpdates.map(clonePregameTransportEntry);
+  }
+  const summary = String(value.summary ?? "").trim();
+  if (summary) sections.summary = summary;
+  return sections;
+};
+
 export const normalizeGameplayPayload = (taskKey, value) => {
   if (taskKey === "chatActions") return normalizeChatActionsShape(value);
+  if (taskKey === "pregameHistory") return normalizePregameHistoryShape(value);
   if (taskKey === "idleDiplomacy") return normalizeIdleDiplomacyShape(value);
   if (taskKey === "projects") return normalizeProjectsShape(value);
   if (taskKey === "countryStatSheet") return normalizeCountryStatSheetShape(value);

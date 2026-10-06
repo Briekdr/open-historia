@@ -18,13 +18,16 @@ import { DATA_DIR as SERVER_DATA_DIR } from "./dataDir.js";
 import { coarsenFeatureCollection } from "./coarseGeometry.js";
 import {
   fetchableHubOrigin,
-  hubOriginAfterWrite,
+  hubLinksAfterWrite,
+  hubOriginForUpdate,
   importedGameScenarioId,
   missingBasemapOfBundle,
   normalizeHubOrigin,
   normalizeHubPublished,
   normalizeHubReviews,
+  normalizeHubUnlinked,
   normalizeMissingBasemap,
+  pickHubProvenance,
 } from "./hubProvenance.js";
 import { planRestorePointSlots, publicRestorePointIndex } from "./restorePoints.js";
 const SCENARIOS_DIR = path.join(SERVER_DATA_DIR, "scenarios");
@@ -535,6 +538,8 @@ const TEMPLATE_WORLD_OVERRIDE_KEYS = [
   "regionClaimants",
   "regionOwnershipOverrides",
   "regionSovereigntyOverrides",
+  // A scenario map's own named seas, for placing fleets (placement.js declaredSeas).
+  "seas",
   "simulationRules",
   "startingTimelineText",
   // The scenario's pre-history (src/runtime/scenarioPrehistory.js): applied by
@@ -821,8 +826,9 @@ const saveGameManifest = (manifest) => {
 
 // Provenance for scenarios imported straight from the community hub (which post,
 // which exact bundle file, when, and whether it has been edited since), the post
-// the player made of their own scenario, and the suggestions they reviewed:
-// server/hubProvenance.js, shared with the web store.
+// the player made of their own scenario, what they unlinked it from for good,
+// and the suggestions they reviewed: server/hubProvenance.js, shared with the
+// web store.
 
 const normalizePlayCount = (raw) => {
   const value = Number(raw);
@@ -858,6 +864,7 @@ const readScenarioMeta = (scenarioId) => {
     hubOrigin: normalizeHubOrigin(raw?.hubOrigin),
     hubPublished: normalizeHubPublished(raw?.hubPublished),
     hubReviews: normalizeHubReviews(raw?.hubReviews),
+    hubUnlinked: normalizeHubUnlinked(raw?.hubUnlinked),
     id: scenarioId,
     ...missingBasemapField(raw?.missingBasemap),
     name,
@@ -890,11 +897,12 @@ const writeScenarioMeta = (scenarioId, updates, { touch = true } = {}) => {
     // modification — a rename, an editor apply, a cover change — which keeps the
     // link but marks it edited: an edited copy must stop offering hub updates
     // that would overwrite the player's work, and must still know its original
-    // so the player can suggest their changes back (hubProvenance.js).
-    hubOrigin: hubOriginAfterWrite(current.hubOrigin, updates ?? {}, { touch }),
-    hubPublished: Object.prototype.hasOwnProperty.call(updates ?? {}, "hubPublished")
-      ? normalizeHubPublished(updates.hubPublished)
-      : current.hubPublished,
+    // so the player can suggest their changes back. A write that carries
+    // hubPublished replaces the record of the player's own posts, or clears it
+    // (Unlink). Either Unlink is for good: what it unlinked goes into
+    // hubUnlinked, and no later write puts it back (hubProvenance.js
+    // hubLinksAfterWrite, the one rule for this store and the web store).
+    ...hubLinksAfterWrite(current, updates ?? {}, { touch }),
     hubReviews: Object.prototype.hasOwnProperty.call(updates ?? {}, "hubReviews")
       ? normalizeHubReviews(updates.hubReviews)
       : current.hubReviews,
@@ -1501,6 +1509,24 @@ const seedRegionsBytes = () => {
 // server — a source checkout's `git pull` deleting the files that used to be
 // tracked under server/data — is completed again rather than served empty.
 let builtInScenarioSynced = false;
+
+// A built-in stamped with the seed's map whose regions.geojson is the stock
+// world, byte for byte: an older build, run against this data directory, wrote
+// it back. The stamp alone said all was well, so a new campaign's owners named
+// regions its map did not have — no colours, and nothing could be placed. The
+// seed's map goes back, and the coarse copy made from the old one goes. A map
+// the player drew is never the stock world's exact size, so it is never touched.
+const restoreSeedMapOverStockWorld = (stamp) => {
+  const regionsPath = getScenarioUploadPath(DEFAULT_SCENARIO_ID, "regionsGeojson");
+  if (!fs.existsSync(regionsPath)) return;
+  const bytes = fs.statSync(regionsPath).size;
+  const stockBytes = readStockRegionsBytes();
+  if (stockBytes === null || bytes !== stockBytes || bytes === seedRegionsBytes()) return;
+  const dir = getScenarioDirectory(DEFAULT_SCENARIO_ID);
+  copySeedFile("regions.geojson", dir);
+  for (const coarse of ["regions.coarse.geojson", "regions.coarse.geojson.stamp"]) removeFileIfPresent(path.join(dir, coarse));
+  console.warn(`[built-in scenario] Modern Day (${stamp}) held the stock world as its map; the seed's map is restored`);
+};
 const syncBuiltInScenarioFromSeed = () => {
   const worldPath = getScenarioJsonPath(DEFAULT_SCENARIO_ID, "world");
   if (builtInScenarioSynced && fs.existsSync(worldPath)) return;
@@ -1511,6 +1537,7 @@ const syncBuiltInScenarioFromSeed = () => {
   }
   const scenarioDir = getScenarioDirectory(DEFAULT_SCENARIO_ID);
   if (readInstalledBuiltInStamp() === stamp) {
+    restoreSeedMapOverStockWorld(stamp);
     if (readInstalledBuiltInRevision() < readBuiltInSeedRevision()) refreshBuiltInContent(stamp);
     builtInScenarioSynced = true;
     return;
@@ -2341,13 +2368,11 @@ const createGame = ({
   return getGameDetails(resolvedGameId);
 };
 
-// The hub bookkeeping a scenario write may carry (server/hubProvenance.js):
-// hubOrigin (null unlinks the scenario from the post it was downloaded from),
-// hubPublished (the player's own post) and hubReviews (suggestions reviewed).
-const HUB_PROVENANCE_KEYS = ["hubOrigin", "hubPublished", "hubReviews"];
-const pickHubProvenance = (body) =>
-  Object.fromEntries(HUB_PROVENANCE_KEYS.filter((key) => Object.hasOwn(body ?? {}, key)).map((key) => [key, body[key]]));
-
+// The hub bookkeeping a scenario write may carry is picked by
+// server/hubProvenance.js (pickHubProvenance), for this store and the web
+// store alike: hubOrigin only as null, which unlinks the scenario from the post
+// it was downloaded from (a write that tries to link one is refused),
+// hubPublished (the player's own posts) and hubReviews (suggestions reviewed).
 const updateScenario = (scenarioId, body = {}) => {
   const {
     accentColor,
@@ -4068,7 +4093,10 @@ const applyScenarioBundleAsset = (scenarioId, assetKey, assetValue) => {
 // id, so their link survives) and createdAt; the name, description, world, and
 // assets all come from the new bundle, and every uploadable asset the bundle
 // doesn't carry is cleared. The new hubOrigin is stamped last, so the card's
-// Update button reverts to New Game once the catalog refreshes.
+// Update button reverts to New Game once the catalog refreshes. It renews the
+// link the scenario has and never makes one: a scenario that is not a copy of
+// the bundle's post (its player unlinked it, or it never was one) is refused
+// before anything is written (hubProvenance.js hubOriginForUpdate).
 const updateScenarioFromBundle = (scenarioId, bundle) => {
   ensureScenarioStore();
 
@@ -4085,7 +4113,7 @@ const updateScenarioFromBundle = (scenarioId, bundle) => {
   const scenario = bundle.scenario && typeof bundle.scenario === "object" ? bundle.scenario : {};
   const data = bundle.data && typeof bundle.data === "object" ? bundle.data : {};
   const assets = bundle.assets && typeof bundle.assets === "object" ? bundle.assets : {};
-  const hubOrigin = normalizeHubOrigin(bundle.hubOrigin);
+  const hubOrigin = hubOriginForUpdate(readScenarioMeta(scenarioId).hubOrigin, bundle.hubOrigin);
 
   const metaPatch = {};
   for (const key of ["accentColor", "name", "subtitle", "description", "eyebrow", "heroTitle", "heroSubtitle"]) {

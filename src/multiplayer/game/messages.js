@@ -15,13 +15,13 @@
 // is copied as plain JSON (validate.js "json") and then read through the game's
 // own normalizers, like any document the game loads.
 
-import { HEX_ID, NAME, bool, int, json, list, literal, obj, str } from "../protocol/validate.js";
+import { HEX_ID, NAME, bool, int, json, list, literal, num, obj, str } from "../protocol/validate.js";
 import { SETTINGS_SCHEMA } from "../host/settings.js";
 
 // A host and its players must speak the same game: raised whenever these
 // messages or the views (host/projection.js) change in a way an older player's
 // screen would misread. The session refuses a player on another version.
-export const SHARED_GAME_VERSION = "2";
+export const SHARED_GAME_VERSION = "3";
 
 // Orders are free text in single player; in a shared game one is held to this.
 export const ORDER_MAX_CHARS = 1500;
@@ -44,6 +44,27 @@ export const PLAYER_REQUESTS = Object.freeze({
   // game's own normalizer, which holds it to a board's shape and size, and the
   // session holds the message to its own size limit (session/host.js).
   board: obj({ t: literal("board"), id: REQUEST_ID, projects: json(12) }),
+  // The player's forces: raise a formation where the player put it (it waits
+  // there for the next skip to confirm it), or stand one down. What a formation
+  // is to DO is an order like any other, in words.
+  deploy: obj({
+    t: literal("deploy"), id: REQUEST_ID, type: str(24, { min: 1 }), strength: num(1, 100),
+    name: str(80), composition: str(200), lng: num(-540, 540), lat: num(-90, 90),
+  }),
+  disband: obj({ t: literal("disband"), id: REQUEST_ID, unit: str(160, { min: 1 }) }),
+  // A structure of the player's own, or of its puppet's, that the map placed
+  // approximately (runtime/structurePlacement.js): kept where it stands, or,
+  // with `move`, put at `lng`, `lat`.
+  settle: obj({ t: literal("settle"), id: REQUEST_ID, marker: str(160, { min: 1 }), move: bool(), lng: num(-180, 180), lat: num(-90, 90) }),
+  // The player's agents: place one in `target`, call `spy` home, send a
+  // caught one home or turn it, and say what a turned one reports.
+  agent: obj({
+    t: literal("agent"), id: REQUEST_ID, op: str(8, { enum: ["deploy", "recall", "expel", "turn", "story"] }),
+    target: str(80), spy: str(160), story: str(300),
+  }),
+  // A country's stat sheet, for the host to write when the player's Stats pane
+  // has none to show (`fresh`: write it again although there is one).
+  sheet: obj({ t: literal("sheet"), id: REQUEST_ID, country: COUNTRY, fresh: bool() }),
   // Diplomacy: into a thread the player is in, or to open one with `to`.
   say: obj({
     t: literal("say"), id: REQUEST_ID, thread: str(120, { nullable: true }),

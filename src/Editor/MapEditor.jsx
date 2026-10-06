@@ -18,7 +18,6 @@ import TypeManager from "./TypeManager.jsx";
 import RegionsPanel from "./RegionsPanel.jsx";
 import PolitiesPanel from "./PolitiesPanel.jsx";
 import GroupsPanel from "./GroupsPanel.jsx";
-import TopologyPanel from "./TopologyPanel.jsx";
 import BorderCleanupOverlay, { BorderCleanupNote } from "./BorderCleanupOverlay.jsx";
 import { samePolityName } from "../../server/polityRename.js";
 import { BORDER_CLEANUP, describeCleanupResult, yieldToBrowser } from "./topologySweep.js";
@@ -88,6 +87,30 @@ const normalizePolityKeyedMap = (input, polities) => {
   return out;
 };
 
+// What a scenario save tells the host of the Workshop's identity operations
+// (polityAuthoringOpsRef). The renames already travel as `renames`
+// (useMapDocument polityRenames) and scenarioAfterWorkshopRenames replays them
+// onto the scenario's world, its Political World included; a rename replayed
+// a second time is refused as a clash with the name it has just made, and the
+// save fails. So only the removals go this way, each under the name the
+// scenario still has that polity by: its key walked back through the renames
+// made before it since the last save. The host takes the removed polities'
+// Political World profiles out first, then replays the renames (libraryBar.jsx
+// writeMapToScenario).
+const removalsForScenario = (operations) => {
+  const removals = [];
+  operations.forEach((operation, index) => {
+    if (operation?.op !== "remove") return;
+    let key = operation.key;
+    for (let earlier = index - 1; earlier >= 0; earlier -= 1) {
+      const previous = operations[earlier];
+      if (previous?.op === "rename" && samePolityName(previous.to, key)) key = previous.from;
+    }
+    removals.push({ op: "remove", key });
+  });
+  return removals;
+};
+
 // review: a suggestion to review in this map (libraryBar.jsx, from the Suggested
 // changes dialog): { suggestion, decisions, onSaved(decisions) }.
 const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, review: reviewSource = null } = {}) => {
@@ -97,7 +120,7 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
   // loaded once it arrives, so never auto-seed the default world underneath it.
   const scenarioMode = Boolean(onApplyToScenario);
   const [api, setApi] = useState(null);
-  const [openPanel, setOpenPanel] = useState(null); // 'types' | 'regions' | 'polities' | 'topology' | 'province-import' | 'layers' | 'features' | 'reference' | null
+  const [openPanel, setOpenPanel] = useState(null); // 'types' | 'regions' | 'polities' | 'province-import' | 'layers' | 'features' | 'reference' | null
   const [paintOwner, setPaintOwner] = useState(""); // stable polity key assigned by the paint tool
   const [paintOnlyOwner, setPaintOnlyOwner] = useState("*"); // "*" | "__unowned__" | stable polity key
   const [docId, setDocId] = useState(null); // server document id (null until first save)
@@ -114,6 +137,13 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
   const [cleanupNote, setCleanupNote] = useState("");
   // Set by the screen's "Save now" button; the sweep reads it between steps.
   const cleanupStopRef = useRef(false);
+  // Map authoring can rename/remove a polity while Political World and other
+  // scenario ledgers live outside the map document. Keep the explicit identity
+  // operations until the scenario save lands so the host can migrate those
+  // canonical records instead of mistaking a rename for a new country. What
+  // the save sends of them, beside the renames it already logs, is
+  // removalsForScenario above.
+  const polityAuthoringOpsRef = useRef([]);
   useEffect(() => {
     if (!cleanupNote) return undefined;
     const timer = setTimeout(() => setCleanupNote(""), 9000);
@@ -393,11 +423,13 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
     }
     const action = play ? "play" : closeAfter ? "save-exit" : "save";
     setScenarioAction(action);
-    // Every save first runs the Topology panel's conservative repair over the
-    // WHOLE map at 500 m — enclosed cracks filled, thin overlaps trimmed, one
-    // undo step — behind the "Cleaning up the borders" screen, which is painted
-    // before the work starts and updated between its chunks. A failure there
-    // never blocks the save: the map is then written as it is.
+    // Every save first runs the border repair over the WHOLE map at
+    // BORDER_CLEANUP.maxWidth (1.5 km) — enclosed cracks filled, thin overlaps
+    // trimmed, one undo step — behind the "Cleaning up the borders" screen,
+    // which is painted before the work starts and updated between its chunks.
+    // Nothing else in the Workshop repairs borders, so this is also where a
+    // merge that fails sends the author (OlMap.jsx). A failure there never
+    // blocks the save: the map is then written as it is.
     let cleanup = null;
     let cleanupError = "";
     cleanupStopRef.current = false;
@@ -416,16 +448,25 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
     setBorderCleanup((current) => ({ ...(current || {}), phase: "save", result: cleanup, error: cleanupError }));
     await yieldToBrowser();
     try {
-      const seed = buildGameSeed(
-        d.doc,
-        api.serializeRegions() || { type: "FeatureCollection", features: [] },
-        d.colors,
-      );
+      const authoringOps = polityAuthoringOpsRef.current.slice();
+      const seed = {
+        ...buildGameSeed(
+          d.doc,
+          api.serializeRegions() || { type: "FeatureCollection", features: [] },
+          d.colors,
+        ),
+        // The polities removed since the last save (removalsForScenario).
+        polityAuthoringOps: removalsForScenario(authoringOps),
+      };
       // The renames made since the last save, so the scenario's player country
       // and its name-keyed world records follow them (useMapDocument renamePolity).
       const renames = d.polityRenames;
       await onApplyToScenario(seed, { play, renames });
       d.settlePolityRenames(renames.length);
+      // The scenario now owns these operations. A second Save from the same
+      // still-open Workshop must not replay one already applied; any made
+      // while the save ran stay for the next one, like the renames above.
+      polityAuthoringOpsRef.current = polityAuthoringOpsRef.current.slice(authoringOps.length);
       // What the author decided about a suggestion's map changes is kept with
       // the scenario only now that the map it decided about is saved into it.
       if (reviewSource) {
@@ -731,6 +772,7 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
   useEffect(() => {
     if (!api || !initialMap || hydratedRef.current) return;
     hydratedRef.current = true;
+    polityAuthoringOpsRef.current = [];
     const base = createDocument({ name: initialMap.name || "Scenario Map", kind: "import-world" });
     base.metadata.author = initialMap.author || "";
     // Restore the chosen built-in basemap so re-opening shows it (not the default).
@@ -1221,12 +1263,23 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
             }
             api?.renameOwner?.(from, to);
             d.renamePolity(from, to);
+            polityAuthoringOpsRef.current.push({ op: "rename", from, to });
             if (paintOwner === from) setPaintOwner(to);
             if (paintOnlyOwner === from) setPaintOnlyOwner(to);
             return true;
           }}
-          removePolity={d.removePolity}
-          removePolities={d.removePolities}
+          removePolity={(key) => {
+            const stableKey = String(key || "").trim();
+            if (!stableKey) return;
+            d.removePolity(stableKey);
+            polityAuthoringOpsRef.current.push({ op: "remove", key: stableKey });
+          }}
+          removePolities={(keys) => {
+            const stableKeys = [...new Set((keys || []).map((key) => String(key || "").trim()).filter(Boolean))];
+            if (!stableKeys.length) return;
+            d.removePolities(stableKeys);
+            for (const key of stableKeys) polityAuthoringOpsRef.current.push({ op: "remove", key });
+          }}
           puppets={d.puppets}
           setPuppets={d.setPuppets}
           importPolityRoster={d.importPolityRoster}
@@ -1247,14 +1300,6 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
           api={api}
           groups={d.groups}
           setGroups={d.setGroups}
-          selection={d.selection}
-          regionEpoch={regionEpoch}
-          onClose={() => setOpenPanel(null)}
-        />
-      )}
-      {openPanel === "topology" && (
-        <TopologyPanel
-          api={api}
           selection={d.selection}
           regionEpoch={regionEpoch}
           onClose={() => setOpenPanel(null)}

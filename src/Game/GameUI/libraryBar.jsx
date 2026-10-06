@@ -50,6 +50,7 @@ import FeaturesSectionEditor from "./FeaturesSectionEditor.jsx";
 import StatsSheetEditor, { normalizeStatsEditorValue } from "./StatsSheetEditor.jsx";
 import InstitutionAuthoringPanel from "./InstitutionAuthoringPanel.jsx";
 import PrehistoryPanel from "./PrehistoryPanel.jsx";
+const PoliticalWorldAuthoringPanel = lazy(() => import("./PoliticalWorldAuthoringPanel.jsx"));
 const PoliticalWorldGenerationPanel = lazy(() => import("./PoliticalWorldGenerationPanel.jsx"));
 import { isFeatureEnabled, normalizeFeatureOverrides, normalizeFeatureSettings } from "../../runtime/gameFeatures.js";
 import { flattenStatSheetRows, normalizeStatSheetDefinition, serializeStatSheet } from "../../runtime/statIndexDefinitions.js";
@@ -68,12 +69,14 @@ import { findScenarioCopyOfBundle } from "../../runtime/importedScenarioCopy.js"
 import { createLatestRequest } from "../../runtime/latestRequest.js";
 import { changedFields, followSavedFields, formDiffers } from "../../runtime/editorForm.js";
 import { createActivationHandOff } from "../../runtime/afterActivation.js";
+import { createWorkInProgress } from "../../runtime/workInProgress.js";
 import { buildScenarioCountryOptions, isOfferedCountry, seededWorldOf, worldWithFaction, worldWithPlayerGroup } from "../../runtime/newGameWorld.js";
 import { saveBlobToDisk } from "../../runtime/saveFile.js";
 import { acceptFor } from "../../runtime/fileAccept.js";
 import { playerCountryAfterSave, scenarioAfterWorkshopRenames } from "../../Editor/playerCountryAfterSave.js";
 import { fetchHubPosts, fetchPostComments, hubUpdateAvailable, readScenarioBundleBytes, refreshPublishedRecord } from "../../runtime/hubPosts.js";
 import { isBlockedContributor, missingBasemapOfBundle, scenarioCopyOfHubFile, withContributorBlocked } from "../../../server/hubProvenance.js";
+import { reconcileMapPolityAuthoringOps } from "../../../server/polityRename.js";
 import { readSuggestionFile } from "../../runtime/scenarioSuggestion.js";
 import {
   ScenarioCommunityCard,
@@ -147,6 +150,10 @@ export const useMainMenuOpen = () => useSyncExternalStore(subscribeMainMenu, isM
 // its editor to say why the rest of the setup failed (runtime/afterActivation.js).
 const afterActivation = createActivationHandOff();
 const handOffAfterActivation = (work) => afterActivation.put(work);
+// The scenarios an Update is running on (runtime/workInProgress.js). Out here
+// for the same reason as the menu flag: a game started while a post's file is
+// still downloading remounts this tree, and the card must go on saying so.
+const scenarioUpdates = createWorkInProgress();
 // With the full-width in-game bar gone, top-anchored UI (settings ⋮, date
 // widget, forces panel, editor drawer) starts at the screen edge, below a
 // status bar or camera cutout the page is drawn under (Android Chrome in
@@ -183,6 +190,10 @@ const actionButtonStyle = {
 };
 
 const APP_SHELL_MAX_WIDTH = "3000px";
+// Let the library rail follow the available shell width instead of targeting
+// one desktop class. auto-fill adds/removes columns as room changes, while the
+// min track keeps cards readable from ordinary laptops through ultrawide.
+const LIBRARY_GRID_TEMPLATE = "repeat(auto-fill, minmax(min(100%, 16.5rem), 1fr))";
 const CARD_TEXT_SHADOW = "0 1px 2px rgba(0,0,0,0.9), 0 5px 16px rgba(0,0,0,0.72), 0 14px 30px rgba(0,0,0,0.55)";
 const SCENARIO_CARD_TEXT_SHADOW = "0 1px 2px rgba(0,0,0,0.96), 0 6px 18px rgba(0,0,0,0.82), 0 16px 34px rgba(0,0,0,0.64)";
 
@@ -264,6 +275,15 @@ const ButtonIcon = ({ kind, size = 15, strokeWidth = 1.9 }) => {
           <path d="M12 4v11" />
           <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
           <path d="M5 19.5h14" />
+        </svg>
+      );
+    // A ring that turns while the button's work runs (styles.css
+    // .oh-working-ring; still, under reduced motion).
+    case "working":
+      return (
+        <svg aria-hidden="true" className="oh-working-ring" {...common}>
+          <circle cx="12" cy="12" r="8" opacity="0.3" />
+          <path d="M12 4a8 8 0 0 1 8 8" />
         </svg>
       );
     case "menu":
@@ -734,7 +754,7 @@ const PromptSectionEditor = ({
   );
 };
 
-const ScenarioCard = ({ onClone, onEdit, onPlay, onSelect, onUpdate, scenario, selected, updateAvailable }) => {
+const ScenarioCard = ({ onClone, onEdit, onPlay, onSelect, onUpdate, scenario, selected, updateAvailable, updateNote = "", updating = false }) => {
   const isBuiltIn = scenario.id === "default";
   const assetBadges = Object.entries(scenarioBadgeLabels)
     .filter(([key]) => scenario.assetStatus?.[key])
@@ -890,23 +910,32 @@ const ScenarioCard = ({ onClone, onEdit, onPlay, onSelect, onUpdate, scenario, s
           <AssetBadgeRow badges={assetBadges} />
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.55rem" }}>
             {/* A hub-imported, unmodified scenario whose post has a newer bundle
-                swaps its primary action for Update; everyone else starts games. */}
+                swaps its primary action for Update; everyone else starts games.
+                Updating downloads the post's file and replaces the copy, which
+                takes a few seconds and showed nothing: the button now turns a
+                ring and says so until it is done, and takes no second press
+                (which would download and replace it all again). */}
             <button
+              aria-busy={updating || undefined}
               className="oh-tap-row"
+              disabled={updating}
               onClick={() => (updateAvailable ? onUpdate(scenario) : onPlay(scenario))}
               style={touchFit({
                 ...actionButtonStyle,
-                background: updateAvailable ? "#1d7f4ccc" : `${scenario.accentColor}cc`,
-                borderColor: updateAvailable ? "#27a663dd" : `${scenario.accentColor}dd`,
+                background: updating || updateAvailable ? "#1d7f4ccc" : `${scenario.accentColor}cc`,
+                borderColor: updating || updateAvailable ? "#27a663dd" : `${scenario.accentColor}dd`,
                 color: "#fff",
+                cursor: updating ? "progress" : "pointer",
                 flex: 1,
               }, touch)}
-              title={updateAvailable
+              title={updating || updateAvailable
                 ? "A newer version of this scenario is on the community hub. Updating replaces this copy (existing games keep working)."
                 : undefined}
               type="button"
             >
-              {updateAvailable ? <><ButtonIcon kind="update" /> Update</> : <><ButtonIcon kind="play" /> New Game</>}
+              {updating
+                ? <><ButtonIcon kind="working" /> Updating…</>
+                : updateAvailable ? <><ButtonIcon kind="update" /> Update</> : <><ButtonIcon kind="play" /> New Game</>}
             </button>
             <button className="oh-tap-row" onClick={() => onEdit(scenario.id)} style={touchFit({ ...actionButtonStyle, flex: 1 }, touch)} type="button">
               <ButtonIcon kind="edit" /> Edit
@@ -915,6 +944,33 @@ const ScenarioCard = ({ onClone, onEdit, onPlay, onSelect, onUpdate, scenario, s
               <ButtonIcon kind="clone" /> Clone Scenario
             </button>
           </div>
+          {/* What came of the last Update when it did not simply work: it
+              failed, or it went through without its new basemap. The ring
+              going back to a plain button says neither, and the only other
+              place the reason is shown is the editor drawer, which is shut
+              when Update is pressed from a card. Only while the card still
+              offers Update (a copy whose basemap is missing does): once the
+              update has gone through, or the basemap has arrived, the note is
+              old news. */}
+          {updateNote && updateAvailable && !updating && (
+            <div
+              role="status"
+              title={updateNote}
+              style={{
+                color: "#fecaca",
+                display: "-webkit-box",
+                fontSize: "0.72rem",
+                lineHeight: 1.4,
+                marginTop: "0.55rem",
+                overflow: "hidden",
+                textShadow: SCENARIO_CARD_TEXT_SHADOW,
+                WebkitBoxOrient: "vertical",
+                WebkitLineClamp: 4,
+              }}
+            >
+              {updateNote}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1234,7 +1290,7 @@ const MenuRow = ({ action, children, description, emptyText, icon, title }) => {
   const hasChildren = React.Children.count(children) > 0;
 
   return (
-    <section style={{ marginBottom: isMobile ? "1.75rem" : "2rem" }}>
+    <section style={{ marginBottom: isMobile ? "1.75rem" : "2rem", width: "100%" }}>
       <div style={{ marginBottom: hasChildren ? "0.9rem" : "0.55rem" }}>
         <div style={{ alignItems: "center", display: "flex", gap: "0.85rem" }}>
           <div style={{ alignItems: "center", display: "flex", flexShrink: 0, gap: "0.55rem" }}>
@@ -1255,7 +1311,7 @@ const MenuRow = ({ action, children, description, emptyText, icon, title }) => {
       {hasChildren ? (
         <div style={isMobile
           ? { display: "flex", gap: "0.9rem", overflowX: "auto", paddingBottom: "0.35rem", scrollbarWidth: "thin" }
-          : { display: "grid", gap: "1rem", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 18.75rem), 20rem))", justifyContent: "start" }}>
+          : { display: "grid", gap: "1rem", gridTemplateColumns: LIBRARY_GRID_TEMPLATE }}>
           {children}
         </div>
       ) : (
@@ -1373,6 +1429,53 @@ const RecentlyDeletedRow = ({ kind, onChanged, trash }) => {
         ))}
       </MenuRow>
     </>
+  );
+};
+
+const browseControlStyle = {
+  ...actionButtonStyle,
+  minHeight: "2.35rem",
+  padding: "0 0.85rem",
+};
+
+const BrowsePill = ({ active, children, onClick }) => (
+  <button
+    className="oh-tap-row"
+    onClick={onClick}
+    style={{
+      ...browseControlStyle,
+      background: active ? "var(--oh-grey-selected)" : "rgba(255,255,255,0.05)",
+      borderColor: active ? "var(--oh-grey-border-strong)" : "rgba(255,255,255,0.08)",
+      color: active ? "var(--oh-grey-text)" : "rgba(246,246,248,0.78)",
+    }}
+    type="button"
+  >
+    {children}
+  </button>
+);
+
+const LibraryCollection = ({ children, controls, description, emptyText, title }) => {
+  const isMobile = useIsMobile();
+  const hasChildren = React.Children.count(children) > 0;
+  return (
+    <section style={{ marginBottom: isMobile ? "1.75rem" : "2.3rem", width: "100%" }}>
+      <div style={{ alignItems: isMobile ? "stretch" : "flex-end", display: "flex", flexDirection: isMobile ? "column" : "row", flexWrap: isMobile ? undefined : "wrap", gap: "0.8rem", justifyContent: "space-between", marginBottom: "0.9rem" }}>
+        <div>
+          <div style={{ color: "rgba(255,255,255,0.96)", fontSize: isMobile ? "1.08rem" : "1.22rem", fontWeight: 800, letterSpacing: "-0.025em" }}>{title}</div>
+          {description ? <div style={{ color: "rgba(255,255,255,0.58)", fontSize: "0.86rem", marginTop: "0.28rem" }}>{description}</div> : null}
+        </div>
+        {controls}
+      </div>
+      {hasChildren ? (
+        <div style={isMobile
+          ? { display: "flex", gap: "0.9rem", overflowX: "auto", paddingBottom: "0.35rem", scrollbarWidth: "thin" }
+          : { display: "grid", gap: "1rem", gridTemplateColumns: LIBRARY_GRID_TEMPLATE }}>
+          {children}
+        </div>
+      ) : (
+        <div style={{ border: "1px dashed rgba(255,255,255,0.12)", borderRadius: "16px", color: "rgba(255,255,255,0.48)", fontSize: "0.86rem", padding: "1rem" }}>{emptyText || "Nothing here yet."}</div>
+      )}
+    </section>
   );
 };
 
@@ -1706,6 +1809,18 @@ const EditorDrawer = ({
               onDetailsChange={onDetailsChange}
             />
           </Suspense>
+          <Suspense
+            fallback={
+              <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "18px", marginBottom: "0.95rem", padding: "0.9rem", color: "rgba(255,255,255,0.6)", fontSize: "0.8rem" }}>
+                Loading manual Political World editor...
+              </div>
+            }
+          >
+            <PoliticalWorldAuthoringPanel
+              details={details}
+              onDetailsChange={onDetailsChange}
+            />
+          </Suspense>
           <InstitutionAuthoringPanel
             details={details}
             onDetailsChange={onDetailsChange}
@@ -1728,6 +1843,7 @@ const EditorDrawer = ({
           kind={kind}
           features={formState.features}
           scenarioFeatures={kind === "scenario" ? formState.features : formState.scenarioFeatures}
+          world={details?.data?.world ?? {}}
           onChange={(next) => onChange("features", next)}
           styles={{ actionButtonStyle, fieldLabelStyle, inputStyle }}
           currentDate={formState.gameDate}
@@ -1914,6 +2030,12 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   const [activeTab, setActiveTab] = useState("games");
   // The Lobbies tab's host settings, opened by its "Host a lobby" action.
   const [lobbyHosting, setLobbyHosting] = useState(false);
+  const [gameSearch, setGameSearch] = useState("");
+  const [gameSort, setGameSort] = useState("recent");
+  const [gameView, setGameView] = useState("active");
+  const [scenarioSearch, setScenarioSearch] = useState("");
+  const [scenarioSort, setScenarioSort] = useState("recent");
+  const [scenarioView, setScenarioView] = useState("all");
   const [menuOpen, setMenuOpenState] = useState(menuOpenDefault);
   // Whether the menu was opened from inside a game (⌂ Exit Game, or the game
   // menu's Game Management), so that a phone's Back can close it again and
@@ -2331,14 +2453,30 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   const scenarioUpdateAvailable = (scenario) =>
     hubUpdateAvailable(scenario, scenario.hubOrigin ? hubPostById?.[scenario.hubOrigin.postId] : null);
 
+  // The scenarios being updated now: each one's cards (it can sit on both
+  // shelves) show it and cannot be pressed again until it lands or fails.
+  const updatingScenarioIds = useSyncExternalStore(scenarioUpdates.subscribe, scenarioUpdates.running, scenarioUpdates.running);
+  // And what each one's last Update left to say, when it did not simply work.
+  const scenarioUpdateNotes = useSyncExternalStore(scenarioUpdates.subscribe, scenarioUpdates.notes, scenarioUpdates.notes);
+
   // Pull the post's current bundle and replace this scenario in place. The
   // scenario keeps its local id, so existing games keep pointing at it; the
-  // fresh hubOrigin stamp flips the card back to New Game on refresh.
+  // fresh hubOrigin stamp flips the card back to New Game on refresh. A failed
+  // update leaves the card on Update, with the reason under its buttons and in
+  // the editor's error; so does one that went through without its new basemap.
   const handleScenarioUpdate = async (scenario) => {
     const post = scenario.hubOrigin ? hubPostById?.[scenario.hubOrigin.postId] : null;
-    if (!post?.bundleUrl) return;
+    // A press that got in before the button redrew starts nothing either.
+    if (!post?.bundleUrl || !scenarioUpdates.begin(scenario.id)) return;
     setEditorError(null);
     setIsBusy(true);
+    // Said on the card as well as in the editor drawer, which is shut when
+    // Update is pressed from a card.
+    let outcome = "";
+    const tell = (message) => {
+      outcome = message;
+      setEditorError(message);
+    };
 
     try {
       const { downloadHubBundle } = await import("./communityHub.jsx");
@@ -2353,12 +2491,13 @@ const LibraryTopBar = ({ onOpenSettings }) => {
       // be downloaded (updateScenarioFromBundle).
       const missingBasemap = unresolvedBundleBackground(bundle);
       if (missingBasemap) {
-        setEditorError(`The scenario was updated, but its new community basemap could not be downloaded, so it keeps the basemap it had. ${missingBasemap} The game tries again the next time you start it and open the scenario.`);
+        tell(`The scenario was updated, but its new community basemap could not be downloaded, so it keeps the basemap it had. ${missingBasemap} The game tries again the next time you start it and open the scenario.`);
       }
     } catch (nextError) {
-      setEditorError(`Update failed: ${nextError.message}`);
+      tell(`Update failed: ${nextError.message}`);
     } finally {
       setIsBusy(false);
+      scenarioUpdates.end(scenario.id, outcome);
     }
   };
 
@@ -2377,16 +2516,22 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     setEditorDetails((current) => (current?.scenario?.id === details.scenario.id ? { ...current, scenario: details.scenario } : current));
   };
 
-  // The posts carrying this scenario's key, and the suggestions left on them.
+  // The posts carrying this scenario's key, and the suggestions left on them;
+  // never a post the player unlinked it from (hubUnlinked). What comes back is
+  // the record as the store kept it, which is the one that counts: it refuses
+  // the record of a post unlinked while this was reading the hub.
   const refreshSuggestionsFor = async (scenario, { force = false } = {}) => {
     if (!scenario?.hubPublished) return null;
     const posts = await fetchHubPosts({ force });
     const { published, changed } = await refreshPublishedRecord(scenario.hubPublished, posts, {
       fetchComments: (postId) => fetchPostComments(postId, { force }),
       reviews: scenario.hubReviews,
+      unlinked: scenario.hubUnlinked,
     });
-    if (changed) adoptScenarioSummary(await saveScenario(scenario.id, { hubPublished: published }));
-    return published;
+    if (!changed) return published;
+    const details = await saveScenario(scenario.id, { hubPublished: published });
+    adoptScenarioSummary(details);
+    return details?.scenario?.hubPublished ?? null;
   };
 
   // When the menu opens, an author learns of new suggestions on their posts:
@@ -2402,7 +2547,12 @@ const LibraryTopBar = ({ onOpenSettings }) => {
       try {
         const posts = await fetchHubPosts();
         for (const scenario of mine) {
-          const { published, changed } = await refreshPublishedRecord(scenario.hubPublished, posts, { reviews: scenario.hubReviews });
+          const { published, changed } = await refreshPublishedRecord(scenario.hubPublished, posts, {
+            reviews: scenario.hubReviews,
+            unlinked: scenario.hubUnlinked,
+          });
+          // The player may have unlinked the post while this was reading the
+          // hub: the store then keeps it unlinked and drops this write.
           if (changed) await saveScenario(scenario.id, { hubPublished: published });
         }
       } catch (nextError) {
@@ -2421,8 +2571,13 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     setSuggestTarget(scenario.id);
   };
 
+  // The two Unlinks. A link is made only by the game (a download stamps the
+  // post it came from, Publish writes the key its post is found by) and the
+  // player can only take one away, for good: the stores remember what was
+  // unlinked and never attach it again (server/hubProvenance.js), so each
+  // confirm says that it cannot be undone.
   const handleUnlinkOrigin = async (scenario) => {
-    if (!window.confirm("Unlink this scenario from its community post? It becomes your own scenario: it no longer follows the post, and you can no longer suggest changes to it.")) return;
+    if (!window.confirm("Unlink this scenario from its community post? It becomes your own scenario: it no longer follows the post, and you can no longer suggest changes to it. This cannot be undone: a scenario cannot be linked to a post again.")) return;
     setCommunityBusy(true);
     try {
       adoptScenarioSummary(await saveScenario(scenario.id, { hubOrigin: null }));
@@ -2434,7 +2589,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   };
 
   const handleForgetPost = async (scenario) => {
-    if (!window.confirm("Stop looking for suggested changes on your post? The post stays on the hub, and you can link it again later.")) return;
+    if (!window.confirm("Stop looking for suggested changes on your post? The post stays on the hub, but this cannot be undone: it can never be linked to this scenario again. Publishing the scenario again makes a new post.")) return;
     setCommunityBusy(true);
     try {
       adoptScenarioSummary(await saveScenario(scenario.id, { hubPublished: null }));
@@ -2453,31 +2608,8 @@ const LibraryTopBar = ({ onOpenSettings }) => {
       const published = await refreshSuggestionsFor(scenario, { force: true });
       const waiting = openSuggestionsOf({ ...scenario, hubPublished: published }).length;
       setCommunityNote(!published?.postIds?.length
-        ? "Your post is not on the hub yet. If you posted it before this version of the game, link it by its address."
+        ? "Your post is not on the hub yet. Once you have posted it, the game finds it by itself."
         : waiting === 1 ? "1 suggestion waiting." : waiting ? `${waiting} suggestions waiting.` : "Checked just now: no suggested changes waiting.");
-    } catch (nextError) {
-      setCommunityNote(nextError.message);
-    } finally {
-      setCommunityBusy(false);
-    }
-  };
-
-  const handleLinkPost = async (scenario, postId) => {
-    setCommunityBusy(true);
-    setCommunityNote("");
-    try {
-      const current = scenario.hubPublished;
-      const details = await saveScenario(scenario.id, {
-        hubPublished: {
-          ...(current ?? {}),
-          postIds: [postId, ...(current?.postIds ?? []).filter((id) => id !== postId)],
-          publishedAt: current?.publishedAt || new Date().toISOString(),
-        },
-      });
-      adoptScenarioSummary(details);
-      const published = await refreshSuggestionsFor(details.scenario, { force: true });
-      const waiting = openSuggestionsOf({ ...details.scenario, hubPublished: published }).length;
-      setCommunityNote(waiting === 1 ? "1 suggestion waiting." : waiting ? `${waiting} suggestions waiting.` : "Linked. No suggested changes waiting.");
     } catch (nextError) {
       setCommunityNote(nextError.message);
     } finally {
@@ -3292,11 +3424,22 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   // Returns the scenario's player country as saved, for Apply & Play.
   const writeMapToScenario = async (scenarioId, seed, renames) => {
     const details = await loadScenarioDetails(scenarioId);
-    // The countries renamed in the Workshop since its last save: the player
-    // country and the world's name-keyed records follow them before the map
-    // is written (playerCountryAfterSave.js scenarioAfterWorkshopRenames).
-    const { world: currentWorld, game: currentGame } = scenarioAfterWorkshopRenames(
-      details?.data?.world ?? {},
+    const currentWorld = details?.data?.world ?? {};
+    // The Workshop edits the polity registry, while Political World and several
+    // other canonical ledgers live outside its map document. Its identity
+    // operations are replayed onto the scenario's own world and game before the
+    // map is written, so a rename moves the existing actor/relations instead of
+    // leaving a stale actor behind and creating a second one later.
+    //
+    // First the polities it removed: each takes its Political World profile
+    // with it. The seed names them as this world still does (MapEditor.jsx
+    // removalsForScenario). Then the countries it renamed since its last save:
+    // the player country and the world's name-keyed records, the Political
+    // World profile among them, follow each rename (playerCountryAfterSave.js
+    // scenarioAfterWorkshopRenames). A rename is replayed once, there: a second
+    // replay is refused as a clash with the name the first one made.
+    const { world: reconciledWorld, game: currentGame } = scenarioAfterWorkshopRenames(
+      reconcileMapPolityAuthoringOps(currentWorld, seed.polityAuthoringOps),
       details?.data?.game ?? {},
       renames,
     );
@@ -3315,7 +3458,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     const scenarioCountry = playerCountryAfterSave(currentGame.country, seed);
     const savedScenarioDetails = await saveScenario(scenarioId, {
       world: {
-        ...currentWorld,
+        ...reconciledWorld,
         regionOwnershipOverrides: seed.world?.regionOwnershipOverrides ?? {},
         // The Workshop is authoritative for the polity registry: it hydrated the
         // full current registry (landless polities included) before editing, so
@@ -3582,12 +3725,10 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     ? countryOptions.find((country) => country.code === difficultyPick.countryCode)
     : null;
 
-  // ---- Main-menu shelves ----------------------------------------------------
-  // The catalog's game order is already activation recency (activating unshifts),
-  // so games without a lastPlayedAt stamp (pre-feature saves) keep a sensible
-  // relative order behind the stamped ones.
-  // Archived games stay in the catalog (and keep their playCount and events) but
-  // leave the normal shelves, so a long library is the games you actually play.
+  // ---- Main-menu library ----------------------------------------------------
+  // Each section now answers a different question. "Continue Playing" is the
+  // short recency shelf; the browse grid below is the single canonical place
+  // for the rest of the library. Sorting no longer creates duplicate shelves.
   const visibleGames = useMemo(() => games.filter((game) => !game.archived), [games]);
   const archivedGames = useMemo(
     () => games
@@ -3595,50 +3736,99 @@ const LibraryTopBar = ({ onOpenSettings }) => {
       .sort((a, b) => String(b.lastPlayedAt ?? "").localeCompare(String(a.lastPlayedAt ?? ""))),
     [games],
   );
-  // Sorting on lastPlayedAt alone sends a game that has never been played to the
-  // far right, behind every campaign the player has ever opened — which is where
-  // a game imported thirty seconds ago landed, the one place nobody thinks to
-  // look for something they just added. Importing counts as touching a game, so
-  // an import ranks by when it ARRIVED and turns up beside the current game.
-  //
-  // createdAt cannot be used for this: readGameMeta mints a fresh one on every
-  // read for a game that has none on disk, and real saves do exist without one,
-  // so such a game reads as newer than everything forever. A game nobody has
-  // played or imported keeps its place in the library's own order, which is
-  // what the stable sort below leaves it in.
-  //
-  // The current game stays first: this row is how the player gets back to it,
-  // and nothing newly added should displace it.
   const lastPlayedGames = useMemo(() => {
-    const touchedAt = (game) => String(game.lastPlayedAt || game.importedAt || "");
+    const touchedAt = (game) => String(game.lastPlayedAt || game.importedAt || game.updatedAt || game.createdAt || "");
     return [...visibleGames].sort((a, b) => {
       if (a.id === activeGameId) return -1;
       if (b.id === activeGameId) return 1;
       return touchedAt(b).localeCompare(touchedAt(a));
     });
   }, [visibleGames, activeGameId]);
-  const mostPlayedGames = useMemo(
-    () => [...visibleGames].sort((a, b) => (b.playCount ?? 0) - (a.playCount ?? 0) || (b.round ?? 0) - (a.round ?? 0)),
-    [visibleGames],
+
+  const continueGames = useMemo(
+    () => lastPlayedGames.slice(0, isMobile ? 5 : 6),
+    [lastPlayedGames, isMobile],
   );
-  const mostPlayedScenarios = useMemo(
-    () => [...scenarios].sort((a, b) => (b.playCount ?? 0) - (a.playCount ?? 0) || (b.gameCount ?? 0) - (a.gameCount ?? 0)),
-    [scenarios],
-  );
+
+  const browsedGames = useMemo(() => {
+    const query = gameSearch.trim().toLowerCase();
+    const base = gameView === "archived"
+      ? archivedGames
+      : gameView === "all"
+        ? [...visibleGames, ...archivedGames]
+        : visibleGames;
+    const filtered = query
+      ? base.filter((game) => [game.name, game.heroTitle, game.scenarioName, game.country]
+        .some((value) => String(value || "").toLowerCase().includes(query)))
+      : [...base];
+    const touchedAt = (game) => String(game.lastPlayedAt || game.importedAt || game.updatedAt || game.createdAt || "");
+    if (gameSort === "turns") return filtered.sort((a, b) => (b.round ?? 0) - (a.round ?? 0) || touchedAt(b).localeCompare(touchedAt(a)));
+    if (gameSort === "played") return filtered.sort((a, b) => (b.playCount ?? 0) - (a.playCount ?? 0) || touchedAt(b).localeCompare(touchedAt(a)));
+    if (gameSort === "name") return filtered.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    return filtered.sort((a, b) => {
+      if (a.id === activeGameId) return -1;
+      if (b.id === activeGameId) return 1;
+      return touchedAt(b).localeCompare(touchedAt(a));
+    });
+  }, [activeGameId, archivedGames, gameSearch, gameSort, gameView, visibleGames]);
+
   const lastUpdatedScenarios = useMemo(
     () => [...scenarios].sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? ""))),
     [scenarios],
   );
-  // "Your Scenarios": ones the player made or edited themselves — no hubOrigin
-  // (made here, or unlinked), or a hub import they have edited (editedAt: the
-  // link stays, so they can suggest their changes back). The stock built-in
-  // only counts once it has actually been touched.
+  // "Yours", by the rule the old dedicated shelf used: scenarios the player
+  // made or edited themselves — no hubOrigin (made here, or unlinked), or a
+  // hub import they have edited (editedAt: the link stays, so they can suggest
+  // their changes back). The stock built-in only counts once it has actually
+  // been touched.
   const yourScenarios = useMemo(
     () => scenarios.filter(
       (scenario) => (!scenario.hubOrigin || scenario.hubOrigin.editedAt) && (scenario.id !== "default" || scenario.updatedAt !== scenario.createdAt),
     ),
     [scenarios],
   );
+  const yourScenarioIds = useMemo(() => new Set(yourScenarios.map((scenario) => scenario.id)), [yourScenarios]);
+
+  const recentScenarios = useMemo(() => {
+    const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+    const seen = new Set();
+    const recent = [];
+    for (const game of lastPlayedGames) {
+      const scenario = byId.get(game.scenarioId);
+      if (!scenario || seen.has(scenario.id)) continue;
+      seen.add(scenario.id);
+      recent.push(scenario);
+      if (recent.length >= (isMobile ? 5 : 6)) break;
+    }
+    for (const scenario of lastUpdatedScenarios) {
+      if (seen.has(scenario.id)) continue;
+      seen.add(scenario.id);
+      recent.push(scenario);
+      if (recent.length >= (isMobile ? 5 : 6)) break;
+    }
+    return recent;
+  }, [isMobile, lastPlayedGames, lastUpdatedScenarios, scenarios]);
+
+  const browsedScenarios = useMemo(() => {
+    const query = scenarioSearch.trim().toLowerCase();
+    let base = scenarios;
+    if (scenarioView === "yours") base = scenarios.filter((scenario) => yourScenarioIds.has(scenario.id));
+    else if (scenarioView === "community") base = scenarios.filter((scenario) => Boolean(scenario.hubOrigin));
+    else if (scenarioView === "updates") base = scenarios.filter((scenario) => scenarioUpdateAvailable(scenario));
+    let filtered = query
+      ? base.filter((scenario) => [scenario.name, scenario.heroTitle, scenario.subtitle, scenario.description]
+        .some((value) => String(value || "").toLowerCase().includes(query)))
+      : [...base];
+    const recentRank = new Map(recentScenarios.map((scenario, index) => [scenario.id, index]));
+    if (scenarioSort === "name") return filtered.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    if (scenarioSort === "played") return filtered.sort((a, b) => (b.gameCount ?? 0) - (a.gameCount ?? 0) || (b.playCount ?? 0) - (a.playCount ?? 0));
+    if (scenarioSort === "updated") return filtered.sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
+    return filtered.sort((a, b) => {
+      const rankA = recentRank.has(a.id) ? recentRank.get(a.id) : Number.MAX_SAFE_INTEGER;
+      const rankB = recentRank.has(b.id) ? recentRank.get(b.id) : Number.MAX_SAFE_INTEGER;
+      return rankA - rankB || String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? ""));
+    });
+  }, [recentScenarios, scenarioSearch, scenarioSort, scenarioView, scenarios, yourScenarioIds]);
 
   // The countries the map open in the drawer offers: the scenario's, or the
   // game's own world (polities founded in play included).
@@ -4145,8 +4335,8 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                   onClick={() => setActiveTab(tab)}
                   style={touchFit({
                     ...actionButtonStyle,
-                    background: activeTab === tab ? "rgba(109,66,217,0.34)" : "rgba(255,255,255,0.05)",
-                    borderColor: activeTab === tab ? "rgba(154,127,255,0.58)" : "rgba(255,255,255,0.08)",
+                    background: activeTab === tab ? "var(--oh-grey-selected)" : "rgba(255,255,255,0.05)",
+                    borderColor: activeTab === tab ? "var(--oh-grey-border-strong)" : "rgba(255,255,255,0.08)",
                     minWidth: isMobile ? "0" : "6.6rem",
                     padding: isMobile ? "0.55rem 0.6rem" : undefined,
                   }, touch)}
@@ -4234,79 +4424,92 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                     Start a new game from one of your scenarios, or grab new scenarios from the community first.
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "0.7rem", justifyContent: "center" }}>
-                    <button
-                      type="button"
-                      style={{ ...actionButtonStyle, background: "rgba(255,255,255,0.15)", borderColor: "rgba(255,255,255,0.28)", minHeight: "2.8rem", padding: "0 1.4rem" }}
-                      onClick={() => setActiveTab("scenarios")}
-                    >
+                    <button type="button" style={{ ...actionButtonStyle, background: "rgba(255,255,255,0.15)", borderColor: "rgba(255,255,255,0.28)", minHeight: "2.8rem", padding: "0 1.4rem" }} onClick={() => setActiveTab("scenarios")}>
                       Start from a scenario
                     </button>
-                    <button
-                      type="button"
-                      style={{ ...actionButtonStyle, minHeight: "2.8rem", padding: "0 1.4rem" }}
-                      onClick={() => setActiveTab("community")}
-                    >
+                    <button type="button" style={{ ...actionButtonStyle, minHeight: "2.8rem", padding: "0 1.4rem" }} onClick={() => setActiveTab("community")}>
                       Browse community scenarios
                     </button>
                   </div>
                 </div>
               ) : (
                 <>
-                  <MenuRow description="Continue where you left off." icon="🕐" title="Last Played">
-                    {lastPlayedGames.map((game) => (
-                      <GameCard
-                        key={game.id}
-                        active={game.id === activeGameId}
-                        busy={isBusy}
-                        game={game}
-                        onActivate={handleGameActivate}
-                        onArchive={handleGameArchive}
-                        onClone={handleGameClone}
-                        onEdit={openGameEditor}
-                        onExport={handleGameExport}
-                      />
-                    ))}
-                  </MenuRow>
-                  <MenuRow description="Your most active games." icon="🔥" title="Most Played">
-                    {mostPlayedGames.map((game) => (
-                      <GameCard
-                        key={game.id}
-                        active={game.id === activeGameId}
-                        busy={isBusy}
-                        game={game}
-                        onActivate={handleGameActivate}
-                        onArchive={handleGameArchive}
-                        onClone={handleGameClone}
-                        onEdit={openGameEditor}
-                        onExport={handleGameExport}
-                      />
-                    ))}
-                  </MenuRow>
-                  {archivedGames.length > 0 && (
-                    <MenuRow description="Hidden or older campaigns, kept ready when you need them." icon="🗄️" title={`Archived (${archivedGames.length})`}>
-                      {archivedGames.map((game) => (
-                        <GameCard
-                          key={game.id}
-                          active={game.id === activeGameId}
-                          busy={isBusy}
-                          game={game}
-                          onActivate={handleGameActivate}
-                          onArchive={handleGameArchive}
-                          onClone={handleGameClone}
-                          onEdit={openGameEditor}
-                          onExport={handleGameExport}
-                        />
+                  {continueGames.length > 0 && (
+                    <MenuRow description="Pick up exactly where you left off." icon="▶" title="Continue Playing">
+                      {continueGames.map((game) => (
+                        <GameCard key={game.id} active={game.id === activeGameId} busy={isBusy} game={game} onActivate={handleGameActivate} onArchive={handleGameArchive} onClone={handleGameClone} onEdit={openGameEditor} onExport={handleGameExport} />
                       ))}
                     </MenuRow>
                   )}
+                  <LibraryCollection
+                    title="All Games"
+                    description="One library for every campaign. Search, sort or show archived saves without duplicating them into another shelf."
+                    emptyText={gameSearch ? "No games match your search." : "No games in this view."}
+                    controls={(
+                      <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.45rem", justifyContent: isMobile ? "flex-start" : "flex-end" }}>
+                        <input aria-label="Search games" onChange={(event) => setGameSearch(event.target.value)} placeholder="Search games…" value={gameSearch} style={{ ...inputStyle, borderRadius: "999px", minHeight: "2.35rem", padding: "0 0.9rem", width: isMobile ? "100%" : "16rem" }} />
+                        {[['active', 'Active'], ['all', 'All'], ['archived', 'Archived']].map(([value, label]) => (
+                          <BrowsePill key={value} active={gameView === value} onClick={() => setGameView(value)}>{label}</BrowsePill>
+                        ))}
+                        <select aria-label="Sort games" onChange={(event) => setGameSort(event.target.value)} value={gameSort} style={{ ...inputStyle, borderRadius: "999px", minHeight: "2.35rem", padding: "0 0.85rem", width: "auto" }}>
+                          <option value="recent">Recently played</option>
+                          <option value="turns">Most turns</option>
+                          <option value="played">Most played</option>
+                          <option value="name">Name</option>
+                        </select>
+                      </div>
+                    )}
+                  >
+                    {browsedGames.map((game) => (
+                      <GameCard key={game.id} active={game.id === activeGameId} busy={isBusy} game={game} onActivate={handleGameActivate} onArchive={handleGameArchive} onClone={handleGameClone} onEdit={openGameEditor} onExport={handleGameExport} />
+                    ))}
+                  </LibraryCollection>
                 </>
               )}
               <RecentlyDeletedRow kind="game" onChanged={refreshTrash} trash={trash} />
               </>
             ) : (
               <>
-                <MenuRow description="Your most active scenarios." emptyText="No scenarios yet." icon="🔥" title="Most Played">
-                  {mostPlayedScenarios.map((scenario) => (
+                {recentScenarios.length > 0 && (
+                  <MenuRow description="The scenarios behind your latest games and edits." icon="🕐" title="Recently Used">
+                    {recentScenarios.map((scenario) => (
+                      <ScenarioCard
+                        key={scenario.id}
+                        onClone={handleScenarioClone}
+                        onEdit={openScenarioEditor}
+                        onPlay={handleScenarioPlay}
+                        onSelect={selectScenario}
+                        onUpdate={handleScenarioUpdate}
+                        scenario={scenario}
+                        selected={scenario.id === selectedScenarioId}
+                        updateAvailable={scenarioUpdateAvailable(scenario)}
+                        updateNote={scenarioUpdateNotes.get(scenario.id) ?? ""}
+                        updating={updatingScenarioIds.has(scenario.id)}
+                      />
+                    ))}
+                  </MenuRow>
+                )}
+                <LibraryCollection
+                  title="Scenario Library"
+                  description="Everything you can start a new game from, in one place."
+                  emptyText={scenarioSearch ? "No scenarios match your search." : "No scenarios in this view."}
+                  controls={(
+                    <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.45rem", justifyContent: isMobile ? "flex-start" : "flex-end" }}>
+                      <input aria-label="Search scenarios" onChange={(event) => setScenarioSearch(event.target.value)} placeholder="Search scenarios…" value={scenarioSearch} style={{ ...inputStyle, borderRadius: "999px", minHeight: "2.35rem", padding: "0 0.9rem", width: isMobile ? "100%" : "16rem" }} />
+                      {[['all', 'All'], ['yours', 'Yours'], ['community', 'Community'], ['updates', 'Updates']].map(([value, label]) => (
+                        <BrowsePill key={value} active={scenarioView === value} onClick={() => setScenarioView(value)}>{label}</BrowsePill>
+                      ))}
+                      <select aria-label="Sort scenarios" onChange={(event) => setScenarioSort(event.target.value)} value={scenarioSort} style={{ ...inputStyle, borderRadius: "999px", minHeight: "2.35rem", padding: "0 0.85rem", width: "auto" }}>
+                        <option value="recent">Recently used</option>
+                        <option value="updated">Recently updated</option>
+                        <option value="played">Most played</option>
+                        <option value="name">Name</option>
+                      </select>
+                    </div>
+                  )}
+                >
+                  {(scenarioView === "all" || scenarioView === "yours") && !scenarioSearch.trim() ? <CreateScenarioTile busy={isBusy} onCreate={handleCreateScenario} /> : null}
+                  {browsedScenarios.map((scenario) => (
                     <ScenarioCard
                       key={scenario.id}
                       onClone={handleScenarioClone}
@@ -4317,40 +4520,11 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                       scenario={scenario}
                       selected={scenario.id === selectedScenarioId}
                       updateAvailable={scenarioUpdateAvailable(scenario)}
+                      updateNote={scenarioUpdateNotes.get(scenario.id) ?? ""}
+                      updating={updatingScenarioIds.has(scenario.id)}
                     />
                   ))}
-                </MenuRow>
-                <MenuRow description="Recently edited or imported scenarios." emptyText="No scenarios yet." icon="🕐" title="Last Updated">
-                  {lastUpdatedScenarios.map((scenario) => (
-                    <ScenarioCard
-                      key={scenario.id}
-                      onClone={handleScenarioClone}
-                      onEdit={openScenarioEditor}
-                      onPlay={handleScenarioPlay}
-                      onSelect={selectScenario}
-                      onUpdate={handleScenarioUpdate}
-                      scenario={scenario}
-                      selected={scenario.id === selectedScenarioId}
-                      updateAvailable={scenarioUpdateAvailable(scenario)}
-                    />
-                  ))}
-                </MenuRow>
-                <MenuRow description="Scenarios you created or customized yourself." icon="✦" title="Your Scenarios">
-                  <CreateScenarioTile busy={isBusy} onCreate={handleCreateScenario} />
-                  {yourScenarios.map((scenario) => (
-                    <ScenarioCard
-                      key={scenario.id}
-                      onClone={handleScenarioClone}
-                      onEdit={openScenarioEditor}
-                      onPlay={handleScenarioPlay}
-                      onSelect={selectScenario}
-                      onUpdate={handleScenarioUpdate}
-                      scenario={scenario}
-                      selected={scenario.id === selectedScenarioId}
-                      updateAvailable={scenarioUpdateAvailable(scenario)}
-                    />
-                  ))}
-                </MenuRow>
+                </LibraryCollection>
                 <RecentlyDeletedRow kind="scenario" onChanged={refreshTrash} trash={trash} />
               </>
             )}
@@ -4390,7 +4564,6 @@ const LibraryTopBar = ({ onOpenSettings }) => {
             onReview={(source) => setReviewTarget({ scenarioId: drawerScenario.id, source })}
             onOpenFile={(file) => handleOpenSuggestionFile(drawerScenario, file)}
             onRefresh={() => handleRefreshSuggestions(drawerScenario)}
-            onLinkPost={(postId) => handleLinkPost(drawerScenario, postId)}
             onForgetPost={() => handleForgetPost(drawerScenario)}
             onRejectContributor={handleRejectContributor}
             onUnblockContributor={handleUnblockContributor}

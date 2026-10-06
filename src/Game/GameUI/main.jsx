@@ -49,6 +49,7 @@ const readAiSetup = () => {
 // localStorage, and clamped to a readable min and a max that keeps the HUD
 // in view.
 const ADVISOR_WIDTH_VAR = "--oh-advisor-width";
+const RIGHT_DRAWER_SAFE_OFFSET_VAR = "--oh-right-drawer-safe-offset";
 const ADVISOR_MIN_WIDTH = 280;
 const ADVISOR_DEFAULT_WIDTH = 320; // 20rem, the old fixed width
 // The drawer may cover the map but not the HUD on its left. The tightest fit is
@@ -216,6 +217,8 @@ const Main = ({
   // Which workspace section the menu opens on; null is the quick menu. Set by
   // the AI setup prompt's Configure button, cleared whenever the menu closes.
   const [settingsInitialSection, setSettingsInitialSection] = useState(null);
+  // The main menu's Settings are for every game; a game's ☰ adds its own.
+  const [settingsScope, setSettingsScope] = useState("game");
   const [isCheatsOpen, setIsCheatsOpen] = useState(false);
   const [shouldLoadCheats, setShouldLoadCheats] = useState(false);
   const [isDebugConsoleOpen, setIsDebugConsoleOpen] = useState(false);
@@ -279,6 +282,11 @@ const Main = ({
   const showApiPrompt = loaded && Boolean(activeGame?.id) && !mainMenuOpen && !providerReady
     && apiPromptAnsweredFor !== String(activeGame?.id) && !isSettingsOpen && !showGameLoading
     && sharedRole !== "guest";
+  // The game master's tools are not offered in a shared game (see onOpenCheats
+  // below): a panel already open when one begins closes.
+  useEffect(() => {
+    if (sharedRole) setIsCheatsOpen(false);
+  }, [sharedRole]);
 
   useEffect(() => {
     if (!checkWebGL()) setShowWebGLWarning(true);
@@ -338,8 +346,8 @@ const Main = ({
   // Spy reports, on the same rhythm and with the same guards: a roll each
   // minute the tab is visible, at odds that work out to roughly one report
   // every twenty minutes per deployed agent. Agents also report after time
-  // skips on a calendar (agentReports.js: with the turn review, or one request
-  // each through refreshSpyIntercepts when saving is off); this is what makes
+  // skips (agentReports.js: in the skip's own answer, or on a calendar, one
+  // request each through refreshSpyIntercepts, when saving is off); this is what makes
   // them tick while the player is simply playing, and it is why there is no
   // Gather button — an agent is a trickle of intelligence, not a thing to farm.
   // Not in the main menu or the Workshop: each report is an AI request, spent
@@ -472,12 +480,19 @@ const Main = ({
   // over the reply the player is reading in it; following the width variable
   // keeps them there through a drag. Not on a phone, where the drawer is the
   // whole screen.
+  //
+  // The same value serves the fixed workspaces that need to coexist with the
+  // drawer (the diplomacy workspace in chat.jsx). It points at
+  // --oh-advisor-width rather than copying pixels, so dragging the
+  // Advisor/Country edge updates consumers in the same frame without a React
+  // render.
+  const rightDrawerSafeOffset = rightDrawerOpen && !isMobile
+    ? `var(${ADVISOR_WIDTH_VAR}, ${advisorWidth}px)`
+    : "0px";
   useLayoutEffect(() => {
-    document.documentElement.style.setProperty(
-      "--oh-right-drawer-safe-offset",
-      rightDrawerOpen && !isMobile ? `var(${ADVISOR_WIDTH_VAR}, 0px)` : "0px",
-    );
-  }, [rightDrawerOpen, isMobile]);
+    document.documentElement.style.setProperty(RIGHT_DRAWER_SAFE_OFFSET_VAR, rightDrawerSafeOffset);
+    return () => document.documentElement.style.removeProperty(RIGHT_DRAWER_SAFE_OFFSET_VAR);
+  }, [rightDrawerSafeOffset]);
   // The country badge opens the drawer; on a phone, where the badge is hidden,
   // the country name in the date widget does.
   const toggleCountry = () => {
@@ -556,6 +571,7 @@ const Main = ({
     <>
       {showWebGLWarning && <WebGLWarningPopup />}
       <LibraryTopBar onOpenSettings={() => {
+        setSettingsScope("app");
         setSettingsInitialSection("general");
         setIsSettingsOpen(true);
       }} />
@@ -664,6 +680,7 @@ const Main = ({
           onDismiss={answerApiPrompt}
           onConfigure={() => {
             answerApiPrompt();
+            setSettingsScope("game");
             setSettingsInitialSection("ai");
             setIsSettingsOpen(true);
           }}
@@ -673,6 +690,7 @@ const Main = ({
         topOffset={TOP_BAR_OFFSET}
         hidden={isSettingsOpen}
         onToggle={() => {
+          setSettingsScope("game");
           setSettingsInitialSection(null);
           setIsSettingsOpen(!isSettingsOpen);
         }}
@@ -690,13 +708,16 @@ const Main = ({
             date: activeGame?.currentDate || "",
           }}
           initialSection={settingsInitialSection}
+          scope={settingsScope}
           onClose={() => {
             setSettingsInitialSection(null);
             setIsSettingsOpen(false);
           }}
           onOpenGameManagement={() => openLibraryTab("games")}
           onOpenEvents={() => setActiveBottomPanel("history")}
-          onOpenCheats={() => {
+          // The game master's tools write the game itself, which in a shared
+          // game is the host's engine's alone: they are not offered there.
+          onOpenCheats={sharedRole ? undefined : () => {
             setShouldLoadCheats(true);
             setIsCheatsOpen(true);
             setIsSettingsOpen(false);

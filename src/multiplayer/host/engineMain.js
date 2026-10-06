@@ -18,6 +18,7 @@ import { getLibraryState, refreshLibraryCatalog } from "../../runtime/library.js
 import { JSON_URLS, readJson } from "../../runtime/assets.js";
 import {
   mutateActionsState,
+  mutateCanonicalTurnState,
   mutateChatsState,
   mutateGameData,
   mutateWorldState,
@@ -26,9 +27,11 @@ import {
 } from "../../runtime/gameState.js";
 import { projectChatThread } from "../../runtime/chatThreads.js";
 import { setHostingSharedGame } from "../../runtime/humanPolities.js";
+import { discardHeldTurns } from "../../Game/AI/simulationStatus.js";
 import { getDebugLogEntries, logDebugEvent, setDebugLogPersistence, subscribeToDebugLog } from "../../runtime/debugLog.js";
 import { GENERATION_COMPLETE_EVENT } from "../../Game/AI/telemetry.js";
-import { runChatActionBatch, simulateTimelineJump } from "../../Game/AI/gameplay.js";
+import { generateCountryStatSheet, readCountryForPlayer, runChatActionBatch, simulateTimelineJump } from "../../Game/AI/gameplay.js";
+import { lendBoards, returnBoards } from "./seatBoards.js";
 import { createLoopbackEngineSide } from "../transport/loopback.js";
 import { createHostSession } from "../session/host.js";
 import { createInvite, parseInvite } from "../invite.js";
@@ -97,6 +100,10 @@ const store = {
   updateChats: (fn) => mutateChatsState(fn),
   updateWorld: (fn) => mutateWorldState(fn),
   updateGame: (fn) => mutateGameData(fn),
+  // The world and the order queue changed together or not at all (a formation
+  // and the order that tells the skip of it): one commit, as a turn's own is.
+  // `fn({ world, actions, game })` returns the documents it changed, or null.
+  updateForces: (fn) => mutateCanonicalTurnState(({ world, actions, game }) => fn({ world, actions, game }) || null),
 };
 
 // The polities a player may take: every one that holds land on the map.
@@ -249,8 +256,44 @@ const boot = async () => {
       scenario: { id: clean(entry?.scenarioId).slice(0, 120), name: clean(scenario?.name || entry?.name || "Open Historia").slice(0, 120), hash: "" },
       countries: choosableCountries(docs.world, docs.game),
       store,
-      resolveRound: async ({ daysPerRound }) => {
-        await simulateTimelineJump({ days: daysPerRound });
+      resolveRound: async ({ daysPerRound, humanCountries }) => {
+        // Every other player's own open projects stand on the game's board for
+        // the skip, so the world moves them forward as it moves the host's,
+        // and go home afterwards as it left them (host/seatBoards.js).
+        const people = { host, humans: list(humanCountries) };
+        let hostHad = new Set();
+        await mutateWorldState((world) => {
+          hostHad = new Set(list(world?.projects).map((row) => clean(row?.id)).filter(Boolean));
+          const lent = lendBoards(world, people);
+          // What a player's own board holds is not the host's, even if an
+          // earlier skip left it out here.
+          for (const board of Object.values(lent?.seatBoards ?? {})) for (const row of list(board)) hostHad.delete(clean(row?.id));
+          return lent === world ? null : lent;
+        });
+        try {
+          await simulateTimelineJump({ days: daysPerRound });
+        } catch (error) {
+          // A skip that failed part-way may have held its turn for a Retry (a
+          // segment that did not come back, the Projects board). Nobody can
+          // press it here: the turn is let go, so the game is not left busy,
+          // and the round goes back to planning with its orders (host/round.js).
+          discardHeldTurns();
+          throw error;
+        } finally {
+          await mutateWorldState((world) => {
+            const home = returnBoards(world, { ...people, hostHad });
+            return home === world ? null : home;
+          });
+        }
+      },
+      // A country's stat sheet for a player whose Stats pane has none: only
+      // for a polity of this game, and the game's own reading writes it.
+      readCountry: async ({ country, fresh }) => {
+        const now = await store.read();
+        const name = choosableCountries(now.world, now.game).find((known) => clean(known).toLocaleLowerCase() === clean(country).toLocaleLowerCase());
+        if (!name) throw new Error("That is not a country of this game.");
+        if (fresh) await generateCountryStatSheet({ code: name, name, forceReassess: true });
+        else await readCountryForPlayer(name);
       },
       replyTo,
       onStatus: (status) => {

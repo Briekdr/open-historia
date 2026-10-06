@@ -22,9 +22,12 @@
 // it is sent.
 //
 // v1 limits, kept deliberately narrow rather than guessed at:
-// - Another country's stat sheet is sent without its intelligence index and its
-//   scenario-defined custom stats (which may be military; the host cannot yet
-//   mark them public), and without its history.
+// - A country's stat sheet is what any government can count or read: capital,
+//   government, population, the economy and the scenario's own figures. Every
+//   sheet goes to every player, as single player shows them. (A scenario's own
+//   figures may be military; the host cannot yet mark some of them private.)
+// - How good a country's intelligence service is, is exact only for its own
+//   government: everyone else is sent an estimate, to the nearest ten.
 // - Agreements carry no secrecy flag yet, so every treaty is public.
 // - Scenes and intercepts are single-player features still keyed to the host's
 //   seat; other seats get none of them.
@@ -56,6 +59,8 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
   "ownerCodes", "ownerSchema", "polityOverrides", "powerStatus", "regionClaimants",
   "regionOwnershipOverrides", "regionSovereigntyOverrides", "settledRegionClaims",
   "simulationRules", "startingTimelineText", "unitSystem", "wars", "agreements",
+  // The stat sheets, and how each has moved: public figures (see the limits above).
+  "countryStats", "countryStatsHistory",
 ]);
 
 // The narrator's and the engine's own. Never in any view.
@@ -70,6 +75,9 @@ export const HOST_ONLY_WORLD_KEYS = Object.freeze([
 // intercepts are sealed with): its own view only.
 const HOST_SEAT_WORLD_KEYS = Object.freeze([
   "activeInteractive", "interactiveOffer", "lastInteractiveOfferRound", "spySeal",
+  // Which countries' sheets a skip refreshes is the host's setting, on the
+  // host's AI key.
+  "countryStatsTracking",
 ]);
 
 const ownsUnit = (world, unitId, viewer) => {
@@ -122,14 +130,14 @@ const FILTERED_WORLD_KEYS = Object.freeze({
   // each ran and which events it wrote, in the order they are shown, with the
   // viewer's own orders. The narrator's summary of the turn, the model's raw
   // answer, the engine's receipt and everyone else's orders stay with the host.
-  simulationHistory: (world, viewer, { host }) => list(world.simulationHistory).filter(isRecord).map((entry) => ({
+  simulationHistory: (world, viewer, { host, hiddenEventIds = new Set() }) => list(world.simulationHistory).filter(isRecord).map((entry) => ({
     date: clean(entry.date),
     fromDate: clean(entry.fromDate),
     toDate: clean(entry.toDate),
     round: Number(entry.round) || 0,
     mode: clean(entry.mode),
     source: clean(entry.source) || "ai",
-    eventIds: list(entry.eventIds).map(clean).filter(Boolean),
+    eventIds: list(entry.eventIds).map(clean).filter((id) => id && !hiddenEventIds.has(id)),
     plannedActions: list(entry.plannedActions).filter((action) => (clean(action?.ownerCode)
       ? same(action.ownerCode, viewer)
       : same(host, viewer))),
@@ -182,19 +190,13 @@ const FILTERED_WORLD_KEYS = Object.freeze({
     [relation?.a, relation?.b, relation?.polityA, relation?.polityB, relation?.actorA, relation?.actorB]
       .some((party) => same(party, viewer))),
 
-  // Its own sheet whole; another's without what its services would guard.
-  countryStats: (world, viewer) => Object.fromEntries(Object.entries(isRecord(world.countryStats) ? world.countryStats : {})
-    .map(([country, sheet]) => {
-      if (same(country, viewer) || !isRecord(sheet)) return [country, sheet];
-      const { customStats: _custom, indices, ...rest } = sheet;
-      if (!isRecord(indices)) return [country, rest];
-      const { intelligenceService: _intel, ...publicIndices } = indices;
-      return [country, { ...rest, indices: publicIndices }];
-    })),
-  countryStatsHistory: (world, viewer) => Object.fromEntries(Object.entries(isRecord(world.countryStatsHistory) ? world.countryStatsHistory : {})
-    .filter(([country]) => same(country, viewer))),
+  // Its own service's rating exact; another's as its own services would put
+  // it, to the nearest ten. (The Intelligence tab reads how much of an
+  // intercept it can make out from the two ratings, so it needs one of each.)
   intelligence: (world, viewer) => Object.fromEntries(Object.entries(isRecord(world.intelligence) ? world.intelligence : {})
-    .filter(([country]) => same(country, viewer))),
+    .map(([country, rating]) => [country, same(country, viewer) || !Number.isFinite(Number(rating))
+      ? rating
+      : Math.max(0, Math.min(100, Math.round(Number(rating) / 10) * 10))])),
   playerGoals: (world, viewer) => Object.fromEntries(Object.entries(isRecord(world.playerGoals) ? world.playerGoals : {})
     .filter(([country]) => same(country, viewer))),
 
@@ -226,11 +228,13 @@ const FILTERED_WORLD_KEYS = Object.freeze({
 
 export const FILTERED_WORLD_KEY_NAMES = Object.freeze([...Object.keys(FILTERED_WORLD_KEYS), ...HOST_SEAT_WORLD_KEYS]);
 
-export const projectWorld = (world, viewer, { host = "" } = {}) => {
+// `hiddenEventIds`: the events this viewer is not shown (eventsHiddenFrom), so
+// a turn's record does not count them either.
+export const projectWorld = (world, viewer, { host = "", hiddenEventIds = new Set() } = {}) => {
   const full = normalizeWorldState(world);
   const out = {};
   for (const key of PUBLIC_WORLD_KEYS) if (full[key] !== undefined) out[key] = full[key];
-  for (const [key, filter] of Object.entries(FILTERED_WORLD_KEYS)) out[key] = filter(full, viewer, { host });
+  for (const [key, filter] of Object.entries(FILTERED_WORLD_KEYS)) out[key] = filter(full, viewer, { host, hiddenEventIds });
   if (same(host, viewer)) for (const key of HOST_SEAT_WORLD_KEYS) if (full[key] !== undefined) out[key] = full[key];
   return copy(out);
 };
@@ -250,13 +254,26 @@ const mentions = (event, viewer) => {
   return text.includes(name) || list(event?.combatants).some((entry) => same(entry, viewer));
 };
 
+// What one government alone found out is marked for it (event.audience, set by
+// runtime/spycraft.js resolveEspionage when several people play): its own
+// counter-intelligence catching an agent, its own doubts about one of its
+// agents. Nobody else is shown the event at all.
+const readableBy = (event, viewer) => {
+  const audience = list(event?.audience).map(clean).filter(Boolean);
+  return !audience.length || audience.some((polity) => same(polity, viewer));
+};
+export const eventsHiddenFrom = (events, viewer) => new Set(list(events)
+  .filter((event) => isRecord(event) && !readableBy(event, viewer))
+  .map((event) => clean(event.id))
+  .filter(Boolean));
+
 // `unitOwner(unitId)` names a unit's owner (from the host's world); a move is a
 // march order, and only its owner reads where it is going.
-export const projectEvents = (events, viewer, { ownOrderIds = new Set(), unitOwner = () => "", host = "" } = {}) => list(events).map((event) => {
+export const projectEvents = (events, viewer, { ownOrderIds = new Set(), unitOwner = () => "", host = "" } = {}) => list(events).filter((event) => !isRecord(event) || readableBy(event, viewer)).map((event) => {
   if (!isRecord(event)) return event;
   // The narrator's provenance, NPC-reaction bookkeeping and storyline links stay
-  // with the host.
-  const { impacts, agency: _agency, npcReaction: _npc, storylineIds: _storylines, ...rest } = event;
+  // with the host, and so does who else an event was for.
+  const { impacts, agency: _agency, npcReaction: _npc, storylineIds: _storylines, audience: _audience, ...rest } = event;
   const own = list(impacts?.actionIds).filter((id) => ownOrderIds.has(clean(id)));
   const unitOps = list(impacts?.unitOps).filter((op) => isRecord(op)
     && (op.op !== "move" || same(unitOwner(op.unitId), viewer)));
@@ -403,7 +420,7 @@ export const projectForViewer = ({ world, game, events, chat, actions, intercept
   const ownOrderIds = new Set(ownActions.map((action) => clean(action?.id)).filter(Boolean));
   const owners = new Map(list(world?.units).map((unit) => [clean(unit?.id), clean(unit?.ownerCode)]));
   return {
-    world: projectWorld(world ?? {}, seat, { host }),
+    world: projectWorld(world ?? {}, seat, { host, hiddenEventIds: eventsHiddenFrom(events, seat) }),
     game: copy({ ...(isRecord(game) ? game : {}), country: seat }),
     events: copy(projectEvents(events, seat, { ownOrderIds, host, unitOwner: (id) => owners.get(clean(id)) || "" })),
     chat: copy(projectChats(chat, seat, { host })),
