@@ -59,7 +59,7 @@ One of a Scenario's maps (`CONTEXT.md`, [ADR 0007](adr/0007-detailed-maps-are-sc
 _Avoid_: Relief, terrain (as the term for the record)
 
 **Official Basemap**:
-A Tiled Basemap on the official list in `Open-Historia/open-historia-basemaps`, the only place one is downloaded from. It has a fixed **map id** and numbered **versions**, each one exact file with its checksum. A Scenario names the map and the lowest version it needs; a player keeps one copy, of any version, and a newer version is offered, never forced.
+A Tiled Basemap on the list of detailed maps on the community hub (`Open-Historia/Open-historia-scenarios`), the only place one is downloaded from. It has a fixed **map id** and numbered **versions**, each one exact file with its checksum. A Scenario names the map and the lowest version it needs; a player keeps one copy, of any version, and a newer version is offered, never forced.
 _Avoid_: Catalog entry, release (as the term for the map)
 
 **Game**:

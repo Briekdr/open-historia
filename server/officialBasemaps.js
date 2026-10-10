@@ -3,26 +3,28 @@
  * Copyright (c) 2026 Nicholas Krol - AGPL-3.0-or-later (see LICENSE).
  */
 
-// Detailed maps are hundreds of megabytes, so they never travel in a scenario or
-// a hub post. Maintainers upload each one as a release of the project's own
-// repository, Open-Historia/open-historia-basemaps, and list it in that
-// repository's `basemaps.json` (docs/adr/0006-official-basemap-list.md):
+// Detailed maps are hundreds of megabytes, so they never travel in a scenario.
+// They are posted on the community hub (Open-Historia/Open-historia-scenarios)
+// as "detailed map" posts with a download link; the hub's "Detailed maps"
+// workflow checks each file, copies it into one of the hub's
+// "detailed-maps-<n>" releases, and lists it in `detailed-maps.json` on the
+// hub's `detailed-maps-index` branch (docs/adr/0006-official-basemap-list.md):
 //
 //   { "format": 1, "basemaps": [ { "id": "got-world", "name": "…",
-//       "author": "…", "license": "…",
-//       "versions": [ { "version": 9, "url": "https://github.com/Open-Historia/
-//         open-historia-basemaps/releases/download/<tag>/<file>.pmtiles",
-//         "bytes": 463431905, "sha256": "…", "preview": "…", "notes": "…" } ] } ] }
+//       "author": "…", "license": "…", "post": 212,
+//       "versions": [ { "version": 1, "url": "https://github.com/Open-Historia/
+//         Open-historia-scenarios/releases/download/detailed-maps-1/got-world-v1.pmtiles",
+//         "bytes": 463431905, "sha256": "…" } ] } ] }
 //
 // A scenario names a map by its id and the lowest version it needs; the game
 // looks the rest up here. This is the only place a detailed map is downloaded
-// from: a version whose link is not one of that repository's releases is
-// dropped, whatever the list says.
+// from: a version whose link is not one of those releases is dropped, whatever
+// the list says.
 
-const OFFICIAL_REPO = "Open-Historia/open-historia-basemaps";
-export const OFFICIAL_RELEASES_PREFIX = `https://github.com/${OFFICIAL_REPO}/releases/download/`;
+const OFFICIAL_REPO = "Open-Historia/Open-historia-scenarios";
+export const OFFICIAL_RELEASES_PREFIX = `https://github.com/${OFFICIAL_REPO}/releases/download/detailed-maps-`;
 export const OFFICIAL_CATALOG_URL =
-  process.env.OH_BASEMAP_CATALOG_URL || `https://raw.githubusercontent.com/${OFFICIAL_REPO}/main/basemaps.json`;
+  process.env.OH_BASEMAP_CATALOG_URL || `https://raw.githubusercontent.com/${OFFICIAL_REPO}/detailed-maps-index/detailed-maps.json`;
 // Tests and local checks only: one exact origin standing in for the releases
 // (the same variable the hub download guard reads). Unset in every real run.
 const TEST_ORIGIN = process.env.OH_HUB_TEST_ORIGIN || "";

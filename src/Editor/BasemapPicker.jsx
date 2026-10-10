@@ -550,15 +550,14 @@ const BasemapPicker = ({
 
   const handlePublish = async (bm) => {
     if (bm.kind === "tiled") {
-      // Too large for a hub post, and players only download detailed maps from
-      // the official list: the author asks for it to be added, and the team
-      // reviews it and uploads it (docs/adr/0006).
+      // Too large to drag into a hub post: the author posts a download link,
+      // and the hub's workflow checks the file and lists it (docs/adr/0006).
       if (bm.official) {
-        window.alert(`"${bm.name}" is already on the official list (version ${bm.official.version}). Scenarios you publish with it offer it to players.`);
+        window.alert(`"${bm.name}" is already on the list of detailed maps (version ${bm.official.version}). Scenarios you publish with it offer it to players. To release a new version, edit the map's post on the hub with the new download link.`);
         return;
       }
       window.open(officialBasemapSubmissionUrl(bm), "_blank", "noopener");
-      window.alert("Players only download detailed maps from the official Open Historia list. On the GitHub page that opened, add a link where the team can download your .pmtiles file to review it, and who made it, then submit. Once it's added, scenarios you publish with it offer it to players; until then they see the basemap.");
+      window.alert("Players only download detailed maps from the hub's list. On the GitHub page that opened, paste a direct download link to your .pmtiles file and say who made it, then submit. The hub checks it within minutes and adds it to the list. Until then, players of scenarios you publish with it see the basemap.");
       return;
     }
     try {

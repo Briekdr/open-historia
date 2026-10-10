@@ -155,19 +155,18 @@ export const announceTiledBasemap = (meta) => {
   for (const listener of listeners) listener(meta || null);
 };
 
-// Getting a map onto the official list: the author opens the repository's
-// "Submit a detailed map" form (.github/ISSUE_TEMPLATE/map-request.yml there),
-// with what the game knows about the file filled in by field id, and the team
-// reviews it and uploads it as a release once it is approved.
-export const OFFICIAL_BASEMAPS_REPO_URL = "https://github.com/Open-Historia/open-historia-basemaps";
+// Getting a map onto the official list: the author opens the hub's "Share a
+// detailed map" form (.github/ISSUE_TEMPLATE/detailed-map.yml there), with what
+// the game knows about the file filled in by field id, adds a download link,
+// and the hub's workflow checks the file and lists it. A map already on the
+// list is updated by editing its post instead.
+export const OFFICIAL_BASEMAPS_REPO_URL = "https://github.com/Open-Historia/Open-historia-scenarios";
 export const officialBasemapSubmissionUrl = (meta) => {
   const bytes = Number(meta?.bytes) || 0;
   const fields = {
-    template: "map-request.yml",
-    title: `[Submit map] ${meta?.name || "Detailed map"}`,
-    kind: meta?.official ? "Update to a map already on the list" : "New map",
+    template: "detailed-map.yml",
+    title: `[Detailed map] ${meta?.name || "Detailed map"}`,
     name: meta?.name || "",
-    ...(meta?.official?.id ? { "map-id": meta.official.id } : {}),
     size: bytes ? `${bytes} bytes (${formatBytes(bytes)})` : "",
     sha256: meta?.contentHash || "",
   };

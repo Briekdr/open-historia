@@ -15,18 +15,22 @@ import {
 } from "./officialBasemaps.js";
 
 const HASH = (c) => c.repeat(64);
-const release = (file) => `${OFFICIAL_RELEASES_PREFIX}got-world-v9/${file}`;
+const release = (file) => `${OFFICIAL_RELEASES_PREFIX}1/${file}`;
 const good = (version, extra = {}) => ({ version, url: release(`terrain-v${version}.pmtiles`), bytes: 1000 + version, sha256: HASH(String(version % 10)), ...extra });
 
 test("only the official repository's release downloads count", () => {
   assert.equal(isOfficialReleaseUrl(release("terrain-v9.pmtiles")), true);
-  assert.equal(isOfficialReleaseUrl("https://github.com/Open-Historia/Open-Historia-Basemaps/releases/download/got-world-v1/got-world-v1.pmtiles"), true, "GitHub names are read in any case");
+  assert.equal(isOfficialReleaseUrl("https://github.com/Open-Historia/open-historia-scenarios/releases/download/detailed-maps-2/got-world-v1.pmtiles"), true, "GitHub names are read in any case");
   for (const bad of [
     "https://github.com/someone/maps/releases/download/v1/terrain.pmtiles",
-    "https://github.com/Open-Historia/open-historia-basemaps-evil/releases/download/v1/x.pmtiles",
-    "http://github.com/Open-Historia/open-historia-basemaps/releases/download/v1/x.pmtiles",
+    "https://github.com/Open-Historia/Open-historia-scenarios-evil/releases/download/detailed-maps-1/x.pmtiles",
+    "http://github.com/Open-Historia/Open-historia-scenarios/releases/download/detailed-maps-1/x.pmtiles",
+    // The hub's other releases hold scenarios, flags and basemaps, never a detailed map.
+    "https://github.com/Open-Historia/Open-historia-scenarios/releases/download/scenarios-1/x.pmtiles",
+    "https://github.com/Open-Historia/Open-historia-scenarios/releases/download/basemaps-1/x.pmtiles",
+    "https://github.com/Open-Historia/open-historia-basemaps/releases/download/got-world-v1/got-world-v1.pmtiles",
     `${release("x.pmtiles")}?redirect=https://example.com`,
-    "https://example.com/Open-Historia/open-historia-basemaps/releases/download/v1/x.pmtiles",
+    "https://example.com/Open-Historia/Open-historia-scenarios/releases/download/detailed-maps-1/x.pmtiles",
     "not a link",
     "",
   ]) assert.equal(isOfficialReleaseUrl(bad), false, bad);

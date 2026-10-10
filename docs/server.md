@@ -163,7 +163,7 @@ A 403 from anywhere but the machine running the server. The library's **Recently
 | GET | `/api/basemaps/:id/users` | The scenarios naming a Tiled Basemap, by official id or checksum (`[{ id, name }]`), for the delete warning | `listScenariosNamingTiledBasemap` (`server/libraryStore.js`) |
 | GET / HEAD | `/api/basemaps/:id/archive` | A Tiled Basemap's archive, by byte range, for the map | `getBasemapArchivePath`, `streamBinaryFile` |
 
-Tests scale the caps down, point the official list at a local file and admit one local "release" origin through env vars that are unset in every real run: `OH_TILED_BASEMAP_MAX_BYTES`, `OH_HUB_MAX_BUNDLE_BYTES`, `OH_BASEMAP_CATALOG_URL`, `OH_HUB_TEST_ORIGIN` (`server/tiledBasemaps.test.js`). Maintainers add a map version to the list with `node scripts/official-basemap-entry.mjs <file.pmtiles> --id <map-id> --version <n> --list <path to basemaps.json>`, which checks the file as the game will and writes its entry.
+Tests scale the caps down, point the official list at a local file and admit one local "release" origin through env vars that are unset in every real run: `OH_TILED_BASEMAP_MAX_BYTES`, `OH_HUB_MAX_BUNDLE_BYTES`, `OH_BASEMAP_CATALOG_URL`, `OH_HUB_TEST_ORIGIN` (`server/tiledBasemaps.test.js`). The list itself is written by the community hub's **Detailed maps** workflow, from detailed map posts ([ADR 0006](adr/0006-official-basemap-list.md)).
 
 ### Static / SPA
 | Path | Purpose | Handler |
