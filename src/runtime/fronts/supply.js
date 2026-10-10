@@ -374,7 +374,9 @@ export const markSupply = (battle) => {
     for (const troop of battle.troops[side]) {
       const cell = ownCell(battle.field, side, troop.x, troop.y);
       const value = supply && cell >= 0 ? supply[cell] : 0;
-      troop.supply = value > 0 ? value : supply ? SUPPLY_LEAST : 1;
+      // Ground taken since supply was last worked out has no figure yet: a
+      // troop standing on it is as well supplied as it was.
+      if (value > 0) troop.supply = value;
     }
   }
 };

@@ -74,6 +74,21 @@ export const battlefieldOn = (world, {
   });
 };
 
+// Gives the sheet's regions to whoever a saved battlefield has holding six
+// tenths of them, as the game would have done turn by turn while the line got
+// there: a hand-carved field is then one the world agrees with.
+export const settleWorld = (world, record) => {
+  const arena = rasterizeArena(record.frame, world.regions, { cities: world.map.cities });
+  const holders = decodeMask(record.field.mask, arena.size);
+  const held = [new Int32Array(arena.ids.length), new Int32Array(arena.ids.length)];
+  for (let index = 0; index < arena.size; index += 1) if (holders[index] < 2) held[holders[index]][arena.region[index]] += 1;
+  for (let region = 1; region < arena.ids.length; region += 1) {
+    const side = record.sides.findIndex((members) => members.includes(world.controllerOf(arena.ids[region])));
+    if (side >= 0 && held[1 - side][region] >= 0.6 * arena.cells[region]) world.controller.set(arena.ids[region], record.sides[1 - side][0]);
+  }
+  return record;
+};
+
 // A disc of ground for a side, for `carve`.
 export const disc = (field, side, x, y, radius) => takeCapsule(field, side, x, y, x, y, radius, radius);
 

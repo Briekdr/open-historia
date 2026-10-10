@@ -392,7 +392,11 @@ export const planLanes = (battle, side, line, views) => {
     let part = 0;
     let lengthKm = 0;
     let at = 0;
-    if (nearestOnContour(field, contour, troop.x, troop.y, FOOT_REACH_CELLS) !== Infinity && body[contour.from[nearest.segment]] === troop.body && body[contour.to[nearest.segment]] === troop.body) {
+    // The foot is looked for from a little way along its heading. A troop at
+    // the head of its own salient stands in the middle of the arc it swept,
+    // as near one point of it as another: the one it is heading for is its foot.
+    const lead = controlRadius(troop, kmAt) * 0.5;
+    if (nearestOnContour(field, contour, troop.x + troop.hx * lead, troop.y + troop.hy * lead, FOOT_REACH_CELLS) !== Infinity && body[contour.from[nearest.segment]] === troop.body && body[contour.to[nearest.segment]] === troop.body) {
       from = contour.from[nearest.segment];
       to = contour.to[nearest.segment];
       part = nearest.along;
@@ -749,7 +753,10 @@ export const settle = (battle, side, views, attacking, advanceKm, overlandKm) =>
     const word = view ? view.word : "hold";
     const forward = attacking(troop);
 
-    if (massing && word !== "fall back") {
+    // A troop that steps forward today goes where its heading takes it, and
+    // nowhere else: at the head of its own salient every point of the line is
+    // as near as every other, and "along the line" would mean nothing.
+    if (massing && word !== "fall back" && !troop.stepping) {
       const most = advanceKm[troop.kind] * DRIFT_SHARE;
       let drift = Math.max(-most, Math.min(most, station.ideal - station.place));
       if (drift > 0) drift = Math.max(0, Math.min(drift, station.high - station.place));
