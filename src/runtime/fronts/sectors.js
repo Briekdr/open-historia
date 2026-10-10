@@ -49,27 +49,33 @@ export const readSectors = (line) => {
     }
     return count > 0 ? { low, high, extent: high - low } : { low: 0, high: 0, extent: 0 };
   });
-  let longest = 0;
-  for (let index = 1; index < AXES.length; index += 1) if (spans[index].extent > spans[longest].extent) longest = index;
-  const least = spans[longest].extent * SECTOR_AXIS_SHARE;
+  let widest = 0;
+  for (let index = 1; index < AXES.length; index += 1) if (spans[index].extent > spans[widest].extent) widest = index;
+  const least = spans[widest].extent * SECTOR_AXIS_SHARE;
   const fits = spans.map((span) => span.extent > 0 && span.extent >= least);
+  // The way it mostly runs. A line is said to run on a diagonal only when it
+  // has no real extent across that diagonal: a ring, or a line that wanders,
+  // is as wide on one diagonal as on the other, and is named by the compass.
+  const longest = AXES[widest].diagonal && fits[widest === 2 ? 3 : 2] ? (spans[1].extent > spans[0].extent ? 1 : 0) : widest;
   // A diagonal word needs the line to have real extent both ways: on a line
   // running due north its "northeast" would only be another word for its north.
   const both = fits[0] && fits[1];
+  // The way the line mostly runs is named first, end, centre, end: that is the
+  // order a reader walks it in.
   const names = ["all"];
   const cuts = new Map();
-  for (let index = 0; index < AXES.length; index += 1) {
+  const order = [longest, ...AXES.map((axis, index) => index).filter((index) => index !== longest)];
+  for (const index of order) {
     if (!fits[index] || (AXES[index].diagonal && !both)) continue;
     const axis = AXES[index];
     const { low, extent } = spans[index];
-    names.push(axis.high, axis.low);
     cuts.set(axis.high, { x: axis.x, y: axis.y, from: low + (extent * 2) / 3, to: Infinity });
     cuts.set(axis.low, { x: axis.x, y: axis.y, from: -Infinity, to: low + extent / 3 });
-  }
-  if (spans[longest].extent > 0) {
-    const axis = AXES[longest];
-    const { low, extent } = spans[longest];
-    names.push("centre");
+    if (index !== longest) {
+      names.push(axis.high, axis.low);
+      continue;
+    }
+    names.push(axis.high, "centre", axis.low);
     cuts.set("centre", { x: axis.x, y: axis.y, from: low + extent / 3, to: low + (extent * 2) / 3 });
   }
   return { axis: spans[longest].extent > 0 ? AXES[longest].name : "", names, cuts };
@@ -122,7 +128,8 @@ export const describePoint = (arena, x, y) => {
   if (best) return `city: ${best.name}`;
   if (x >= 0 && y >= 0 && x < arena.cols && y < arena.rows) {
     const region = arena.region[Math.floor(y) * arena.cols + Math.floor(x)];
-    if (region > 0) return `region: ${arena.names[region]}`;
+    // A region with no name of its own is known only by its id, which is never shown.
+    if (region > 0 && arena.names[region] !== arena.ids[region]) return `region: ${arena.names[region]}`;
   }
   return "";
 };

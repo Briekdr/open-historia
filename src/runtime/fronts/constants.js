@@ -58,7 +58,7 @@ export const TROOP_STATES = Object.freeze(["holding", "advancing", "encircled", 
 
 // What a side can be told to do on a stretch of the line, and what the story
 // may say came of it. These are the words an order is written in.
-export const FRONT_ORDERS = Object.freeze(["advance", "blitz", "spearhead", "encircle", "hold", "dig in", "fall back", "land"]);
+export const FRONT_ORDERS = Object.freeze(["advance", "blitz", "spearhead", "encircle", "hold", "dig in", "fall back", "land", "flank"]);
 export const FRONT_RESULTS = Object.freeze(["breakthrough", "captured", "repulsed", "stalemate", "collapse", "surrender"]);
 export const FRONT_EFFORTS = Object.freeze(["token", "limited", "major", "total"]);
 export const DEFAULT_EFFORT = "major";
@@ -113,16 +113,63 @@ export const REACH_KM = 40;
 export const REACH_MIN_CELLS = 4;
 // Two neighbours within this many radii of each other advance as one line.
 export const LINK_RADII = 4.5;
-// Where it stands behind the line, and how near its station counts as in line.
-export const STATION_BEHIND_RADII = 0.8;
-export const IN_LINE_RADII = 1.5;
+// How far behind the line it stands when it is not attacking, by kind, before
+// its own depth is applied; and how far along the line from its ideal place
+// still counts as in place, in control radii.
+export const STAND_OFF_KM = Object.freeze([8, 8, 16]);
+export const IN_PLACE_RADII = 1.5;
+// A troop not attacking walks up to its stand-off only from further back than
+// this: twice its stand-off, and never less than this many control radii. One
+// that has just carved its way forward stands a radius behind its own line,
+// and is to stay there.
+export const STAND_OFF_FAR = 2;
+export const STAND_OFF_FAR_RADII = 1.5;
 export const TROOP_ATTACK = Object.freeze([1.0, 1.6, 1.2]);
 export const TROOP_DEFENCE = Object.freeze([1.2, 1.0, 0.8]);
-// A troop that cannot get nearer its station for this many days is carried round.
+// A troop that cannot get nearer where it is going for this many days is carried round.
 export const STUCK_DAYS = 3;
-// A day's march to a station is walked in legs of this many cells, at most this many.
+// A day's march is walked in legs of this many cells, at most this many.
 export const MARCH_LEG_CELLS = 2;
 export const MARCH_LEGS_MAX = 24;
+
+// Every troop is its own: what it draws for a run, each between two values.
+// Its drive multiplies its step forward, its depth its stand-off behind the
+// line, its lane shifts its place along the line by that share of the gap to
+// its neighbours, and its lag is the days it takes to set off under a new
+// attack order (one of the list).
+export const TRAIT_DRIVE = Object.freeze([0.7, 1.35]);
+export const TRAIT_DEPTH = Object.freeze([0.4, 1.8]);
+export const TRAIT_LANE = Object.freeze([-0.45, 0.45]);
+export const TRAIT_LAG_DAYS = Object.freeze([0, 0, 1, 1, 2, 3]);
+// Neighbours are never placed nearer than this share of the gap between places.
+export const LANE_GAP_MIN = 0.35;
+// A troop drifts along the line toward its ideal place by this share of its day's advance.
+export const DRIFT_SHARE = 0.25;
+// How far the line is looked for round a troop, in cells, before the nearest
+// vertex of its own body's line is taken instead.
+export const FOOT_REACH_CELLS = 6;
+// Under a plain advance a troop waits when it is this many control radii
+// further forward than its nearer neighbour in the line.
+export const ADVANCE_AHEAD_RADII = 4;
+// A heading turns by at most this in a day (the cosine of 45 degrees), and by
+// less the less the troop walked the day before: a full turn takes a walk of
+// TURN_WALK_RADII control radii, and a troop that barely moved turns by
+// TURN_LEAST of it. That is what keeps a slow troop's path from curling.
+export const TURN_MOST_COS = 0.7071067811865476;
+export const TURN_WALK_RADII = 1;
+export const TURN_LEAST = 0.15;
+// A troop gives way when a step's sweep comes within this of where it stands, in cells.
+export const GIVE_WAY_MARGIN_CELLS = 0.25;
+// Flanking. A defender with attackers in reach in separated directions (the
+// directions to two of them more than a right angle apart) defends at the
+// first of these; with two on opposite sides of it (the cosine between them
+// under FLANK_OPPOSITE_COS), at the second. And works dug facing the enemy
+// count only against an attacker in front of them.
+// A flank takes the wing with fewer defenders within this many control radii of its way.
+export const FLANK_OPEN_RADII = 3;
+export const FLANKED_DEFENCE = 0.75;
+export const SURROUNDED_DEFENCE = 0.55;
+export const FLANK_OPPOSITE_COS = -0.7;
 
 // Raising troops. The heavier side has TROOPS_BASE + a counter for every
 // TROOPS_KM_EACH of line; the other in proportion, never under TROOPS_MIN.
@@ -227,13 +274,13 @@ export const SUPPLY_EVERY_DAYS = 3;
 export const SUPPLY_FULL_KM = Object.freeze([120, 180, 300, 450]);
 export const SUPPLY_FAR_FACTOR = 2.5;
 export const SUPPLY_LEAST = 0.4;
-// A body of ground cut off from every source.
+// A body of ground cut off from every source. Under this many square
+// kilometres it is a patch, filled the day the ring closes; from this size up
+// it is a pocket, an encirclement that has to be starved out or cleared.
+export const PATCH_MAX_KM2 = 1500;
 export const POCKET_DAYS = 10;
 export const POCKET_LOSS = 4;
 export const POCKET_DEFENCE = 0.5;
-// A cut-off piece of a side's own country still feeds itself if it is this
-// share of all of its own country that the side holds here.
-export const SOURCE_MIN_SHARE = 0.2;
 
 // A region changes hands when the side that does not control it holds this share.
 export const FLIP_AT = 0.6;

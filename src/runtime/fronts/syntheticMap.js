@@ -16,6 +16,7 @@
 // A region's id is "r<column>-<row>" counted from the north-west corner and its
 // name "<owner> <column>.<row>", unless `names` gives it another.
 
+import { addGameDays } from "../gameDates.js";
 import { createFrame } from "./frame.js";
 
 const wrap = (lng) => (lng > 180 ? lng - 360 : lng < -180 ? lng + 360 : lng);
@@ -92,6 +93,47 @@ export const sideTable = (arena, world, sides) =>
     const owner = world.controllerOf(id);
     return !owner ? -1 : sides[0].includes(owner) ? 0 : sides[1].includes(owner) ? 1 : -1;
   });
+
+// What the engine is handed for a run on a sheet: one war between Aland and
+// Borduria, nothing ordered, thirty days. A test changes what it needs to.
+export const frontInput = (world, overrides = {}) => {
+  const days = overrides.days ?? 30;
+  const fromDate = overrides.fromDate ?? "2024-03-01";
+  return {
+    battlefields: [],
+    fromDate,
+    toDate: addGameDays(fromDate, days) || fromDate,
+    days,
+    moments: [],
+    wars: [{ id: "war-1", title: "The Aland war", status: "active", sideA: ["Aland"], sideB: ["Borduria"] }],
+    controllerOf: world.controllerOf,
+    sovereignOf: world.sovereignOf,
+    groupAreas: {},
+    isGroup: () => false,
+    units: [],
+    map: world.map,
+    regionTypes: [],
+    strengthOf: () => 100,
+    pace: 1,
+    flipAllowance: null,
+    seed: "a seed",
+    arenas: new Map(),
+    ...overrides,
+  };
+};
+
+// Does to a sheet what the game does with a run's flips: each region that
+// changed hands is given to who took it, and a group's area follows. Returns
+// the group areas as they then stand.
+export const applyFlips = (world, flips, groupAreas = {}) => {
+  const areas = { ...groupAreas };
+  for (const flip of flips) {
+    if (flip.kind === "control") world.controller.set(flip.regionId, flip.to);
+    else if (flip.kind === "groupTake") areas[flip.regionId] = flip.to;
+    else if (flip.kind === "groupRelease") delete areas[flip.regionId];
+  }
+  return areas;
+};
 
 // A sheet from a picture alone: every letter of `picture` repeated `wide` times
 // across and each line `tall` times down, so a test can draw countries as

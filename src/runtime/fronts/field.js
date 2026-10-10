@@ -28,6 +28,7 @@ import {
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
   HOLDER_WALL,
+  PUSHED_WITHIN_CELLS,
   REDISTANCE_NEAR_CELLS,
   REDISTANCE_REACH_CELLS,
   SUPERSAMPLE,
@@ -57,6 +58,12 @@ export const createField = (arena) => {
     // The cells written since distances were last worked out again.
     changed: [],
     marked: new Uint8Array(size),
+    // For the map, which paints the ground a side has taken in the colour of
+    // the member whose troops took it: that member's place in its side's
+    // list, a cell each, and the part of the day (0 to 1) a cell last changed
+    // hands at. Working state: neither is saved.
+    painter: new Uint8Array(size),
+    when: new Float32Array(size).fill(1),
     // Counts every write, and every change of holder: what is worked out from
     // the field (the contour, the pockets) is good while its count stands.
     edits: 0,
@@ -103,14 +110,18 @@ const markChanged = (field, index) => {
   field.changed.push(index);
 };
 
-// The one place a cell in play is written by an edit.
-const write = (field, index, value) => {
+// The one place a cell in play is written by an edit. Where the cell changes
+// hands it is painted for `painter`, the member of its new side whose troops
+// took it, and `when` it happened in the day is noted for the map's playback.
+const write = (field, index, value, painter = 0, when = 1) => {
   field.phi[index] = value;
   field.edits += 1;
   markChanged(field, index);
   const holder = value < 0 ? HOLDER_SIDE_A : HOLDER_SIDE_B;
   if (field.holders[index] !== holder) {
     field.holders[index] = holder;
+    field.painter[index] = painter;
+    field.when[index] = when;
     field.turns += 1;
   }
 };
@@ -474,12 +485,29 @@ export const nearestOnContour = (field, contour, px, py, reach) => {
 // value at p to another at q, which is the bridge between two troops advancing
 // side by side; p and q the same point is a disc.
 //
-// `claims`, when given, settles ground both sides step into in one moment:
-// { stamp, power, moment } with `strength` the taker's own. Side A writes first
-// and leaves its strength on the cells it covers; side B then takes such a cell
-// only if it is the stronger there.
-export const takeCapsule = (field, side, px, py, qx, qy, radiusP, radiusQ, claims = null, strength = 0) => {
+// `how` says the rest, every part of it optional:
+//   claims, strength   settles ground both sides step into in one moment:
+//                      claims is { stamp, power, moment } and strength the
+//                      taker's own. Side A writes first and leaves its strength
+//                      on the cells it covers; side B then takes such a cell
+//                      only if it is the stronger there.
+//   marks, day         the day is left on every cell the shape comes near,
+//                      which is how a stretch of line is known to have been
+//                      pushed that day
+//   painter, painterQ  the member the ground is taken for: at p, and at q if
+//                      another's (a bridge is painted for the nearer of the two)
+//   from, span         when in the day the walk began and how long it took,
+//                      as parts of the day: a cell is taken when the walk
+//                      came level with it
+export const takeCapsule = (field, side, px, py, qx, qy, radiusP, radiusQ, how = null) => {
   const { cols, rows, play, phi } = field;
+  const claims = how?.claims ?? null;
+  const strength = how?.strength ?? 0;
+  const marks = how?.marks ?? null;
+  const painterP = how?.painter ?? 0;
+  const painterQ = how?.painterQ ?? painterP;
+  const from = how?.from ?? 1;
+  const span = how?.span ?? 0;
   const reach = Math.max(radiusP, radiusQ) + EDIT_MARGIN_CELLS;
   const col0 = Math.max(0, Math.floor(Math.min(px, qx) - reach));
   const col1 = Math.min(cols - 1, Math.floor(Math.max(px, qx) + reach));
@@ -500,15 +528,16 @@ export const takeCapsule = (field, side, px, py, qx, qy, radiusP, radiusQ, claim
       const oy = cy - (py + sy * along);
       const distance = Math.sqrt(ox * ox + oy * oy) - (radiusP + (radiusQ - radiusP) * along);
       if (distance > EDIT_MARGIN_CELLS) continue;
+      if (marks && distance <= PUSHED_WITHIN_CELLS) marks[index] = how.day;
       if (side === HOLDER_SIDE_A) {
         if (claims && distance < 0 && !(claims.stamp[index] === claims.moment && claims.power[index] >= strength)) {
           claims.stamp[index] = claims.moment;
           claims.power[index] = strength;
         }
-        if (distance < phi[index]) write(field, index, distance);
+        if (distance < phi[index]) write(field, index, distance, along < 0.5 ? painterP : painterQ, from + span * along);
       } else if (-distance > phi[index]) {
         if (claims && claims.stamp[index] === claims.moment && claims.power[index] >= strength) continue;
-        write(field, index, -distance);
+        write(field, index, -distance, along < 0.5 ? painterP : painterQ, from + span * along);
       }
     }
   }
@@ -517,14 +546,17 @@ export const takeCapsule = (field, side, px, py, qx, qy, radiusP, radiusQ, claim
 // A side takes a set of cells whole (a region, a pocket that surrenders, land
 // the world handed over). Nothing says where inside a cell such a line runs, so
 // it is put on the cells' own edges: the cells taken hold half a cell, and so
-// does whatever of the other side now touches them.
-export const takeCells = (field, side, cells) => {
+// does whatever of the other side now touches them. `painter` is the member
+// they are taken for, or a function giving it for each cell.
+export const takeCells = (field, side, cells, painter = 0) => {
   const { cols, rows, play, phi, holders } = field;
   const inside = sideSign(side) * ROUGH;
   for (let position = 0; position < cells.length; position += 1) {
     const index = cells[position];
     if (!play[index]) continue;
-    if (side === HOLDER_SIDE_A ? phi[index] > inside : phi[index] < inside) write(field, index, inside);
+    if (side === HOLDER_SIDE_A ? phi[index] > inside : phi[index] < inside) {
+      write(field, index, inside, holders[index] === side ? 0 : typeof painter === "function" ? painter(index) : painter);
+    }
   }
   for (let position = 0; position < cells.length; position += 1) {
     const index = cells[position];
@@ -544,11 +576,13 @@ export const takeCells = (field, side, cells) => {
 
 // Puts cells back to the values of an earlier copy of the field (ground an
 // attack took and lost again). Only cells in play in both are touched.
-export const restoreCells = (field, cells, earlierPhi) => {
+// `painter` gives the member a cell that changes hands goes back to.
+export const restoreCells = (field, cells, earlierPhi, painter = () => 0) => {
   for (let position = 0; position < cells.length; position += 1) {
     const index = cells[position];
     if (!field.play[index] || earlierPhi[index] === 0 || field.phi[index] === earlierPhi[index]) continue;
-    write(field, index, earlierPhi[index]);
+    const returns = earlierPhi[index] < 0 !== field.phi[index] < 0;
+    write(field, index, earlierPhi[index], returns ? painter(index) : 0);
   }
 };
 
@@ -815,6 +849,46 @@ export const readField = (field, x, y) => {
 export const holderAtPoint = (field, x, y) => {
   if (!(x >= 0) || !(y >= 0) || x >= field.cols || y >= field.rows) return HOLDER_WALL;
   return field.holders[Math.floor(y) * field.cols + Math.floor(x)];
+};
+
+// The cell a side holds that is nearest a point, looked for out to `reach`
+// cells; -1 when it holds none that near. Of two equally near, the lower cell.
+export const nearestHeld = (field, side, x, y, reach) => {
+  const { cols, rows, holders } = field;
+  const col = Math.floor(x);
+  const row = Math.floor(y);
+  let best = -1;
+  let bestDistance = Infinity;
+  for (let ring = 0; ring <= reach; ring += 1) {
+    if (ring > 1 && bestDistance < (ring - 1) * (ring - 1)) break;
+    for (let dy = -ring; dy <= ring; dy += 1) {
+      const at = row + dy;
+      if (at < 0 || at >= rows) continue;
+      const edge = dy === -ring || dy === ring;
+      for (let dx = -ring; dx <= ring; dx += edge ? 1 : Math.max(1, ring * 2)) {
+        const across = col + dx;
+        if (across < 0 || across >= cols || holders[at * cols + across] !== side) continue;
+        const ox = across + 0.5 - x;
+        const oy = at + 0.5 - y;
+        const distance = ox * ox + oy * oy;
+        const index = at * cols + across;
+        if (distance < bestDistance || (distance === bestDistance && index < best)) {
+          bestDistance = distance;
+          best = index;
+        }
+      }
+    }
+  }
+  return best;
+};
+
+// The cell of its own side's ground a troop at a point stands on: the cell it
+// is in, or where the line runs through that cell and the cell is the other
+// side's, the cell of its own beside it. -1 when it has none within a cell.
+export const ownCell = (field, side, x, y) => {
+  if (!(x >= 0) || !(y >= 0) || x >= field.cols || y >= field.rows) return -1;
+  const cell = Math.floor(y) * field.cols + Math.floor(x);
+  return field.holders[cell] === side ? cell : nearestHeld(field, side, x, y, 1);
 };
 
 // The connected bodies of ground one side holds (cells joined edge to edge):

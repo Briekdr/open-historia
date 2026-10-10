@@ -184,16 +184,16 @@ test("the sector words that fit a line depend on how it runs", () => {
   };
   const upright = sectorsOf(NORTH_SOUTH);
   assert.equal(upright.sectors.axis, "north-south");
-  assert.deepEqual(upright.sectors.names, ["all", "north", "south", "centre"]);
+  assert.deepEqual(upright.sectors.names, ["all", "north", "centre", "south"]);
   const level = sectorsOf(EAST_WEST);
   assert.equal(level.sectors.axis, "east-west");
-  assert.deepEqual(level.sectors.names, ["all", "east", "west", "centre"]);
+  assert.deepEqual(level.sectors.names, ["all", "east", "centre", "west"]);
   const slanted = sectorsOf(DIAGONAL);
   assert.equal(slanted.sectors.axis, "northwest-southeast");
-  assert.deepEqual(slanted.sectors.names, ["all", "north", "south", "east", "west", "southeast", "northwest", "centre"]);
+  assert.deepEqual(slanted.sectors.names, ["all", "southeast", "centre", "northwest", "north", "south", "east", "west"]);
   const ring = sectorsOf(RING);
   assert.equal(traceContour(ring.field).strands[0].closed, true);
-  assert.deepEqual(ring.sectors.names, ["all", ...["north", "south", "east", "west", "northeast", "southwest", "southeast", "northwest"], "centre"]);
+  assert.deepEqual(ring.sectors.names, ["all", "north", "centre", "south", "east", "west", "northeast", "southwest", "southeast", "northwest"]);
   assert.equal(COMPASS_WORDS.length, 8);
 
   // The three thirds of a north-south line share it out, top to bottom.
