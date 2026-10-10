@@ -1,10 +1,10 @@
 // Run: node --test src/runtime/fronts/dynamics.test.js
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CONTROL_RADIUS_MAX_KM, HOLDER_SIDE_A, HOLDER_SIDE_B, LINK_RADII, PATCH_MAX_KM2 } from "./constants.js";
+import { CONTROL_RADIUS_MAX_KM, HOLDER_SIDE_A, HOLDER_SIDE_B, PATCH_MAX_KM2 } from "./constants.js";
 import { createFrontRun, runFronts } from "./engine.js";
 import { takeCapsule } from "./field.js";
-import { applyFlips, frontInput, syntheticMap } from "./syntheticMap.js";
+import { frontInput, syntheticMap } from "./syntheticMap.js";
 import { battlefieldOn, disc, kmPerDegree, readBattlefield, settleWorld } from "./testKit.js";
 
 const legend = { A: "Aland", B: "Borduria", N: "Neutralia", M: { owner: "Borduria", typeId: "peaks" }, "~": null };

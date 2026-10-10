@@ -2,16 +2,19 @@
 // A day, in order:
 //
 //   the line is traced and measured, and today's orders are read against it
-//   every troop is read against the line: where its lane is, where it should be
-//   who attacks today, and who steps forward
-//   the moves that are not a step forward: drifting along the lane to mass,
-//   walking up from a long way back, falling back
+//   how far every cell is from each side's ground is measured (ground.js)
+//   what is cut off is found, and who stands in it (supply.js)
+//   the ground to be closed on is found: pockets, and ground squeezed or
+//   cornered between the other side's (closing.js)
+//   who goes where: the nearest troops are drawn in to close, those under an
+//   order steer along their way, the rest hold, fall back or come up (move.js)
 //   the troops that step forward do so, and take the ground they walk through
-//   an enclosed patch too small to be a pocket is filled
+//   pockets are settled: a scrap is overrun, an empty patch filled, one cut
+//   off too long gives up, a siege runs its course
 //   the cells behind the moved line are given their true distances again
 //   the day's losses are counted, works are dug, reserves come up
-//   pockets grow a day older, and give up when their time has come
 //   a region all but held is finished off
+//   orders grow a day older, and an assault that is over is taken off
 //   every third day, supply is worked out again
 //   a region more than six tenths in the other side's hands changes hands in
 //   name, and one wholly held changes hands on the map

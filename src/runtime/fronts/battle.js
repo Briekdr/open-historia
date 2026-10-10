@@ -370,8 +370,7 @@ export const raiseTroops = (battle, run, only = -1) => {
       troop.y = Math.floor(home / battle.field.cols) + 0.5;
       drawTraits(troop, run.seed, battle.name, side, first + index, battle.even);
     });
-    if (battle.lanes) battle.lanes[side] = null;
-    planLanes(battle, side, line, []);
+    planLanes(battle, side, line);
     standAtPlaces(battle, side);
     settleRaised(battle, side, raised);
     // Each member's share of the counters, the ally whose ground a counter
