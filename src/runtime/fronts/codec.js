@@ -349,6 +349,104 @@ export const decodeTracks = (text) => {
   return source === "" ? [] : source.split(";").map(decodeTrack);
 };
 
+// ---- painted ground --------------------------------------------------------------
+
+// What the map draws as taken ground (replay.js). A cell's state is 0 for
+// ground shown as its region's own, 1 + an index into the replay's list of
+// names for ground painted in that name, and PAINT_WALL for sea and for land
+// that is nobody's in this war. As runs in scan order, three letters a run: the
+// state and how many cells, up to 8,192.
+const STATE_BITS = 5;
+const STATE_RUN_BITS = 13;
+const STATE_RUN_MAX = 1 << STATE_RUN_BITS;
+export const PAINT_WALL = (1 << STATE_BITS) - 1;
+// How many names ground can be painted in: every state between the two.
+export const PAINT_NAMES_MAX = PAINT_WALL - 1;
+
+export const encodeStates = (states) => {
+  const writer = createBitWriter();
+  const length = states?.length ?? 0;
+  let index = 0;
+  while (index < length) {
+    const state = states[index] & PAINT_WALL;
+    let run = 1;
+    while (index + run < length && run < STATE_RUN_MAX && (states[index + run] & PAINT_WALL) === state) run += 1;
+    writer.write(state, STATE_BITS);
+    writer.write(run - 1, STATE_RUN_BITS);
+    index += run;
+  }
+  return writer.end();
+};
+
+// Text shorter than the frame leaves the rest as wall.
+export const decodeStates = (text, length) => {
+  const states = new Uint8Array(Math.max(0, Math.floor(Number(length) || 0))).fill(PAINT_WALL);
+  const source = String(text ?? "");
+  const reader = createBitReader(source);
+  const runs = Math.floor(source.length / 3);
+  let index = 0;
+  for (let run = 0; run < runs && index < states.length; run += 1) {
+    const state = reader.read(STATE_BITS);
+    const end = Math.min(states.length, index + reader.read(STATE_RUN_BITS) + 1);
+    states.fill(state, index, end);
+    index = end;
+  }
+  return states;
+};
+
+// The changes of that ground through a run, in order of time, five letters
+// each: how many ticks after the change before it (a tick is a sixteenth of a
+// day), the cell, and its new state. A wait too long for one entry is spent in
+// entries that change nothing.
+export const PAINT_TICKS_PER_DAY = 16;
+export const PAINT_LETTERS = 5;
+const PAINT_WAIT = 63;
+const PAINT_NO_CELL = 0xffff;
+
+export const encodePaint = (changes) => {
+  const writer = createBitWriter();
+  let at = 0;
+  for (const change of Array.isArray(changes) ? changes : []) {
+    const tick = Math.max(at, clampInt(change?.tick, 0, 0x7fffffff));
+    while (tick - at >= PAINT_WAIT) {
+      writer.write(PAINT_WAIT, 6);
+      writer.write(PAINT_NO_CELL, 16);
+      writer.write(0, 8);
+      at += PAINT_WAIT;
+    }
+    writer.write(tick - at, 6);
+    writer.write(clampInt(change?.cell, 0, PAINT_NO_CELL - 1), 16);
+    writer.write(clampInt(change?.state, 0, PAINT_WALL), STATE_BITS);
+    writer.write(0, 3);
+    at = tick;
+  }
+  return writer.end();
+};
+
+// As three lists of one length: when (in ticks from the run's first day),
+// which cell, and what it became.
+export const decodePaint = (text) => {
+  const source = String(text ?? "");
+  const reader = createBitReader(source);
+  const entries = Math.floor(source.length / PAINT_LETTERS);
+  const ticks = [];
+  const cells = [];
+  const states = [];
+  let at = 0;
+  for (let index = 0; index < entries; index += 1) {
+    const wait = reader.read(6);
+    const cell = reader.read(16);
+    const state = reader.read(STATE_BITS);
+    reader.read(3);
+    at += wait;
+    if (wait === PAINT_WAIT && cell === PAINT_NO_CELL) continue;
+    ticks.push(at);
+    cells.push(cell);
+    states.push(state);
+  }
+  return { ticks: Uint32Array.from(ticks), cells: Uint16Array.from(cells), states: Uint8Array.from(states) };
+};
+
 // ---- keys ----------------------------------------------------------------------
 
 // A short name for a list of things, to tell whether it is still the same list

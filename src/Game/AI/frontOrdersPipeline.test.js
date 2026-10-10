@@ -21,14 +21,19 @@ import { previewScreenedEvent, screenGeneratedWorldEvents } from "./nativeWorldI
 
 const read = (name) => fs.readFileSync(new URL(name, import.meta.url), "utf8");
 
-test("the lean contract does not carry the field, and the contract with it stays inside the size guard", () => {
+test("the lean contract does not carry the field, and the field costs the contract under a hundred characters", () => {
   const lean = GAMEPLAY_TOOLS.jumpForward;
   assert.equal("frontOrders" in lean.schema.properties, false);
   const shown = withFrontOrders(lean);
   assert.deepEqual(shown.schema.properties.frontOrders, { type: "string", description: "Fronts; format in prompt. Empty if none." });
   assert.equal(Object.keys(shown.schema.properties).at(-1), "frontOrders", "after the ledgers, before anything a fold adds");
-  const size = JSON.stringify(shown.schema).length;
-  assert.ok(size < 28000, `the jump schema with front orders is ${size} chars`);
+  // The lean contract is held to a size of its own (projectOpSchema.test.js),
+  // and other fields are written into what room that leaves, so what is held
+  // here is what THIS field adds: one line saying what it is. It is sent only
+  // while the game fights on battlefields, where it stands in for a move
+  // operation a formation and a control operation a region.
+  const cost = JSON.stringify(shown.schema).length - JSON.stringify(lean.schema).length;
+  assert.ok(cost > 0 && cost < 100, `front orders cost the jump schema ${cost} chars`);
   assert.equal(withFrontOrders(shown), shown, "added once");
   assert.equal(withFrontOrders(GAMEPLAY_TOOLS.actions), GAMEPLAY_TOOLS.actions, "no other task's tool is touched");
   // With the other reshapings a skip's tool goes through.

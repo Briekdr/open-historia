@@ -13,10 +13,10 @@
 //     named: [{ s, i, name, unitId }],   formations taken in from world.units
 //     pool, base, quality, effort,  a pair each, one value a side
 //     orders: [{ s, sector, order, objective?, effort?, by?, since }],
-//     replay,                       the last run, kept to be played back: the
-//                                   line day by day and each troop's path
-//                                   (replay.js); null where there is none
-//     held, contested,              what the hatch over taken land is cut from
+//     replay,                       the last run, kept to be played back: each
+//                                   troop's path and the ground as it was
+//                                   taken (replay.js); null where there is none
+//     held, contested,              the regions partly taken, for the card
 //     brief, log                    what the prompt and the card read
 //   }
 //
@@ -232,11 +232,10 @@ export const isOpenBattlefield = (battlefield) => battlefield?.status === "activ
 // each is, whose it is and whether it is a named formation do not change in a
 // run, and a troop's place in its side's list is its own for the whole of one,
 // so the path at one place in the replay is the path of the troop at that
-// place here. Lines and paths are in cell units of `frame`
-// (projectorOf(frame).toLngLat places them), and a line runs with side 0's
-// ground on its left. `window` is the days of the replay to play between, for
-// a list made by battlefieldsAtDay, and null to show it as it ended. Read once
-// a record.
+// place here. Paths are in cell units of `frame` (projectorOf(frame).toLngLat
+// places them), and the painted ground is a state a cell of it. `window` is the
+// days of the replay to play between, for a list made by battlefieldsAtDay,
+// and null to show it as it ended. Read once a record.
 const views = new WeakMap();
 export const frontViewOf = (battlefield) => {
   if (!battlefield) return null;
@@ -260,14 +259,14 @@ export const frontViewOf = (battlefield) => {
 
 // A battlefield as it was on a day of its last run, to be played from `from`
 // to `until`: null when it had not opened yet. One that has closed since was
-// still being fought over. What describes only the end of the run (the hatch's
-// shapes) is left out.
+// still being fought over. What describes only the end of the run (the regions
+// partly taken) is left out.
 const atDay = (battlefield, from, until) => {
   const replay = battlefield.replay;
   if (!replay) return battlefield;
   if (until < replay.s) return null;
   const then = { ...battlefield, replay: replayBetween(replay, Math.max(from, replay.s), until), held: "", contested: [] };
-  if (battlefield.status === "closed" && until < replay.k[replay.k.length - 1]) {
+  if (battlefield.status === "closed" && until < replay.e) {
     then.status = "active";
     delete then.closedDate;
   }
