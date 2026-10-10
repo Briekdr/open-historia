@@ -1,0 +1,227 @@
+/*! Open Historia — the orders a turn gives its battlefields © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
+// A time skip does not move troops or redraw the front: it says what each side
+// is told to do on a battlefield, and the front engine (runtime/fronts/) works
+// out what comes of it. The orders travel the way the war ledger's records do
+// (nativeWarLedger.js), as compact lines in one string of the answer:
+//
+//   frontOrders   battlefield~side~order~sector~eventNumbersCSV~objective~result~effort
+//
+//   battlefield  its name, as the prompt lists it
+//   side         the country or group being ordered, by its exact name
+//   order        advance | blitz | spearhead | encircle | hold | dig in | fall back | land
+//   sector       all | north | centre | south | east | west | northeast ... | a place on the line
+//   events       the numbers of the events of this answer that tell of it; may be blank
+//   objective    a place by name ("city: Kharkiv"); blank for none
+//   result       what the story says came of it, when the story needs to say:
+//                breakthrough | captured | repulsed | stalemate | collapse | surrender
+//   effort       token | limited | major | total
+//
+// The last three may be left off. The event numbers are the fifth field on
+// purpose: that is where the integrity screen looks for a ledger record that
+// rests on an event (nativeWorldIntegrity.js eventHasLedgerTrigger), so an
+// event an order rests on is not filed away as routine military news.
+//
+// Nothing here needs the map: whether a battlefield, a side, a sector or an
+// objective exists is the engine's to find when it runs, and it says so in its
+// notes. Loads in plain Node.
+
+import { FRONT_EFFORTS, FRONT_ORDERS, FRONT_RESULTS } from "../../runtime/fronts/constants.js";
+
+export const FRONT_ORDERS_FIELD = "frontOrders";
+export const FRONT_ORDER_SEPARATOR = "~";
+export const MAX_FRONT_ORDERS_PER_PASS = 24;
+
+const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
+const fold = (value) => clean(value).toLowerCase().replace(/[.!]+$/, "");
+const asArray = (value) => (Array.isArray(value) ? value : []);
+
+// What a model is likely to write for each word. A word that is not here and
+// not the word itself is not an order: it is left out and said.
+const wordTable = (canonical, synonyms) => {
+  const table = new Map();
+  for (const word of canonical) table.set(word, word);
+  for (const [word, others] of Object.entries(synonyms)) {
+    for (const other of others) table.set(other, word);
+  }
+  return table;
+};
+const ORDER_WORDS = wordTable(FRONT_ORDERS, {
+  advance: ["attack", "attacks", "push", "offensive", "assault", "advances", "press", "pursue"],
+  blitz: ["blitzkrieg", "mass", "massed attack", "massed assault"],
+  spearhead: ["thrust", "drive", "armoured thrust", "armored thrust"],
+  encircle: ["envelop", "encirclement", "pincer", "pincers", "surround"],
+  hold: ["defend", "hold the line", "stand", "stand fast", "holds"],
+  "dig in": ["dig-in", "digin", "entrench", "fortify", "entrenched"],
+  "fall back": ["fall-back", "fallback", "retreat", "withdraw", "pull back", "withdrawal"],
+  land: ["landing", "amphibious landing", "amphibious", "landings"],
+});
+const RESULT_WORDS = wordTable(FRONT_RESULTS, {
+  breakthrough: ["broke through", "break through", "breaks through"],
+  captured: ["capture", "taken", "takes", "fell", "falls", "seized"],
+  repulsed: ["repelled", "beaten back", "thrown back", "failed", "fails"],
+  stalemate: ["deadlock", "stalled", "stall"],
+  collapse: ["collapsed", "collapses", "rout", "routed"],
+  surrender: ["surrendered", "surrenders", "capitulation", "capitulated", "capitulates"],
+});
+const EFFORT_WORDS = wordTable(FRONT_EFFORTS, {
+  token: ["minimal", "probing", "probe"],
+  limited: ["partial", "modest"],
+  major: ["heavy", "large", "full"],
+  total: ["all-out", "all out", "maximum", "everything"],
+});
+// The sector words that mean a part of the line by the compass. Anything else
+// in the sector's field is a place, kept as written for the engine to find.
+const SECTOR_WORDS = wordTable(
+  ["all", "north", "south", "east", "west", "centre", "northeast", "northwest", "southeast", "southwest"],
+  {
+    all: ["whole", "entire", "everywhere", "whole line", "entire line", "the whole line", "all troops", ""],
+    centre: ["center", "central", "middle", "the centre", "the center"],
+    north: ["northern", "the north"],
+    south: ["southern", "the south"],
+    east: ["eastern", "the east"],
+    west: ["western", "the west"],
+    northeast: ["north-east", "north east", "northeastern"],
+    northwest: ["north-west", "north west", "northwestern"],
+    southeast: ["south-east", "south east", "southeastern"],
+    southwest: ["south-west", "south west", "southwestern"],
+  },
+);
+
+export const normalizeFrontSector = (value) => SECTOR_WORDS.get(fold(value)) ?? clean(value);
+
+const parseEventNumbers = (value) =>
+  String(value ?? "")
+    .split(",")
+    .map((entry) => Number.parseInt(entry.trim(), 10))
+    .filter((entry) => Number.isInteger(entry) && entry >= 1)
+    .map((entry) => entry - 1)
+    .slice(0, 16);
+
+const isRecordLine = (text) => text.includes(FRONT_ORDER_SEPARATOR);
+
+// The lines of a frontOrders answer that are not records at all, as written: a
+// heading, or a sentence saying nothing changed where an empty string was asked
+// for (the war ledger has met both). They are ignored; the caller may log them.
+export const frontOrderProseLines = (value) => {
+  if (Array.isArray(value)) return [];
+  return String(value ?? "").split(/\r?\n/).map(clean).filter((line) => line && !isRecordLine(line));
+};
+
+// One line read. A record that cannot be acted on comes back with `problem`
+// saying why, so the caller can say it once in the turn's receipt.
+const parseFrontOrderLine = (line, index) => {
+  const text = clean(line);
+  if (!text || !isRecordLine(text)) return null;
+  const fields = text.split(FRONT_ORDER_SEPARATOR).map(clean);
+  const [battlefield = "", side = "", orderRaw = "", sectorRaw = "", eventsRaw = "", objective = "", resultRaw = "", effortRaw = ""] = fields;
+  const order = ORDER_WORDS.get(fold(orderRaw)) ?? "";
+  const result = RESULT_WORDS.get(fold(resultRaw)) ?? "";
+  const effort = EFFORT_WORDS.get(fold(effortRaw)) ?? "";
+  const record = {
+    id: `front-${index}`,
+    battlefield,
+    side,
+    order,
+    sector: normalizeFrontSector(sectorRaw),
+    eventIndexes: parseEventNumbers(eventsRaw),
+    eventIds: [],
+    objective,
+    result,
+    effort,
+  };
+  if (!battlefield) record.problem = "no battlefield is named";
+  else if (!side) record.problem = "no side is named";
+  else if (!order && !result) record.problem = orderRaw ? `"${orderRaw.slice(0, 40)}" is not an order` : "no order is given";
+  else if (order === "land" && !objective) record.problem = "a landing has to name where";
+  return record;
+};
+
+// An order that already crossed a pass keeps what it was bound to.
+const normalizeFrontOrderRecord = (entry, index) => {
+  if (!entry || typeof entry !== "object") return null;
+  const order = ORDER_WORDS.get(fold(entry.order)) ?? "";
+  const result = RESULT_WORDS.get(fold(entry.result)) ?? "";
+  const record = {
+    id: clean(entry.id) || `front-${index}`,
+    battlefield: clean(entry.battlefield),
+    side: clean(entry.side),
+    order,
+    sector: normalizeFrontSector(entry.sector),
+    eventIndexes: asArray(entry.eventIndexes).map(Number).filter((item) => Number.isInteger(item) && item >= 0).slice(0, 16),
+    eventIds: [...new Set(asArray(entry.eventIds).map(clean).filter(Boolean))].slice(0, 24),
+    objective: clean(entry.objective),
+    result,
+    effort: EFFORT_WORDS.get(fold(entry.effort)) ?? "",
+  };
+  if (clean(entry.problem)) record.problem = clean(entry.problem);
+  else if (!record.battlefield || !record.side || (!order && !result)) record.problem = "the order is incomplete";
+  return record;
+};
+
+// The answer's string (or records already read) as records, the unusable ones
+// included with their `problem`.
+export const decodeFrontOrders = (value, { limit = MAX_FRONT_ORDERS_PER_PASS } = {}) => {
+  const records = Array.isArray(value)
+    ? value.map((entry, index) => (typeof entry === "string" ? parseFrontOrderLine(entry, index) : normalizeFrontOrderRecord(entry, index)))
+    : String(value ?? "").split(/\r?\n/).map((line, index) => parseFrontOrderLine(line, index));
+  return records.filter(Boolean).slice(0, limit);
+};
+
+// The records tied to the ids of the events they named by number. A record that
+// already carries ids crossed a pass with them, and its old numbers are never
+// read against a later batch (the war ledger's rule).
+export const bindFrontOrdersToEvents = (orders, events, { limit } = {}) => {
+  const ids = asArray(events).map((event) => clean(event?.id));
+  return decodeFrontOrders(orders, { limit }).map((order) => ({
+    ...order,
+    eventIds: order.eventIds.length
+      ? order.eventIds
+      : [...new Set(order.eventIndexes.map((index) => ids[index]).filter(Boolean))].slice(0, 24),
+  }));
+};
+
+// What survives into the turn, and what does not, with the reason in words.
+//   humanSides     the countries people play, by name
+//   citesOrderOf   (side, event) => whether that event carries out an order of
+//                  that player's own
+// A person's troops take new orders only from that person: the simulator may
+// write an order for a player's side only where the event it rests on carries
+// out the player's own order. It may still say what came of a battle the player
+// is in, so such a record keeps its result and loses its order.
+export const screenFrontOrders = (orders, { events = [], humanSides = [], citesOrderOf = () => false } = {}) => {
+  const byId = new Map(asArray(events).map((event) => [clean(event?.id), event]));
+  const humans = new Set(asArray(humanSides).map(fold).filter(Boolean));
+  const kept = [];
+  const dropped = [];
+  for (const order of decodeFrontOrders(orders)) {
+    if (order.problem) {
+      dropped.push({ order, reason: order.problem });
+      continue;
+    }
+    if (order.order && humans.has(fold(order.side))) {
+      const cited = order.eventIds.map((id) => byId.get(id)).filter(Boolean).some((event) => citesOrderOf(order.side, event));
+      if (!cited) {
+        dropped.push({ order, reason: `${order.side} is played by a person, and no order of theirs asks for this`, player: true });
+        if (order.result) kept.push({ ...order, order: "", effort: "" });
+        continue;
+      }
+    }
+    kept.push(order);
+  }
+  return { kept, dropped };
+};
+
+// One line for the receipt the simulator reads next turn: which orders were
+// left out, and why, without repeating a reason.
+export const describeDroppedFrontOrders = (dropped) => {
+  const list = asArray(dropped);
+  if (list.length === 0) return "";
+  const reasons = [];
+  for (const { order, reason } of list) {
+    const what = `${order.side || "?"} on ${order.battlefield || "?"}`;
+    const line = `${what}: ${reason}`;
+    if (!reasons.includes(line)) reasons.push(line);
+  }
+  return `Front orders: ${list.length} order(s) were left out (${reasons.slice(0, 4).join("; ")}${reasons.length > 4 ? "; and more" : ""}). `
+    + "The troops there keep the orders they had.";
+};

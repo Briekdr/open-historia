@@ -7,6 +7,7 @@
 //   band    the distance to the line for the cells near it     encodeBand
 //   troops  seven letters a troop                              encodeTroops
 //   lines   the drawn line, three letters a vertex             encodeLines
+//   tracks  a troop's path through a run, eight letters a point  encodeTracks
 //
 // Everything is in CELL units of the battlefield's frame (frame.js), counted
 // from its south-west corner: x eastward in columns, y northward in rows. A
@@ -301,6 +302,52 @@ export const encodeLines = (strands) =>
 
 export const decodeLines = (text) =>
   String(text ?? "").split(";").map(decodeStrand).filter(Boolean);
+
+// ---- tracks --------------------------------------------------------------------
+
+// Where a troop was through a run, as the points the replay keeps of its path
+// (replay.js). Eight letters a point: the day of the run, x and y to 1/16 of a
+// cell, its strength (0-100) and its state as an index into TROOP_STATES. A
+// side's troops are parted by `;` in the order of its list, so a troop with no
+// point still holds its place.
+export const TRACK_LETTERS = 8;
+export const TRACK_DAY_MAX = 4095;
+
+const encodeTrack = (samples) => {
+  const writer = createBitWriter();
+  for (const sample of Array.isArray(samples) ? samples : []) {
+    writer.write(clampInt(sample?.day, 0, TRACK_DAY_MAX), 12);
+    writer.write(clampInt((Number(sample?.x) || 0) * TROOP_UNITS, 0, 4095), 12);
+    writer.write(clampInt((Number(sample?.y) || 0) * TROOP_UNITS, 0, 4095), 12);
+    writer.write(clampInt(sample?.strength, 0, 100), 7);
+    writer.write(clampInt(indexIn(TROOP_STATES, sample?.state), 0, TROOP_STATES.length - 1), 2);
+    writer.write(0, 3);
+  }
+  return writer.end();
+};
+
+const decodeTrack = (text) => {
+  const reader = createBitReader(text);
+  const samples = [];
+  const count = Math.floor(text.length / TRACK_LETTERS);
+  for (let index = 0; index < count; index += 1) {
+    const day = reader.read(12);
+    const x = reader.read(12) / TROOP_UNITS;
+    const y = reader.read(12) / TROOP_UNITS;
+    const strength = Math.min(100, reader.read(7));
+    const state = reader.read(2);
+    reader.read(3);
+    samples.push({ day, x, y, strength, state });
+  }
+  return samples;
+};
+
+export const encodeTracks = (tracks) => (Array.isArray(tracks) ? tracks : []).map(encodeTrack).join(";");
+
+export const decodeTracks = (text) => {
+  const source = String(text ?? "");
+  return source === "" ? [] : source.split(";").map(decodeTrack);
+};
 
 // ---- keys ----------------------------------------------------------------------
 

@@ -6,6 +6,7 @@ import { enqueueEventStrings } from "./translator.js";
 import { normalizeTagList } from "./countryTags.js";
 import { MAX_PUPPETS as MAX_WORLD_PUPPETS, PUPPET_KINDS, PUPPET_SECRECY_LEVELS, PUPPET_STATUSES } from "./puppets.js";
 import { displayNameMigrations, renamePolityInColors, renamePolityInWorld, samePolityName } from "../../server/polityRename.js";
+import { renameInBattlefields } from "../../server/battlefieldNames.js";
 import { advanceRecurringDate, canPlayerDirect, isMilestoneOutstanding, normalizeMilestoneRepeat } from "./projects.js";
 import { dedupeEventLog, eventCanonicalKey } from "./eventDedup.js";
 import { normalizeEventTags } from "./eventTags.js";
@@ -51,6 +52,7 @@ import {
   wrapLng,
 } from "./unitMotion.js";
 import { compareGameDates, normalizeGameDate } from "./gameDates.js";
+import { normalizeBattlefields } from "./fronts/record.js";
 
 export const GAME_DEFAULTS = {
   country: "",
@@ -240,6 +242,10 @@ export const WORLD_DEFAULTS = {
   // save's older treaty/alliance events, so that only ever happens once.
   diplomaticLedgerVersion: 0,
   wars: [],
+  // Where land wars are fought: two sides, the troops each has there, and the
+  // front line between what each holds (runtime/fronts/record.js). Written by
+  // the front engine and by nothing else.
+  battlefields: [],
   // Subordinations: who directs whom. Directional, partly secret, and written
   // only through the diplomatic director's compact puppetUpdates lines — see
   // docs/adr/0004-puppet-ledger-and-secrecy.md.
@@ -1117,6 +1123,10 @@ const normalizeRegionControlOp = (entry) => {
       note,
       ...(basis ? { basis } : {}),
       ...(entry.wholeCountry === true ? { wholeCountry: true } : {}),
+      // A change the front engine worked out from where the line stands, not
+      // one the model wrote: a turn applied a second time takes these out and
+      // works them out afresh (AI/frontTurn.js).
+      ...(entry.by === "front" ? { by: "front" } : {}),
     };
   }
 
@@ -1240,6 +1250,11 @@ export const normalizeUnitEntry = (entry, index = 0) => {
     // war would have a counter (AI/nativeUnitDirector.js): it is disbanded when
     // that war ends. Absent on every other unit.
     ...(normalizeOptionalString(entry.raisedForWar) ? { raisedForWar: normalizeOptionalString(entry.raisedForWar) } : {}),
+    // The battlefield this formation is fighting on (runtime/fronts/). There it
+    // is one of its side's troops and the front engine moves it; the record
+    // here keeps its name and what it is, and takes its place and strength back
+    // when the battlefield closes. Absent on every other unit.
+    ...(normalizeOptionalString(entry.committedTo) ? { committedTo: normalizeOptionalString(entry.committedTo) } : {}),
     source: UNIT_SOURCE_SET.has(source) ? source : "scenario",
     orderId: normalizeOptionalString(entry.orderId),
     createdAt: normalizeOptionalString(entry.createdAt) || timestamp,
@@ -3303,8 +3318,12 @@ export const enforceUnitVolume = (world, { playerCode = "", playerCodes = [] } =
     unit.source === "player" ||
     players.has(toCountryName(unit.ownerCode).toLowerCase());
 
-  const mine = units.filter(isPlayers);
-  const theirs = units.filter((unit) => !isPlayers(unit));
+  // A formation fighting on a battlefield is one of its side's troops there
+  // (runtime/fronts/): it is not scenery to thin out, and it takes none of its
+  // country's room on the map.
+  const exempt = (unit) => isPlayers(unit) || Boolean(unit.committedTo);
+  const mine = units.filter(exempt);
+  const theirs = units.filter((unit) => !exempt(unit));
   if (theirs.length === 0) return world;
 
   // A total order, so the same world always prunes to the same list — a rollback
@@ -4353,6 +4372,9 @@ export const normalizeWorldState = (world) => {
       ? Math.max(0, Math.trunc(Number(nextWorld.diplomaticLedgerVersion)))
       : 0,
     wars: normalizeWorldWars(nextWorld.wars),
+    // Shape and length only: the engine wrote every record, and this runs on
+    // every read of the world.
+    battlefields: normalizeBattlefields(nextWorld.battlefields),
     puppets: normalizeWorldPuppets(nextWorld.puppets, diplomaticIdentityWorld),
     storylines: normalizeWorldStorylines(nextWorld.storylines),
     simulationRules: normalizeOptionalString(nextWorld.simulationRules),
@@ -5661,6 +5683,8 @@ export const applyEventImpactsToWorld = ({
       nextWorld.groups = applied.groups;
       nextWorld.groupAreas = applied.groupAreas;
       for (const change of applied.changes) {
+        // A group that fights on a battlefield is named there as a side's member.
+        if (change.op === "rename") nextWorld.battlefields = renameInBattlefields(nextWorld.battlefields, change.from, change.name);
         if (change.op === "refused") console.warn(`[groups] "${change.name}" was not created on event "${event.title}": the ${MAX_GROUPS}-group limit is reached.`);
       }
     }

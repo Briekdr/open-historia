@@ -142,6 +142,8 @@ export const normalizeGroupOp = (entry) => {
     ...(color ? { color } : {}),
     regionIds,
     note: clean(entry.note).slice(0, 300),
+    // An area the front engine moved with the line (see normalizeRegionControlOp).
+    ...(entry.by === "front" ? { by: "front" } : {}),
   };
 };
 

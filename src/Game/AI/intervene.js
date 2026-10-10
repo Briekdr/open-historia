@@ -32,6 +32,7 @@ export const journalTurn = ({
     relationUpdates = [],
     agreementUpdates = [],
     puppetUpdates = [],
+    frontOrders = [],
     storylineUpdates = [],
     stopDate = "",
     summary = "",
@@ -47,6 +48,9 @@ export const journalTurn = ({
         relationUpdates: asArray(relationUpdates),
         agreementUpdates: asArray(agreementUpdates),
         puppetUpdates: asArray(puppetUpdates),
+        // The battlefields' orders: the front engine runs again over the kept
+        // events when a turn is cut short, from these.
+        frontOrders: asArray(frontOrders),
         storylineUpdates: asArray(storylineUpdates),
         stopDate: asText(stopDate),
         summary: asText(summary),
@@ -109,6 +113,7 @@ export const truncateTurn = (journal, keptCount, { originDate = "", minimumDate 
             relationUpdates: keepUpdates(journal?.relationUpdates),
             agreementUpdates: keepUpdates(journal?.agreementUpdates),
             puppetUpdates: keepUpdates(journal?.puppetUpdates),
+            frontOrders: keepUpdates(journal?.frontOrders),
             storylineUpdates: keepUpdates(journal?.storylineUpdates),
             stopDate: closingDate,
             summary: asText(journal?.summary),

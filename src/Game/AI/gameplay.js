@@ -191,9 +191,12 @@ import {
   INTELLIGENCE_RATING_FIELD,
   normalizeGameplayPayload,
   validateGameplayPayload,
+  withFrontOrders,
   withIntelligenceRating,
   withoutGroupOps,
 } from "./gameplaySchemas.js";
+import { frontsOn } from "./frontsGate.js";
+import { bindFrontOrdersToEvents, describeDroppedFrontOrders, frontOrderProseLines, screenFrontOrders } from "./nativeFrontLedger.js";
 import { buildOwnerAliasMap, canonicalOwnerName, toCountryName } from "../../runtime/ownerNames.js";
 import { countryGidFromIdentity } from "../../runtime/countryFlags.js";
 import { editDistance, foldRegionKey, matchRegionName, stripRegionAffixes } from "./regionMatch.js";
@@ -922,6 +925,34 @@ const validateSegmentLedgers = (candidate, { world, strict, segmentIndex = 0, re
   return "";
 };
 
+// One segment's orders to its battlefields (nativeFrontLedger.js), after its
+// ledgers have given its events their ids. Read, tied to the events they rest
+// on, and held to the one rule the map does not decide: a person's troops take
+// new orders only from that person. Never an error: a line that cannot stand is
+// left out and said in the receipt, and the troops there keep the orders they
+// had. Whether a battlefield, a side or a place exists is the engine's to find.
+const screenSegmentFrontOrders = (candidate, { game, actions, receipt = null } = {}) => {
+  if (!frontsOn()) {
+    delete candidate.frontOrders;
+    return;
+  }
+  const prose = frontOrderProseLines(candidate?.frontOrders);
+  if (prose.length) console.info(`[OH fronts] ignored ${prose.length} line(s) of prose where front orders go.`);
+  const events = normalizeArray(candidate?.events);
+  const owners = new Map(normalizeArray(actions).map((action) => [
+    normalizeString(action?.id),
+    normalizeString(action?.ownerCode) || normalizeString(game?.country),
+  ]));
+  const { kept, dropped } = screenFrontOrders(bindFrontOrdersToEvents(candidate?.frontOrders, events), {
+    events,
+    humanSides: humanCountriesOf(game),
+    citesOrderOf: (side, event) => normalizeArray(event?.impacts?.actionIds)
+      .some((id) => normalizeString(owners.get(normalizeString(id))).toLowerCase() === normalizeString(side).toLowerCase()),
+  });
+  if (dropped.length) noteReceipt(receipt, "dropped", describeDroppedFrontOrders(dropped));
+  candidate.frontOrders = kept;
+};
+
 // One segment's storyline records, after its ledgers. The director's semantic
 // binder attaches a strong unique match to its selected storyline, quiet echoes
 // of deferred storylines are stripped, serious visible history must bite into a
@@ -1050,6 +1081,7 @@ const screenSegmentPayload = (payload, {
     chats,
     analysis,
     agreementUpdates: payload?.agreementUpdates,
+    frontOrders: payload?.frontOrders,
   });
   if (screened.dropped?.length) {
     console.warn(
@@ -1073,6 +1105,7 @@ const screenSegmentPayload = (payload, {
   payload.relationUpdates = filterBoundLedgerUpdatesToKeptEvents(payload?.relationUpdates, taggedEvents, screened.events);
   payload.puppetUpdates = filterBoundLedgerUpdatesToKeptEvents(payload?.puppetUpdates, taggedEvents, screened.events);
   payload.agreementUpdates = filterBoundLedgerUpdatesToKeptEvents(payload?.agreementUpdates, taggedEvents, screened.events);
+  payload.frontOrders = filterBoundLedgerUpdatesToKeptEvents(payload?.frontOrders, taggedEvents, screened.events);
   payload.storylineUpdates = filterStorylineUpdatesAfterIntegrityScreen({
     updates: decodedStorylineUpdates,
     allEvents: taggedEvents,
@@ -2534,7 +2567,12 @@ const JUMP_LIVE_STATE_BANNER = [
 // Groups switched off for this game (server/gameFeatures.js): a tool shown to
 // the model without groupOps (gameplaySchemas.js withoutGroupOps), and the Game
 // Master's contract without the lines that teach them, built once.
-const forActiveFeatures = (tool) => (isActiveFeatureEnabled("groups") ? tool : withoutGroupOps(tool));
+// Fronts on (frontsGate.js): a time skip's tool with the battlefields' orders
+// in it (gameplaySchemas.js withFrontOrders).
+const forActiveFeatures = (tool) => {
+  const shown = isActiveFeatureEnabled("groups") ? tool : withoutGroupOps(tool);
+  return frontsOn() ? withFrontOrders(shown) : shown;
+};
 let gameMasterPromptNoGroups = null;
 const gameMasterPromptWithoutGroups = () => {
   gameMasterPromptNoGroups ??= withoutGroupOpsLines(NATIVE_GAME_MASTER_PROMPT);
@@ -8182,7 +8220,14 @@ const applySimulationResult = async ({
     applyFocus,
     { originDate: baseGame.gameDate, targetDate: normalizeString(result.stopDate) || baseGame.gameDate },
   );
-  const spareForFocus = createSpareTest(focusMaterial);
+  const spareForPlayer = createSpareTest(focusMaterial);
+  // An event an order to a battlefield rests on is spared the same way: it
+  // carries no operation of its own (the front engine works those out), and the
+  // order would go with it if it went.
+  const frontOrderedEventIds = new Set(normalizeArray(result.frontOrders)
+    .flatMap((order) => normalizeArray(order?.eventIds).map(normalizeString))
+    .filter(Boolean));
+  const spareForFocus = (event) => spareForPlayer(event) || frontOrderedEventIds.has(normalizeString(event?.id));
   // An order the jump carried out without citing it is cited here, before the
   // filler gates, so the event is spared as an order's answer and settleOrders
   // resolves the order instead of carrying it over to be retold next jump.
@@ -8306,6 +8351,7 @@ const applySimulationResult = async ({
   const keptAgreementUpdates = filterBoundLedgerUpdatesToKeptEvents(result.agreementUpdates, dedupedEvents, curatedEvents);
   const keptPuppetUpdates = filterBoundLedgerUpdatesToKeptEvents(result.puppetUpdates, dedupedEvents, curatedEvents);
   const keptStorylineUpdates = filterBoundLedgerUpdatesToKeptEvents(roundStorylineUpdates, dedupedEvents, curatedEvents);
+  const keptFrontOrders = filterBoundLedgerUpdatesToKeptEvents(result.frontOrders, dedupedEvents, curatedEvents);
 
   // Canonical, round-scoped event ids (event-ai-r0007-19140801-003): unique
   // across the whole save, so a ledger or history reference is never ambiguous.
@@ -8322,6 +8368,7 @@ const applySimulationResult = async ({
   const agreementUpdates = remapLedgerEventIds(normalizeArray(keptAgreementUpdates), canonicalEventIdentity.idMap);
   const puppetUpdates = remapLedgerEventIds(normalizeArray(keptPuppetUpdates), canonicalEventIdentity.idMap);
   const storylineUpdates = remapLedgerEventIds(normalizeArray(keptStorylineUpdates), canonicalEventIdentity.idMap);
+  const frontOrders = remapLedgerEventIds(normalizeArray(keptFrontOrders), canonicalEventIdentity.idMap);
   let nextGame = normalizeGameData({
     ...baseGame,
     gameDate: normalizeString(result.stopDate) || baseGame.gameDate,
@@ -9259,6 +9306,7 @@ const applySimulationResult = async ({
         relationUpdates,
         agreementUpdates,
         puppetUpdates,
+        frontOrders,
         storylineUpdates,
         stopDate: nextGame.gameDate,
         summary: result.summary,
@@ -15559,6 +15607,7 @@ const runJumpSegments = async ({ context, onEvents, onProgress, signal, state })
           delete candidate.politicalClaims;
           const ledgerError = validateSegmentLedgers(candidate, { world: ledgerWorld, strict, segmentIndex, receipt: draft });
           if (ledgerError) return ledgerError;
+          screenSegmentFrontOrders(candidate, { game: bundle.game, actions: bundle.actions, receipt: draft });
           return validateSegmentStorylines(candidate, {
             world: ledgerWorld,
             analysis: worldInitiative.analysis,
@@ -15698,7 +15747,7 @@ const runJumpSegments = async ({ context, onEvents, onProgress, signal, state })
         // not applied a second time (a repeated puppet "suppress" would raise
         // loyalty twice).
         const retryEventIds = normalizeArray(payload.events).map((event) => normalizeString(event?.id));
-        for (const key of ["warUpdates", "relationUpdates", "agreementUpdates", "puppetUpdates"]) {
+        for (const key of ["warUpdates", "relationUpdates", "agreementUpdates", "puppetUpdates", "frontOrders"]) {
           payload[key] = keepRetryBoundRecords(payload[key], retryEventIds);
         }
       }
@@ -16584,6 +16633,7 @@ const finishTimelineJump = async ({ context, signal, state }) => {
     relationUpdates: merged.relationUpdates,
     agreementUpdates: merged.agreementUpdates,
     puppetUpdates: merged.puppetUpdates,
+    frontOrders: merged.frontOrders,
     storylineUpdates: merged.storylineUpdates,
     breadthRepairContext: selectBreadthRepairContext(state, context),
     generation: state.generation,

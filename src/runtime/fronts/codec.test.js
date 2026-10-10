@@ -3,15 +3,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   PACKED_TEXT,
+  TRACK_LETTERS,
   TROOP_LETTERS,
   bandIndices,
   decodeBand,
   decodeLines,
   decodeMask,
+  decodeTracks,
   decodeTroops,
   encodeBand,
   encodeLines,
   encodeMask,
+  encodeTracks,
   encodeTroops,
   hashKey,
 } from "./codec.js";
@@ -121,6 +124,30 @@ test("the drawn line comes back to a thirty-second of a cell, strand by strand",
   assert.equal(encodeLines(read), text, "a second pass changes nothing");
   assert.deepEqual(decodeLines(""), []);
   assert.equal(encodeLines([{ points: [] }]), "");
+});
+
+test("a troop's path comes back point for point, and a troop with none keeps its place", () => {
+  const tracks = [
+    [{ day: 0, x: 10.5, y: 3.0625, strength: 80, state: 0 }, { day: 12, x: 14.25, y: 9, strength: 61.4, state: "advancing" }, { day: 4095, x: 255.9375, y: 0, strength: 0, state: 3 }],
+    [],
+    [{ day: 7, x: 1, y: 2, strength: 100, state: 2 }],
+  ];
+  const text = encodeTracks(tracks);
+  assert.match(text, PACKED_TEXT);
+  assert.equal(text.split(";").length, 3);
+  assert.equal(text.split(";")[0].length, 3 * TRACK_LETTERS);
+  const read = decodeTracks(text);
+  assert.deepEqual(read[0][0], { day: 0, x: 10.5, y: 3.0625, strength: 80, state: 0 });
+  assert.deepEqual(read[0][1], { day: 12, x: 14.25, y: 9, strength: 61, state: 1 });
+  assert.deepEqual(read[0][2], { day: 4095, x: 255.9375, y: 0, strength: 0, state: 3 });
+  assert.deepEqual(read[1], []);
+  assert.deepEqual(read[2], [{ day: 7, x: 1, y: 2, strength: 100, state: 2 }]);
+  assert.equal(encodeTracks(read), text, "a second pass changes nothing");
+  assert.deepEqual(decodeTracks(""), []);
+  assert.equal(encodeTracks(null), "");
+  // What is out of range is held to it, and a damaged string reads as far as it goes.
+  assert.deepEqual(decodeTracks(encodeTracks([[{ day: 99999, x: -4, y: 9999, strength: 250, state: 9 }]]))[0][0], { day: 4095, x: 0, y: 255.9375, strength: 100, state: 3 });
+  assert.equal(decodeTracks(text.slice(0, TRACK_LETTERS + 3))[0].length, 1);
 });
 
 test("a key names a list and nothing looser", () => {
