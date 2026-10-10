@@ -336,7 +336,7 @@ export const simulateDay = (battle, run, day) => {
   }
   markPockets(battle);
   markSupply(battle);
-  decideTasks(battle, run.braked);
+  decideTasks(battle, run.braked, line);
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) settle(battle, side, battle.views[side], (troop) => troop.attacking, run.advanceKm, run.overlandKm);
   steer(battle, line, day, run.seed, run.steer);
   const steps = stepForward(battle, run.advanceKm, run.pace);

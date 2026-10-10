@@ -78,6 +78,22 @@ export const readRegions = (battle, run) => {
   battle.homes = Uint8Array.from(arena.region, (region) => homeOfRegion[region]);
 };
 
+// One region changed hands during a run: its side is read again, and whose
+// home it is. Nothing else about the ground can have changed, so nothing else
+// is read: a war in which hundreds of regions change hands would otherwise
+// read every region of the arena for each of them.
+export const readRegion = (battle, run, id) => {
+  const index = battle.arena.indexOf.get(id);
+  if (index === undefined || !battle.regionSide) return;
+  const group = sideOfName(battle, run.groupOf(id));
+  battle.regionSide[index] = group >= 0 ? group : sideOfName(battle, run.controllerOf(id));
+  const home = group >= 0 ? group : sideOfName(battle, run.sovereignOf(id));
+  if (home === battle.homeSide[index]) return;
+  // A list of its own, so that what was worked out from the old one is worked out again.
+  battle.homeSide = Int8Array.from(battle.homeSide);
+  battle.homeSide[index] = home;
+};
+
 // The place of a name among a side's members, or -1.
 export const memberIndex = (battle, side, name) => {
   const wanted = fold(name);
@@ -145,6 +161,8 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   sieges: [],
   spared: [[], []],
   siegeKey: "",
+  // And the cells of the places each side is besieging, which it leaves alone (supply.js).
+  kept: [null, null],
   supplied: [null, null],
   supply: null,
   supplyTurns: -1,

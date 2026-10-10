@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { rasterizeArena } from "./arena.js";
+import { describeBattlefield } from "./brief.js";
 import { FLIP_AT, HOLDER_SIDE_A, HOLDER_SIDE_B, MIN_DAYS_BETWEEN_FLIPS } from "./constants.js";
 import { createFrontRun, runFronts } from "./engine.js";
 import { createFrame } from "./frame.js";
@@ -302,4 +303,130 @@ test("the frame grows when the line nears its edge, and the line stays where it 
   run(tight, 0, { arenas: kept });
   assert.equal(run(tight, 1, { arenas: kept, map: bare }).needsRegions, undefined);
   assert.deepEqual(run(tight, 6, { arenas: kept, map: bare }), { needsRegions: true });
+});
+
+// ---- a siege -----------------------------------------------------------------------------
+
+// A border 120 km long, and a town 30 km behind it on Borduria's side.
+const siegeWorld = () => syntheticMap({ layout: ["ABBBBB", "ABBBBB"], legend, west: 20, north: 50.54, step: 1, stepLat: 0.54, cities: [{ name: "Brod", lng: 21.42, lat: 50 }] });
+// Aland is told to encircle the town. The run is watched a day at a time until
+// the ring has been closed for a while; what it is then is saved, and the
+// sheet given the regions that changed hands, for other runs to begin from.
+const besiege = (extraDays = 2) => {
+  const world = siegeWorld();
+  const record = battlefieldOn(world, {
+    troops: [row(20.9, 49.46, 50.54, 12), row(21.1, 49.46, 50.54, 5)],
+    orders: [standing(0, "encircle", { objective: "city: Brod" })],
+  });
+  const run = createFrontRun(frontInput(world, { battlefields: [record], days: 40, steering: steady }));
+  const days = [run.snapshot()];
+  let closed = -1;
+  while (days.length <= 40 && (closed < 0 || days.length <= closed + extraDays)) {
+    run.advance(1);
+    days.push(run.snapshot());
+    if (closed < 0 && days.at(-1).battlefields[0].brief.pockets.some((pocket) => pocket.siege)) closed = days.length - 1;
+  }
+  applyFlips(world, days.at(-1).flips);
+  return { world, record, days, closed, saved: days.at(-1).battlefields[0], date: days.at(-1).battlefields[0].asOf };
+};
+// The cells within 20 km of the town that Aland holds, and Borduria's troop nearest it.
+const roundTheTown = (record, world) => {
+  const seen = readBattlefield(record, world);
+  const [x, y] = seen.place.toCell(21.42, 50);
+  let taken = 0;
+  let within = 0;
+  for (let index = 0; index < seen.holders.length; index += 1) {
+    const dx = (index % seen.frame.cols) + 0.5 - x;
+    const dy = Math.floor(index / seen.frame.cols) + 0.5 - y;
+    if (Math.sqrt(dx * dx + dy * dy) * seen.frame.km > 20) continue;
+    within += 1;
+    if (seen.holders[index] === HOLDER_SIDE_A) taken += 1;
+  }
+  const garrison = seen.troops[1].filter((troop) => troop.strength > 0).sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0];
+  return { seen, taken, within, garrison };
+};
+const sieges = (record) => record.brief.pockets.filter((pocket) => pocket.siege);
+
+test("a siege: a place a side is told to encircle is shut in and left alone, and is its defenders' twenty days later", () => {
+  const { world, days, closed } = besiege(20);
+  assert.ok(closed >= 3 && closed <= 9, `the ring closed on day ${closed}`);
+  // Until the ring closes there is no pocket, and the pincers have gone round the town, not through it.
+  for (let day = 0; day < closed; day += 1) assert.deepEqual(days[day].battlefields[0].brief.pockets, []);
+  for (let day = 0; day <= closed + 20; day += 1) {
+    const { taken, within, seen } = roundTheTown(days[day].battlefields[0], world);
+    assert.ok(within > 60, `${within} cells within 20 km of the town`);
+    assert.equal(taken, 0, `day ${day}: no step of the besiegers took ground within 20 km of the town`);
+    assert.equal(seen.holderAt(21.42, 50), HOLDER_SIDE_B);
+  }
+  // The day it closes the log says so, once, and the brief calls it what it is.
+  const when = days[closed].battlefields[0].asOf;
+  for (let day = closed; day <= closed + 20; day += 1) {
+    const [record] = days[day].battlefields;
+    assert.deepEqual(record.log.filter((entry) => entry.k === "siege"), [{ d: when, k: "siege", s: 1, at: "city: Brod" }]);
+    assert.deepEqual(sieges(record), [{ s: 1, at: "city: Brod", days: day - closed + 1, siege: true }]);
+  }
+  assert.match(describeBattlefield(days[closed + 12].battlefields[0]), /Besieged: Borduria at city: Brod, 13 days\./);
+  // Its garrison is alive, cut off, and has wasted by a point a day and nothing more: it is not assaulted.
+  const first = roundTheTown(days[closed].battlefields[0], world).garrison;
+  const last = roundTheTown(days[closed + 20].battlefields[0], world).garrison;
+  assert.equal(last.state, 2, "encircled");
+  assert.ok(last.strength > 40, `${last.strength} left`);
+  assert.ok(Math.abs(first.strength - last.strength - 20) < 1.7, `twenty days cost it ${first.strength - last.strength}`);
+  assert.ok(Math.abs(first.x - last.x) < 0.1 && Math.abs(first.y - last.y) < 0.1, "and it has not been made to give way");
+  // An ordinary pocket of that size would have given up after ten days; this one is there on the twentieth.
+  assert.ok(closed + 20 > closed + 10);
+});
+
+test("a siege ends when the place is captured, when the besiegers are repulsed, when it is relieved, and when the order is replaced", () => {
+  const { world, saved, date } = besiege(2);
+  assert.equal(sieges(saved).length, 1);
+  const from = (moments, days) => {
+    const run = createFrontRun(frontInput(world, { battlefields: [saved], fromDate: date, days, moments, steering: steady }));
+    const seen = [run.snapshot()];
+    for (let day = 1; day <= days; day += 1) {
+      run.advance(1);
+      seen.push(run.snapshot());
+    }
+    return seen;
+  };
+  // Left alone it goes on: the next run finds it besieged still, and says nothing new.
+  const quiet = from([], 4);
+  assert.deepEqual(sieges(quiet[4].battlefields[0]), [{ s: 1, at: "city: Brod", days: 7, siege: true }]);
+  assert.equal(quiet[4].battlefields[0].log.filter((entry) => entry.k === "siege").length, 1, "said once, in the run it closed");
+  assert.equal(roundTheTown(quiet[4].battlefields[0], world).taken, 0);
+
+  // "Captured": the town is the besiegers' that day, and not the day before.
+  const stormed = from([order(3, "Aland", "", { battlefield: saved.name, result: "captured" })], 4);
+  assert.equal(readBattlefield(stormed[2].battlefields[0], world).holderAt(21.42, 50), HOLDER_SIDE_B);
+  assert.equal(readBattlefield(stormed[3].battlefields[0], world).holderAt(21.42, 50), HOLDER_SIDE_A, "taken the day the story says so");
+  assert.deepEqual(stormed[3].battlefields[0].log.filter((entry) => entry.k === "city"), [{ d: stormed[3].battlefields[0].asOf, k: "city", s: 0, at: "city: Brod" }]);
+  assert.deepEqual(sieges(stormed[3].battlefields[0]), [], "and the siege is over");
+  assert.deepEqual(stormed[3].notes, []);
+
+  // "Repulsed": the ring is opened, the town is its defenders' still, and they are cut off no longer.
+  const lifted = from([order(1, "Aland", "", { battlefield: saved.name, result: "repulsed" })], 5);
+  assert.equal(sieges(lifted[0].battlefields[0]).length, 1);
+  for (let day = 1; day <= 5; day += 1) {
+    const { seen, garrison } = roundTheTown(lifted[day].battlefields[0], world);
+    assert.deepEqual(lifted[day].battlefields[0].brief.pockets, [], `day ${day}: nothing is cut off`);
+    assert.equal(seen.holderAt(21.42, 50), HOLDER_SIDE_B);
+    if (day > 1) assert.notEqual(garrison.state, 2);
+  }
+  assert.deepEqual(lifted[5].battlefields[0].orders.map(({ s, order: word, objective }) => [s, word, objective]), [[0, "encircle", "city: Brod"]], "the standing order is left as it was");
+
+  // A relief: fresh troops of the defenders' break through the ring from outside, and the siege is over.
+  const relief = [];
+  for (const lng of [21.52, 21.6, 21.68, 21.76]) {
+    for (const lat of [50.3, 50.36]) relief.push({ day: 0, type: "reinforce", owner: "Borduria", strength: 100, kind: "armor", lng, lat });
+  }
+  const relieved = from([...relief, order(0, "Borduria", "advance", { battlefield: saved.name })], 8);
+  const opened = relieved.findIndex((day, index) => index > 0 && sieges(day.battlefields[0]).length === 0);
+  assert.ok(opened >= 1 && opened <= 8, `the ring was open again on day ${opened}`);
+  const after = roundTheTown(relieved[opened].battlefields[0], world);
+  assert.equal(after.seen.holderAt(21.42, 50), HOLDER_SIDE_B, "the town is its defenders' still");
+  assert.equal(after.taken, 0);
+
+  // The order replaced by another for that sector: no siege, and the ground round the town is spared no longer.
+  const called = from([order(1, "Aland", "hold", { battlefield: saved.name })], 2);
+  assert.deepEqual(sieges(called[2].battlefields[0]), []);
 });

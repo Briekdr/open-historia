@@ -375,3 +375,52 @@ test("a field moved onto a larger frame keeps its line where it was", () => {
   }
   assert.ok(sides.length > 0);
 });
+
+test("a sweep leaves alone the ground it is told to: a disc is gone round, and a mask is not written", () => {
+  const { field } = plain();
+  const row = Math.floor(field.rows / 2) + 0.5;
+  const border = traceContour(field).x[0];
+  const before = Uint8Array.from(field.holders);
+  const phiBefore = Float64Array.from(field.phi);
+  // A strip six cells wide driven twenty cells into Borduria, straight through a spared disc of radius 4.
+  const spare = [border + 10, row, 4];
+  const mask = new Uint8Array(field.size);
+  const kept = [];
+  for (let index = 0; index < field.size; index += 1) {
+    const col = index % field.cols;
+    if (Math.floor(index / field.cols) === Math.floor(row) + 2 && col > border + 15 && col < border + 19) {
+      mask[index] = 1;
+      kept.push(index);
+    }
+  }
+  takeCapsule(field, HOLDER_SIDE_A, border - 1, row, border + 20, row, 3, 3, { spare, keep: mask });
+  redistance(field);
+  let spared = 0;
+  let taken = 0;
+  for (let index = 0; index < field.size; index += 1) {
+    if (!field.play[index]) continue;
+    const dx = (index % field.cols) + 0.5 - spare[0];
+    const dy = Math.floor(index / field.cols) + 0.5 - spare[1];
+    if (Math.sqrt(dx * dx + dy * dy) <= spare[2]) {
+      spared += 1;
+      assert.equal(field.holders[index], before[index], "no cell within the disc changed hands");
+    } else if (field.holders[index] !== before[index]) taken += 1;
+  }
+  assert.ok(spared > 40 && taken > 30, `${spared} cells spared, ${taken} taken round them`);
+  // The strip beyond the disc was taken all the same, and the line runs round the disc at its radius.
+  assert.equal(holderAtPoint(field, border + 17, row), HOLDER_SIDE_A);
+  assert.equal(holderAtPoint(field, border + 10, row), HOLDER_SIDE_B);
+  assert.ok(Math.abs(nearestOnContour(field, traceContour(field), spare[0], spare[1], 8) - spare[2]) < 0.2, "the disc's edge is where the line now runs");
+  // A cell of the mask is not written at all.
+  for (const index of kept) {
+    assert.equal(field.holders[index], HOLDER_SIDE_B);
+    assert.ok(Object.is(field.phi[index], phiBefore[index]) || Math.abs(field.phi[index]) <= Math.abs(phiBefore[index]), "kept as it was, or only measured again");
+  }
+  assert.equal(holderAtPoint(field, border + 17, row - 1), HOLDER_SIDE_A, "while the cells beside them were taken");
+  // Side B is held to the same.
+  const { field: other } = plain();
+  const edge = traceContour(other).x[0];
+  takeCapsule(other, HOLDER_SIDE_B, edge + 1, row, edge - 20, row, 3, 3, { spare: [edge - 10, row, 4] });
+  assert.equal(holderAtPoint(other, edge - 10, row), HOLDER_SIDE_A);
+  assert.equal(holderAtPoint(other, edge - 17, row), HOLDER_SIDE_B);
+});

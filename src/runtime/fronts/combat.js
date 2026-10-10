@@ -204,9 +204,18 @@ const tooFarAhead = (battle, side, troop) => {
 // peak; under a plain advance, unless it has run too far ahead of its
 // neighbour. Where the other side is falling back, a troop not told to dig in
 // or to fall back itself goes after it. A troop that is cut off steps like any
-// other: a pocket may break out.
-export const decideTasks = (battle, braked) => {
+// other: a pocket may break out. A troop that stands against a place its own
+// side is besieging does not step at all: a siege is not an assault.
+// `line` is today's line, as planLanes read it.
+export const decideTasks = (battle, braked, line) => {
   const { kmAt } = battle.place;
+  // Whether the other side's ground at a vertex of the line is a besieged place.
+  const besieged = (side, vertex) => {
+    if (battle.sieges.length === 0 || !battle.pocketOf) return false;
+    const cell = side === HOLDER_SIDE_A ? line.contour.cellB[vertex] : line.contour.cellA[vertex];
+    const pocket = cell >= 0 ? battle.pocketOf[1 - side][cell] : -1;
+    return pocket >= 0 && battle.pockets[pocket].siege !== "";
+  };
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     const views = battle.views[side];
     const enemyViews = battle.views[1 - side];
@@ -240,7 +249,7 @@ export const decideTasks = (battle, braked) => {
         }
       }
       troop.attacking = isAttack(word) || troop.task === "pursue";
-      if (!troop.attacking || braked || stood < troop.lag || halted(battle, side, station.lx, station.ly)) continue;
+      if (!troop.attacking || braked || stood < troop.lag || halted(battle, side, station.lx, station.ly) || besieged(side, station.vertex)) continue;
       if (word === "blitz" && inPlace[station.view] < wanted[station.view] * BLITZ_READY_SHARE) continue;
       if ((word === "spearhead" || word === "encircle" || word === "flank") && !station.thrust) continue;
       if (word === "advance" && tooFarAhead(battle, side, troop)) continue;
@@ -574,9 +583,12 @@ export const stepForward = (battle, paceKm, pace) => {
     const cell = Math.max(0, ownCell(field, entry.side, troop.x, troop.y));
     entry.radius = controlRadius(troop, kmAt);
     // Where it may step: on ground in play, never into a place its side is
-    // besieging, and never backwards along its axis, even to get round a wall.
+    // besieging or near one it is closing on, and never backwards along its
+    // axis, even to get round a wall.
     const spare = battle.spared[entry.side];
-    entry.forward = (x, y) => inPlay(x, y) && !spared(spare, x, y) && (x - troop.x) * troop.axisX + (y - troop.y) * troop.axisY >= 0;
+    const kept = battle.kept[entry.side];
+    entry.forward = (x, y) => inPlay(x, y) && !spared(spare, x, y) && !(kept && kept[Math.floor(y) * field.cols + Math.floor(x)])
+      && (x - troop.x) * troop.axisX + (y - troop.y) * troop.axisY >= 0;
     entry.dayCells = (paceKm[troop.kind] * arena.speed[cell] * troop.supply * pace * troop.drive) / kmAt(troop.y);
     parts = Math.max(parts, Math.ceil(entry.dayCells / (entry.radius * 0.5)));
   }
@@ -602,6 +614,8 @@ export const stepForward = (battle, paceKm, pace) => {
       const aheadY = troop.y + troop.hy * entry.radius;
       let defence = 0;
       eachNear(standing[1 - side], aheadX, aheadY, (enemy) => {
+        // A besieged place is not assaulted: its troops are in no fight they did not start.
+        if (enemy.besieged) return;
         const dx = enemy.x - aheadX;
         const dy = enemy.y - aheadY;
         const weight = kernel(Math.sqrt(dx * dx + dy * dy), reach);
@@ -631,6 +645,7 @@ export const stepForward = (battle, paceKm, pace) => {
         troop.loss += troop.strength * share * clampRatio(defence / attack);
         const theirs = share * clampRatio(attack / defence);
         eachNear(standing[1 - side], aheadX, aheadY, (enemy) => {
+          if (enemy.besieged) return;
           const dx = enemy.x - aheadX;
           const dy = enemy.y - aheadY;
           const weight = kernel(Math.sqrt(dx * dx + dy * dy), reach);
@@ -643,10 +658,12 @@ export const stepForward = (battle, paceKm, pace) => {
 
     // The moves, and the ground each takes: the strip it walked, and the
     // bridge to its neighbour in the line if that one walked beside it. A side
-    // laying siege to a place leaves the ground round the place alone.
+    // laying siege to a place leaves the ground round the place alone, and
+    // all of what it has shut in.
     for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
       const troops = battle.troops[side];
       const spare = battle.spared[side].length > 0 ? battle.spared[side] : null;
+      const keep = battle.kept[side];
       for (const entry of active) {
         if (entry.side !== side) continue;
         entry.troop.stepped = entry.length > 0;
@@ -659,6 +676,7 @@ export const stepForward = (battle, paceKm, pace) => {
           from: part / parts,
           span: 1 / parts,
           spare,
+          keep,
         });
         troop.x = entry.toX;
         troop.y = entry.toY;
@@ -683,6 +701,7 @@ export const stepForward = (battle, paceKm, pace) => {
           painterQ: other.owner,
           from: (part + 1) / parts,
           spare,
+          keep,
         });
       }
     }
@@ -693,7 +712,7 @@ export const stepForward = (battle, paceKm, pace) => {
     // they stepped, and no step is as long as a square is wide.
     for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
       for (const troop of battle.troops[side]) {
-        if (!isLive(troop) || troop.stepped) continue;
+        if (!isLive(troop) || troop.stepped || troop.besieged) continue;
         let pusher = null;
         eachNear(stepping[1 - side], troop.x, troop.y, (attacker) => {
           const entry = attacker.entry;
@@ -747,7 +766,8 @@ export const closeDay = (battle, date) => {
     for (const troop of battle.troops[side]) {
       if (!isLive(troop)) continue;
       // A quiet stretch in contact costs a little: a tenth of a fight's worth.
-      if (!troop.engaged && !troop.walkedToday && troop.loss === 0) {
+      // Not in a besieged place, which wastes by its own figure and no other.
+      if (!troop.besieged && !troop.engaged && !troop.walkedToday && troop.loss === 0) {
         const reach = reachCells(kmAt, troop.y);
         let theirs = 0;
         let ours = 0;

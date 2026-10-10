@@ -498,6 +498,7 @@ export const nearestOnContour = (field, contour, px, py, reach) => {
 //   spare              discs of ground the sweep leaves alone, as a flat list
 //                      of x, y and radius in cells: what is taken is the strip
 //                      less the discs, so the line comes to run round them
+//   keep               cells the sweep leaves alone, a mask over the field
 export const takeCapsule = (field, side, px, py, qx, qy, radiusP, radiusQ, how = null) => {
   const { cols, rows, play, phi } = field;
   const claims = how?.claims ?? null;
@@ -507,6 +508,7 @@ export const takeCapsule = (field, side, px, py, qx, qy, radiusP, radiusQ, how =
   const from = how?.from ?? 1;
   const span = how?.span ?? 0;
   const spare = how?.spare ?? null;
+  const keep = how?.keep ?? null;
   const reach = Math.max(radiusP, radiusQ) + EDIT_MARGIN_CELLS;
   const col0 = Math.max(0, Math.floor(Math.min(px, qx) - reach));
   const col1 = Math.min(cols - 1, Math.floor(Math.max(px, qx) + reach));
@@ -519,7 +521,7 @@ export const takeCapsule = (field, side, px, py, qx, qy, radiusP, radiusQ, how =
     const cy = row + 0.5;
     for (let col = col0; col <= col1; col += 1) {
       const index = row * cols + col;
-      if (!play[index]) continue;
+      if (!play[index] || (keep && keep[index])) continue;
       const cx = col + 0.5;
       let along = length > 0 ? ((cx - px) * sx + (cy - py) * sy) / length : 0;
       along = along < 0 ? 0 : along > 1 ? 1 : along;

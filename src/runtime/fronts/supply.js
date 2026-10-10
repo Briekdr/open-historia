@@ -14,8 +14,9 @@
 // troops may break out, or throw the ring back.
 //
 // A place the other side was told to encircle is the one exception: enclosed,
-// it is BESIEGED. It is never filled as a patch whatever its size, its troops
-// waste more slowly, and it holds for forty-five days.
+// it is BESIEGED. It is never filled as a patch whatever its size, nobody
+// assaults it (the besiegers neither step into it nor fight its troops), its
+// troops waste more slowly, and it holds for forty-five days.
 //
 // What counts as a way back is the subtle part. Encirclements nearly always
 // happen on the defender's own soil, where every cut-off piece still holds
@@ -224,6 +225,18 @@ export const findPockets = (battle) => {
   }
   // A siege that has ended and begins again is news again.
   for (const pocket of pockets) if (!pocket.siege) pocket.told = false;
+  // The ground each side leaves alone: every cell of a place it is besieging.
+  battle.kept = [null, null];
+  if (pockets.some((pocket) => pocket.siege !== "")) {
+    for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
+      for (let index = 0; index < field.size; index += 1) {
+        const pocket = pocketOf[side][index];
+        if (pocket < 0 || !pockets[pocket].siege) continue;
+        battle.kept[1 - side] ??= new Uint8Array(field.size);
+        battle.kept[1 - side][index] = 1;
+      }
+    }
+  }
   battle.pockets = pockets;
   battle.pocketOf = pocketOf;
   battle.pocketTurns = field.turns;

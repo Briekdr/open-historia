@@ -26,7 +26,7 @@
 import { addGameDays } from "../gameDates.js";
 import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf } from "../unitMotion.js";
 import { arenaFor } from "./arena.js";
-import { absorbUnit, keepStart, loadBattle, memberWeights, openBattle, paintGround, raiseTroops, readRegions, reconcile, releaseNamed, saveBattle, setRadii, sideOfName } from "./battle.js";
+import { absorbUnit, keepStart, loadBattle, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
 import { hashKey } from "./codec.js";
 import {
@@ -110,11 +110,11 @@ const createRun = (input) => {
     setController: (id, name) => controller.set(id, clean(name)),
     setGroup: (id, name) => group.set(id, clean(name)),
   };
-  // A region changed hands: every battlefield it lies on reads its sides again.
+  // A region changed hands: every battlefield it lies on reads its side again.
   run.regionChanged = (id) => {
     for (const battle of run.battles) {
       if (battle.status === "closed" || !battle.arena.indexOf.has(id)) continue;
-      readRegions(battle, run);
+      readRegion(battle, run, id);
       battle.planKey = "";
     }
   };
