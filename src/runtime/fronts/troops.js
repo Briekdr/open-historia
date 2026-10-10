@@ -75,6 +75,7 @@ export const STATE_HOLDING = 0;
 export const STATE_ADVANCING = 1;
 export const STATE_ENCIRCLED = 2;
 export const STATE_SPENT = 3;
+export const STATE_DUG_IN = 4;
 
 const ATTACKS = new Set(["advance", "blitz", "spearhead", "encircle", "flank"]);
 export const isAttack = (word) => ATTACKS.has(word);
@@ -128,9 +129,32 @@ export const createTroop = ({ x = 0, y = 0, strength = 100, kind = KIND_INFANTRY
   loss: 0,
   pinned: false,
   engaged: false,
-  // Where it stands in the war.
+  // Dug in: stronger where it stands, and it does not move at all.
+  dug: state === STATE_DUG_IN,
+  // The order it is carrying out, or null (way.js, move.js); which of its
+  // side's standing orders that serves, for the record; and which way it
+  // steps today.
+  order: null,
+  serves: -1,
+  gx: 0,
+  gy: 0,
+  paceFactor: 1,
+  reducing: false,
+  plant: false,
+  // With no order: the one place it is falling back to, how long it has stood
+  // on the other side's ground with nowhere to go, and whether it has slid.
+  fallback: null,
+  stranded: 0,
+  slid: false,
+  // The day until which it is not sent at a pocket again, or does not try to break out again.
+  rested: 0,
+  spent: 0,
+  // Where it stands in the war: `pocket` when it fights as one surrounded,
+  // which is truly cut off (`sealed`), in a besieged place, or in squeezed ground.
   body: -1,
   pocket: false,
+  sealed: false,
+  squeezed: false,
   besieged: false,
   supply: 1,
   stuck: 0,
@@ -664,55 +688,14 @@ export const widestGap = (battle, side) => {
   return found && stands(battle.field, side, found[0], found[1]) ? found : null;
 };
 
-// ---- moving that is not attacking ----------------------------------------------
-
-// The unit vector away from the nearest troop of its own side that crowds it,
-// through `out`; nothing where none does.
-export const roomFrom = (troops, index, radius, out) => {
-  const troop = troops[index];
-  const near = radius * STEER_ROOM_RADII;
-  let best = near * near;
-  let found = -1;
-  for (let other = 0; other < troops.length; other += 1) {
-    if (other === index || !isLive(troops[other])) continue;
-    const dx = troop.x - troops[other].x;
-    const dy = troop.y - troops[other].y;
-    const distance = dx * dx + dy * dy;
-    if (distance < best) {
-      best = distance;
-      found = other;
-    }
-  }
-  out[0] = 0;
-  out[1] = 0;
-  if (found < 0 || !(best > 0)) return;
-  const length = Math.sqrt(best);
-  out[0] = (troop.x - troops[found].x) / length;
-  out[1] = (troop.y - troops[found].y) / length;
-};
-
-// A heading's next value: mostly what it was, turned some of the way toward
-// where it wants to go. A troop with no heading yet takes the one it wants.
-export const turnHeading = (troop, wantX, wantY) => {
-  const length = Math.sqrt(wantX * wantX + wantY * wantY);
-  const wx = length > 0 ? wantX / length : 0;
-  const wy = length > 0 ? wantY / length : 0;
-  let hx = troop.hx === 0 && troop.hy === 0 ? wx : troop.hx * STEER_INERTIA + wx * (1 - STEER_INERTIA);
-  let hy = troop.hx === 0 && troop.hy === 0 ? wy : troop.hy * STEER_INERTIA + wy * (1 - STEER_INERTIA);
-  const turned = Math.sqrt(hx * hx + hy * hy);
-  if (turned > 0) {
-    hx /= turned;
-    hy /= turned;
-  }
-  troop.hx = hx;
-  troop.hy = hy;
-};
+// ---- stepping ------------------------------------------------------------------
 
 // Where a step of `length` cells along a heading ends, by the first of the
-// heading itself and its fixed turns that `allowed(x, y)` accepts. Answers
-// through `out`; false when none is allowed and the troop stays.
+// heading itself and its fixed turns that `allowed(x, y)` accepts: a little
+// to either side (30 and 60 degrees), else the troop waits. Answers through
+// `out`; false when none is allowed and the troop stays.
 export const stepAlong = (x, y, hx, hy, length, allowed, out) => {
-  for (let turn = -1; turn * 2 < TURNS.length; turn += 1) {
+  for (let turn = -1; turn < 4; turn += 1) {
     const cos = turn < 0 ? 1 : TURNS[turn * 2];
     const sin = turn < 0 ? 0 : TURNS[turn * 2 + 1];
     const tx = x + (hx * cos - hy * sin) * length;
@@ -723,147 +706,6 @@ export const stepAlong = (x, y, hx, hy, length, allowed, out) => {
     return true;
   }
   return false;
-};
-
-const scratch = [0, 0];
-const room = [0, 0];
-
-// Walks a troop toward a point at a day's march, on its own side's ground
-// only, in short legs with a heading that turns by degrees: so it rounds a bay
-// or a salient of the enemy's instead of stopping in front of it.
-const march = (battle, side, index, targetX, targetY, paceKm) => {
-  const { field, place } = battle;
-  const { kmAt } = place;
-  const troops = battle.troops[side];
-  const troop = troops[index];
-  const own = (x, y) => stands(field, side, x, y);
-  let dx = targetX - troop.x;
-  let dy = targetY - troop.y;
-  let gap = Math.sqrt(dx * dx + dy * dy);
-  const before = gap;
-  let left = paceKm / kmAt(troop.y);
-  roomFrom(troops, index, controlRadius(troop, kmAt), room);
-  for (let leg = 0; leg < MARCH_LEGS_MAX && gap > 1 / 32 && left > 0; leg += 1) {
-    const length = Math.min(left, gap, MARCH_LEG_CELLS);
-    // The last stretch is walked straight in, if nothing bars it.
-    if (gap <= MARCH_LEG_CELLS && gap <= left && own((troop.x + targetX) / 2, (troop.y + targetY) / 2) && own(targetX, targetY)) {
-      troop.movedKm += gap * kmAt(troop.y);
-      troop.x = targetX;
-      troop.y = targetY;
-      gap = 0;
-      break;
-    }
-    turnHeading(troop, dx / gap + room[0] * STEER_ROOM, dy / gap + room[1] * STEER_ROOM);
-    if (!stepAlong(troop.x, troop.y, troop.hx, troop.hy, length, own, scratch)) break;
-    troop.movedKm += length * kmAt(troop.y);
-    troop.x = scratch[0];
-    troop.y = scratch[1];
-    left -= length;
-    dx = targetX - troop.x;
-    dy = targetY - troop.y;
-    gap = Math.sqrt(dx * dx + dy * dy);
-  }
-  // One that gets no nearer day after day is carried round to where it was going.
-  troop.stuck = gap > 0.5 && gap > before - 0.05 ? troop.stuck + 1 : 0;
-  if (troop.stuck >= STUCK_DAYS && own(targetX, targetY)) {
-    troop.x = targetX;
-    troop.y = targetY;
-    troop.stuck = 0;
-  }
-};
-
-// The moves of a day that are not a step forward.
-//
-// While its side has an attack order standing anywhere, a troop drifts along
-// its lane toward its ideal place, by a quarter of its day's advance at most
-// and never past a neighbour: this is how a side masses. A troop that is
-// itself under an attack order makes no part of that move against its own
-// heading.
-//
-// A troop that is not attacking takes up its stand-off behind the line only
-// from a long way back, or off ground that is not its side's; under `fall
-// back` its stand-off lies further behind every day the order has stood.
-// Everyone else stays where they stand.
-//
-//   attacking(troop)    whether a troop is under an attack order today
-//   advanceKm, overlandKm    a day's advance and a day's march, by kind
-export const settle = (battle, side, views, attacking, advanceKm, overlandKm) => {
-  const { field, place } = battle;
-  const { kmAt } = place;
-  const troops = battle.troops[side];
-  const back = side === HOLDER_SIDE_A ? -1 : 1;
-  const massing = views.some((view) => isAttack(view.word));
-  for (let index = 0; index < troops.length; index += 1) {
-    const troop = troops[index];
-    const station = troop.station;
-    if (!isLive(troop) || !station) continue;
-    const view = station.view >= 0 ? views[station.view] : null;
-    const word = view ? view.word : "hold";
-    const forward = attacking(troop);
-
-    // A troop that steps forward today goes where its heading takes it, and
-    // nowhere else: at the head of its own salient every point of the line is
-    // as near as every other, and "along the line" would mean nothing. Nor
-    // does one that walked forward yesterday and is held up today: it waits.
-    if (massing && word !== "fall back" && !troop.stepping && !(forward && troop.walkedBefore > 0)) {
-      const most = advanceKm[troop.kind] * DRIFT_SHARE;
-      let drift = Math.max(-most, Math.min(most, station.ideal - station.place));
-      if (drift > 0) drift = Math.max(0, Math.min(drift, station.high - station.place));
-      else drift = Math.min(0, Math.max(drift, station.low - station.place));
-      let dx = (station.tx * drift) / kmAt(troop.y);
-      let dy = (station.ty * drift) / kmAt(troop.y);
-      // Never back on itself: what of the drift runs against its heading is left out.
-      const against = forward ? dx * troop.hx + dy * troop.hy : 0;
-      if (against < 0) {
-        dx -= troop.hx * against;
-        dy -= troop.hy * against;
-      }
-      if ((dx !== 0 || dy !== 0) && stands(field, side, troop.x + dx, troop.y + dy)) {
-        troop.x += dx;
-        troop.y += dy;
-        troop.movedKm += Math.sqrt(dx * dx + dy * dy) * kmAt(troop.y);
-        station.place += drift;
-      }
-    }
-    if (forward) continue;
-
-    const depth = standOff(troop, kmAt);
-    if (word === "fall back") {
-      // Further behind the line every day, straight back or toward the place named.
-      let further = Math.min(FALL_BACK_MAX_KM, FALL_BACK_KM_PER_DAY * (view.age + 1)) / kmAt(station.ly);
-      let dx = station.nx * back;
-      let dy = station.ny * back;
-      let from = depth;
-      if (view.target) {
-        const tx = view.target.x - station.lx;
-        const ty = view.target.y - station.ly;
-        const away = Math.sqrt(tx * tx + ty * ty);
-        if (away > 0) {
-          dx = tx / away;
-          dy = ty / away;
-          further = Math.min(further, away);
-          from = 0;
-        }
-      }
-      for (const share of [1, 0.75, 0.5, 0.25]) {
-        const x = station.lx + dx * (from + further) * share;
-        const y = station.ly + dy * (from + further) * share;
-        if (!stands(field, side, x, y)) continue;
-        march(battle, side, index, x, y, overlandKm[troop.kind]);
-        break;
-      }
-      continue;
-    }
-    const far = Math.max(depth * STAND_OFF_FAR, controlRadius(troop, kmAt) * STAND_OFF_FAR_RADII);
-    if (station.distance <= far && stands(field, side, troop.x, troop.y)) continue;
-    for (const share of [1, 0.5, 0.25, 0.05]) {
-      const x = station.lx + station.nx * back * depth * share;
-      const y = station.ly + station.ny * back * depth * share;
-      if (!stands(field, side, x, y)) continue;
-      march(battle, side, index, x, y, overlandKm[troop.kind]);
-      break;
-    }
-  }
 };
 
 // ---- the list a record keeps ----------------------------------------------------

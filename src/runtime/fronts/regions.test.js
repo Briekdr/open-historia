@@ -48,8 +48,8 @@ const holding = (world, id, share) => {
 const follow = (input) => {
   const seen = [];
   const said = [];
-  const run = createFrontRun({ ...input, watch: ({ day, holders, painters, homes, shown }) => {
-    seen[day] = { holders: Uint8Array.from(holders), painters: Uint8Array.from(painters), homes: Uint8Array.from(homes) };
+  const run = createFrontRun({ ...input, watch: ({ day, holders, painters, homes, own, shown }) => {
+    seen[day] = { holders: Uint8Array.from(holders), painters: Uint8Array.from(painters), homes: Uint8Array.from(homes), own: Uint8Array.from(own) };
     said.push(...shown);
   } });
   const days = [run.snapshot()];
@@ -99,8 +99,11 @@ test("six tenths of a region is not enough; more than six tenths changes its han
       assert.equal(saved.log.some((entry) => entry.k === "whole" && entry.at === "region: Borduria 1.0"), false);
     } else {
       // Whole: it is drawn as Aland's, it is Aland's home, and it is one colour.
+      // The map is told of its home ground only on the run's last day: the
+      // paint stays over the region while the map switches its own colour.
       assert.equal(namesOf(saved).has(REGION), false, `day ${day}: no longer in dispute`);
-      assert.deepEqual([...homes], [HOLDER_SIDE_A]);
+      assert.deepEqual([...new Set(cells.map((cell) => seen[day].own[cell]))], [HOLDER_SIDE_A], "Aland's home ground at once");
+      assert.deepEqual([...homes], [day === 9 ? HOLDER_SIDE_A : HOLDER_SIDE_B], `day ${day}: what the recorder is told of it`);
       assert.deepEqual([...new Set(cells.map((cell) => seen[day].painters[cell]))], [0], "painted for one member");
       assert.deepEqual(saved.log.filter((entry) => entry.k === "whole" && entry.at === "region: Borduria 1.0"), [{ d: days[whole].battlefields[0].asOf, k: "whole", s: 0, at: "region: Borduria 1.0" }]);
     }
@@ -135,13 +138,17 @@ test("a region all but taken is finished off at night, unless one of its defende
   // The recorder: as the run begins, that the region is drawn as Borduria's
   // although the world says Aland; then the day it was whole.
   assert.deepEqual(empty.said, [[0, REGION, "Borduria", "Borduria"], [1, REGION, "Aland", "Borduria"]]);
-  for (const cell of cells) assert.equal(empty.seen[1].homes[cell], HOLDER_SIDE_A);
+  for (const cell of cells) {
+    assert.equal(empty.seen[1].own[cell], HOLDER_SIDE_A, "Aland's home ground at once");
+    assert.equal(empty.seen[1].homes[cell], HOLDER_SIDE_B, "the recorder is told so on the run's last day");
+    assert.equal(empty.seen[2].homes[cell], HOLDER_SIDE_A);
+  }
   for (const cell of rest) assert.equal(empty.seen[1].painters[cell], 0);
 
-  // One defender standing on the rest: it stays, and the region stays in dispute.
+  // One defender standing on the rest, dug in there: it stays, and the region stays in dispute.
   const [x, y] = [(rest[2] % arena.cols) + 0.5, Math.floor(rest[2] / arena.cols) + 0.5];
   const [lng, lat] = projectorOf(frame).toLngLat(x, y);
-  const held = follow(frontInput(world, { battlefields: [start([{ lng, lat }])], days: 3, steering: steady }));
+  const held = follow(frontInput(world, { battlefields: [start([{ lng, lat, state: 4, dig: 1 }])], days: 3, steering: steady }));
   for (let day = 1; day <= 3; day += 1) {
     assert.equal(shareOf(held.seen[day], cells), (cells.length - rest.length) / cells.length, `day ${day}: the strip is still its defenders'`);
     assert.equal(namesOf(held.days[day].battlefields[0]).get(REGION), "Borduria");
@@ -198,7 +205,10 @@ test("ground won back from an occupier of long standing is drawn as taken until 
     }
   }
   assert.ok(retaken > 100, `${retaken} cell-days retaken and drawn as taken`);
-  for (const cell of cells) assert.equal(seen[whole].homes[cell], HOLDER_SIDE_A, "whole: home again");
+  for (const cell of cells) {
+    assert.equal(seen[whole].own[cell], HOLDER_SIDE_A, "whole: home again");
+    assert.equal(seen[9].homes[cell], HOLDER_SIDE_A, "and the map is told so as the run ends");
+  }
   // It goes back to its sovereign, in name and then on the map.
   const flip = days[9].flips.find((entry) => entry.regionId === REGION);
   assert.deepEqual([flip.from, flip.to, flip.kind], ["Borduria", "Aland", "control"]);

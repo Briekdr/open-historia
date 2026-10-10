@@ -53,7 +53,9 @@ export const MAX_CONTESTED_REGIONS = 160;
 export const MAX_LOG_ENTRIES = 12;
 export const LOG_TEXT_MAX = 160;
 
-export const BATTLEFIELD_STATUSES = Object.freeze(["active", "frozen", "closed"]);
+// "standing" is a border fortified in peace: troops deployed along it and dug
+// in, with no war behind it. Nothing fights there until a war begins.
+export const BATTLEFIELD_STATUSES = Object.freeze(["active", "frozen", "closed", "standing"]);
 export const TROOP_KINDS = Object.freeze(["infantry", "armor", "artillery"]);
 // "dug in" is a stance, not a pause: a troop told to hold a defence digs in,
 // fights the stronger for it, and does not move at all while it is so.
@@ -148,7 +150,7 @@ export const MARCH_LEGS_MAX = 24;
 export const TRAIT_DRIVE = Object.freeze([0.7, 1.35]);
 export const TRAIT_DEPTH = Object.freeze([0.4, 1.8]);
 export const TRAIT_LANE = Object.freeze([-0.45, 0.45]);
-export const TRAIT_LAG_DAYS = Object.freeze([0, 0, 1, 1, 2, 3]);
+export const TRAIT_LAG_DAYS = Object.freeze([0, 0, 1, 1, 2]);
 // Neighbours are never placed nearer than this share of the gap between places.
 export const LANE_GAP_MIN = 0.35;
 // A troop drifts along the line toward its ideal place by this share of its day's advance.
@@ -181,6 +183,9 @@ export const FLANK_OPEN_RADII = 3;
 export const FLANKED_DEFENCE = 0.75;
 export const SURROUNDED_DEFENCE = 0.55;
 export const FLANK_OPPOSITE_COS = -0.7;
+// An attacker has come round a defender when it is this far past the
+// defender's front (the cosine of the angle off the way the defender faces).
+export const FLANK_BEHIND_COS = -0.2;
 
 // Raising troops. A side is sized by its own strength and by nothing else:
 // this many counters for each point of strength its members bring here (a
@@ -338,3 +343,163 @@ export const CONTACT_WITHIN_KM = 1200;
 export const FRAME_MARGIN_KM = 100;
 
 export const BRIEF_TEXT_MAX = 700;
+
+// ---- how troops move -----------------------------------------------------------
+// An attack order is a WAY for a group: a run of legs, each a direction and the
+// line across the leg's end. Every troop of the group has its own place across
+// the way (its slot) and its own share of the last leg to go (its stop), so a
+// group ends spread along the ground it took and nobody gathers at a point.
+
+// How broad a group goes: a rank this many brushes a troop, never under the
+// least, and never much wider than the group already stands.
+export const GROUP_BREADTH_MIN_KM = 40;
+export const GROUP_BREADTH_BRUSHES = 1.5;
+export const GROUP_BREADTH_OF_EXTENT = 1.2;
+// A spearhead: its point is the leading third, across three quarters of this
+// breadth, each stopping up to three tenths short of the way's end; the rest
+// are its shoulders, out to the side they began on, stopping between a quarter
+// and nine tenths of the way by how far back they began.
+export const SPEARHEAD_BREADTH_KM = 70;
+export const POINT_BREADTH = 0.75;
+export const POINT_STOPS_SHORT = 0.3;
+export const SHOULDER_STOPS = Object.freeze([0.25, 0.9]);
+export const SHOULDER_OUT = 0.3;
+export const SHOULDER_OUT_KM = Object.freeze([8, 30]);
+// A column that goes round (a flank, each arm of an encirclement): this broad,
+// and this far out from what it goes round. A blitz is a rank half as broad,
+// that waits these days to mass and then goes this much faster.
+export const COLUMN_BREADTH_KM = 28;
+export const ROUND_KM = 34;
+export const BLITZ_BREADTH = 0.5;
+export const BLITZ_MASS_DAYS = 4;
+export const BLITZ_PACE = 1.3;
+// With no objective a way runs straight out for this many days of advance at
+// least; one found over the ground is kept to this many legs.
+export const WAY_DAYS_MIN = 10;
+export const WAY_LEGS_MAX = 3;
+export const WAY_BEND_CELLS = 3;
+
+// Under an order a troop wants: its leg's direction; a slide toward its slot,
+// full from this far off and never more than this much of its step; away from
+// where the defenders in front of it are thick; and a slow drift of its own.
+export const SLOT_SLIDE_KM = 30;
+export const SLOT_SLIDE_MOST = 0.7;
+export const STEER_PRESS = 0.3;
+export const STEER_PRESS_KM = 35;
+export const STEER_DRIFT = 0.15;
+export const DRIFT_DAYS = 5;
+// It turns by degrees: this much of yesterday's heading is kept, it turns by no
+// more than 30 degrees in a day (cosine and sine), 45 closing on a pocket, and
+// at least this much of its step is along its way.
+export const HEADING_KEPT = 0.7;
+export const HEADING_KEPT_CLOSING = 0.5;
+export const TURN_COS = 0.8660254037844387;
+export const TURN_SIN = 0.5;
+export const TURN_CLOSING = 0.7071067811865476;
+export const WAY_LEAST = 0.2;
+// Crowding only eases it aside, across its way: by this at most, or this share
+// of its step. Those within this many brushes of it crowd it.
+export const EASE_KM = 2.5;
+export const EASE_SHARE = 0.2;
+export const ROOM_BRUSHES = 1.25;
+
+// With no order a troop moves only when it must. Driven off its ground, or
+// with the other side's ground nearer than this share of its depth, it picks
+// one place to fall back to (its own ground, this many depths from the other
+// side's, within this far) and goes straight there at this pace. Left behind
+// by its own line by more than this many depths it comes up, to within this
+// many. With fighting this near along its own ground it slides toward it.
+export const HOLD_TOO_NEAR = 0.45;
+export const HOLD_BACK_TO = 1.1;
+export const FALL_BACK_SEARCH_KM = 64;
+export const FALL_BACK_PACE_KM = 26;
+export const COME_UP_FROM = 3.5;
+export const COME_UP_TO = 2;
+export const COME_UP_KM = 7;
+export const SLIDE_KM = 6;
+export const SLIDE_HEARS_KM = 110;
+export const SLIDE_NEAR_KM = 30;
+export const SLIDE_FAR_KM = 75;
+export const SLIDE_BAND = Object.freeze([0.8, 3.5]);
+export const SLIDE_LEAST_DEPTH = 0.7;
+// On the other side's ground with nowhere to fall back to, it is taken after this many days.
+export const STRANDED_DAYS = 2;
+
+// Dug in: stronger in defence, cheaper to hold, and it does not move at all.
+// Thrown out of its works when the ground under it is lost, at this cost.
+export const DUG_IN_DEFENCE = 1.6;
+export const DUG_IN_LOSS = 0.55;
+export const THROWN_OUT_LOSS = 15;
+
+// Ground to be closed on draws in the nearest troops, whatever they are at: one
+// for every stretch of its rim and one more for every so much strength in it,
+// between a least and a most. From this near if they are under an order, or
+// free; from this far if those are not enough. Not one under this strength,
+// nor one that came out of a pocket within these days, or gave an attempt up.
+export const CLOSE_RIM_KM = 22;
+export const CLOSE_STRENGTH = 160;
+export const CLOSE_LEAST = 3;
+export const CLOSE_MOST = 16;
+export const CLOSE_NEAR_KM = Object.freeze([60, 35]);
+export const CLOSE_FAR_KM = Object.freeze([150, 80]);
+export const CLOSE_UNDER_STRENGTH = 30;
+export const CLOSE_REST_DAYS = 3;
+export const CLOSE_GIVEN_UP_DAYS = 6;
+export const CLOSE_WORN = 24;
+// One closing on a pocket leaves it alone from this far off (free, or under an order).
+export const CLOSE_LEAVES_KM = Object.freeze([160, 90]);
+// How far apart those closing on a pocket come at it from, as the cosine of
+// the angle between two of them, by how many it wants (3 to 16).
+export const CLOSE_APART_COS = Object.freeze([0.309, 0.5878, 0.729, 0.809, 0.8584, 0.891, 0.9135, 0.9298, 0.9418, 0.9511, 0.9582, 0.964, 0.9686, 0.9724]);
+// Those closing on it wear a cut-off troop this much faster; what is left of
+// one under this strength, with the other side upon it, gives up.
+export const CLOSE_WEAR = 1.8;
+export const GIVES_UP_UNDER = 14;
+// A cut-off troop tries to break out to its own side's supplied ground when
+// that is within this far, for this many days, and then holds for this many.
+export const BREAK_OUT_KM = 55;
+export const BREAK_OUT_DAYS = 4;
+export const BREAK_OUT_REST_DAYS = 7;
+// A scrap of cut-off ground under this size with troops on it is overrun at
+// once; so is a small pocket with this many times its strength closing on it
+// and within this far of it. Those in it get away, at this cost, if their own
+// side's ground is within this far. An empty pocket under this size gives up.
+export const SCRAP_KM2 = 400;
+export const OVERRUN_ODDS = 4;
+export const OVERRUN_WITHIN_KM = 14;
+export const OVERRUN_ESCAPE_KM = 60;
+export const OVERRUN_LOSS = 10;
+export const EMPTY_POCKET_KM2 = 6000;
+
+// Squeezed and cornered ground. A side's ground is in the grip of the other
+// where the other's is within GRIP_KM. Out of the grip it is a body and
+// perhaps parts joined to the body only through the grip; such a part, and a
+// tongue reaching further than STRAND_KM out through the grip, is squeezed if
+// it is this large and the fighting made it so: this share of it taken ground,
+// or this share of it within SQUEEZED_NEAR_KM of ground the other has taken.
+// Its troops waste by this much a day.
+export const GRIP_KM = 16;
+export const STRAND_KM = 40;
+export const SQUEEZED_MIN_KM2 = 300;
+export const SQUEEZED_TAKEN = 0.5;
+export const SQUEEZED_NEAR = 0.15;
+export const SQUEEZED_NEAR_KM = 24;
+export const SQUEEZED_LOSS = 1;
+
+// An assault on a named city, structure or formation: this many troops and
+// one more for every so much strength defending within reach of it (doubled),
+// between a least and a most; the nearest, from within this far. Each stops
+// short on a ring of its own. It is given up after these days. A formation is
+// worn by this much a day by each troop that has reached it.
+export const ASSAULT_BASE = 4;
+export const ASSAULT_PER_STRENGTH = 70;
+export const ASSAULT_LEAST = 6;
+export const ASSAULT_MOST = 24;
+export const ASSAULT_DEFENDERS_KM = 25;
+export const ASSAULT_FROM_KM = 280;
+export const ASSAULT_RING_KM = Object.freeze([3, 11]);
+export const ASSAULT_DAYS = 20;
+export const ASSAULT_WEAR = 2.5;
+
+// A border fortified in peace is given up after this many quiet days at token effort.
+export const STANDING_QUIET_DAYS = 30;

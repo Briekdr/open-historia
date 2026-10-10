@@ -230,11 +230,14 @@ test("a group holds an area without owning it: its gains are takes, and what a s
   assert.equal(seen.troops[0].length > 5 && seen.troops[1].length > 5, true);
 
   // Aland advances into the area: each region it wins is released from the group, and is Aland's as it always was.
-  const won = runFronts(frontInput(world, { ...base, battlefields: [record], days: 8, strengthOf: (name) => (name === "Aland" ? 8 : 2), moments: [{ day: 0, type: "order", battlefield: record.name, side: "Aland", order: "advance", sector: "all" }] }));
+  // (A side is sized when its battlefield opens: each case opens its own, the attacker four times the stronger.)
+  const strong = (name) => (side) => (side === name ? 8 : 2);
+  const openedFor = (name) => runFronts(frontInput(world, { ...base, days: 0, strengthOf: strong(name) })).battlefields;
+  const won = runFronts(frontInput(world, { ...base, battlefields: openedFor("Aland"), days: 8, strengthOf: strong("Aland"), moments: [{ day: 0, type: "order", battlefield: record.name, side: "Aland", order: "advance", sector: "all" }] }));
   assert.ok(won.flips.length >= 2);
   for (const flip of won.flips) assert.deepEqual([flip.from, flip.to, flip.kind], ["Free East", "Aland", "groupRelease"]);
   // The group advances out of it: each region it wins is a take.
-  const lost = runFronts(frontInput(world, { ...base, battlefields: [record], days: 8, strengthOf: (name) => (name === "Aland" ? 2 : 8), moments: [{ day: 0, type: "order", battlefield: record.name, side: "Free East", order: "advance", sector: "all" }] }));
+  const lost = runFronts(frontInput(world, { ...base, battlefields: openedFor("Free East"), days: 8, strengthOf: strong("Free East"), moments: [{ day: 0, type: "order", battlefield: record.name, side: "Free East", order: "advance", sector: "all" }] }));
   assert.ok(lost.flips.length >= 1);
   for (const flip of lost.flips) assert.deepEqual([flip.from, flip.to, flip.kind], ["Aland", "Free East", "groupTake"]);
   // The next run finds the area as the flips left it.
@@ -426,7 +429,7 @@ test("a siege ends when the place is captured, when the besiegers are repulsed, 
   assert.equal(sieges(lifted[0].battlefields[0]).length, 1);
   for (let day = 1; day <= 5; day += 1) {
     const { seen, garrison } = roundTheTown(lifted[day].battlefields[0], world);
-    assert.deepEqual(lifted[day].battlefields[0].brief.pockets, [], `day ${day}: nothing is cut off`);
+    assert.deepEqual(sieges(lifted[day].battlefields[0]), [], `day ${day}: the siege is lifted`);
     assert.equal(seen.holderAt(21.42, 50), HOLDER_SIDE_B);
     if (day > 1) assert.notEqual(garrison.state, 2);
   }

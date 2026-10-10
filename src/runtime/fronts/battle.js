@@ -38,10 +38,13 @@ import {
   TROOP_UNITS,
 } from "./constants.js";
 import { nearestOnContour, openField, ownCell, packField, redistance, setGround, takeCells, traceContour, unpackField } from "./field.js";
+import { awayOf, downhill, measure } from "./ground.js";
+import { placeBehind } from "./move.js";
+import { servingOf } from "./orders.js";
 import { projectorOf } from "./frame.js";
 import { drawLine, measureLine } from "./line.js";
 import { nearestOwner } from "./supply.js";
-import { KIND_ARMOUR, KIND_ARTILLERY, KIND_INFANTRY, createTroop, drawTraits, dropTheDead, isLive, kindsFor, liveCount, planLanes, shareOut, sideRadiusKm, sizeSides, standAtPlaces } from "./troops.js";
+import { KIND_ARMOUR, KIND_ARTILLERY, KIND_INFANTRY, createTroop, drawTraits, dropTheDead, isLive, kindsFor, liveCount, planLanes, shareOut, sideRadiusKm, sizeSides, standAtPlaces, standOff, stands } from "./troops.js";
 
 const fold = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 const round3 = (value) => Math.round(value * 1000) / 1000;
@@ -177,6 +180,21 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   pockets: [],
   pocketOf: null,
   pocketTurns: -1,
+  // The ground to be closed on (closing.js), and the distances over the ground (ground.js).
+  close: null,
+  toSide: null,
+  fed: null,
+  bodyOf: null,
+  // Whose home each cell is as the map is told it: as the run began, until its last day.
+  drawnHomes: null,
+  // Whether the record said which troops serve which standing order.
+  served: false,
+  // A border fortified in peace: the days nothing has been ordered there, and
+  // which of its sides have been told to leave it.
+  quiet: 0,
+  leaving: [false, false],
+  // Whether its first side fights on the second side of its war.
+  swap: false,
   // The sieges that stand, and the ground each side's steps leave alone (orders.js).
   sieges: [],
   spared: [[], []],
@@ -292,17 +310,45 @@ export const memberWeights = (battle, run, side) => battle.sides[side].map((memb
   return Math.max(0, Number(run.strengthOf(member)) || 0) * share;
 });
 
+// A troop that has just been raised is stood where it would stay: not nearer
+// the other side's ground than it would bear, nor further back than it would
+// leave be. So a front nobody pushes is at rest from its first day.
+const settleRaised = (battle, side, raised) => {
+  const { field, place } = battle;
+  const toOther = measure(battle)[1 - side];
+  const toward = [0, 0];
+  for (const troop of raised) {
+    const depth = standOff(troop, place.kmAt);
+    for (let round = 0; round < 6; round += 1) {
+      const onOwn = stands(field, side, troop.x, troop.y);
+      const away = onOwn ? awayOf(battle, side, troop.x, troop.y) : 0;
+      if (!onOwn || away < depth * 0.6) {
+        const behind = placeBehind(battle, side, troop, depth);
+        if (!behind || (behind[0] === troop.x && behind[1] === troop.y)) break;
+        [troop.x, troop.y] = behind;
+      } else if (away > depth * 3 && downhill(field, toOther, troop.x, troop.y, toward)) {
+        const step = away - depth * 2;
+        if (!stands(field, side, troop.x + toward[0] * step, troop.y + toward[1] * step)) break;
+        troop.x += toward[0] * step;
+        troop.y += toward[1] * step;
+      } else break;
+    }
+  }
+};
+
 // Raises both sides' troops on a battle that has just opened, and stands them
 // along the line: nobody has ordered anything yet, so the weight is even, and
 // what makes the line uneven is the troops themselves.
-export const raiseTroops = (battle, run) => {
+export const raiseTroops = (battle, run, only = -1) => {
   const line = measureLine(battle.field, traceContour(battle.field));
   battle.lineKm = line.total;
   const members = [memberWeights(battle, run, 0), memberWeights(battle, run, 1)];
   const strengths = members.map((list) => list.reduce((sum, weight) => sum + weight, 0));
   const { counts, quality } = sizeSides(line.total, strengths, battle.effort);
-  battle.quality = quality.map(round3);
+  battle.quality = quality.map((value, side) => (only >= 0 && side !== only ? battle.quality[side] : round3(value)));
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
+    // (On a border fortified in peace only the side that deploys there raises troops.)
+    if (only >= 0 && side !== only) continue;
     const room = Math.max(0, Math.min(counts[side], MAX_TROOPS_PER_SIDE - battle.troops[side].length));
     battle.base[side] = round3(members[side].reduce((sum, weight) => sum + weight, 0));
     battle.pool[side] += room * POOL_PER_TROOP;
@@ -327,6 +373,7 @@ export const raiseTroops = (battle, run) => {
     if (battle.lanes) battle.lanes[side] = null;
     planLanes(battle, side, line, []);
     standAtPlaces(battle, side);
+    settleRaised(battle, side, raised);
     // Each member's share of the counters, the ally whose ground a counter
     // stands on taking it where it still has some to take.
     const quota = shareOut(raised.length, members[side].some((weight) => weight > 0) ? members[side] : members[side].map((weight, index) => (battle.gone[side].has(index) ? 0 : 1)));
@@ -437,13 +484,20 @@ export const loadBattle = (run, record, arena) => {
   // Who the map draws each region as: the names the last run left for the
   // regions it listed. A region it did not list is shown as its holder in name.
   const carry = record.brief?.carry ?? {};
-  for (const entry of [...(Array.isArray(carry.shown) ? carry.shown : []), ...(Array.isArray(record.contested) ? record.contested : [])]) {
-    if (!Array.isArray(entry) || typeof entry[0] !== "string" || typeof entry[1] !== "string") continue;
-    if (entry[0].trim() && entry[1].trim()) battle.shown.set(entry[0].trim(), entry[1].trim());
+  for (const entry of Array.isArray(record.contested) ? record.contested : []) {
+    if (Array.isArray(entry) && typeof entry[0] === "string" && typeof entry[1] === "string" && entry[0] && entry[1]) battle.shown.set(entry[0], entry[1]);
   }
   readRegions(battle, run);
   battle.field = unpackField(arena, record.field, battle.regionSide);
   const read = [decodeTroops(record.troops[0]).map(createTroop), decodeTroops(record.troops[1]).map(createTroop)];
+  // Which standing order each troop was serving when the last run ended.
+  battle.served = Array.isArray(carry.under) && carry.under.length === 2;
+  if (battle.served) {
+    read.forEach((list, side) => list.forEach((troop, index) => {
+      const serves = Array.isArray(carry.under[side]) ? carry.under[side][index] : -1;
+      troop.serves = Number.isInteger(serves) ? serves : -1;
+    }));
+  }
   const kept = dropTheDead(read, record.named);
   battle.troops = kept.troops;
   battle.named = kept.named;
@@ -465,6 +519,7 @@ export const loadBattle = (run, record, arena) => {
     .filter((pocket) => (pocket?.s === 0 || pocket?.s === 1) && Number.isInteger(pocket.cell))
     .map((pocket) => ({ s: pocket.s, cell: pocket.cell, days: Math.max(0, Math.floor(Number(pocket.days) || 0)), km2: 0, siege: "", told: pocket.told === true }));
   battle.log = record.log.map((entry) => ({ ...entry }));
+  battle.quiet = Math.max(0, Math.floor(Number(carry.quiet) || 0));
   return battle;
 };
 
@@ -597,9 +652,11 @@ export const saveBattle = (battle, run, day, changes, brief) => {
     brief: {
       ...brief,
       carry: {
-        // Kept here as well until the record itself keeps a name for a region.
-        ...(contested.length > 0 ? { shown: contested } : {}),
+        // Which of the standing orders each troop is serving, so that the next
+        // run finds the same group under each.
+        under: battle.troops.map((list) => list.map((troop) => servingOf(battle, troop))),
         ages: battle.orders.map((order) => order.age),
+        ...(battle.status === "standing" ? { quiet: battle.quiet } : {}),
         halts: battle.halts.map(({ s, sector, days }) => ({ s, sector, days })),
         anchors: battle.anchors.map(({ s, x, y }) => ({ s, x, y })),
         pockets: battle.pockets.map(({ s, cell, days, told }) => ({ s, cell, days, ...(told ? { told: true } : {}) })),

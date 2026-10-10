@@ -10,8 +10,10 @@
 // sliver a thrust left behind. Anything else is a POCKET, and a pocket is
 // fought for like any other ground, only at a disadvantage: its troops attack
 // and defend at a share of their power and waste away for want of supply, and
-// after ten days, or once no troop is left in it, it gives up. Until then its
-// troops may break out, or throw the ring back.
+// after ten days it gives up. Until then its troops may break out, or throw
+// the ring back; and the other side's nearest troops close on it (closing.js).
+// A scrap of ground with a troop or two left on it as the fighting goes past
+// is not a pocket: they are driven off it and it goes.
 //
 // A place the other side was told to encircle is the one exception: enclosed,
 // it is BESIEGED. It is never filled as a patch whatever its size, nobody
@@ -32,10 +34,16 @@
 // stands for its home ground: otherwise every rising would be a pocket.
 
 import {
+  EMPTY_POCKET_KM2,
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
+  OVERRUN_ESCAPE_KM,
+  OVERRUN_LOSS,
+  OVERRUN_ODDS,
+  OVERRUN_WITHIN_KM,
   PATCH_MAX_KM2,
   POCKET_DAYS,
+  SCRAP_KM2,
   SIEGE_DAYS,
   SUPPLY_EVERY_DAYS,
   SUPPLY_FAR_FACTOR,
@@ -195,21 +203,30 @@ export const findPockets = (battle) => {
   const pockets = [];
   const pocketOf = [new Int32Array(field.size).fill(-1), new Int32Array(field.size).fill(-1)];
   battle.supplied = [null, null];
+  // For each side: the body of ground each cell it holds lies in, and whether that body is supplied.
+  battle.bodyOf = [null, null];
+  battle.fed = [new Uint8Array(field.size), new Uint8Array(field.size)];
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     const { bodies, supplied, touched } = suppliedBodies(battle, side);
     battle.supplied[side] = supplied;
+    battle.bodyOf[side] = bodies.label;
     const pocketOfBody = new Int32Array(bodies.count).fill(-1);
     for (let index = 0; index < field.size; index += 1) {
       const body = bodies.label[index];
+      if (body < 0) continue;
+      if (supplied[body]) battle.fed[side][index] = 1;
       // Cut off, and with the other side's ground against it somewhere.
-      if (body < 0 || supplied[body] || !touched[body]) continue;
+      if (supplied[body] || !touched[body]) continue;
       if (pocketOfBody[body] < 0) {
         pocketOfBody[body] = pockets.length;
-        pockets.push({ s: side, cell: index, days: 0, km2: 0, siege: "", told: false });
+        pockets.push({ s: side, cell: index, days: 0, km2: 0, cells: 0, cx: 0, cy: 0, siege: "", told: false });
       }
       const pocket = pockets[pocketOfBody[body]];
       const km = place.rowKm[Math.floor(index / field.cols)];
       pocket.km2 += km * km;
+      pocket.cells += 1;
+      pocket.cx += (index % field.cols) + 0.5;
+      pocket.cy += Math.floor(index / field.cols) + 0.5;
       pocketOf[side][index] = pocketOfBody[body];
       // Any cell it shares with a pocket that was there before makes it that
       // pocket still, however it has shrunk.
@@ -218,6 +235,10 @@ export const findPockets = (battle) => {
       if (known[was].days > pocket.days) pocket.days = known[was].days;
       if (known[was].told) pocket.told = true;
     }
+  }
+  for (const pocket of pockets) {
+    pocket.cx /= pocket.cells;
+    pocket.cy /= pocket.cells;
   }
   for (const siege of battle.sieges) {
     const index = pocketOf[1 - siege.by][siege.cell];
@@ -243,19 +264,21 @@ export const findPockets = (battle) => {
   battle.pocketSieges = battle.siegeKey;
 };
 
-// Which pockets have a live troop of their own side standing in them.
-const mannedPockets = (battle) => {
-  const manned = new Uint8Array(battle.pockets.length);
+// The live troops of its own side that stand in each pocket.
+const garrisons = (battle) => {
+  const inside = battle.pockets.map(() => []);
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     for (const troop of battle.troops[side]) {
       const cell = ownCell(battle.field, side, troop.x, troop.y);
-      if (isLive(troop) && cell >= 0 && battle.pocketOf[side][cell] >= 0) manned[battle.pocketOf[side][cell]] = 1;
+      if (isLive(troop) && cell >= 0 && battle.pocketOf[side][cell] >= 0) inside[battle.pocketOf[side][cell]].push(troop);
     }
   }
-  return manned;
+  return inside;
 };
 
-// Which troops stand in a pocket today, and which of those in a besieged place.
+// Which troops stand in a pocket today, and which of those in a besieged
+// place. `pocket` is whether a troop fights as one surrounded (closing.js adds
+// those in squeezed ground); `sealed` whether it is truly cut off.
 export const markPockets = (battle) => {
   findPockets(battle);
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
@@ -263,6 +286,7 @@ export const markPockets = (battle) => {
       const cell = ownCell(battle.field, side, troop.x, troop.y);
       const pocket = isLive(troop) && cell >= 0 ? battle.pocketOf[side][cell] : -1;
       troop.pocket = pocket >= 0;
+      troop.sealed = pocket >= 0;
       troop.besieged = pocket >= 0 && battle.pockets[pocket].siege !== "";
     }
   }
@@ -270,69 +294,109 @@ export const markPockets = (battle) => {
 
 // Enclosed ground goes to the other side: every cell of it, painted for the
 // member whose troops are nearest, and the troops that stood in it are lost.
-// The log says where, once: `kind` is "pocket" for one that gave up; a patch
-// that is filled had nobody in it, and is not news.
+// The log says where, once, when `kind` names what happened ("pocket" for one
+// that gave up, "overrun" for one that was stormed); a patch that is filled
+// had nobody in it, and is not news.
 const giveUp = (battle, index, date, kind) => {
   const { field, arena } = battle;
   const pocket = battle.pockets[index];
   const cells = [];
-  let sumX = 0;
-  let sumY = 0;
-  for (let cell = 0; cell < field.size; cell += 1) {
-    if (battle.pocketOf[pocket.s][cell] !== index) continue;
-    cells.push(cell);
-    sumX += (cell % field.cols) + 0.5;
-    sumY += Math.floor(cell / field.cols) + 0.5;
-  }
-  let lost = 0;
+  for (let cell = 0; cell < field.size; cell += 1) if (battle.pocketOf[pocket.s][cell] === index) cells.push(cell);
   for (const troop of battle.troops[pocket.s]) {
     const cell = ownCell(field, pocket.s, troop.x, troop.y);
-    if (!isLive(troop) || cell < 0 || battle.pocketOf[pocket.s][cell] !== index) continue;
-    troop.strength = 0;
-    lost += 1;
+    if (isLive(troop) && cell >= 0 && battle.pocketOf[pocket.s][cell] === index) troop.strength = 0;
   }
   if (cells.length === 0) return;
   takeCells(field, 1 - pocket.s, cells, nearestOwner(battle, 1 - pocket.s));
-  const at = describePoint(arena, sumX / cells.length, sumY / cells.length);
-  if (at && (kind === "pocket" || lost > 0)) battle.log.push({ d: date, k: kind, s: pocket.s, at });
+  const at = kind ? describePoint(arena, pocket.cx, pocket.cy) : "";
+  if (at) battle.log.push({ d: date, k: kind, s: pocket.s, at });
 };
 
 // A pocket surrenders now (the story said so): `index` is its place in battle.pockets.
 export const surrenderPocket = (battle, index, date) => giveUp(battle, index, date, "pocket");
 
-// After the day's sweeps: every enclosed patch under the size of a pocket
-// that none of its side's troops stand in is filled, and a place that has just
-// been shut in goes to the log as besieged. true when any patch was filled.
-export const fillPatches = (battle, date) => {
+// Whether a troop driven off a scrap of ground has its own side's supplied
+// ground near enough to get away to.
+const canEscape = (battle, side, troop) => {
+  const { field } = battle;
+  const reach = Math.ceil(OVERRUN_ESCAPE_KM / battle.place.kmAt(troop.y));
+  const col0 = Math.floor(troop.x);
+  const row0 = Math.floor(troop.y);
+  for (let row = Math.max(0, row0 - reach); row <= Math.min(field.rows - 1, row0 + reach); row += 1) {
+    for (let col = Math.max(0, col0 - reach); col <= Math.min(field.cols - 1, col0 + reach); col += 1) {
+      const cell = row * field.cols + col;
+      if (field.holders[cell] !== side || battle.pocketOf[side][cell] >= 0) continue;
+      if ((col + 0.5 - troop.x) * (col + 0.5 - troop.x) + (row + 0.5 - troop.y) * (row + 0.5 - troop.y) <= reach * reach) return true;
+    }
+  }
+  return false;
+};
+
+// After the day's steps: what becomes of each piece of enclosed ground.
+//
+//   a place under siege      is left as it is, and said once to be besieged;
+//                            it gives up after its forty-five days, or when
+//                            nobody is left in it
+//   a scrap with troops on it, or a small pocket with four times its strength
+//   closing on it and upon it
+//                            is overrun at once: its troops are driven off it,
+//                            back to their own side if that is near, and it goes
+//   an empty patch           is filled; a larger empty piece gives up, unless
+//                            it is so large that it has to be walked through
+//   any other                is a pocket: a day older, and after ten days cut
+//                            off it gives up
+//
+// true when any ground changed hands.
+export const settlePockets = (battle, date) => {
   findPockets(battle);
-  const manned = mannedPockets(battle);
+  const inside = garrisons(battle);
   let any = false;
   for (let index = 0; index < battle.pockets.length; index += 1) {
     const pocket = battle.pockets[index];
+    const held = inside[index];
     if (pocket.siege) {
       if (!pocket.told) battle.log.push({ d: date, k: "siege", s: pocket.s, at: pocket.siege });
       pocket.told = true;
+      pocket.days += 1;
+      if (held.length > 0 && pocket.days < SIEGE_DAYS) continue;
+      giveUp(battle, index, date, "pocket");
+      any = true;
       continue;
     }
-    if (pocket.km2 >= PATCH_MAX_KM2 || manned[index]) continue;
-    giveUp(battle, index, date, "overrun");
-    any = true;
-  }
-  if (any) findPockets(battle);
-  return any;
-};
-
-// The end of a day for the pockets: each is a day older, and one that has
-// stood its time (ten days, forty-five for a besieged place), or has no troop
-// left in it, gives up. true when any did.
-export const agePockets = (battle, date) => {
-  findPockets(battle);
-  let any = false;
-  const manned = mannedPockets(battle);
-  for (let index = 0; index < battle.pockets.length; index += 1) {
-    const pocket = battle.pockets[index];
+    let overrun = held.length > 0 && pocket.km2 < SCRAP_KM2;
+    if (held.length > 0 && !overrun && pocket.km2 < PATCH_MAX_KM2) {
+      // Those closing on it, within reach of it, against those who hold it.
+      const within = Math.sqrt(pocket.cells / Math.PI) + OVERRUN_WITHIN_KM / battle.place.kmAt(pocket.cy);
+      let at = 0;
+      for (const troop of battle.troops[1 - pocket.s]) {
+        if (!isLive(troop) || !troop.order || troop.order.done || troop.order.kind !== "reduce") continue;
+        if ((troop.x - pocket.cx) * (troop.x - pocket.cx) + (troop.y - pocket.cy) * (troop.y - pocket.cy) <= within * within) at += troop.strength;
+      }
+      overrun = at >= OVERRUN_ODDS * held.reduce((sum, troop) => sum + troop.strength, 0);
+    }
+    if (overrun) {
+      for (const troop of held) {
+        troop.strength = canEscape(battle, pocket.s, troop) ? Math.max(0, troop.strength - OVERRUN_LOSS) : 0;
+        if (troop.order) troop.order = null;
+        troop.fallback = null;
+      }
+      // The ground goes; those who got away are no longer in it.
+      const cells = [];
+      for (let cell = 0; cell < battle.field.size; cell += 1) if (battle.pocketOf[pocket.s][cell] === index) cells.push(cell);
+      takeCells(battle.field, 1 - pocket.s, cells, nearestOwner(battle, 1 - pocket.s));
+      const at = describePoint(battle.arena, pocket.cx, pocket.cy);
+      if (at) battle.log.push({ d: date, k: "overrun", s: pocket.s, at });
+      any = true;
+      continue;
+    }
+    if (held.length === 0) {
+      if (pocket.km2 >= EMPTY_POCKET_KM2) continue;
+      giveUp(battle, index, date, pocket.km2 < PATCH_MAX_KM2 ? "" : "pocket");
+      any = true;
+      continue;
+    }
     pocket.days += 1;
-    if (manned[index] && pocket.days < (pocket.siege ? SIEGE_DAYS : POCKET_DAYS)) continue;
+    if (pocket.days < POCKET_DAYS) continue;
     giveUp(battle, index, date, "pocket");
     any = true;
   }
