@@ -69,3 +69,31 @@ export const LINE_QUIET = 0; // where it stood when the battlefield opened
 export const LINE_MOVED = 1; // moved since, still now
 export const LINE_PUSHED_BY_A = 2;
 export const LINE_PUSHED_BY_B = 3;
+
+// ---- the engine's numbers ------------------------------------------------------
+// One name a number, so the rig can tune them. Lengths are kilometres or cells
+// as the name says; a day is a game day.
+
+// The ground. A region type's speed is held to this range; 0 is impassable.
+export const TERRAIN_SPEED_MIN = 0.2;
+export const TERRAIN_SPEED_MAX = 2;
+// How much slow ground helps whoever defends it: half-speed ground is worth
+// 1 + 0.5 * this in defence.
+export const TERRAIN_DEFENCE_GAIN = 1.25;
+
+// The field. A cell far from the line holds this distance, with its side's sign.
+export const FAR_CELLS = 8;
+// A new line is placed from this many samples a cell, each way.
+export const SUPERSAMPLE = 4;
+// How far past a shape's edge an edit writes distances, and after a day's edits
+// how far round a changed cell distances are worked out again, and how far a
+// cell looks for the line before it is simply far.
+export const EDIT_MARGIN_CELLS = 2;
+export const REDISTANCE_NEAR_CELLS = 2;
+export const REDISTANCE_REACH_CELLS = 4;
+// What another writer's change to the map does to the field: a region the world
+// gives to a side that holds less than this share of it is repainted.
+export const REPAINT_BELOW = 0.4;
+// The frame grows when the line comes this near its edge, by this much.
+export const GROW_WITHIN_CELLS = 6;
+export const GROW_KM = 400;
