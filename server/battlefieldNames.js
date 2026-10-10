@@ -2,7 +2,12 @@
 // world.battlefields names the members of its two sides, and who gave each
 // standing order, by exact name (src/runtime/fronts/record.js). A country is
 // keyed by its name and a rename re-keys it everywhere, so it has to re-key it
-// here too, or the renamed country's troops would belong to nobody.
+// here too, or the renamed country's troops would belong to nobody. The same
+// goes for what the map draws from a battlefield by name: whose colour the
+// ground it took is painted in (the replay's `names`), and whose each region
+// taken in name and not in full is still drawn as (`contested`, and the
+// replay's `o` and `f`): left under the old name, its ground would be
+// painted in no country's colour and its regions drawn as nobody's.
 //
 // It lives under server/ because the server's own rename (polityRename.js)
 // calls it, and server code never imports src/. Imports nothing.
@@ -43,6 +48,25 @@ export const renameInBattlefields = (battlefields, from, to, sameName = exact) =
     }
     if (Array.isArray(row.orders)) {
       next.orders = row.orders.map((order) => (isRecord(order) && order.by ? { ...order, by: renamed(order.by) } : order));
+    }
+    // [regionId, name]: the name it is still drawn as.
+    const pairs = (list) => list.map((entry) => (Array.isArray(entry) && typeof entry[1] === "string" ? [entry[0], renamed(entry[1])] : entry));
+    if (Array.isArray(row.contested)) next.contested = pairs(row.contested);
+    if (isRecord(row.replay)) {
+      const { replay } = row;
+      const before = changed;
+      changed = false;
+      const made = { ...replay };
+      // A name keeps its place: painted ground names its colour by it.
+      if (Array.isArray(replay.names)) made.names = replay.names.map(renamed);
+      if (Array.isArray(replay.o)) made.o = pairs(replay.o);
+      if (Array.isArray(replay.f)) {
+        made.f = replay.f.map((entry) => (Array.isArray(entry) && typeof entry[2] === "string" ? [entry[0], entry[1], renamed(entry[2])] : entry));
+      }
+      // The replay itself only when something in it was renamed: what has
+      // been read from it is kept by the object it is (replay.js).
+      if (changed) next.replay = made;
+      changed = changed || before;
     }
     return next;
   });

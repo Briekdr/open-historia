@@ -38,6 +38,29 @@ test("the member and whoever gave an order are renamed; the battlefield's own na
   assert.equal(list[0].sides[0][0], "Prussia", "the list handed in is not written to");
 });
 
+test("what the map draws by name is renamed too: the colours of taken ground, and whose a region is still drawn as", () => {
+  const replay = {
+    d: "1870-07-19", n: 12, s: 0, e: 12, t: ["", ""], m: "", p: "",
+    names: ["Prussia", "Bavaria", "France"],
+    o: [["region-4", "France"], ["region-9", "Prussia"]],
+    f: [[7, "region-4", "Prussia"], [9, "region-9", "France"]],
+  };
+  const list = [battlefield({ replay, contested: [["region-9", "Prussia"], ["region-2", "France"]] })];
+  const [renamed] = renameInBattlefields(list, "Prussia", "Germany");
+  assert.deepEqual(renamed.replay.names, ["Germany", "Bavaria", "France"], "in its place: painted ground names its colour by it");
+  assert.deepEqual(renamed.replay.o, [["region-4", "France"], ["region-9", "Germany"]]);
+  assert.deepEqual(renamed.replay.f, [[7, "region-4", "Germany"], [9, "region-9", "France"]]);
+  assert.deepEqual(renamed.contested, [["region-9", "Germany"], ["region-2", "France"]]);
+  assert.deepEqual(replay.names, ["Prussia", "Bavaria", "France"], "the record it was made from is not touched");
+  // A replay nothing in it was renamed in is the same object: what was read from it stays read.
+  const [other] = renameInBattlefields([battlefield({ replay: { ...replay, names: ["Austria"], o: [], f: [] }, sides: [["Prussia"], ["France"]] })], "Prussia", "Germany");
+  assert.equal(other.replay.names[0], "Austria");
+  const kept = battlefield({ replay, sides: [["Austria"], ["Italy"]], orders: [] });
+  assert.notEqual(renameInBattlefields([kept], "Prussia", "Germany")[0].replay, replay);
+  const untouched = battlefield({ replay: { ...replay, names: ["Austria", "Italy"], o: [["region-1", "Italy"]], f: [] }, sides: [["Prussia"], ["France"]] });
+  assert.equal(renameInBattlefields([untouched], "Prussia", "Germany")[0].replay, untouched.replay);
+});
+
 test("a list nothing in it changed comes back as it was", () => {
   const list = [battlefield()];
   assert.equal(renameInBattlefields(list, "Austria", "Austria-Hungary"), list);
