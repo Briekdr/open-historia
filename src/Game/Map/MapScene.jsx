@@ -5,6 +5,7 @@ import Nations from "./Nations";
 import Cities from "./Cities";
 import MarkersLayer from "./MarkersLayer.jsx";
 import Units from "./Units";
+import FrontLayers from "./FrontLayers.jsx";
 import GlobeEffects from "./GlobeEffects.jsx";
 import RegionPopup from "../Selection/Regions";
 import CountryInfoPanel from "../Selection/CountryPanel.jsx";
@@ -149,6 +150,7 @@ const MapScene = ({ isGlobe = false }) => {
       <Nations isGlobe={isGlobe} />
       <Cities />
       <MarkersLayer />
+      <FrontLayers />
       <Units />
       <GlobeEffects active={isGlobe} />
       <RegionPopup />
