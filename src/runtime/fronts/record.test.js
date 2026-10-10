@@ -29,11 +29,21 @@ const troopsAt = (col) => [
 ];
 // A run of 31 days from the first of March: the line goes east from column 30
 // to column 40, a third of a cell a day, and the troops go with it.
+const groundAt = (lineCol) => {
+  const size = frame.cols * frame.rows;
+  const holders = new Uint8Array(size);
+  const homes = new Uint8Array(size);
+  for (let index = 0; index < size; index += 1) {
+    holders[index] = index % frame.cols < lineCol ? HOLDER_SIDE_A : HOLDER_SIDE_B;
+    homes[index] = index % frame.cols < 30 ? 0 : 1;
+  }
+  return { holders, painters: new Uint8Array(size), homes };
+};
 const replayOfRun = ({ from = 30, to = 40, days = 31, date = "2024-03-01", opens = 0, closes = days } = {}) => {
-  const recorder = createReplayRecorder();
+  const recorder = createReplayRecorder({ sides: [["Russia", "Belarus"], ["Ukraine"]], cols: frame.cols, rows: frame.rows });
   for (let day = opens; day <= closes; day += 1) {
     const col = from + ((to - from) * day) / days;
-    recorder.record(day, [{ closed: false, points: [[col, 0], [col, frame.rows]], flags: [1, 1] }], troopsAt(col));
+    recorder.record(day, troopsAt(col), groundAt(Math.floor(col)));
   }
   return recorder.finish({ date, days });
 };
@@ -91,7 +101,7 @@ test("what could not be a battlefield is dropped, and the rest is held to its li
       { s: 2, order: "hold" },
       { s: 1, order: "dig in", effort: "TOTAL" },
     ],
-    replay: { l: ["not a line!"] },
+    replay: { m: "painted" },
     contested: [["region-1", 1], ["", 0], ["region-2", 5], "region-3"],
     brief: "none",
     log: [{ d: "2024-03-20", k: "City", at: "" }, { d: "2024-03-21", k: "pocket", at: "city: Kupiansk", s: 4 }],
@@ -156,8 +166,10 @@ test("what the map draws is the troops as they stand and the replay of the last 
   assert.equal(view.troops[1][0].kind, 1);
   assert.deepEqual(view.named, [{ s: 0, i: 0, name: "1st Guards Tank Army", unitId: "unit-1" }]);
   assert.equal(view.replay.days, 31);
-  assert.equal(view.replay.keys[0].lines[0].points[0][0], 30);
-  assert.equal(view.replay.keys.at(-1).lines[0].points[0][0], 40);
+  assert.equal(view.replay.paint.began.length, frame.cols * frame.rows);
+  assert.equal(view.replay.paint.began[35], 0, "as the run began, nothing was painted");
+  assert.equal(view.replay.paint.cells.length, 10 * frame.rows, "ten columns taken, a cell at a time");
+  assert.deepEqual(view.replay.paint.names, ["Russia", "Belarus", "Ukraine"]);
   assert.equal(view.replay.tracks[0][0].at(-1).x, 39);
   assert.equal(view.window, null, "as it stands: shown as it ended");
   assert.equal(frontViewOf(record), view, "read once");

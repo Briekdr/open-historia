@@ -3,17 +3,24 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   PACKED_TEXT,
+  PAINT_LETTERS,
+  PAINT_NAMES_MAX,
+  PAINT_WALL,
   TRACK_LETTERS,
   TROOP_LETTERS,
   bandIndices,
   decodeBand,
   decodeLines,
   decodeMask,
+  decodePaint,
+  decodeStates,
   decodeTracks,
   decodeTroops,
   encodeBand,
   encodeLines,
   encodeMask,
+  encodePaint,
+  encodeStates,
   encodeTracks,
   encodeTroops,
   hashKey,
@@ -148,6 +155,48 @@ test("a troop's path comes back point for point, and a troop with none keeps its
   // What is out of range is held to it, and a damaged string reads as far as it goes.
   assert.deepEqual(decodeTracks(encodeTracks([[{ day: 99999, x: -4, y: 9999, strength: 250, state: 9 }]]))[0][0], { day: 4095, x: 0, y: 255.9375, strength: 100, state: 3 });
   assert.equal(decodeTracks(text.slice(0, TRACK_LETTERS + 3))[0].length, 1);
+});
+
+test("painted ground comes back cell for cell, and ground it does not reach is wall", () => {
+  const states = new Uint8Array(20000);
+  states.fill(PAINT_WALL, 0, 300);
+  states.fill(3, 9000, 9040);
+  states[9041] = PAINT_NAMES_MAX;
+  states.fill(1, 12000, 20000);
+  const text = encodeStates(states);
+  assert.match(text, PACKED_TEXT);
+  assert.ok(text.length < 40, `${text.length} letters for seven stretches of ground`);
+  assert.deepEqual(decodeStates(text, states.length), states);
+  assert.equal(encodeStates(decodeStates(text, states.length)), text, "a second pass changes nothing");
+  const short = decodeStates(encodeStates(states.subarray(0, 9020)), 9100);
+  assert.equal(short[9019], 3);
+  assert.equal(short[9020], PAINT_WALL);
+  assert.equal(decodeStates("", 4).every((state) => state === PAINT_WALL), true);
+  assert.equal(decodeStates(text, 0).length, 0);
+});
+
+test("the changes of painted ground come back in order, however long the wait between two", () => {
+  const changes = [
+    { tick: 0, cell: 7, state: 1 },
+    { tick: 3, cell: 47999, state: 2 },
+    { tick: 3, cell: 12, state: 0 },
+    { tick: 62 + 3, cell: 5, state: PAINT_WALL },
+    { tick: 62 + 3 + 400, cell: 6, state: 1 },
+    { tick: 62 + 3 + 400 + 63, cell: 9, state: 4 },
+  ];
+  const text = encodePaint(changes);
+  assert.match(text, PACKED_TEXT);
+  assert.equal(text.length % PAINT_LETTERS, 0);
+  const read = decodePaint(text);
+  assert.deepEqual([...read.ticks], changes.map((change) => change.tick));
+  assert.deepEqual([...read.cells], changes.map((change) => change.cell));
+  assert.deepEqual([...read.states], changes.map((change) => change.state));
+  assert.equal(encodePaint([]), "");
+  assert.deepEqual([...decodePaint("").ticks], []);
+  // Time never runs backwards: a change given out of order is taken as at the one before.
+  assert.deepEqual([...decodePaint(encodePaint([{ tick: 9, cell: 1, state: 1 }, { tick: 4, cell: 2, state: 1 }])).ticks], [9, 9]);
+  // A damaged string reads as far as it goes.
+  assert.equal(decodePaint(text.slice(0, PAINT_LETTERS + 2)).cells.length, 1);
 });
 
 test("a key names a list and nothing looser", () => {

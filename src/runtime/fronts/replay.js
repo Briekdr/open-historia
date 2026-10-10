@@ -1,19 +1,29 @@
 /*! Open Historia — battlefields and fronts: the replay of a run © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 // The engine works a whole turn out before any of it is shown. So that the map
-// can show it happening (each troop going the way it went, the line following
-// them), a battlefield keeps a replay of its last run:
+// can show it happening (each troop going the way it went, the ground changing
+// colour around it as it goes), a battlefield keeps a replay of its last run:
 //
-//   replay { d, n, s, k, h, l, t }
-//     d   the date of the run's first day
-//     n   how many days the run was. Days are counted from 0, the state the
-//         run began from, to n, the state it ended in
-//     s   the day this battlefield's replay begins: 0, or the day it opened
-//     k   the days the line is kept on, ascending
-//     h   for each of them, the day the line began moving toward it: until
-//         then it stands as the line kept before
-//     l   the line on each of them (codec.js encodeLines)
-//     t   a pair: each side's troops' paths (codec.js encodeTracks), in the
-//         order of the record's troops
+//   replay { d, n, s, e, t, names, m, p }
+//     d      the date of the run's first day
+//     n      how many days the run was. Days are counted from 0, the state
+//            the run began from, to n, the state it ended in
+//     s, e   the days this battlefield's own replay begins and ends on: 0 and
+//            n, or the day it opened and the day it closed
+//     t      a pair: each side's troops' paths (codec.js encodeTracks), in
+//            the order of the record's troops
+//     names  whose colour taken ground is painted in: the members of side 0,
+//            then those of side 1
+//     m      the painted ground as the replay begins, a state a cell (codec.js
+//            encodeStates): 0 for ground shown as its region's own, 1 + an
+//            index into `names` for ground painted in that name, PAINT_WALL
+//            for sea and land that is nobody's in this war
+//     p      every change of that ground after it, with its time (codec.js
+//            encodePaint)
+//
+// There is no front line in it: the front is where the colours meet, and where
+// the troops stand. Ground is PAINTED when a side holds it that is not the
+// side whose home ground it is; ground a side holds at home is simply its own,
+// and is drawn by the map as it always was.
 //
 // A replay being shown part of the way (a turn being revealed) carries two
 // marks the engine never writes, `from` and `until`: the days to play it
@@ -23,10 +33,21 @@
 // it. Pure and deterministic, and loads in plain Node.
 
 import { diffGameDays } from "../gameDates.js";
-import { PACKED_TEXT, TRACK_DAY_MAX, decodeLines, decodeTracks, encodeLines, encodeTracks } from "./codec.js";
-import { TROOP_STATES } from "./constants.js";
+import {
+  PACKED_TEXT,
+  PAINT_NAMES_MAX,
+  PAINT_TICKS_PER_DAY,
+  PAINT_WALL,
+  TRACK_DAY_MAX,
+  decodePaint,
+  decodeStates,
+  decodeTracks,
+  encodePaint,
+  encodeStates,
+  encodeTracks,
+} from "./codec.js";
+import { HOLDER_SIDE_A, HOLDER_SIDE_B, TROOP_STATES } from "./constants.js";
 
-export const MAX_REPLAY_LINES = 36;
 export const MAX_TRACK_POINTS = 32;
 // How far, in cells, a point left out of a path may lie from where the points
 // kept put the troop on that day.
@@ -38,6 +59,7 @@ const SAME_PLACE = 1 / 32;
 export const MAX_REPLAY_CHARS = 48000;
 const TEXT_MAX = 200000;
 const DATE_MAX = 40;
+const NAME_MAX = 120;
 
 const isRecord = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
@@ -118,48 +140,62 @@ const packTrack = (samples, tolerance) => {
   return kept;
 };
 
-// Fewer kept lines: every other one between the first and the last goes, and
-// the one after it is moved toward from when the one dropped was.
-const thinLines = (keys, most) => {
-  let kept = keys;
-  while (kept.length > most && kept.length > 2) {
-    const next = [];
-    let droppedHold = null;
-    for (let index = 0; index < kept.length; index += 1) {
-      if (index > 0 && index < kept.length - 1 && index % 2 === 1) {
-        droppedHold = kept[index].hold;
-        continue;
-      }
-      next.push(droppedHold === null ? kept[index] : { ...kept[index], hold: Math.min(kept[index].hold, droppedHold) });
-      droppedHold = null;
-    }
-    kept = next;
-  }
-  return kept;
-};
+const memberList = (value) => (Array.isArray(value) ? value : []).map((name) => String(name ?? "").slice(0, NAME_MAX));
 
 // Keeps a run as it is worked out, a day at a time, and hands back the replay.
-// One for each battlefield, each run.
-export const createReplayRecorder = () => {
+// One for each battlefield, each run. `sides` are the battlefield's two lists
+// of members; `cols` and `rows` its frame's.
+export const createReplayRecorder = ({ sides = [[], []], cols = 0, rows = 0 } = {}) => {
+  const members = [memberList(sides[0]), memberList(sides[1])];
+  const names = [...members[0], ...members[1]].slice(0, PAINT_NAMES_MAX);
+  const cells = Math.max(0, Math.floor(cols) * Math.floor(rows));
+  // What each cell is painted as now, the same as it began, and the changes.
+  const painted = new Uint8Array(cells);
+  let began = null;
+  const changes = [];
   let start = -1;
   let lastDay = -1;
-  let lastStrands = null;
-  const keys = [];
   const tracks = [[], []];
+
+  const stateOf = (ground, cell) => {
+    const holder = ground.holders[cell];
+    if (holder !== HOLDER_SIDE_A && holder !== HOLDER_SIDE_B) return PAINT_WALL;
+    if (ground.homes && ground.homes[cell] === holder) return 0;
+    const side = holder === HOLDER_SIDE_A ? 0 : 1;
+    if (members[side].length === 0) return 0;
+    const painter = Math.min(ground.painters ? ground.painters[cell] : 0, members[side].length - 1);
+    const state = 1 + (side === 0 ? painter : members[0].length + painter);
+    return state <= names.length ? state : 0;
+  };
+
   return {
-    // The state at the end of `day` (0 is the state the run began from): the
-    // line as it is to be drawn, and each side's troops in the order of their
-    // lists, the fallen at strength 0. Called in order of day. The same array
-    // of strands as the day before means the line did not change.
-    record(day, strands, troops) {
+    // The state at the end of `day` (0 is the state the run began from): each
+    // side's troops in the order of their lists, the fallen at strength 0, and
+    // the ground: for every cell who holds it (`holders`), which of that
+    // side's members took it (`painters`), whose home ground it is (`homes`),
+    // and, for a cell that changed hands that day, the part of the day at
+    // which it did (`when`, optional). Called in order of day.
+    record(day, troops, ground) {
       const at = Math.max(0, Math.min(TRACK_DAY_MAX, Math.floor(Number(day) || 0)));
       if (start < 0) start = at;
-      if (strands !== lastStrands || keys.length === 0) {
-        const text = typeof strands === "string" ? strands : encodeLines(strands);
-        const before = keys[keys.length - 1];
-        if (!before) keys.push({ day: at, hold: at, text });
-        else if (text !== before.text) keys.push({ day: at, hold: Math.max(before.day, lastDay), text });
-        lastStrands = strands;
+      if (ground?.holders && cells > 0) {
+        if (began === null) {
+          for (let cell = 0; cell < cells; cell += 1) painted[cell] = stateOf(ground, cell);
+          began = encodeStates(painted);
+        } else {
+          const first = (at - 1) * PAINT_TICKS_PER_DAY;
+          const today = [];
+          for (let cell = 0; cell < cells; cell += 1) {
+            const state = stateOf(ground, cell);
+            if (state === painted[cell]) continue;
+            painted[cell] = state;
+            const part = ground.when ? Number(ground.when[cell]) : 1;
+            const within = Number.isFinite(part) ? Math.max(0, Math.min(1, part)) : 1;
+            today.push({ tick: first + Math.round(within * PAINT_TICKS_PER_DAY), cell, state });
+          }
+          today.sort((a, b) => a.tick - b.tick || a.cell - b.cell);
+          for (const change of today) changes.push(change);
+        }
       }
       lastDay = at;
       for (let side = 0; side < 2; side += 1) {
@@ -182,7 +218,6 @@ export const createReplayRecorder = () => {
     // day and `days` how long the run was.
     finish({ date = "", days } = {}) {
       const total = Math.max(0, Math.min(TRACK_DAY_MAX, Math.floor(Number.isFinite(Number(days)) ? Number(days) : lastDay)));
-      let kept = thinLines(keys, MAX_REPLAY_LINES);
       const pack = (tolerance) => tracks.map((side) => {
         const paths = [];
         for (let index = 0; index < side.length; index += 1) paths.push(side[index] ? packTrack(side[index], tolerance) : []);
@@ -190,22 +225,29 @@ export const createReplayRecorder = () => {
       });
       let tolerance = TRACK_TOLERANCE;
       let texts = pack(tolerance);
-      const size = () => kept.reduce((sum, key) => sum + key.text.length, 0) + texts[0].length + texts[1].length;
-      // Too much to save: fewer lines first, since the map moves the line
-      // across the gap between two that are kept, then coarser paths.
-      while (size() > MAX_REPLAY_CHARS && kept.length > 2) kept = thinLines(kept, Math.max(2, Math.ceil(kept.length / 2)));
-      for (let pass = 0; pass < 4 && size() > MAX_REPLAY_CHARS; pass += 1) {
+      let ground = began ?? "";
+      let log = encodePaint(changes);
+      const size = () => ground.length + log.length + texts[0].length + texts[1].length;
+      // Too much to save: coarser paths first; then the ground is kept as it
+      // ended, with nothing of how it came to be so.
+      for (let pass = 0; pass < 3 && size() > MAX_REPLAY_CHARS; pass += 1) {
         tolerance *= 2;
         texts = pack(tolerance);
       }
+      if (size() > MAX_REPLAY_CHARS) {
+        ground = encodeStates(painted);
+        log = "";
+      }
+      const end = lastDay < 0 ? 0 : lastDay;
       return {
         d: String(date ?? "").slice(0, DATE_MAX),
-        n: Math.max(total, lastDay < 0 ? 0 : lastDay),
+        n: Math.max(total, end),
         s: Math.max(0, start),
-        k: kept.map((key) => key.day),
-        h: kept.map((key) => key.hold),
-        l: kept.map((key) => key.text),
+        e: end,
         t: texts,
+        names,
+        m: ground,
+        p: log,
       };
     },
   };
@@ -225,33 +267,19 @@ const packed = (value) => (typeof value === "string" && value.length <= TEXT_MAX
 // what has been decoded from it (replayOf) is decoded once.
 const made = new WeakSet();
 export const normalizeReplay = (raw) => {
-  if (!isRecord(raw) || !Array.isArray(raw.l) || raw.l.length === 0) return null;
+  if (!isRecord(raw) || !Array.isArray(raw.t)) return null;
   if (made.has(raw)) return raw;
   const n = wholeDay(raw.n, TRACK_DAY_MAX);
-  const k = [];
-  const h = [];
-  const l = [];
-  let last = -1;
-  for (let index = 0; index < raw.l.length && l.length < MAX_REPLAY_LINES; index += 1) {
-    const text = raw.l[index];
-    if (typeof text !== "string" || text.length > TEXT_MAX || !PACKED_TEXT.test(text)) continue;
-    const day = wholeDay(Array.isArray(raw.k) ? raw.k[index] : 0, n);
-    if (day < last) continue;
-    const hold = wholeDay(Array.isArray(raw.h) ? raw.h[index] : day, n);
-    k.push(day);
-    h.push(last < 0 ? day : Math.max(last, Math.min(day, hold)));
-    l.push(text);
-    last = day;
-  }
-  if (l.length === 0) return null;
+  const s = wholeDay(raw.s, n);
   const replay = {
     d: String(raw.d ?? "").replace(/\s+/g, " ").trim().slice(0, DATE_MAX),
     n,
-    s: wholeDay(raw.s, n),
-    k,
-    h,
-    l,
-    t: [packed(Array.isArray(raw.t) ? raw.t[0] : ""), packed(Array.isArray(raw.t) ? raw.t[1] : "")],
+    s,
+    e: Math.max(s, raw.e === undefined ? n : wholeDay(raw.e, n)),
+    t: [packed(raw.t[0]), packed(raw.t[1])],
+    names: memberList(raw.names).map((name) => name.replace(/\s+/g, " ").trim()).slice(0, PAINT_NAMES_MAX),
+    m: packed(raw.m),
+    p: packed(raw.p),
   };
   if (Number.isFinite(raw.until)) {
     replay.until = Math.max(0, Math.min(n, Number(raw.until)));
@@ -280,47 +308,59 @@ export const replayDayOn = (replay, date) => {
   return days < 0 ? 0 : days > replay.n ? replay.n : days;
 };
 
-// A replay with nothing left to play: the line as the run left it and every
-// troop where it ended. What a copy of the world kept only to go back to (a
-// restore point) needs of it, at a fraction of the size.
-export const stillReplay = (replay) => {
-  if (!replay || !Array.isArray(replay.l) || replay.l.length === 0) return replay;
-  const ends = (text) => encodeTracks(decodeTracks(text).map((samples) => {
-    const last = samples[samples.length - 1];
-    return last ? [{ ...last, day: 0 }] : [];
-  }));
-  const still = { d: "", n: 0, s: 0, k: [0], h: [0], l: [replay.l[replay.l.length - 1]], t: [ends(replay.t[0]), ends(replay.t[1])] };
-  made.add(still);
-  return still;
-};
-
-// A saved replay, read: each kept line as strands, each troop's path as its
-// points. A copy made to be shown part of the way shares its lines with the
-// replay it was made from, and so shares this.
+// A saved replay, read: each troop's path as its points, and the painted
+// ground as it began with the changes after it. `cells` is how many cells the
+// battlefield's frame has. A copy made to be shown part of the way shares its
+// paths with the replay it was made from, and so shares this.
 //
-//   { date, days, start, keys: [{ day, hold, lines }], tracks: [[path], [path]] }
+//   { date, days, start, end, tracks: [[path], [path]],
+//     paint: { names, began, ticks, cells, states } }
 const read = new WeakMap();
-export const replayOf = (battlefield) => {
-  const replay = battlefield?.replay;
-  if (!replay || !Array.isArray(replay.l) || replay.l.length === 0) return null;
-  let known = read.get(replay.l);
+const readReplay = (replay, cells) => {
+  let known = read.get(replay.t);
   if (!known) {
     known = {
       date: replay.d,
       days: replay.n,
       start: replay.s,
-      keys: replay.l.map((text, index) => ({ day: replay.k[index], hold: replay.h[index], lines: decodeLines(text) })),
+      end: replay.e,
       tracks: [decodeTracks(replay.t[0]), decodeTracks(replay.t[1])],
+      paint: { names: replay.names, began: decodeStates(replay.m, cells), ...decodePaint(replay.p) },
     };
-    read.set(replay.l, known);
+    read.set(replay.t, known);
   }
   return known;
+};
+export const replayOf = (battlefield) => {
+  const replay = battlefield?.replay;
+  if (!replay || !Array.isArray(replay.t)) return null;
+  return readReplay(replay, (battlefield.frame?.cols ?? 0) * (battlefield.frame?.rows ?? 0));
 };
 
 // The days a replay is to be played between, or null to show it as it ended.
 export const replayWindowOf = (battlefield) => {
   const replay = battlefield?.replay;
   return replay && Number.isFinite(replay.until) ? { from: replay.from, until: replay.until } : null;
+};
+
+// A battlefield's replay with nothing left to play: the ground as the run left
+// it and every troop where it ended. What a copy of the world kept only to go
+// back to (a restore point) needs of it, at a fraction of the size.
+export const stillReplayOf = (battlefield) => {
+  const replay = battlefield?.replay;
+  if (!replay || !Array.isArray(replay.t)) return replay ?? null;
+  const { paint } = replayOf(battlefield);
+  const ground = Uint8Array.from(paint.began);
+  for (let index = 0; index < paint.cells.length; index += 1) {
+    if (paint.cells[index] < ground.length) ground[paint.cells[index]] = paint.states[index];
+  }
+  const ends = (text) => encodeTracks(decodeTracks(text).map((samples) => {
+    const last = samples[samples.length - 1];
+    return last ? [{ ...last, day: 0 }] : [];
+  }));
+  const still = { d: "", n: 0, s: 0, e: 0, t: [ends(replay.t[0]), ends(replay.t[1])], names: replay.names, m: encodeStates(ground), p: "" };
+  made.add(still);
+  return still;
 };
 
 // Where a troop was on a day of the run (a fraction of a day is fine), by its
