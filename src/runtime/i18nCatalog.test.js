@@ -16,7 +16,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import url from "node:url";
 
-import { catalogText, extractTree } from "../../scripts/i18n/extractStrings.mjs";
+import { catalogText, extractTree, featureDefinitionStrings } from "../../scripts/i18n/extractStrings.mjs";
+import { FEATURE_DEFINITIONS } from "../../server/gameFeatures.js";
 
 const ROOT = url.fileURLToPath(new URL("../../", import.meta.url));
 const CATALOG = JSON.parse(fs.readFileSync(new URL("../../public/lang/catalog-en.json", import.meta.url), "utf8"));
@@ -37,6 +38,28 @@ test("every interface string in the source is in the committed catalog", () => {
     [],
     `${missing.length} interface string(s) are not in public/lang/catalog-en.json. Run node scripts/i18n/build-catalog.mjs, then node scripts/generate-lang-packs.mjs.`,
   );
+});
+
+// The Features tab of the scenario and game editors renders a list of
+// definitions kept under server/ (server/gameFeatures.js), which the extractor
+// does not read: for as long as nothing checked them, a new feature's label
+// and description were in no catalog and stayed English in every language.
+test("every string of the gameplay features' definitions is in the committed catalog", () => {
+  const catalog = new Set(CATALOG);
+  const strings = featureDefinitionStrings(FEATURE_DEFINITIONS);
+  assert.ok(strings.includes("Espionage"), "the definitions were read");
+  const missing = strings.map(catalogText).filter((entry) => entry && !catalog.has(entry));
+  assert.deepEqual(
+    missing,
+    [],
+    `${missing.length} string(s) of server/gameFeatures.js are not in public/lang/catalog-en.json. Run node scripts/i18n/build-catalog.mjs, then node scripts/generate-lang-packs.mjs.`,
+  );
+  // Each kind of text a definition carries is read.
+  assert.deepEqual(featureDefinitionStrings([{
+    label: "A feature",
+    description: "What it does.",
+    settings: [{ label: "A setting", unit: "per day", description: "What it sets.", options: [{ value: "x", label: "A choice", description: "What it chooses." }] }],
+  }, null]), ["A feature", "What it does.", "A setting", "per day", "What it sets.", "A choice", "What it chooses."]);
 });
 
 test("catalog entries are trimmed, and text with no word in it is left out", () => {
