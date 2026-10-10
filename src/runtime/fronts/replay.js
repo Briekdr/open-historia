@@ -19,6 +19,16 @@
 //            that name, PAINT_WALL for sea and land that is nobody's in this war
 //     p      every change of that ground after it, with its time (codec.js
 //            encodePaint)
+//     o, f   (only when there are any) whose each region the fighting has
+//            reached is DRAWN as: `o` is [regionId, name] as the run begins,
+//            `f` every change of that after it, [day, regionId, name]
+//
+// A region changes hands twice. IN NAME when the side that does not hold it
+// has more than six tenths of it: it is the taker's for every rule of the
+// game from that day, and nothing on the map changes. IN FULL only when the
+// taker holds all of it: then the map switches it over, colour, border and
+// labels. Between the two the map goes on drawing it as its old holder's, and
+// `o` and `f` are how it knows to: the world's owner is the taker by then.
 //
 // There is no front line in it: the front is where the colours meet, and where
 // the troops stand. Ground is PAINTED when a side holds it that is not the
@@ -65,6 +75,10 @@ const SAME_PLACE = 1 / 32;
 // A run of hundreds of troops across a wide front is some tens of thousands
 // of characters; this is the most a replay may be.
 export const MAX_REPLAY_CHARS = 120000;
+// How many regions a replay says how to draw, and how many times in a run
+// they may change.
+export const MAX_SHOWN_REGIONS = 600;
+const MAX_SHOWN_TURNS = 1200;
 const TEXT_MAX = 200000;
 const DATE_MAX = 40;
 const NAME_MAX = 120;
@@ -170,6 +184,10 @@ export const createReplayRecorder = ({ sides = [[], []], cols = 0, rows = 0 } = 
   let start = -1;
   let lastDay = -1;
   const tracks = [[], []];
+  // Whose each region is drawn as: as the run begins, now, and the changes.
+  const shownFirst = new Map();
+  const shownNow = new Map();
+  const turns = [];
 
   const stateOf = (ground, cell) => {
     const holder = ground.holders[cell];
@@ -228,6 +246,27 @@ export const createReplayRecorder = ({ sides = [[], []], cols = 0, rows = 0 } = 
       }
     },
 
+    // From `day` the map draws a region as `name`'s; before, it drew it as
+    // `was`'s. Told on day 0 for every region the last run left drawn as
+    // another's than the world says; on the day a region changes hands in
+    // name, with the name it is still drawn as (nothing changes on the map,
+    // but the map has now to be told what to draw); and on the day it changes
+    // hands in full, with the new name and the old.
+    shown(day, regionId, name, was = name) {
+      const id = String(regionId ?? "").trim().slice(0, NAME_MAX);
+      const to = String(name ?? "").replace(/\s+/g, " ").trim().slice(0, NAME_MAX);
+      if (!id || !to) return;
+      if (!shownFirst.has(id)) {
+        if (shownFirst.size >= MAX_SHOWN_REGIONS) return;
+        const from = String(was ?? "").replace(/\s+/g, " ").trim().slice(0, NAME_MAX) || to;
+        shownFirst.set(id, from);
+        shownNow.set(id, from);
+      }
+      if (shownNow.get(id) === to || turns.length >= MAX_SHOWN_TURNS) return;
+      turns.push([Math.max(0, Math.min(TRACK_DAY_MAX, Math.floor(Number(day) || 0))), id, to]);
+      shownNow.set(id, to);
+    },
+
     // The replay to save on the record. `date` is the date of the run's first
     // day and `days` how long the run was.
     finish({ date = "", days } = {}) {
@@ -262,6 +301,7 @@ export const createReplayRecorder = ({ sides = [[], []], cols = 0, rows = 0 } = 
         names,
         m: ground,
         p: log,
+        ...(shownFirst.size > 0 ? { o: [...shownFirst], f: turns.map((turn) => [...turn]) } : {}),
       };
     },
   };
@@ -295,6 +335,33 @@ export const normalizeReplay = (raw) => {
     m: packed(raw.m),
     p: packed(raw.p),
   };
+  if (Array.isArray(raw.o) && raw.o.length > 0) {
+    const text = (value) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, NAME_MAX) : "");
+    const first = [];
+    const known = new Set();
+    for (const entry of raw.o) {
+      if (first.length >= MAX_SHOWN_REGIONS) break;
+      const id = Array.isArray(entry) ? text(entry[0]) : "";
+      const name = Array.isArray(entry) ? text(entry[1]) : "";
+      if (!id || !name || known.has(id)) continue;
+      known.add(id);
+      first.push([id, name]);
+    }
+    if (first.length > 0) {
+      const turns = [];
+      for (const entry of Array.isArray(raw.f) ? raw.f : []) {
+        if (turns.length >= MAX_SHOWN_TURNS) break;
+        const id = Array.isArray(entry) ? text(entry[1]) : "";
+        const name = Array.isArray(entry) ? text(entry[2]) : "";
+        if (!id || !name || !known.has(id)) continue;
+        turns.push([wholeDay(entry[0], n), id, name]);
+      }
+      // In the order they happened, whatever order they were written in.
+      turns.sort((a, b) => a[0] - b[0]);
+      replay.o = first;
+      replay.f = turns;
+    }
+  }
   if (Number.isFinite(raw.until)) {
     replay.until = Math.max(0, Math.min(n, Number(raw.until)));
     replay.from = Number.isFinite(raw.from) ? Math.max(0, Math.min(replay.until, Number(raw.from))) : replay.until;
@@ -311,6 +378,26 @@ export const replayBetween = (replay, from, until) => {
   const marked = { ...replay, from: Math.max(0, Math.min(end, Number(from) || 0)), until: end };
   made.add(marked);
   return marked;
+};
+
+// Whose each region a replay speaks of is drawn as on a day of its run (a
+// fraction of a day is fine), as { regionId: name }. The same object is given
+// for as long as nothing has changed, so a caller can tell by looking. null
+// for a replay that speaks of none.
+const shownAt = new WeakMap();
+export const shownOwnersAt = (replay, day) => {
+  if (!replay || !Array.isArray(replay.o) || replay.o.length === 0) return null;
+  const turns = Array.isArray(replay.f) ? replay.f : [];
+  let upTo = 0;
+  while (upTo < turns.length && turns[upTo][0] <= day) upTo += 1;
+  const known = shownAt.get(replay.o);
+  if (known && known.upTo === upTo && known.turns === turns) return known.owners;
+  const owners = {};
+  for (const [id, name] of replay.o) owners[id] = name;
+  for (let index = 0; index < upTo; index += 1) owners[turns[index][1]] = turns[index][2];
+  Object.freeze(owners);
+  shownAt.set(replay.o, { upTo, turns, owners });
+  return owners;
 };
 
 // The day of the run a date falls on, held to the run; null for no date, or

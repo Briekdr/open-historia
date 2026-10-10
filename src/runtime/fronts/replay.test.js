@@ -15,6 +15,7 @@ import {
   replayWindowOf,
   stillReplayOf,
   trackAt,
+  shownOwnersAt,
 } from "./replay.js";
 
 const COLS = 40;
@@ -315,4 +316,52 @@ test("a replay with nothing left to play is the ground as it ended and where eve
   assert.ok(JSON.stringify(still).length < JSON.stringify(battlefield.replay).length / 2);
   assert.equal(normalizeReplay(still), still);
   assert.equal(stillReplayOf({ replay: null }), null);
+});
+
+test("a replay says whose each region the fighting reached is drawn as, through the run", () => {
+  const recorder = createReplayRecorder({ sides: [["Russia"], ["Ukraine"]], cols: 4, rows: 4 });
+  const still = [[{ x: 1, y: 1, strength: 80, state: 0 }], []];
+  for (let day = 0; day <= 12; day += 1) recorder.record(day, still);
+  // Carried over from the run before: taken in name, still drawn as Ukraine's.
+  recorder.shown(0, "region-9", "Ukraine");
+  // Day 3: region-4 changes hands in name. Nothing changes on the map, and the map is told what to go on drawing.
+  recorder.shown(3, "region-4", "Ukraine");
+  recorder.shown(3, "region-4", "Ukraine");
+  // Day 7: it is held in full. Day 10: so is region-9. Day 11: region-4 is won back whole.
+  recorder.shown(7, "region-4", "Russia", "Ukraine");
+  recorder.shown(10, "region-9", "Russia", "Ukraine");
+  recorder.shown(11, "region-4", "Ukraine", "Russia");
+  // One never told of before, with what it was drawn as given.
+  recorder.shown(12, "region-2", "Russia", "Ukraine");
+  recorder.shown(5, "", "Russia");
+  recorder.shown(5, "region-1", "");
+  const replay = normalizeReplay(recorder.finish({ date: "2024-03-01", days: 12 }));
+  assert.deepEqual(replay.o, [["region-9", "Ukraine"], ["region-4", "Ukraine"], ["region-2", "Ukraine"]]);
+  assert.deepEqual(replay.f, [[7, "region-4", "Russia"], [10, "region-9", "Russia"], [11, "region-4", "Ukraine"], [12, "region-2", "Russia"]]);
+  assert.equal(normalizeReplay(JSON.parse(JSON.stringify(replay))).o.length, 3, "it comes back from a save");
+
+  const on = (day) => shownOwnersAt(replay, day);
+  assert.deepEqual(on(0), { "region-9": "Ukraine", "region-4": "Ukraine", "region-2": "Ukraine" });
+  assert.deepEqual(on(6.9), on(0));
+  assert.equal(on(6.9), on(0), "the same object for as long as nothing has changed");
+  assert.deepEqual(on(7), { "region-9": "Ukraine", "region-4": "Russia", "region-2": "Ukraine" });
+  assert.deepEqual(on(10.5), { "region-9": "Russia", "region-4": "Russia", "region-2": "Ukraine" });
+  assert.deepEqual(on(12), { "region-9": "Russia", "region-4": "Ukraine", "region-2": "Russia" });
+  assert.deepEqual(on(3), on(0), "and back again, for a run played from its start");
+  // A copy made to show part of the run speaks of the same regions.
+  assert.equal(shownOwnersAt(replayBetween(replay, 2, 8), 8), on(8));
+
+  // A run in which no region changed hands says nothing of regions at all.
+  const plain = createReplayRecorder({ sides: [["Russia"], ["Ukraine"]], cols: 4, rows: 4 });
+  plain.record(0, still);
+  plain.record(1, still);
+  const none = normalizeReplay(plain.finish({ days: 1 }));
+  assert.equal("o" in none, false);
+  assert.equal(shownOwnersAt(none, 1), null);
+  assert.equal(shownOwnersAt(null, 1), null);
+
+  // What is damaged is dropped, and a change is kept only for a region the replay speaks of.
+  const mended = normalizeReplay({ ...JSON.parse(JSON.stringify(replay)), o: [["region-9", "Ukraine"], ["region-9", "Russia"], ["", "x"], ["region-3", 7], "region-5"], f: [[99, "region-9", "Russia"], [2, "region-8", "Russia"], [1, "region-9", ""]] });
+  assert.deepEqual(mended.o, [["region-9", "Ukraine"]]);
+  assert.deepEqual(mended.f, [[12, "region-9", "Russia"]], "a day past the end is the end");
 });

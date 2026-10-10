@@ -66,7 +66,7 @@ const battlefield = (overrides = {}) => ({
   orders: [{ s: 0, sector: "north", order: "advance", objective: "city: Kharkiv", since: "2024-03-05", by: "Russia" }],
   replay: replayOfRun(),
   held: "",
-  contested: [["region-7", 0]],
+  contested: [["region-7", "Ukraine"]],
   brief: { km: 600 },
   log: [{ d: "2024-03-20", k: "city", s: 0, at: "city: Izium" }],
   ...overrides,
@@ -102,7 +102,7 @@ test("what could not be a battlefield is dropped, and the rest is held to its li
       { s: 1, order: "dig in", effort: "TOTAL" },
     ],
     replay: { m: "painted" },
-    contested: [["region-1", 1], ["", 0], ["region-2", 5], "region-3"],
+    contested: [["region-1", "Ukraine"], ["", "Ukraine"], ["region-2", 5], "region-3", ["region-1", "Russia"]],
     brief: "none",
     log: [{ d: "2024-03-20", k: "City", at: "" }, { d: "2024-03-21", k: "pocket", at: "city: Kupiansk", s: 4 }],
   }));
@@ -116,7 +116,7 @@ test("what could not be a battlefield is dropped, and the rest is held to its li
   assert.deepEqual(record.orders.at(-1), { s: 1, sector: "all", order: "dig in", since: "", effort: "total" });
   assert.equal(record.orders[0].order, "advance");
   assert.equal(record.replay, null, "a replay that cannot be read is none");
-  assert.deepEqual(record.contested, [["region-1", 1]]);
+  assert.deepEqual(record.contested, [["region-1", "Ukraine"]], "a region and the name it is still drawn as, once");
   assert.deepEqual(record.brief, {});
   assert.deepEqual(record.log, [{ d: "2024-03-21", k: "pocket", at: "city: Kupiansk" }]);
 });

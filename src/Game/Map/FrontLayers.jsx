@@ -42,6 +42,8 @@ import { getFrontTargets, settleFront, startFrontsSync, subscribeFronts } from "
 import { arrowDetailAt, frontArrowFeatures, frontArrowRgb, frontAt, frontShownOn, frontTroopFeatures, stageOf } from "./frontGeometry.js";
 import { createPaintPlayer, paintPixels, paintScaleFor } from "./frontPaint.js";
 import { createSkirmish, skirmishAt } from "./frontSkirmish.js";
+import { contestedOwnersOf, setFrontShownOwners } from "./frontOwnership.js";
+import { shownOwnersAt } from "../../runtime/fronts/replay.js";
 import { shortUnitLabel } from "./unitLabels.js";
 
 const EMPTY_FEATURE_COLLECTION = { type: "FeatureCollection", features: [] };
@@ -291,10 +293,15 @@ const FrontLayers = () => {
     const paint = (atRest, attempt = 0) => {
       const drawn = [];
       const days = [];
+      // Whose each region being fought over is drawn as on the day shown: the
+      // political map holds its colour, border and labels to that
+      // (frontOwnership.js) until the region is held in full.
+      const shownOwners = [];
       let waiting = false;
       for (const entry of playRef.current.values()) {
         drawn.push(frontAt(entry.stage, entry.day));
         days.push(entry.day);
+        shownOwners.push(shownOwnersAt(entry.target.record?.replay, entry.day) ?? contestedOwnersOf(entry.target.record));
         const { picture } = entry;
         if (picture.stale) dress(entry);
         const { context, target, player } = picture;
@@ -310,6 +317,7 @@ const FrontLayers = () => {
         }
         if (!handOver(entry, !atRest)) waiting = true;
       }
+      setFrontShownOwners(shownOwners);
       const arrows = source(FRONT_ARROW_SOURCE);
       const troops = source(FRONT_TROOP_SOURCE);
       if (arrows?.setData && troops?.setData) {
@@ -640,6 +648,7 @@ const FrontLayers = () => {
       stop();
       if (skirmishHandle) cancelAnimationFrame(skirmishHandle);
       skirmishHandle = 0;
+      setFrontShownOwners([]);
       unsubscribe();
       stopSync();
       if (probe && window.__OH_FRONTS__ === probe) delete window.__OH_FRONTS__;

@@ -16,7 +16,10 @@
 //     replay,                       the last run, kept to be played back: each
 //                                   troop's path and the ground as it was
 //                                   taken (replay.js); null where there is none
-//     held, contested,              the regions partly taken, for the card
+//     held,                         unused since the ground is painted
+//     contested,                    [regionId, name]: regions taken in name
+//                                   and not in full, and whose the map still
+//                                   draws each as
 //     brief, log                    what the prompt and the card read
 //   }
 //
@@ -125,13 +128,18 @@ const normalizeNamed = (value) => {
   return kept;
 };
 
+// The regions that have changed hands in name and not yet in full, each with
+// the name the map still draws it as: [regionId, name]. (replay.js says why
+// there are two moments.)
 const normalizeContested = (value) => {
   const kept = [];
+  const known = new Set();
   for (const raw of Array.isArray(value) ? value : []) {
     const regionId = clean(Array.isArray(raw) ? raw[0] : "", NAME_MAX);
-    const s = sideIndex(Array.isArray(raw) ? raw[1] : -1);
-    if (!regionId || s < 0) continue;
-    kept.push([regionId, s]);
+    const shown = Array.isArray(raw) && typeof raw[1] === "string" ? clean(raw[1], NAME_MAX) : "";
+    if (!regionId || !shown || known.has(regionId)) continue;
+    known.add(regionId);
+    kept.push([regionId, shown]);
     if (kept.length >= MAX_CONTESTED_REGIONS) break;
   }
   return kept;
