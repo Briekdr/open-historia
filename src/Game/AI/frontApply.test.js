@@ -93,12 +93,12 @@ test("the feature is listed, on by default, with a pace from 25 to 300", () => {
   assert.deepEqual(normalizeFeatureSettings({ fronts: { pace: 3 } }).fronts, { enabled: true, pace: 25 });
 
   assert.equal(frontsOn(), true, "and a game that says nothing plays with it");
-  assert.equal(frontsPace(), 1);
+  assert.equal(frontsPace(), 0.4, "the built-in pace of a front: four tenths of a formation's on the move");
   try {
     setActiveFeatures({ fronts: { pace: 250 } }, null);
-    assert.equal(frontsPace(), 2.5);
+    assert.equal(frontsPace(), 1);
     setActiveFeatures({ fronts: { pace: 250 } }, { fronts: { pace: 25 } });
-    assert.equal(frontsPace(), 0.25, "a game's own setting over its scenario's");
+    assert.equal(frontsPace(), 0.1, "a game's own setting over its scenario's");
     setActiveFeatures({ fronts: { enabled: false } }, null);
     assert.equal(frontsOn(), false);
     setActiveFeatures({ fronts: { enabled: false } }, { fronts: { enabled: true } });

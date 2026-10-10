@@ -256,7 +256,10 @@ export const findPrey = (battle) => {
     for (let cell = 0; cell < size && !quiet; cell += 1) {
       if (holders[cell] !== other) continue;
       const pocket = battle.pocketOf ? battle.pocketOf[other][cell] : -1;
-      if ((pocket >= 0 && !battle.pockets[pocket].siege) || books.squeezed[other][cell] === 1) {
+      // (Not ground it is leaving alone for a siege: a place being shut in is
+      // squeezed for a day or two before the ring closes, and the besiegers
+      // are told to go round it, not at it.)
+      if ((pocket >= 0 && !battle.pockets[pocket].siege) || (books.squeezed[other][cell] === 1 && !sparedCell(battle, side, cell))) {
         prey[cell] = 1;
         any = true;
       }

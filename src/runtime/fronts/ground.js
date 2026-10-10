@@ -130,6 +130,70 @@ export const awayOf = (battle, side, x, y) => {
   return near < FAR_CELLS - 1 ? near : battle.toSide[1 - side][cell] / 3;
 };
 
+// Which way a side's stretch of the line FACES near a point: across the line,
+// from its own ground to the other side's, taken over all the line within
+// `reach` cells, the nearer the heavier. Every place where a cell of the
+// side's lies beside a cell of the other's adds a push from the one to the
+// other; a straight line at any angle gives exactly its own normal, a kink in
+// a border is averaged away, a patch shut in on every side adds nothing, and a
+// coast or a neighbour's land (which are nobody's) do not pull it aside.
+// `downhill` over the chamfer knows only eight ways to point and turns with
+// every kink; this turns by degrees as the point moves, which is what a troop
+// is to walk by. A unit vector through `out`; false where there is no line
+// within reach.
+export const outwardOf = (field, side, x, y, reach, out) => {
+  const other = 1 - side;
+  const { cols, rows, holders } = field;
+  const col0 = Math.floor(x);
+  const row0 = Math.floor(y);
+  const span = Math.ceil(reach);
+  const within = reach * reach;
+  let sumX = 0;
+  let sumY = 0;
+  for (let row = Math.max(0, row0 - span); row <= Math.min(rows - 1, row0 + span); row += 1) {
+    for (let col = Math.max(0, col0 - span); col <= Math.min(cols - 1, col0 + span); col += 1) {
+      const holder = holders[row * cols + col];
+      if (holder !== side && holder !== other) continue;
+      // The cell to the east of it, and the cell to the south: each pair once.
+      if (col + 1 < cols) {
+        const beside = holders[row * cols + col + 1];
+        if (beside !== holder && (beside === side || beside === other)) {
+          const dx = col + 1 - x;
+          const dy = row + 0.5 - y;
+          const apart = dx * dx + dy * dy;
+          if (apart <= within) sumX += (holder === side ? 1 : -1) * (1 - apart / within);
+        }
+      }
+      if (row + 1 < rows) {
+        const below = holders[(row + 1) * cols + col];
+        if (below !== holder && (below === side || below === other)) {
+          const dx = col + 0.5 - x;
+          const dy = row + 1 - y;
+          const apart = dx * dx + dy * dy;
+          if (apart <= within) sumY += (holder === side ? 1 : -1) * (1 - apart / within);
+        }
+      }
+    }
+  }
+  const length = Math.sqrt(sumX * sumX + sumY * sumY);
+  out[0] = length > 0 ? sumX / length : 0;
+  out[1] = length > 0 ? sumY / length : 0;
+  return length > 0;
+};
+
+// Whether the straight line between two points lies over ground in play all
+// the way: looked at every half cell.
+export const clearBetween = (field, ax, ay, bx, by) => {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const steps = Math.max(1, Math.ceil(Math.sqrt(dx * dx + dy * dy) * 2));
+  for (let step = 0; step <= steps; step += 1) {
+    const cell = cellAt(field, ax + (dx * step) / steps, ay + (dy * step) / steps);
+    if (cell < 0 || !field.play[cell]) return false;
+  }
+  return true;
+};
+
 // How much of the ground round a point is a side's: its share of the cells
 // within `reach` cells that either side holds. Sea and the land of those not
 // in the war are nobody's and count for nothing, so a coast does not read as

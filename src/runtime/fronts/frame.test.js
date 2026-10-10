@@ -94,7 +94,7 @@ test("a saved frame is checked, and survives being written out and read back", (
   assert.deepEqual([...projectorOf(read).rowKm], [...projectorOf(frame).rowKm], "the same grid to the last digit");
   assert.equal(normalizeFrame({ ...frame, cols: 0 }), null);
   assert.equal(normalizeFrame({ ...frame, cols: 300 }), null);
-  assert.equal(normalizeFrame({ ...frame, cols: 250, rows: 250 }), null);
+  assert.equal(normalizeFrame({ ...frame, cols: 255, rows: 255 }), null, "more cells than a frame may have");
   assert.equal(normalizeFrame({ ...frame, cell: "wide" }), null);
   assert.equal(normalizeFrame([frame]), null);
   assert.equal(normalizeFrame({ ...frame, flat: true }).scale, KM_PER_DEGREE);

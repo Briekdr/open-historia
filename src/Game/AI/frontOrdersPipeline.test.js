@@ -52,7 +52,7 @@ test("an answer is valid with the field and without it", () => {
 
 test("fronts are off in a build whose feature list does not have them", () => {
   assert.equal(frontsOn(), FEATURE_KEYS.includes("fronts"));
-  assert.equal(frontsPace(), 1);
+  assert.equal(frontsPace(), 0.4, "the built-in pace of a front: four tenths of a formation's on the move");
 });
 
 test("a skip's segments hand their orders on together", () => {

@@ -44,7 +44,7 @@ const cities = [
   { name: "Brod", lng: 23.3, lat: 51.2, capital: true },
   { name: "Mid", lng: 21.7, lat: 50.9 },
 ];
-const sheet = (layout = ["AAABBB", "AAABBB", "AAABBB", "AAABBB", "~~~~~~"]) =>
+const sheet = (layout = ["AAABBBBBBB", "AAABBBBBBB", "AAABBBBBBB", "AAABBBBBBB", "~~~~~~~~~~"]) =>
   syntheticMap({ layout: enlarge(layout, 2), legend, west: 20, north: 52, step: 0.25, cities });
 
 const FROM = "2024-03-01";
@@ -180,7 +180,8 @@ test("replaying the first k events gives the ownership the engine had on that da
 
   const base = world.regionOwnershipOverrides;
   for (let k = 1; k <= events.length; k += 1) {
-    const day = dayOf(events[k - 1]);
+    // (The last event also carries what fell on the days after it: there is no later one to tell it.)
+    const day = k === events.length ? run.stats.days : dayOf(events[k - 1]);
     const expected = { ...base };
     for (const flip of engine.days[day].flips) expected[flip.regionId] = flip.to;
     // What the reveal, and a view of the world as seen, do: the restore point

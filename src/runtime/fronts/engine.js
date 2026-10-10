@@ -83,7 +83,7 @@ const createRun = (input) => {
     steps: 0,
     era,
     seed: String(input?.seed ?? ""),
-    pace: Math.min(3, Math.max(0.25, Number(input?.pace) || 1)),
+    pace: Math.min(3, Math.max(0.1, Number(input?.pace) || 1)),
     // The weights that bend a troop's step, for a test or the rig to set aside.
     steer: input?.steering && typeof input.steering === "object" ? input.steering : {},
     advanceKm: [ADVANCE_KM_PER_DAY.infantry[era], ADVANCE_KM_PER_DAY.armor[era], ADVANCE_KM_PER_DAY.artillery[era]],

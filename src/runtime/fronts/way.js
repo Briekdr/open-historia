@@ -15,11 +15,18 @@
 //   flank       a column, along a way that goes round
 //   encircle    two columns, one each way round
 //
+// That is for a group sent AT something. An advance or a blitz with nothing
+// named is not a group going one way: a line bends, and a third of it does not
+// face the way the rest does. There every troop goes STRAIGHT OUT from where
+// it stands, the way its own stretch of the line faces (giveOut), and keeps
+// that line for as long as the other side's ground lies before it (aimOut).
+//
 // A troop under an order carries it as `troop.order`:
 //   { kind: "way", standing, word, legs, leg, slot, stop, since, day }
 // where `standing` is the standing order it serves, `since` the day it sets
-// off and `day` the day it was told. The other kinds a troop may carry are
-// made in move.js: "fallback", "pursue", "reduce", "assault", "breakout".
+// off and `day` the day it was told; one going straight out also has
+// `own: true`. The other kinds a troop may carry are made in move.js:
+// "fallback", "pursue", "reduce", "assault", "breakout".
 
 import { hashSeed } from "../unitMotion.js";
 import {
@@ -29,6 +36,8 @@ import {
   GROUP_BREADTH_BRUSHES,
   GROUP_BREADTH_MIN_KM,
   GROUP_BREADTH_OF_EXTENT,
+  OUTWARD_KM,
+  OUT_AHEAD_KM,
   POINT_BREADTH,
   POINT_STOPS_SHORT,
   ROUND_KM,
@@ -40,7 +49,7 @@ import {
   WAY_DAYS_MIN,
   WAY_LEGS_MAX,
 } from "./constants.js";
-import { cellAt, cheapestWay, downhill, measure } from "./ground.js";
+import { cellAt, cheapestWay, clearBetween, downhill, measure, outwardOf } from "./ground.js";
 import { KIND_ARMOUR, KIND_ARTILLERY, isLive } from "./troops.js";
 
 // Gives a troop its next order. One that is closing on a pocket, or has been
@@ -71,10 +80,28 @@ export const legsOf = (from, points) => {
   return legs;
 };
 
-// A way over the ground, cell by cell, cut down to a few points: its end, and
-// the places where it bends furthest from straight.
+// A way over the ground, cell by cell, cut down to a few points. A way found
+// from cell to cell runs along the rows and the diagonals, and its corners are
+// the grid's and not the ground's: so first it is pulled straight, from each
+// point kept on to the furthest point of the way that can be gone to in a
+// straight line over ground in play. Only a way that still has too many legs
+// after that is cut down to its end and the places where it bends furthest.
 const bendsOf = (field, cells) => {
   const point = (index) => [(cells[index] % field.cols) + 0.5, Math.floor(cells[index] / field.cols) + 0.5];
+  const pulled = [0];
+  for (let at = 0; at < cells.length - 1;) {
+    let next = at + 1;
+    const [ax, ay] = point(at);
+    for (let far = cells.length - 1; far > at + 1; far -= 1) {
+      const [bx, by] = point(far);
+      if (!clearBetween(field, ax, ay, bx, by)) continue;
+      next = far;
+      break;
+    }
+    pulled.push(next);
+    at = next;
+  }
+  if (pulled.length - 1 <= WAY_LEGS_MAX) return pulled.slice(1).map(point);
   const kept = [0, cells.length - 1];
   while (kept.length - 1 < WAY_LEGS_MAX) {
     let worst = WAY_BEND_CELLS;
@@ -118,6 +145,9 @@ const standingOf = (battle, side, picked) => {
       outY += aim[1];
     }
   }
+  // The way its stretch of the line faces, where the other side's ground is
+  // near enough to say; else the way its troops each see it, taken together.
+  if (outwardOf(field, side, midX, midY, OUTWARD_KM / battle.place.kmAt(midY), aim)) return { midX, midY, outX: aim[0], outY: aim[1] };
   const length = Math.sqrt(outX * outX + outY * outY);
   return { midX, midY, outX: length > 0 ? outX / length : side === 0 ? 1 : -1, outY: length > 0 ? outY / length : 0 };
 };
@@ -187,6 +217,91 @@ export const give = (battle, side, picked, { day, word, way, standing, breadthKm
     takeOrder(troop, { kind: "way", standing, word, legs, leg: 0, slot: slot / km, stop, since: day + lag, day });
     troop.fallback = null;
   }
+};
+
+// Whether the other side's ground lies before a point along a way, within
+// `reach` cells and before the land ends: looked for every half cell.
+const groundAhead = (field, side, x, y, ax, ay, reach) => {
+  for (let gone = 0; gone <= reach; gone += 0.5) {
+    const cell = cellAt(field, x + ax * gone, y + ay * gone);
+    if (cell < 0 || !field.play[cell]) return false;
+    if (field.holders[cell] === 1 - side) return true;
+  }
+  return false;
+};
+
+// Which way a troop going straight out is to go from where it stands: across
+// its own stretch of the line, from its side's ground to the other's
+// (ground.js outwardOf). Where there is no line near, or that way leads to
+// none of the other side's ground, toward the nearest of it however far;
+// failing that, the way it is already facing. A unit vector through `aim`.
+const outFrom = (battle, side, troop) => {
+  const { field, place } = battle;
+  const reach = OUTWARD_KM / place.kmAt(troop.y);
+  if (outwardOf(field, side, troop.x, troop.y, reach, aim) && groundAhead(field, side, troop.x, troop.y, aim[0], aim[1], reach)) return;
+  if (downhill(field, measure(battle)[1 - side], troop.x, troop.y, aim)) return;
+  if (outwardOf(field, side, troop.x, troop.y, reach, aim)) return;
+  aim[0] = troop.hx !== 0 || troop.hy !== 0 ? troop.hx : side === 0 ? 1 : -1;
+  aim[1] = troop.hx !== 0 || troop.hy !== 0 ? troop.hy : 0;
+};
+
+// How far ahead of a troop going straight out its line is laid, in cells:
+// further than it can get in many days. (Not "to the end of the run": how long
+// a run is must change nothing in it, or a run cut at a day would not be the
+// full run as it stood that day.)
+const farOut = (battle, run, troop) => (WAY_DAYS_MIN * Math.max(run.advanceKm[0], run.advanceKm[1], run.advanceKm[2]) * run.pace) / battle.place.kmAt(troop.y);
+
+// The one leg of a troop going straight out: from where it stands, the way `aim` says.
+const legOut = (battle, run, troop) => {
+  const far = farOut(battle, run, troop);
+  return legsOf([troop.x, troop.y], [[troop.x + aim[0] * far, troop.y + aim[1] * far]]);
+};
+
+// Tells troops of a side (by their indexes) to advance with nothing named:
+// each goes straight out from where it stands, the way its own stretch of the
+// line faces. Nobody is gathered and nobody crosses the front to join a rank:
+// the rank is the line they already stand in.
+//   day, word, standing, lagless   as for `give`
+export const giveOut = (battle, run, side, picked, { day, word, standing, lagless = false }) => {
+  const troops = battle.troops[side];
+  for (const index of picked) {
+    const troop = troops[index];
+    outFrom(battle, side, troop);
+    const legs = legOut(battle, run, troop);
+    if (legs.length === 0) continue;
+    const lag = lagless ? 0 : troop.lag + (troop.dug ? 1 : 0) + (word === "blitz" ? BLITZ_MASS_DAYS : 0);
+    troop.dug = false;
+    takeOrder(troop, { kind: "way", standing, word, legs, leg: 0, slot: 0, stop: 1, since: day + lag, day, own: true });
+    troop.fallback = null;
+  }
+};
+
+// A troop going straight out KEEPS its line for as long as the other side's
+// ground lies before it: a rank that turned with every change in the shape of
+// what it had taken would fan apart at its edges, and troops that turn cross.
+// When there is none of it before it any more (it has come to the sea, to a
+// neighbour's border, or onto ground its own side took from another way) it
+// turns to face the line nearest it and goes straight out from there. Looked
+// at every day; it turns onto a new line by degrees like any other (move.js).
+export const aimOut = (battle, run, side, troop, order) => {
+  const leg = order.legs[order.leg];
+  if (groundAhead(battle.field, side, troop.x, troop.y, leg.ax, leg.ay, OUT_AHEAD_KM / battle.place.kmAt(troop.y))) {
+    // Its line is laid on ahead of it: it never comes to the end of it.
+    const short = farOut(battle, run, troop) - leftOnLeg(leg, troop);
+    if (short > 0) {
+      leg.ox += leg.ax * short;
+      leg.oy += leg.ay * short;
+      leg.length += short;
+    }
+    return;
+  }
+  outFrom(battle, side, troop);
+  const legs = legOut(battle, run, troop);
+  if (legs.length === 0) return;
+  order.legs = legs;
+  order.leg = 0;
+  // Its place across the old way is nothing on the new one, which starts where it stands.
+  order.slot = 0;
 };
 
 // The way an attack order gives a group, as the points it goes through, in

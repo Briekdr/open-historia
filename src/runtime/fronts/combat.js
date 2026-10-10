@@ -28,6 +28,7 @@
 // input gives the same war to the last digit on every machine.
 
 import {
+  ATTACK_COST,
   ATTRITION,
   ATTRITION_RATIO_MAX,
   ATTRITION_RATIO_MIN,
@@ -252,9 +253,12 @@ export const stepForward = (battle, paceKm, pace) => {
       const aheadX = troop.x + troop.gx * entry.radius;
       const aheadY = troop.y + troop.gy * entry.radius;
       let defence = 0;
+      const sparing = battle.spared[side];
       eachNear(standing[1 - side], aheadX, aheadY, (enemy) => {
-        // A besieged place is not assaulted: its troops are in no fight they did not start.
-        if (enemy.besieged) return;
+        // A besieged place is not assaulted: its troops are in no fight they
+        // did not start. Nor is one being shut in, before the ring closes: who
+        // stands in ground this side is leaving alone for a siege is left alone.
+        if (enemy.besieged || spared(sparing, enemy.x, enemy.y)) return;
         const dx = enemy.x - aheadX;
         const dy = enemy.y - aheadY;
         const weight = kernel(Math.sqrt(dx * dx + dy * dy), reach);
@@ -277,10 +281,10 @@ export const stepForward = (battle, paceKm, pace) => {
       // assault is paid for too. One that is cut off is worn the faster by
       // those closing on it.
       if (raw > 0 && attack > 0) {
-        troop.loss += troop.strength * share * clampRatio(defence / attack);
-        const theirs = share * clampRatio(attack / defence);
+        troop.loss += troop.strength * share * ATTACK_COST * clampRatio(Math.sqrt(defence / attack));
+        const theirs = share * clampRatio(Math.sqrt(attack / defence));
         eachNear(standing[1 - side], aheadX, aheadY, (enemy) => {
-          if (enemy.besieged) return;
+          if (enemy.besieged || spared(sparing, enemy.x, enemy.y)) return;
           const dx = enemy.x - aheadX;
           const dy = enemy.y - aheadY;
           const weight = kernel(Math.sqrt(dx * dx + dy * dy), reach);

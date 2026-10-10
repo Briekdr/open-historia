@@ -90,8 +90,11 @@ export const createTroop = ({ x = 0, y = 0, strength = 100, kind = KIND_INFANTRY
   movedKm: 0,
   loss: 0,
   engaged: false,
-  // Dug in: stronger where it stands, and it does not move at all.
-  dug: state === STATE_DUG_IN,
+  // Dug in: stronger where it stands, and it does not move at all. (A troop
+  // has one state to be saved as, and one that is dug in AND cut off is saved
+  // as cut off. Its works say the rest: only a troop told to dig in has them
+  // in full, so a garrison shut in is still dug in when the next run begins.)
+  dug: state === STATE_DUG_IN || (state === STATE_ENCIRCLED && dig >= 1),
   // The order it is carrying out, or null (way.js, move.js); which of its
   // side's standing orders that serves, for the record; and which way it
   // steps today.
@@ -106,6 +109,9 @@ export const createTroop = ({ x = 0, y = 0, strength = 100, kind = KIND_INFANTRY
   // on the other side's ground with nowhere to go, and whether it has slid.
   fallback: null,
   stranded: 0,
+  adrift: 0,
+  // The day it last gave ground because it had been got round (move.js).
+  gave: -1000,
   slid: false,
   // The day an assault sent at it was last upon it: it is fought where it
   // stands, and does not fall back from under it.

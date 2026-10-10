@@ -54,13 +54,17 @@ import {
   POOL_PER_TROOP,
   REPULSED_LOSS,
   SIEGE_SPARE_KM,
+  THRUST_LEAST,
+  THRUST_LINK_KM,
+  THRUST_SHARE,
+  THRUST_TROOPS,
 } from "./constants.js";
 import { nearestHeld, redistance, restoreCells, takeCapsule, takeCells } from "./field.js";
 import { cellAt, cheapestWay } from "./ground.js";
 import { WHOLE_LINE, describePoint, findPlace, inSector, placeText, resolveSector, sectorMiddle } from "./sectors.js";
 import { findPockets, nearestOwner, surrenderPocket } from "./supply.js";
 import { KIND_ARTILLERY, KIND_INFANTRY, STATE_ADVANCING, STATE_DUG_IN, STATE_HOLDING, controlRadius, createTroop, isAttack, isLive, liveCount, stands } from "./troops.js";
-import { chanceOf, give, takeOrder, waysFor } from "./way.js";
+import { chanceOf, give, giveOut, takeOrder, waysFor } from "./way.js";
 
 export { cheapestWay };
 
@@ -284,17 +288,62 @@ export const assignOrder = (battle, run, order, today, { picked = null, lagless 
     }
   } else if (isAttack(word) && group.length > 0) {
     const target = order.objective ? findPlace(battle.arena, order.objective) : null;
-    const { ways, midX, midY, fx, fy } = waysFor(battle, run, side, group, word, target, Math.max(1, run.days - today.day));
+    const days = Math.max(1, run.days - today.day);
     const how = { day: today.day, word, standing: order, lagless };
-    if (ways.length === 2) {
-      // Two columns: those on the left of the way go round to the left.
-      const across = (index) => (troops[index].x - midX) * -fy + (troops[index].y - midY) * fx;
-      const abreast = group.slice().sort((a, b) => across(b) - across(a) || a - b);
-      const half = Math.ceil(abreast.length / 2);
-      give(battle, side, abreast.slice(0, half), { ...how, way: ways[0] });
-      give(battle, side, abreast.slice(half), { ...how, way: ways[1] });
-    } else give(battle, side, group, { ...how, way: ways[0] });
-    for (const index of group) if (troops[index].state === STATE_DUG_IN) troops[index].state = STATE_HOLDING;
+    // An advance or a blitz is the line itself going forward: every troop
+    // straight out from where it stands. Anything sent AT something (a thrust
+    // of any kind, or an advance on a named place) is a group, and it is the
+    // troops nearest what it is sent at, not the whole third of the line.
+    const ranked = word === "advance" || word === "blitz";
+    let sent = [];
+    let rest = group;
+    if (target || !ranked) {
+      const [nearX, nearY] = target ? [target.x, target.y] : sectorMiddle(today.line, sector, kmAt);
+      const most = THRUST_TROOPS[word] ?? THRUST_TROOPS.advance;
+      // Those the record says were at it are the group as it was; told afresh,
+      // it never takes more than its share of the sector's troops.
+      const count = picked || sector.kind === "place" ? Math.min(most, group.length) : Math.min(most, group.length, Math.max(THRUST_LEAST, Math.ceil(group.length * THRUST_SHARE)));
+      const nearest = group.filter((index) => !troops[index].pocket).map((index) => {
+        const dx = troops[index].x - nearX;
+        const dy = troops[index].y - nearY;
+        return { index, away: dx * dx + dy * dy, taken: false };
+      }).sort((a, b) => a.away - b.away || a.index - b.index);
+      // One body of troops: from the nearest, whoever stands within reach of
+      // one already in it. (Those the record says were at it are the body as
+      // it was, however far the way has strung them out since.)
+      const link = THRUST_LINK_KM / kmAt(nearY);
+      const body = picked ? nearest.slice(0, count).map((entry) => entry.index) : [];
+      for (let pass = 0, grew = !picked; grew && body.length < count; pass += 1) {
+        grew = false;
+        for (const entry of nearest) {
+          if (body.length >= count) break;
+          if (entry.taken) continue;
+          const mine = troops[entry.index];
+          if (body.length > 0 && !body.some((other) => (troops[other].x - mine.x) * (troops[other].x - mine.x) + (troops[other].y - mine.y) * (troops[other].y - mine.y) <= link * link)) continue;
+          entry.taken = true;
+          body.push(entry.index);
+          grew = true;
+        }
+      }
+      const going = new Set(body);
+      sent = group.filter((index) => going.has(index));
+      rest = group.filter((index) => !going.has(index));
+    }
+    if (sent.length > 0) {
+      const { ways, midX, midY, fx, fy } = waysFor(battle, run, side, sent, word, target, days);
+      if (ways.length === 2) {
+        // Two columns: those on the left of the way go round to the left.
+        const across = (index) => (troops[index].x - midX) * -fy + (troops[index].y - midY) * fx;
+        const abreast = sent.slice().sort((a, b) => across(b) - across(a) || a - b);
+        const half = Math.ceil(abreast.length / 2);
+        give(battle, side, abreast.slice(0, half), { ...how, way: ways[0] });
+        give(battle, side, abreast.slice(half), { ...how, way: ways[1] });
+      } else give(battle, side, sent, { ...how, way: ways[0] });
+    }
+    // The rest of an advance goes straight out; the rest of a thrust is left
+    // at what it was doing, and holds the line the thrust set off from.
+    if (ranked && rest.length > 0) giveOut(battle, run, side, rest, how);
+    for (const index of ranked ? group : sent) if (troops[index].state === STATE_DUG_IN) troops[index].state = STATE_HOLDING;
   }
   return true;
 };

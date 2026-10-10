@@ -28,7 +28,9 @@ export const MAX_ORDERS_PER_SIDE = 6;
 
 // The grid the engine keeps its books on. It is never drawn: the line the
 // player sees is traced between the cells' centres, to a fraction of a cell.
-export const MAX_CELLS = 48000;
+// (A frame is at most 255 cells a side: a troop's place is saved to a
+// sixteenth of a cell in twelve bits. So this is nearly all a frame can be.)
+export const MAX_CELLS = 64000;
 export const MAX_GRID_SPAN = 255;
 export const CELL_STEPS_KM = Object.freeze([4, 6, 8, 12, 16, 24, 32, 48, 64, 96]);
 
@@ -104,7 +106,7 @@ export const REDISTANCE_REACH_CELLS = 4;
 export const REPAINT_BELOW = 0.4;
 // The frame grows when the line comes this near its edge, by this much.
 export const GROW_WITHIN_CELLS = 6;
-export const GROW_KM = 400;
+export const GROW_KM = 250;
 // The drawn line: how far a vertex may be left out of it, in cells.
 export const LINE_SIMPLIFY_CELLS = 0.04;
 
@@ -195,9 +197,20 @@ export const SUBSTEPS_MAX = 32;
 export const OVERRUN_CELLS = 6;
 // Percent of strength a day in a fight at even odds, held between these ratios;
 // a quiet stretch in contact costs this share of it.
+//
+// What a fight costs each side goes by the SQUARE ROOT of the odds, and the
+// side that attacks pays ATTACK_COST times over. Going by the odds themselves,
+// every attacker of a side that outnumbers the other wore the defenders down
+// by the whole of that advantage, so the losses went by its square: at five to
+// three the defenders lost six times what the attackers did, the attackers'
+// reserves made theirs good and the defenders' did not, and an advance that
+// began at three kilometres a day was going at eleven by the end of a month
+// with the defenders' army gone. A line that is pushed back should still be an
+// army at the end of it; what destroys one is being cut off.
 export const ATTRITION = 0.6;
 export const ATTRITION_RATIO_MIN = 0.3;
 export const ATTRITION_RATIO_MAX = 3;
+export const ATTACK_COST = 1.5;
 export const QUIET_ATTRITION = 0.1;
 // A troop that holds digs itself in by this much a day, to this much; one
 // told to dig in is dug in at once and in full (DUG_IN_DEFENCE, below).
@@ -274,8 +287,21 @@ export const LANDING_TROOPS = 4;
 
 // Opening a battlefield: the frame is the box round every region of either
 // side this near the contact, with this margin.
-export const CONTACT_WITHIN_KM = 1200;
+// Not much more than a month's fighting can cross: the frame grows when the
+// line nears its edge, and a frame that starts by taking in half a continent
+// has cells too coarse to paint a front with (twelve km for Russia against
+// Ukraine, where four hundred km of room gives six).
+export const CONTACT_WITHIN_KM = 400;
 export const FRAME_MARGIN_KM = 100;
+// How fast troops on a battlefield gain ground with nobody in the way, as a
+// part of the pace the game gives a formation advancing on its own
+// (unitMotion.js: thirty km a day on foot and fifty with armour in the modern
+// era). A front is not a column on a road: twelve and twenty are what the
+// owner watched and accepted, and at the full figures a breakthrough ran a
+// front off the map in a month. It is what the GAME tells the engine as its
+// pace (frontsGate.js), times the scenario's own pace setting; the engine
+// told pace 1 goes at the full figures.
+export const FRONT_PACE_SHARE = 0.4;
 
 export const BRIEF_TEXT_MAX = 700;
 
@@ -313,6 +339,29 @@ export const BLITZ_PACE = 1.3;
 export const WAY_DAYS_MIN = 10;
 export const WAY_LEGS_MAX = 3;
 export const WAY_BEND_CELLS = 3;
+// An advance or a blitz with nothing named is every troop going straight out
+// from where it stands. Which way that is, it reads off the line within this
+// far of it (all of it, not the nearest kink of the border). It keeps that way
+// for as long as the other side's ground lies within the second distance
+// before it, and reads again when it does not.
+export const OUTWARD_KM = 100;
+export const OUT_AHEAD_KM = 50;
+// An order that sends troops AT something (a spearhead, a column going round,
+// an advance on a named place) does not take a whole third of the line off it:
+// it takes the troops nearest what it is sent at, this many at most (an
+// encirclement's are its two columns together) and never more than this share
+// of the sector's, so the line the thrust leaves is still held. A sector that
+// is itself a place on the line is already a few troops, and gives them all.
+// The rest of the sector carries on: under an advance or a blitz it advances
+// straight out, under a thrust it holds and comes up behind.
+export const THRUST_TROOPS = Object.freeze({ spearhead: 44, encircle: 32, flank: 16, advance: 36, blitz: 36 });
+export const THRUST_SHARE = 0.6;
+export const THRUST_LEAST = 4;
+// And they are ONE body of troops: each within this far of another of them,
+// beginning from the nearest. The nearest to a place may stand on two fronts
+// with a sea or the other side's country between them, and troops on the far
+// one are not part of a group that sets off from the near one.
+export const THRUST_LINK_KM = 60;
 
 // Under an order a troop wants: its leg's direction; a slide toward its slot,
 // full from this far off and never more than this much of its step; away from
@@ -343,6 +392,27 @@ export const WAY_LEAST = 0.2;
 export const SUPPORT_KM = 100;
 export const SUPPORT_FULL = 0.3;
 export const SUPPORT_NONE = 0.1;
+// And in a general advance (every troop straight out from where it stands) a
+// troop keeps its place in the LINE: it looks to those of its side advancing
+// within RANK_KM of it, the nearer the more, and where it has got further
+// forward than they have by more than the slack it slows, down to the least of
+// its pace a band further on. The fast and the lucky do not run on as fingers
+// between the other side's troops and leave them cut off behind: a line
+// advances as a line, and breaking through is what a thrust is ordered for.
+// (It looks a long way along the line: a clutch of armour that stands together
+// is each other's nearest neighbours, and would go forward as a lobe.)
+export const RANK_KM = 100;
+export const RANK_SLACK_KM = 8;
+export const RANK_BAND_KM = 16;
+export const RANK_LEAST = 0.2;
+// And it keeps its ROOM along the line. Where a border bends inward the ways
+// straight out from it run together, and those that walk them end in a heap
+// with the line thin on either side of it. So a troop with more of its side
+// advancing within SPREAD_KM on one hand than on the other moves its own way
+// over toward the emptier hand, by this much a day at most: a crowd thins out
+// along the line it is pushing, and the line fills in where it was thin.
+export const SPREAD_KM = 24;
+export const SPREAD_KM_PER_DAY = 5;
 // Crowding only eases it aside, across its way: by this at most, or this share
 // of its step. Those within this many brushes of it crowd it.
 export const EASE_KM = 2.5;
@@ -357,7 +427,17 @@ export const ROOM_BRUSHES = 1.25;
 // many. With fighting this near along its own ground it slides toward it.
 export const HOLD_TOO_NEAR = 0.45;
 export const HOLD_BACK_TO = 1.1;
-export const FALL_BACK_SEARCH_KM = 64;
+// (Within two days' march: a place further off than that is nowhere to go,
+// and a troop is not left crossing the other side's ground for days.)
+export const FALL_BACK_SEARCH_KM = 52;
+// Driven off, it goes STRAIGHT back from the other side's ground within this
+// far of it, and only where that way runs off the land to the nearest of its
+// own side's ground instead. (The nearest cell of a grid is nearly always the
+// next one along a row: a troop sent there every day retreats in a staircase.)
+export const FALL_BACK_FROM_KM = 50;
+// ...unless that is this many times further than the nearest: one the other
+// side has walked past gets off their ground the quickest way there is.
+export const STRAIGHT_BACK_FURTHER = 1.6;
 export const FALL_BACK_PACE_KM = 26;
 export const COME_UP_FROM = 3.5;
 export const COME_UP_TO = 2;
@@ -368,8 +448,39 @@ export const SLIDE_NEAR_KM = 30;
 export const SLIDE_FAR_KM = 75;
 export const SLIDE_BAND = Object.freeze([0.8, 3.5]);
 export const SLIDE_LEAST_DEPTH = 0.7;
+// A troop that holds with no order keeps its way back open, and gives ground
+// rather than be shut in. Its way back is the straight way to the nearest of
+// its side's DEEP ground (ground this far from any of the other side's). Where
+// that way, from a little behind it on, passes nearer to ground the other side
+// has TAKEN than the neck allows (never nearer than the least; and the further
+// back, the wider it must be: this share of how far back it is), it has been
+// got round, and falls back along it a day's march. A line pushed in at two
+// places draws back between them and stays a line; a bulge with the other side
+// closing behind it is left before it is a pocket. A bend of the border as it
+// always was is nobody's flank: only ground the fighting took counts. (One
+// that is dug in does not fall back: it holds where it stands, and may be shut
+// in for it. That is what telling troops to dig in is for, and its price.)
+// (It goes at the pace of a troop driven off, and that pace goes up with the
+// scenario's own: a retreat that an advance at three times the pace could
+// overtake would be no retreat. Three quarters is as near as the share can
+// be put to one: a troop pushed from the front has the ground the other side
+// took in front of it, further from every point behind it than that point is
+// from it, and must not read as got round.)
+// It goes back only as far as clears it, and for some days after it does not
+// come up again to the line it left: a troop that stepped back and forward by
+// turns would be seen to dither, and would be caught on a forward step.
+export const GAVE_GROUND_REST_DAYS = 5;
+export const DEEP_KM = 80;
+export const OUTFLANKED_FROM_KM = 16;
+export const OUTFLANKED_NECK_KM = 12;
+export const OUTFLANKED_NARROW = 0.75;
 // On the other side's ground with nowhere to fall back to, it is taken after this many days.
 export const STRANDED_DAYS = 2;
+// And one that has begun this many days on end on the other side's ground,
+// with none of its own within a brush of it, is taken whatever it was making
+// for: the last of a side that is being overrun do not run for days from one
+// scrap of their ground to the next as each is lost.
+export const ADRIFT_DAYS = 2;
 
 // Dug in: stronger in defence, cheaper to hold, and it does not move at all.
 // Thrown out of its works when the ground under it is lost, at this cost.

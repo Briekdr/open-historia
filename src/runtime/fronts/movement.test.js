@@ -205,8 +205,9 @@ test("a defender holds worse against two directions at once, and works are no he
   // A strip of Borduria 107 km wide between two lands of Aland's, and one
   // defender in it, standing behind the western edge and facing it.
   const world = syntheticMap({ layout: ["~~~~~~~~", "AABBBAA~", "~~~~~~~~"], legend, west: 20, north: 51, step: 0.5, stepLat: 1 });
+  // (Neither side has reserves: what a fight costs is not made good, and shows.)
   const fight = (attackers, extra = {}, days = 6) => {
-    const record = battlefieldOn(world, { troops: [attackers, [{ lng: 21.2, lat: 50, ...extra }]], orders: [standing(0, "advance"), standing(1, "hold")] });
+    const record = battlefieldOn(world, { troops: [attackers, [{ lng: 21.2, lat: 50, ...extra }]], orders: [standing(0, "advance"), standing(1, "hold")], pool: [0, 0] });
     const result = runFronts(frontInput(world, { battlefields: [record], days, steering: steady }));
     return readBattlefield(result.battlefields[0], world);
   };
@@ -227,8 +228,8 @@ test("a defender holds worse against two directions at once, and works are no he
   assert.ok(both.troops[1][0].strength < Math.min(front.troops[1][0].strength, behind.troops[1][0].strength) - 2, `the defender: ${both.troops[1][0].strength} left, against ${front.troops[1][0].strength} and ${behind.troops[1][0].strength}`);
 
   // Works dug facing the enemy count against the front...
-  const dugFront = fight([west], { dig: 1 }, 10);
-  const openFront = fight([west], {}, 10);
+  const dugFront = fight([west], { dig: 1 }, 20);
+  const openFront = fight([west], {}, 20);
   assert.ok(dugFront.troops[1][0].strength > openFront.troops[1][0].strength, "a dug-in defender comes off better against its front");
   assert.ok(dugFront.troops[0][0].strength < openFront.troops[0][0].strength, "and the attacker worse");
   // ...and for nothing against an attacker coming from behind.

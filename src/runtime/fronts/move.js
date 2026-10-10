@@ -9,11 +9,19 @@
 //
 // A troop with no order moves only when it must: off ground that is no longer
 // its side's or when the other side's ground has come right up to it (it
-// picks ONE place to fall back to and goes straight there), up to a line that
-// has gone on without it, and along its own ground toward fighting that is
-// near. One left on the other side's ground with nowhere to go is taken.
+// picks ONE place to fall back to and goes straight there: straight back from
+// the line where it can), up to a line that has gone on without it, and along
+// its own ground toward fighting that is near. One left on the other side's
+// ground with nowhere to go, or two days on it out of reach of its own, is
+// taken.
 //
-// A troop that is dug in does not move at all.
+// And it keeps its way back open. Where the way to its side's deep ground is
+// being pinched by ground the other side has taken, it has been got round, and
+// gives the ground up, a day's march, before that is a pocket: a line pushed
+// in at two places draws back between them and stays a line.
+//
+// A troop that is dug in does not move at all: not for that either. It stands
+// and may be shut in, which is what telling troops to dig in is for.
 //
 // Nobody is left alive behind the other side's line. A troop under an order
 // that the other side has walked past (the ground under it theirs, and its own
@@ -27,6 +35,13 @@
 // the few that slip past the defenders hold the breach until the rest come up,
 // and do not run on down a corridor a brush or two wide. A spearhead, a flank
 // and an encirclement are thrusts, and narrow because they mean to be.
+//
+// A general advance (every troop straight out from where it stands, way.js) is
+// a LINE going forward. Each of them looks to those advancing beside it, a
+// long way along the line: further forward than they are, it slows for them;
+// with more of them on one hand than the other, its way moves over toward the
+// emptier hand. So nobody runs on as a finger between the other side's troops,
+// and where the ways run together the crowd thins out along the line.
 //
 // A formation an assault has reached is fought where it stands: it does not
 // fall back from under those that are upon it.
@@ -42,6 +57,7 @@
 
 import { hashSeed } from "../unitMotion.js";
 import {
+  ADRIFT_DAYS,
   ASSAULT_DAYS,
   ASSAULT_WEAR,
   ATTACK_LAPSE_DAYS,
@@ -58,21 +74,36 @@ import {
   COME_UP_KM,
   COME_UP_TO,
   COMPASS_16,
+  CONTROL_RADIUS_MAX_KM,
+  DEEP_KM,
   DRIFT_DAYS,
   EASE_KM,
   EASE_SHARE,
+  FALL_BACK_FROM_KM,
   FALL_BACK_KM_PER_DAY,
   FALL_BACK_MAX_KM,
   FALL_BACK_PACE_KM,
   FALL_BACK_SEARCH_KM,
+  FRONT_PACE_SHARE,
+  GAVE_GROUND_REST_DAYS,
   HEADING_KEPT,
   HEADING_KEPT_CLOSING,
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
   HOLD_BACK_TO,
   HOLD_TOO_NEAR,
+  OUTFLANKED_FROM_KM,
+  OUTFLANKED_NARROW,
+  OUTFLANKED_NECK_KM,
+  RANK_BAND_KM,
+  RANK_KM,
+  RANK_LEAST,
+  RANK_SLACK_KM,
   ROOM_BRUSHES,
   SLIDE_BAND,
+  SPREAD_KM,
+  SPREAD_KM_PER_DAY,
+  STRAIGHT_BACK_FURTHER,
   SLIDE_FAR_KM,
   SLIDE_HEARS_KM,
   SLIDE_KM,
@@ -95,10 +126,10 @@ import {
 } from "./constants.js";
 import { drawIn, liveOrder } from "./closing.js";
 import { eachNear, squaresOf } from "./combat.js";
-import { awayOf, cellAt, cellsOf, downhill, heldRound, measure } from "./ground.js";
+import { awayOf, cellAt, cellsOf, distanceFrom, downhill, heldRound, measure, nearestOf, outwardOf } from "./ground.js";
 import { describePoint, inSector } from "./sectors.js";
 import { KIND_ARTILLERY, STATE_ADVANCING, controlRadius, isLive, reachCells, standOff, stands } from "./troops.js";
-import { leftOnLeg } from "./way.js";
+import { aimOut, leftOnLeg } from "./way.js";
 
 const toward = [0, 0];
 
@@ -140,6 +171,80 @@ export const placeBehind = (battle, side, troop, depth) => {
   return found;
 };
 
+// Straight back from the other side's ground, to the first of its own side's
+// that is far enough from it: null where there is none of the other side's
+// near to go back from, or the way back runs off the land.
+const straightBack = (battle, side, troop, depth) => {
+  const { field } = battle;
+  const km = battle.place.kmAt(troop.y);
+  if (!outwardOf(field, side, troop.x, troop.y, FALL_BACK_FROM_KM / km, toward)) return null;
+  const toOther = battle.toSide[1 - side];
+  const backX = -toward[0];
+  const backY = -toward[1];
+  const reach = FALL_BACK_SEARCH_KM / km;
+  for (let gone = 0.5; gone <= reach; gone += 0.5) {
+    const x = troop.x + backX * gone;
+    const y = troop.y + backY * gone;
+    const cell = cellAt(field, x, y);
+    if (cell < 0 || !field.play[cell]) return null;
+    if (field.holders[cell] === side && toOther[cell] / 3 >= depth * HOLD_BACK_TO) return [x, y];
+  }
+  return null;
+};
+
+// What a holding troop keeps its way back open by, worked out once for each
+// change of the ground:
+//   deep[side]    for every cell, WHICH cell of that side's deep ground is
+//                 nearest it (its ground DEEP_KM or more from any of the
+//                 other's); -1 where it has none
+//   taken[side]   how far every cell is from ground that side has taken (holds
+//                 away from home), in thirds of a cell
+const retreatBooks = (battle) => {
+  const { field } = battle;
+  if (battle.retreat && battle.retreat.field === field && battle.retreat.turns === field.turns) return battle.retreat;
+  const { cols, rows, size, holders } = field;
+  const toSide = measure(battle);
+  const books = battle.retreat && battle.retreat.size === size ? battle.retreat
+    : { size, deep: [new Int32Array(size), new Int32Array(size)], taken: [new Int32Array(size), new Int32Array(size)], labels: new Int32Array(size), far: new Int32Array(size) };
+  const deepThirds = (DEEP_KM / battle.frame.km) * 3;
+  for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
+    for (let cell = 0; cell < size; cell += 1) books.labels[cell] = holders[cell] === side && toSide[1 - side][cell] >= deepThirds ? cell : -1;
+    nearestOf(cols, rows, books.labels, books.far, books.deep[side]);
+    distanceFrom(cols, rows, (cell) => holders[cell] === side && battle.homes[cell] !== side, books.taken[side]);
+  }
+  books.field = field;
+  books.turns = field.turns;
+  battle.retreat = books;
+  return books;
+};
+
+// Whether a point on a side's ground has been got round: its way back to its
+// side's deep ground is pinched by ground the other side has taken (see
+// OUTFLANKED_NARROW). The way back is left in `toward`. false where the way is
+// shut already, which is a pocket's business and not a retreat's.
+const outflanked = (battle, side, x, y) => {
+  const { field } = battle;
+  const books = retreatBooks(battle);
+  const here = cellAt(field, x, y);
+  const target = here >= 0 ? books.deep[side][here] : -1;
+  if (target < 0) return false;
+  const dx = (target % field.cols) + 0.5 - x;
+  const dy = Math.floor(target / field.cols) + 0.5 - y;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  if (!(length > 0)) return false;
+  toward[0] = dx / length;
+  toward[1] = dy / length;
+  const km = battle.place.kmAt(y);
+  const taken = books.taken[1 - side];
+  const least = OUTFLANKED_NECK_KM / km;
+  for (let gone = OUTFLANKED_FROM_KM / km; gone <= length; gone += 1) {
+    const cell = cellAt(field, x + toward[0] * gone, y + toward[1] * gone);
+    if (cell < 0 || field.holders[cell] !== side) return false;
+    if (taken[cell] / 3 < Math.max(least, gone * OUTFLANKED_NARROW)) return true;
+  }
+  return false;
+};
+
 // The moves of a troop with no order to carry out today. `attackers` are the
 // other side's troops that walked forward yesterday.
 const hold = (battle, side, troop, day, date, attackers) => {
@@ -154,6 +259,16 @@ const hold = (battle, side, troop, day, date, attackers) => {
   const onOwn = stands(field, side, troop.x, troop.y);
   const away = onOwn ? awayOf(battle, side, troop.x, troop.y) : 0;
   const order = liveOrder(troop);
+  // Days on end on the other side's ground, its own side's out of reach: it
+  // does not get away. (Not one that is cut off on ground of its own: that is
+  // a pocket's business.)
+  troop.adrift = onOwn || cellsOf(field, battle.toSide[side], troop.x, troop.y) * battle.frame.km <= CONTROL_RADIUS_MAX_KM ? 0 : troop.adrift + 1;
+  if (troop.adrift >= ADRIFT_DAYS && !troop.pocket) {
+    const at = describePoint(arena, troop.x, troop.y);
+    if (at) battle.log.push({ d: date, k: "overrun", s: side, at });
+    troop.strength = 0;
+    return;
+  }
 
   // Told to fall back: away from the other side's ground, or toward the place
   // named, a day's march further every day until it has gone far enough. (One
@@ -192,7 +307,13 @@ const hold = (battle, side, troop, day, date, attackers) => {
     || field.holders[cellAt(field, troop.fallback[0], troop.fallback[1])] !== side)) troop.fallback = null;
   if (!troop.fallback && (!onOwn || away < depth * HOLD_TOO_NEAR)) {
     // Driven off: it picks ONE place to fall back to and goes straight there.
-    troop.fallback = placeBehind(battle, side, troop, depth);
+    // Straight back from the other side's ground where it can; but to the
+    // nearest of its own side's ground that will do where that is much the
+    // nearer, or there is no way straight back.
+    const nearest = placeBehind(battle, side, troop, depth);
+    const back = straightBack(battle, side, troop, depth);
+    const reach = (place) => Math.sqrt((place[0] - troop.x) * (place[0] - troop.x) + (place[1] - troop.y) * (place[1] - troop.y));
+    troop.fallback = back && (!nearest || reach(back) <= reach(nearest) * STRAIGHT_BACK_FURTHER + 1) ? back : nearest;
   }
   // Nowhere of its own side's to fall back to: after a day of that it is taken
   // where it stands. Nobody is left alive behind the other side's lines.
@@ -212,13 +333,47 @@ const hold = (battle, side, troop, day, date, attackers) => {
     const distance = Math.sqrt(dx * dx + dy * dy);
     const step = Math.min(distance, FALL_BACK_PACE_KM / km);
     if (!(distance > 0)) return;
-    troop.x += (dx / distance) * step;
-    troop.y += (dy / distance) * step;
-    troop.movedKm += step * km;
-    turnTo(troop, dx, dy);
+    // A day's march toward a place further off than that must not end where
+    // nobody can stand (the nearest of its own ground may lie beyond a range
+    // or a lake): it stops short of it, and with nowhere to stop picks again.
+    for (const share of [1, 0.75, 0.5, 0.25]) {
+      const x = troop.x + (dx / distance) * step * share;
+      const y = troop.y + (dy / distance) * step * share;
+      const landing = cellAt(field, x, y);
+      if (landing < 0 || !field.play[landing]) continue;
+      troop.x = x;
+      troop.y = y;
+      troop.movedKm += step * share * km;
+      turnTo(troop, dx, dy);
+      return;
+    }
+    troop.fallback = null;
     return;
   }
   if (troop.pocket || !onOwn) return;
+  // Got round, its way back being pinched: it gives the ground up rather than
+  // be shut in, a day's march along that way.
+  if (!order && outflanked(battle, side, troop.x, troop.y)) {
+    const backX = toward[0];
+    const backY = toward[1];
+    const step = (FALL_BACK_PACE_KM * Math.max(1, battle.pace / FRONT_PACE_SHARE)) / km;
+    // As far as clears it and no further; a full day's march if nothing nearer does.
+    let gone = 0;
+    for (const share of [0.25, 0.5, 0.75, 1]) {
+      const x = troop.x + backX * step * share;
+      const y = troop.y + backY * step * share;
+      if (!stands(field, side, x, y)) continue;
+      gone = share;
+      if (!outflanked(battle, side, x, y)) break;
+    }
+    troop.gave = day;
+    if (!(gone > 0)) return;
+    troop.x += backX * step * gone;
+    troop.y += backY * step * gone;
+    troop.movedKm += step * gone * km;
+    turnTo(troop, backX, backY);
+    return;
+  }
   if (away >= depth * SLIDE_BAND[0] && away <= depth * SLIDE_BAND[1]) {
     // Fighting some way off along its own ground: it slides toward it, and
     // never turns back on itself to do so.
@@ -263,17 +418,20 @@ const hold = (battle, side, troop, day, date, attackers) => {
     troop.hx = goX;
     troop.hy = goY;
     troop.slid = true;
-  } else if (!troop.order && away > depth * COME_UP_FROM) {
+  } else if (!troop.order && away > depth * COME_UP_FROM && day - troop.gave >= GAVE_GROUND_REST_DAYS) {
     // A line that has gone on without it: it comes up, to within its depth.
+    // (Not back into ground it would only have to give up again.)
     if (!downhill(field, toOther, troop.x, troop.y, toward)) return;
+    const upX = toward[0];
+    const upY = toward[1];
     const step = Math.min(COME_UP_KM / km, away - depth * COME_UP_TO);
-    const landing = cellAt(field, troop.x + toward[0] * step, troop.y + toward[1] * step);
-    if (landing < 0 || field.holders[landing] !== side) return;
-    troop.x += toward[0] * step;
-    troop.y += toward[1] * step;
+    const landing = cellAt(field, troop.x + upX * step, troop.y + upY * step);
+    if (landing < 0 || field.holders[landing] !== side || outflanked(battle, side, troop.x + upX * step, troop.y + upY * step)) return;
+    troop.x += upX * step;
+    troop.y += upY * step;
     troop.movedKm += step * km;
-    troop.hx = toward[0];
-    troop.hy = toward[1];
+    troop.hx = upX;
+    troop.hy = upY;
   }
 };
 
@@ -400,6 +558,38 @@ const steer = (battle, run, side, index, troop, order, day, date, squares, weigh
     const held = heldRound(field, side, troop.x, troop.y, SUPPORT_KM / km);
     troop.paceFactor *= Math.max(0, Math.min(1, (held - SUPPORT_NONE) / (SUPPORT_FULL - SUPPORT_NONE)));
   }
+  // And one going straight out in a general advance keeps its place in the
+  // line: further forward than those advancing beside it, it slows for them.
+  if (order.own && (weights.rank ?? 1) > 0) {
+    const within = RANK_KM / km;
+    const room = SPREAD_KM / km;
+    let weight = 0;
+    let forward = 0;
+    let crowd = 0;
+    for (const mate of battle.troops[side]) {
+      if (mate === troop || !isLive(mate)) continue;
+      const dx = mate.x - troop.x;
+      const dy = mate.y - troop.y;
+      if (Math.abs(dx) >= within || Math.abs(dy) >= within) continue;
+      const theirs = liveOrder(mate);
+      if (!theirs || !theirs.own) continue;
+      const apart = Math.sqrt(dx * dx + dy * dy);
+      if (apart >= within) continue;
+      weight += 1 - apart / within;
+      forward += (1 - apart / within) * (dx * ax + dy * ay);
+      // Which hand of it the mate is on, across its way: left counts up.
+      if (apart < room) crowd += (dx * -ay + dy * ax >= 0 ? 1 : -1) * (1 - apart / room);
+    }
+    const lead = weight > 0 ? (-forward / weight) * km : 0;
+    if (lead > RANK_SLACK_KM) troop.paceFactor *= Math.max(RANK_LEAST, 1 - (lead - RANK_SLACK_KM) / RANK_BAND_KM);
+    // It keeps its room along the line: its way moves over, away from the crowded hand.
+    if (crowd !== 0) {
+      const leg = order.legs[order.leg];
+      const across = (troop.x - leg.ox) * -leg.ay + (troop.y - leg.oy) * leg.ax;
+      const most = SLOT_SLIDE_KM / km;
+      order.slot = Math.max(across - most, Math.min(across + most, order.slot - Math.max(-1, Math.min(1, crowd)) * (SPREAD_KM_PER_DAY / km)));
+    }
+  }
 
   // The weak places in front of it: away from where the defenders are thick.
   let pressX = 0;
@@ -514,6 +704,7 @@ const steer = (battle, run, side, index, troop, order, day, date, squares, weigh
 // are combat.js's (stepForward).
 export const moveDay = (battle, run, day) => {
   const { field } = battle;
+  battle.pace = run.pace;
   const { kmAt } = battle.place;
   const date = run.dateOf(day);
   const toSide = measure(battle);
@@ -555,6 +746,15 @@ export const moveDay = (battle, run, day) => {
         troop.spent = day + BREAK_OUT_REST_DAYS;
         order = null;
       }
+      // No longer cut off (joined to its own side's ground again, or the
+      // ground it stood on taken from under it): the breakout is over, and it
+      // does today what a troop with no order does. A day is not lost on it.
+      // So too when the ring it was breaking out of has closed into a siege:
+      // a garrison holds.
+      if (order && order.kind === "breakout" && (!troop.pocket || troop.besieged)) {
+        order.done = true;
+        order = null;
+      }
       // Dug in: it does not move, whatever goes on round it, for as long as
       // the ground it stands on is its side's. When that is lost it is thrown
       // out of its works with a loss, and is a troop like any other again.
@@ -588,6 +788,8 @@ export const moveDay = (battle, run, day) => {
         return;
       }
       if (run.braked || halted(battle, side, troop.x, troop.y)) return;
+      // Going straight out, it keeps its line while the other side's ground is before it.
+      if (acts.kind === "way" && acts.own) aimOut(battle, run, side, troop, acts);
       steer(battle, run, side, index, troop, acts, day, date, squares, weights);
     });
   }

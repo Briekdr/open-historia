@@ -328,10 +328,13 @@ const siegeWorld = () => syntheticMap({ layout: ["ABBBBB", "ABBBBB"], legend, we
 // Aland is told to encircle the town. The run is watched a day at a time until
 // the ring has been closed for a while; what it is then is saved, and the
 // sheet given the regions that changed hands, for other runs to begin from.
+// The town has a garrison dug in: troops that only hold a line draw back
+// before a ring can close on them, and it is those told to stand that are
+// shut in.
 const besiege = (extraDays = 2) => {
   const world = siegeWorld();
   const record = battlefieldOn(world, {
-    troops: [row(20.9, 49.46, 50.54, 12), row(21.1, 49.46, 50.54, 5)],
+    troops: [row(20.9, 49.46, 50.54, 12), [...row(21.1, 49.46, 50.54, 5), { lng: 21.42, lat: 50, dig: 1, state: 4 }]],
     orders: [standing(0, "encircle", { objective: "city: Brod" })],
   });
   const run = createFrontRun(frontInput(world, { battlefields: [record], days: 70, steering: steady }));
@@ -365,7 +368,7 @@ const sieges = (record) => record.brief.pockets.filter((pocket) => pocket.siege)
 
 test("a siege: a place a side is told to encircle is shut in and left alone, and is its defenders' twenty days later", () => {
   const { world, days, closed } = besiege(45);
-  assert.ok(closed >= 3 && closed <= 9, `the ring closed on day ${closed}`);
+  assert.ok(closed >= 3 && closed <= 11, `the ring closed on day ${closed}`);
   // Until the ring closes there is no pocket, and the pincers have gone round the town, not through it.
   for (let day = 0; day < closed; day += 1) assert.deepEqual(days[day].battlefields[0].brief.pockets, []);
   for (let day = 0; day <= closed + 20; day += 1) {
@@ -431,14 +434,19 @@ test("a siege ends when the place is captured, when the besiegers are repulsed, 
     const { seen, garrison } = roundTheTown(lifted[day].battlefields[0], world);
     assert.deepEqual(sieges(lifted[day].battlefields[0]), [], `day ${day}: the siege is lifted`);
     assert.equal(seen.holderAt(21.42, 50), HOLDER_SIDE_B);
-    if (day > 1) assert.notEqual(garrison.state, 2);
+    // (The day after the ring is opened the town still hangs by a neck of
+    // ground between the besiegers' and counts as cut off; from the day
+    // after that it does not.)
+    if (day > 2) assert.notEqual(garrison.state, 2);
   }
   assert.deepEqual(lifted[5].battlefields[0].orders.map(({ s, order: word, objective }) => [s, word, objective]), [[0, "encircle", "city: Brod"]], "the standing order is left as it was");
 
-  // A relief: fresh troops of the defenders' break through the ring from outside, and the siege is over.
+  // A relief: fresh troops of the defenders' come up on their own ground east
+  // of the ring and are told to advance; they break through it from outside,
+  // and the siege is over.
   const relief = [];
-  for (const lng of [21.52, 21.6, 21.68, 21.76]) {
-    for (const lat of [50.3, 50.36]) relief.push({ day: 0, type: "reinforce", owner: "Borduria", strength: 100, kind: "armor", lng, lat });
+  for (const lng of [22.6, 22.68, 22.76, 22.84]) {
+    for (const lat of [49.97, 50.03]) relief.push({ day: 0, type: "reinforce", owner: "Borduria", strength: 100, kind: "armor", lng, lat });
   }
   const relieved = from([...relief, order(0, "Borduria", "advance", { battlefield: saved.name })], 8);
   const opened = relieved.findIndex((day, index) => index > 0 && sieges(day.battlefields[0]).length === 0);

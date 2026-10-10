@@ -11,18 +11,22 @@
 // have. So this asks first whether the build lists it at all: in a build
 // whose FEATURE_DEFINITIONS has no "fronts", fronts are off.
 
+import { FRONT_PACE_SHARE } from "../../runtime/fronts/constants.js";
 import { FEATURE_KEYS, getActiveFeatures, isActiveFeatureEnabled } from "../../runtime/gameFeatures.js";
 
 export const FRONTS_FEATURE = "fronts";
 
 export const frontsOn = () => FEATURE_KEYS.includes(FRONTS_FEATURE) && isActiveFeatureEnabled(FRONTS_FEATURE);
 
-// The scenario's pace for the engine's advances, as a factor: the setting is a
-// percentage, 25 to 300, and 100 where it is not set.
+// The pace the engine is told for its advances, as a factor of the game's own
+// paces for a formation on the move: the part of them that is the built-in
+// pace of a front (FRONT_PACE_SHARE says why it is a part), times the
+// scenario's setting, which is a percentage, 25 to 300, and 100 where it is
+// not set.
 export const frontsPace = () => {
   const percent = Number(getActiveFeatures()?.[FRONTS_FEATURE]?.pace);
-  if (!Number.isFinite(percent) || percent <= 0) return 1;
-  return Math.max(0.25, Math.min(3, percent / 100));
+  const setting = !Number.isFinite(percent) || percent <= 0 ? 1 : Math.max(0.25, Math.min(3, percent / 100));
+  return FRONT_PACE_SHARE * setting;
 };
 
 // The formations a model that moves units is shown. One fighting on a
