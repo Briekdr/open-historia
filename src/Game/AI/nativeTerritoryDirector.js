@@ -142,7 +142,12 @@ const convertLegacyWartimeTransfers = (events) => {
   return { events: nextEvents, diagnostics };
 };
 
-export const sanitizeDirectorOrders = ({ events, orders }) => {
+// `onBattlefield(regionRef)`: whether a region, by its id or its name, lies on
+// a battlefield (frontApply.js frontRegionTest). Who holds such a region, and
+// whether it is fought over, is the front engine's to work out from the orders
+// the events gave, so the director's own marks on it are left out. Not handed
+// in by a game with fronts off, and then nothing here changes.
+export const sanitizeDirectorOrders = ({ events, orders, onBattlefield = null }) => {
   const diagnostics = [];
   const acceptedByEvent = new Map();
 
@@ -184,6 +189,12 @@ export const sanitizeDirectorOrders = ({ events, orders }) => {
 
       if (!regionId) {
         reject("regionId/place wording is blank");
+        continue;
+      }
+
+      if ((kind === "contest" || kind === "control") && typeof onBattlefield === "function"
+        && (onBattlefield(regionId) || (normalizeString(op?.regionName) && onBattlefield(op.regionName)))) {
+        reject("the region is on a battlefield: the front engine works out who holds it");
         continue;
       }
 
@@ -387,12 +398,15 @@ export const buildTerritoryDirectorInput = async ({ events = [], world = {}, fin
   return candidateRows.length ? territoryAnalyzerInput(candidateRows, world, findPlaces) : null;
 };
 
+// `battlefieldRegions`: async () => the test sanitizeDirectorOrders takes as
+// `onBattlefield`, or null. Asked for only when the director wrote something.
 export const directGeneratedTerritoryOps = async ({
   events = [],
   world = {},
   analyzeBatch,
   findPlaces = null,
   signal = null,
+  battlefieldRegions = null,
 } = {}) => {
   const converted = convertLegacyWartimeTransfers(events);
   const sourceEvents = converted.events;
@@ -427,9 +441,18 @@ export const directGeneratedTerritoryOps = async ({
   }
 
   const payload = analysis?.payload ?? analysis ?? {};
+  let onBattlefield = null;
+  if (typeof battlefieldRegions === "function" && normalizeArray(payload.eventOrders).length > 0) {
+    try {
+      onBattlefield = await battlefieldRegions();
+    } catch (error) {
+      console.warn("[territory director] the battlefields could not be read; the director's marks stand as written.", error);
+    }
+  }
   const sanitized = sanitizeDirectorOrders({
     events: sourceEvents,
     orders: payload.eventOrders,
+    onBattlefield,
   });
 
   const nextEvents = sourceEvents.map((event, index) => {

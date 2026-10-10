@@ -7,9 +7,9 @@
 //
 // A feature a build does not list reads as ON everywhere else
 // (isFeatureEnabled answers true for a key it has never heard of), which is
-// right for a feature that was removed and wrong for one that is not finished.
-// So this asks first whether the build lists it at all: until the definition
-// is in FEATURE_DEFINITIONS, fronts are off.
+// right for a feature that was removed and wrong for one a build does not
+// have. So this asks first whether the build lists it at all: in a build
+// whose FEATURE_DEFINITIONS has no "fronts", fronts are off.
 
 import { FEATURE_KEYS, getActiveFeatures, isActiveFeatureEnabled } from "../../runtime/gameFeatures.js";
 
@@ -23,4 +23,14 @@ export const frontsPace = () => {
   const percent = Number(getActiveFeatures()?.[FRONTS_FEATURE]?.pace);
   if (!Number.isFinite(percent) || percent <= 0) return 1;
   return Math.max(0.25, Math.min(3, percent / 100));
+};
+
+// The formations a model that moves units is shown. One fighting on a
+// battlefield is a troop of its side there: the engine moves it, the
+// battlefield's own lines in [Fronts] speak for it, and it leaves the list, so
+// that nothing is told to march it somewhere. With fronts off, or with nothing
+// on a battlefield, the list comes back as it is.
+export const unitsOffBattlefields = (units) => {
+  if (!Array.isArray(units) || !frontsOn() || !units.some((unit) => unit?.committedTo)) return units;
+  return units.filter((unit) => !unit?.committedTo);
 };

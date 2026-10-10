@@ -196,6 +196,7 @@ import {
   withoutGroupOps,
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
+import { applyTurnFronts, frontPowers, frontRegionTest, frontsLiveBlock, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { bindFrontOrdersToEvents, describeDroppedFrontOrders, frontOrderProseLines, screenFrontOrders } from "./nativeFrontLedger.js";
 import { buildOwnerAliasMap, canonicalOwnerName, toCountryName } from "../../runtime/ownerNames.js";
 import { countryGidFromIdentity } from "../../runtime/countryFlags.js";
@@ -2630,7 +2631,8 @@ const gameMasterPromptWithoutGroups = () => {
 // its fighting. "" when every side of every war is drawn, or there is no war.
 const describeWarsWithoutFormations = (world) => {
   const fold = (value) => normalizeString(value).toLowerCase();
-  const fielded = new Set(normalizeArray(world?.units).map((unit) => fold(unit?.ownerCode)).filter(Boolean));
+  // A side of a battlefield is fielded by the front engine (frontApply.js).
+  const fielded = new Set([...normalizeArray(world?.units).map((unit) => unit?.ownerCode), ...frontPowers(world)].map(fold).filter(Boolean));
   const lines = [];
   for (const war of normalizeArray(world?.wars)) {
     if (normalizeString(war?.status).toLowerCase() !== "active") continue;
@@ -2773,6 +2775,11 @@ ${brief}`);
   if (foldedSkip) blocks.push(FOLDED_SKIP_CONSEQUENCES);
   const regionTypes = foldedSkip ? regionTypesBlock(variables.foldedRegionTypeRules) : "";
   if (regionTypes) blocks.push(regionTypes);
+  // The battlefields and the orders a skip gives them (frontApply.js), after
+  // the rules about moving formations and taking regions that it sets aside on
+  // them. "" with fronts off.
+  const fronts = frontsLiveBlock(world, game);
+  if (fronts) blocks.push(fronts);
   if (isActiveFeatureEnabled("espionage")) blocks.push(buildSpyOrdersDirective(playerName));
   // And the agents whose reports are due ride on it (prepareFoldedSkip).
   const agentReports = foldedSkip ? normalizeString(variables.foldedAgentReports) : "";
@@ -8744,6 +8751,29 @@ const applySimulationResult = async ({
   // is left is what the world is about to receive.
   tallyAppliedEvents(receipt, freshEvents);
 
+  // The land war (frontApply.js): the front engine is run over the days this
+  // turn covers, from the orders the events carry, and each region that changed
+  // hands rides on the event of its day as an ordinary operation marked
+  // by: "front". After the tally, which counts what the answer wrote, and
+  // before the impacts, which apply these with the rest. A turn applied again
+  // (a held turn retried, a kept one written later, a round stopped part-way)
+  // has the first run's operations taken out and is worked out afresh. Null
+  // with fronts off: nothing is read, and the events are not touched.
+  const turnFronts = await applyTurnFronts({
+    baseGame,
+    baseWorld,
+    campaignId,
+    events: freshEvents,
+    frontOrders,
+    loadRegions: createRenderedRegionsReader(),
+    nextGame,
+    receipt,
+    requestedDays: result.requestedDays,
+    signal: projects?.signal,
+    warUpdates,
+  });
+  if (turnFronts) freshEvents.splice(0, freshEvents.length, ...turnFronts.events);
+
   const impactMerge = applyEventImpactsToWorld({
     colors: baseColors,
     events: freshEvents,
@@ -8755,6 +8785,10 @@ const applySimulationResult = async ({
     motion: { originDate: baseGame.gameDate, round: nextGame.round, tick: 0 },
     world: {
       ...baseWorld,
+      // The battlefields as the front engine left them. Written before the
+      // events are applied, so that a country or a group an event renames is
+      // renamed on its battlefields with everything else.
+      ...(turnFronts?.battlefields ? { battlefields: turnFronts.battlefields } : null),
       // Whatever comes through here ends a scene: a skip is refused while one is
       // in progress and clears a leftover one, and a scene resolving is this.
       activeInteractive: null,
@@ -8823,6 +8857,10 @@ const applySimulationResult = async ({
     return rekeyed;
   };
   impactedWorld = await rekeyRenamedPolities(impactedWorld, renamedPolities);
+  // The formations the front engine took onto a battlefield, or gave back from
+  // one (frontApply.js): before the standing orders advance, since a formation
+  // on a battlefield keeps none, and before the unit caps, which leave it out.
+  impactedWorld = withFrontUnits(impactedWorld, turnFronts);
 
   // Live institution lifecycle effects ride the SAME events that narrate them.
   // Geography/unit/report reducers remain in gameState; membership needs chats
@@ -15081,6 +15119,7 @@ const sceneMapConsequences = async ({ bundle, outcome, generation }) => {
     // No places to look up: no Director asks (the review was handed them).
     findPlaces: null,
     resolveControl: (containers) => resolveRegionControlOps(containers, bundle.world, { requests: null }),
+    battlefieldRegions: () => frontRegionTest(bundle.world),
   });
   // The Board moves only when the review answered for it, which it is asked to
   // only when the Scene concerns an entry on it. The calendar never asks after
@@ -16299,7 +16338,9 @@ const unitDirectorUnavailable = () => ({ eventOrders: [], summary: "Unit directo
 // spawns and kept by the same rules. In place, on the answer this skip uses.
 const raiseMissingCombatants = async (answer, input, bundle) => {
   if (!answer) return;
-  const missing = missingCombatantSpawns(input, answer.payload);
+  // Less the powers a battlefield already fields: their troops are the front
+  // engine's to raise (frontApply.js).
+  const missing = withoutFrontPowers(missingCombatantSpawns(input, answer.payload), bundle?.world);
   if (!missing.length) return;
   const context = await lazyLookupContext(bundle)();
   const payload = answer.payload && typeof answer.payload === "object" ? answer.payload : (answer.payload = { eventOrders: [] });
@@ -16938,6 +16979,8 @@ const finishTimelineJump = async ({ context, signal, state }) => {
     // when there was one, was handed them where it was built, runTurnReview).
     findPlaces: null,
     resolveControl: (containers) => resolveRegionControlOps(containers, bundle.world, { requests: state.requests }),
+    // A region on a battlefield is the front engine's to decide (frontApply.js).
+    battlefieldRegions: () => frontRegionTest(bundle.world),
     // The player's Cancel, handed on to each director (mapConsequences.js):
     // a cancelled skip ends here, not as a turn written without its checks.
     signal,
@@ -16956,6 +16999,9 @@ const finishTimelineJump = async ({ context, signal, state }) => {
     agreementUpdates: merged.agreementUpdates,
     puppetUpdates: merged.puppetUpdates,
     frontOrders: merged.frontOrders,
+    // How long a skip was asked for: what the front engine runs for where the
+    // scenario's calendar is not one the game can count days on.
+    requestedDays: context.safeDays,
     storylineUpdates: merged.storylineUpdates,
     breadthRepairContext: selectBreadthRepairContext(state, context),
     generation: state.generation,

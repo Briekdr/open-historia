@@ -3,7 +3,9 @@
 //
 //   public/lang/catalog-en.json          every fixed interface string, read out
 //                                        of the source (extractStrings.mjs),
-//                                        plus every stock country name, the
+//                                        plus the gameplay features' labels and
+//                                        descriptions (server/gameFeatures.js),
+//                                        every stock country name, the
 //                                        names of the cities the map labels, the
 //                                        built-in scenarios' region names and
 //                                        the preset scenarios' card text;
@@ -22,12 +24,13 @@
 //   node scripts/i18n/build-catalog.mjs --also ../beta-checkout --also ../main-checkout
 //
 // A tree given with --also needs only its src/ (and scripts/presets/ for the
-// scenario cards): `git archive origin/beta src scripts/presets | tar -x -C dir`.
+// scenario cards, server/gameFeatures.js for the features' own text):
+// `git archive origin/beta src scripts/presets server/gameFeatures.js | tar -x -C dir`.
 
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
-import { catalogText, extractTree } from "./extractStrings.mjs";
+import { catalogText, extractTree, featureDefinitionStrings } from "./extractStrings.mjs";
 
 const ROOT = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "../..");
 const LANG_DIR = path.join(ROOT, "public", "lang");
@@ -153,6 +156,20 @@ const countryNames = async () => {
   }
 };
 
+// The Features tab's own text (server/gameFeatures.js), which extractTree never
+// sees: it reads src/, and the definitions live under server/ for the stores.
+const featureStrings = async (root) => {
+  const file = path.join(root, "server", "gameFeatures.js");
+  if (!fs.existsSync(file)) return [];
+  try {
+    const { FEATURE_DEFINITIONS } = await import(url.pathToFileURL(file));
+    return featureDefinitionStrings(FEATURE_DEFINITIONS);
+  } catch (error) {
+    console.warn(`  feature definitions skipped for ${path.relative(ROOT, root) || "."} (${error.message})`);
+    return [];
+  }
+};
+
 const guidancePassages = async (root) => {
   const guidanceFile = path.join(root, "src/Game/AI/promptGuidance.js");
   const promptsFile = path.join(root, "src/Game/AI/defaultPrompts.json");
@@ -180,6 +197,7 @@ const main = async () => {
     patternCount += patterns.size;
     specStrings(root).forEach((text) => strings.add(text));
     seedPolityNames(root).forEach((text) => strings.add(text));
+    (await featureStrings(root)).forEach((text) => strings.add(text));
     cityNames(root).forEach((text) => strings.add(text));
     regionNames(root).forEach((text) => strings.add(text));
     console.log(`  ${path.relative(ROOT, root) || "."}: ${exact.size} strings, ${patterns.size} patterns`);
