@@ -28,7 +28,7 @@ const outDir = path.join(root, "dist-site");
 const ROOT_PAGES = [
   "wiki", "wiki.css",
   "guides", "get-started", "how-to-play", "ai-setup", "self-hosting",
-  "pax-historia-alternative", "sitemap",
+  "pax-historia-alternative", "sitemap", "save-move",
   "guides.css", "robots.txt", "sitemap.xml",
 ];
 

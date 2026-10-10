@@ -16,13 +16,16 @@ import { isNativeBuild } from "./native/bridge.js";
 // flushes everyone once; the HEAD check below keeps it fresh from now on.
 const PRELOAD_CACHE_NAME = "open-historia-preload-v2";
 
-// Drop caches from older versions once.
+// Drop caches from older versions once. Not the one holding saves on their way
+// from the site's http address: the service worker fills it just before the game
+// starts, and web/saveMove.js empties it once they are in the library.
+const SAVE_MOVE_CACHE_NAME = "oh-save-move";
 if (typeof caches !== "undefined" && caches?.keys) {
   caches
     .keys()
     .then((keys) => {
       for (const key of keys) {
-        if (key !== PRELOAD_CACHE_NAME) caches.delete(key).catch(() => {});
+        if (key !== PRELOAD_CACHE_NAME && key !== SAVE_MOVE_CACHE_NAME) caches.delete(key).catch(() => {});
       }
     })
     .catch(() => {});
