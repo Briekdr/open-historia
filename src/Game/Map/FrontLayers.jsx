@@ -15,7 +15,10 @@
 // What is drawn is PLAYED. The engine works a whole turn out before any of it
 // is shown and keeps a replay of it (runtime/fronts/replay.js); the map plays
 // that back, so each troop is seen going the way it went and the colour is
-// seen spreading round it as it goes. As with the unit counters (Units.jsx)
+// seen spreading round it as it goes. Once that is played out, and for as
+// long as the game then stands at its date, the front SKIRMISHES
+// (frontSkirmish.js): troops push forward a little and come back, the ground
+// under them changes colour and changes back, and nothing is gained or lost. As with the unit counters (Units.jsx)
 // the playing runs outside React: one render to declare the layers, then
 // pixels and setData straight on the sources.
 //
@@ -27,7 +30,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Layer, Source, useMap } from "react-map-gl/maplibre";
 import { getNationColors } from "../../runtime/assets.js";
+import { reduceMotionEnabled } from "../../runtime/mapSettings.js";
 import { isTouchPrimary } from "../../runtime/mobileUi.js";
+import { TROOP_STATES } from "../../runtime/fronts/constants.js";
 import { latToY, projectorOf, yToLat } from "../../runtime/fronts/frame.js";
 import { useWorldState } from "./useWorldState.js";
 import { createOwnerRgbResolver, ownerDisplayCss, parseColorToRgb } from "./ownerColors.js";
@@ -36,6 +41,7 @@ import { POLITICAL_FILL_OPACITY_STOPS } from "./vnext/presentationPolicy.js";
 import { getFrontTargets, settleFront, startFrontsSync, subscribeFronts } from "./frontsController.js";
 import { arrowDetailAt, frontArrowFeatures, frontArrowRgb, frontAt, frontShownOn, frontTroopFeatures, stageOf } from "./frontGeometry.js";
 import { createPaintPlayer, paintPixels, paintScaleFor } from "./frontPaint.js";
+import { createSkirmish, skirmishAt } from "./frontSkirmish.js";
 import { shortUnitLabel } from "./unitLabels.js";
 
 const EMPTY_FEATURE_COLLECTION = { type: "FeatureCollection", features: [] };
@@ -57,6 +63,12 @@ const PLAY_MS_MOST = 10000;
 // This many redraws a second read as movement; a phone is asked for half.
 const PLAY_FRAMES_PER_SECOND = 24;
 const PLAY_FRAMES_PER_SECOND_TOUCH = 12;
+// Skirmishing along a front at rest goes on for as long as the map is looked
+// at, so it is drawn at half that: its pushes are slow, and a slow thing does
+// not need many frames.
+const SKIRMISH_FRAMES_PER_SECOND = 12;
+const SKIRMISH_FRAMES_PER_SECOND_TOUCH = 6;
+const NO_SKIRMISH = Object.freeze({ moves: [], cells: new Int32Array(0), states: new Uint8Array(0), turned: new Float32Array(0) });
 
 const UNOWNED_COLOR = "rgb(120, 120, 120)";
 const UNOWNED_RGB = [120, 120, 120];
@@ -100,6 +112,10 @@ const TROOP_RAMPART_RADIUS = [
   7, ["case", ["get", "named"], 10.4, 8.6],
   10, ["case", ["get", "named"], 15, 12.8],
 ];
+// The state of a troop that is dug in, as the record names it (a word of the
+// data, not of the interface).
+const DUG_IN = TROOP_STATES[4];
+const ADVANCING = TROOP_STATES[1];
 const IS_TROOP = ["==", ["get", "what"], "troop"];
 const IS_SIDE = ["==", ["get", "what"], "side"];
 // Below this the troops of a side are one marker with their number on it;
@@ -372,6 +388,123 @@ const FrontLayers = () => {
       rafRef.current = requestAnimationFrame(tick);
     };
 
+    // ---- skirmishing, while nothing plays --------------------------------------
+    //
+    // A battlefield that has been played to the day it is to show is at rest,
+    // and one at rest in a war that is still on skirmishes: see frontSkirmish.js
+    // for what moves and why none of it is kept. Only the troops out of their
+    // places are moved and only the patches of ground under them redrawn.
+    const skirmishMs = 1000 / (isTouchPrimary() ? SKIRMISH_FRAMES_PER_SECOND_TOUCH : SKIRMISH_FRAMES_PER_SECOND);
+    let skirmishHandle = 0;
+    let skirmishedAt = 0;
+    // Whether anything is drawn out of its place just now, and the moment a
+    // test is holding the skirmishing at (null when it runs by the clock).
+    let swaying = false;
+    let heldAt = null;
+    const skirmishStats = { ms: 0, moves: 0, boxes: 0, fighters: 0 };
+    // A battlefield's troops as they stand on the day it shows, as the
+    // features the layer reads, and where in that list each troop is.
+    const standing = (entry) => {
+      const known = entry.rest;
+      if (known && known.day === entry.day && known.colours === colorRef.current) return known;
+      const drawing = frontAt(entry.stage, entry.day);
+      const features = drawing ? frontTroopFeatures([drawing], colorRef.current.colorOf, { labelOf: shortUnitLabel }).features : [];
+      const where = new Map();
+      features.forEach((feature, at) => {
+        if (feature.properties.what === "troop") where.set(feature.properties.side * 100000 + feature.properties.index, at);
+      });
+      entry.rest = { day: entry.day, colours: colorRef.current, drawing, features, where, skirmish: undefined };
+      return entry.rest;
+    };
+    const inView = (entry) => {
+      const bounds = mapInstance?.getBounds?.();
+      if (!bounds) return true;
+      const [[west, north], , [east, south]] = entry.picture.coordinates;
+      return !(east < bounds.getWest() || west > bounds.getEast() || north < bounds.getSouth() || south > bounds.getNorth());
+    };
+    const skirmishOnce = (seconds, quiet) => {
+      const troops = source(FRONT_TROOP_SOURCE);
+      if (!troops?.setData) return;
+      const began = performance.now();
+      const features = [];
+      let moved = 0;
+      let boxes = 0;
+      let fighters = 0;
+      for (const entry of playRef.current.values()) {
+        const rest = standing(entry);
+        const { picture } = entry;
+        const { player } = picture;
+        const active = !quiet && rest.drawing !== null && entry.day >= entry.until
+          && entry.target.view.status === "active" && inView(entry);
+        if (active && rest.skirmish === undefined) {
+          // Made from the ground as it really stands.
+          player.sway(NO_SKIRMISH.cells, NO_SKIRMISH.states, NO_SKIRMISH.turned);
+          rest.skirmish = createSkirmish(rest.drawing, player);
+        }
+        const act = active && rest.skirmish ? skirmishAt(rest.skirmish, seconds) : NO_SKIRMISH;
+        if (rest.skirmish) fighters += rest.skirmish.fighters.length;
+        const changed = player.sway(act.cells, act.states, act.turned);
+        if (changed.length > 0) {
+          if (picture.stale) dress(entry);
+          picture.target.data = picture.target.pixels.data;
+          let drew = false;
+          for (const box of changed) {
+            const area = paintPixels(player, picture.palette, picture.target, box);
+            if (!area || !(area.width > 0) || !(area.height > 0)) continue;
+            picture.context.putImageData(picture.target.pixels, 0, 0, area.x, area.y, area.width, area.height);
+            drew = true;
+          }
+          if (drew) {
+            picture.blank = false;
+            handOver(entry, false);
+          }
+          boxes += changed.length;
+        }
+        if (act.moves.length === 0) {
+          for (const feature of rest.features) features.push(feature);
+          continue;
+        }
+        const list = rest.features.slice();
+        for (const move of act.moves) {
+          const at = rest.where.get(move.side * 100000 + move.index);
+          if (at === undefined) continue;
+          const feature = list[at];
+          list[at] = {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: rest.drawing.toLngLat(move.x, move.y) },
+            properties: { ...feature.properties, state: ADVANCING, moving: true },
+          };
+        }
+        for (const feature of list) features.push(feature);
+        moved += act.moves.length;
+      }
+      if (moved > 0 || swaying) troops.setData({ type: "FeatureCollection", features });
+      swaying = moved > 0;
+      skirmishStats.ms = performance.now() - began;
+      skirmishStats.moves = moved;
+      skirmishStats.boxes = boxes;
+      skirmishStats.fighters = fighters;
+    };
+    const skirmish = () => {
+      if (playRef.current.size === 0) {
+        skirmishHandle = 0;
+        return;
+      }
+      skirmishHandle = requestAnimationFrame(skirmish);
+      // Not over a playing, which draws every troop itself; and not while a
+      // test holds it at a moment of its choosing.
+      if (rafRef.current || heldAt !== null) return;
+      const now = performance.now();
+      if (now - skirmishedAt < skirmishMs) return;
+      skirmishedAt = now;
+      // Not for someone who has asked for less motion, not from so far off
+      // that no troop is drawn, and not while the map is being dragged.
+      const quiet = reduceMotionEnabled() || (mapInstance?.getZoom?.() ?? 0) < TROOP_MIN_ZOOM
+        || (typeof document !== "undefined" && document.visibilityState !== "visible") || mapInstance?.isMoving?.() === true;
+      if (quiet && !swaying) return;
+      skirmishOnce(now / 1000, quiet);
+    };
+
     let declared = "";
     const sync = () => {
       const targets = getFrontTargets().slice(0, FRONT_PAINT_SLOTS);
@@ -418,6 +551,7 @@ const FrontLayers = () => {
       }
 
       stop();
+      if (next.size > 0 && !skirmishHandle) skirmishHandle = requestAnimationFrame(skirmish);
       // Nothing to play, or nobody watching: draw where it ends.
       if (!(longest > 0) || typeof document === "undefined" || document.visibilityState !== "visible") {
         for (const entry of next.values()) entry.day = entry.until;
@@ -484,6 +618,14 @@ const FrontLayers = () => {
           picture: [entry.picture.canvas.width, entry.picture.canvas.height],
           painted: entry.picture.player.bounds,
         })),
+        // Holds the skirmishing at a moment (seconds on any clock) and draws
+        // it; with no moment, lets it run by the clock again. Says how much of
+        // it there was and how long it took to draw.
+        skirmish: (seconds) => {
+          heldAt = Number.isFinite(seconds) ? seconds : null;
+          if (heldAt !== null) skirmishOnce(heldAt, false);
+          return { ...skirmishStats, held: heldAt };
+        },
       };
       window.__OH_FRONTS__ = probe;
     }
@@ -496,6 +638,8 @@ const FrontLayers = () => {
       mapInstance?.off?.("moveend", onMoveEnd);
       repaintRef.current = () => {};
       stop();
+      if (skirmishHandle) cancelAnimationFrame(skirmishHandle);
+      skirmishHandle = 0;
       unsubscribe();
       stopSync();
       if (probe && window.__OH_FRONTS__ === probe) delete window.__OH_FRONTS__;
@@ -674,7 +818,7 @@ const FrontLayers = () => {
           type="circle"
           beforeId={troopBefore}
           minzoom={TROOP_MIN_ZOOM}
-          filter={["all", IS_TROOP, ["==", ["get", "state"], "dug in"]]}
+          filter={["all", IS_TROOP, ["==", ["get", "state"], DUG_IN]]}
           paint={{
             "circle-radius": TROOP_RAMPART_RADIUS,
             "circle-color": "rgba(16, 20, 28, 0.82)",

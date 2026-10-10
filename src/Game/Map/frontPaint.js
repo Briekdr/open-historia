@@ -21,6 +21,8 @@ export const FILL_DAYS = 0.75;
 // way from all one side's to all the other's.
 const EDGE_HALF_WIDTH = 0.1;
 const LONG_AGO = -1e6;
+// How many cells across a patch of ground that is redrawn alone is.
+const SWAY_BLOCK = 6;
 
 const isPaint = (value) => value !== PAINT_OWN_A && value !== PAINT_OWN_B && value !== PAINT_WALL;
 
@@ -33,6 +35,8 @@ const isPaint = (value) => value !== PAINT_OWN_A && value !== PAINT_OWN_B && val
 //   bounds        the cells that are painted at any time in the run, as
 //                 { minCol, maxCol, minRow, maxRow }, or null when none is
 //   sideOf(state) which side a state is the ground of: 0 or 1
+//   sway(...)     lays ground that is for the moment changing hands over the
+//                 ground as it stands (frontSkirmish.js)
 export const createPaintPlayer = (view) => {
   const { cols, rows } = view.frame;
   const paint = view.replay?.paint ?? null;
@@ -63,7 +67,21 @@ export const createPaintPlayer = (view) => {
     for (let index = 0; index < paint.cells.length; index += 1) if (paint.cells[index] < size) reach(paint.cells[index]);
   }
 
+  // Cells that are for the moment partly another state, with what each really
+  // is: nothing of this is the run's, and all of it is undone before the
+  // ground is brought to another day.
+  const swayed = new Map();
+  const unsway = () => {
+    for (const [cell, kept] of swayed) {
+      state[cell] = kept.state;
+      was[cell] = kept.was;
+      since[cell] = kept.since;
+    }
+    swayed.clear();
+  };
+
   const reset = () => {
+    swayed.clear();
     if (paint) state.set(paint.began.subarray(0, size));
     else state.fill(PAINT_WALL);
     was.set(state);
@@ -82,9 +100,59 @@ export const createPaintPlayer = (view) => {
     sideOf: (value) => (value === PAINT_OWN_A ? 0 : value === PAINT_OWN_B ? 1 : value < firstOfB ? 0 : 1),
     get bounds() { return bounds; },
     get day() { return day; },
+    // Lays over the ground as it stands the cells that are for the moment
+    // turning to another state: `cells`, the state each is turning to, and how
+    // far it has turned (0 to 1). What was laid over it before and is not
+    // among them goes back to what it really is. Returns the cells whose look
+    // has changed, as a list of { minCol, maxCol, minRow, maxRow }: a box for
+    // each small patch of the ground with a change in it, so that a front a
+    // thousand km long with a skirmish here and there is redrawn in a few
+    // small parts and not as one great rectangle.
+    sway(cells, states, turned) {
+      const boxes = new Map();
+      const mark = (cell) => {
+        const col = cell % cols;
+        const row = (cell - col) / cols;
+        const key = Math.floor(row / SWAY_BLOCK) * 4096 + Math.floor(col / SWAY_BLOCK);
+        const box = boxes.get(key);
+        if (!box) boxes.set(key, { minCol: col, maxCol: col, minRow: row, maxRow: row });
+        else {
+          if (col < box.minCol) box.minCol = col;
+          if (col > box.maxCol) box.maxCol = col;
+          if (row < box.minRow) box.minRow = row;
+          if (row > box.maxRow) box.maxRow = row;
+        }
+      };
+      const now = new Set();
+      for (let index = 0; index < cells.length; index += 1) {
+        const cell = cells[index];
+        if (!(cell >= 0 && cell < size) || state[cell] === PAINT_WALL) continue;
+        let kept = swayed.get(cell);
+        if (!kept) {
+          kept = { state: state[cell], was: was[cell], since: since[cell] };
+          swayed.set(cell, kept);
+        }
+        now.add(cell);
+        was[cell] = kept.state;
+        state[cell] = states[index];
+        since[cell] = (Number.isFinite(day) ? day : 0) - Math.max(0, Math.min(1, turned[index])) * FILL_DAYS;
+        reach(cell);
+        mark(cell);
+      }
+      for (const [cell, kept] of swayed) {
+        if (now.has(cell)) continue;
+        state[cell] = kept.state;
+        was[cell] = kept.was;
+        since[cell] = kept.since;
+        swayed.delete(cell);
+        mark(cell);
+      }
+      return [...boxes.values()];
+    },
     // Brings the ground to a day of the run (a fraction of a day is fine).
     seek(to) {
       if (!paint) return;
+      if (swayed.size > 0) unsway();
       if (to < day) reset();
       day = to;
       const tick = to * PAINT_TICKS_PER_DAY;
@@ -110,8 +178,10 @@ export const paintScaleFor = (cols, rows) => Math.max(2, Math.min(6, Math.floor(
 // `palette` holds four bytes a state: its colour, and how solid it is drawn.
 // `target.rowOf[y]`, when given, is where in the frame (in rows from its south
 // edge) the middle of pixel row y lies, for a frame whose rows are not evenly
-// spaced on the map; left out, they are. Returns the pixels written, as
-// { x, y, width, height }, or null when nothing is painted in this run.
+// spaced on the map; left out, they are. `only`, when given, is the cells to
+// draw, as { minCol, maxCol, minRow, maxRow }: the rest of the picture is left
+// as it is. Returns the pixels written, as { x, y, width, height }, or null
+// when nothing is painted in this run.
 //
 // Every cell of land is one side's or the other's, or on its way from one to
 // the other, and the edge of the colour is drawn where that crosses half-way.
@@ -119,16 +189,19 @@ export const paintScaleFor = (cols, rows) => Math.max(2, Math.min(6, Math.floor(
 // its own side's home ground it does not end at all: it runs on a little way
 // over that ground, which is the same colour, and leaves no sliver of the
 // other side's colour along the old border.
-export const paintPixels = (player, palette, target) => {
+export const paintPixels = (player, palette, target, only = null) => {
   const { cols, rows, state, since, was, bounds, day, sideOf } = player;
   if (!bounds) return null;
   const { data, width, height, scale, rowOf } = target;
   const size = cols * rows;
 
-  const minCol = Math.max(0, bounds.minCol - 1);
-  const maxCol = Math.min(cols - 1, bounds.maxCol + 1);
-  const minRow = Math.max(0, bounds.minRow - 1);
-  const maxRow = Math.min(rows - 1, bounds.maxRow + 1);
+  // A part drawn alone is drawn two cells wider than asked: a cell's colour
+  // reaches half a cell past it, and its edge is placed by the cells round it.
+  const minCol = Math.max(0, Math.max(bounds.minCol - 1, only ? only.minCol - 2 : 0));
+  const maxCol = Math.min(cols - 1, Math.min(bounds.maxCol + 1, only ? only.maxCol + 2 : cols));
+  const minRow = Math.max(0, Math.max(bounds.minRow - 1, only ? only.minRow - 2 : 0));
+  const maxRow = Math.min(rows - 1, Math.min(bounds.maxRow + 1, only ? only.maxRow + 2 : rows));
+  if (minCol > maxCol || minRow > maxRow) return null;
   if (!target.share || target.share.length !== size) {
     // How far each cell is side 0's (1) and not side 1's (0); the same evened
     // out; the colour it is painted in, if any; and how full of it it is.
@@ -138,14 +211,20 @@ export const paintPixels = (player, palette, target) => {
     target.full = new Float32Array(size);
   }
   const { share, even, tint, full } = target;
-  // One cell further out than is drawn, so the evening out has what lies
-  // beside the outermost cells to go by.
+  // A pixel is drawn from the cells round it, evened out, and a cell is
+  // evened out with the cells round IT: so cells are evened out one further
+  // out than is drawn, and read two further out. A part drawn alone then
+  // comes out exactly as it would in the whole picture.
   const fromCol = Math.max(0, minCol - 1);
   const toCol = Math.min(cols - 1, maxCol + 1);
   const fromRow = Math.max(0, minRow - 1);
   const toRow = Math.min(rows - 1, maxRow + 1);
-  for (let row = fromRow; row <= toRow; row += 1) {
-    for (let col = fromCol; col <= toCol; col += 1) {
+  const readFromCol = Math.max(0, minCol - 2);
+  const readToCol = Math.min(cols - 1, maxCol + 2);
+  const readFromRow = Math.max(0, minRow - 2);
+  const readToRow = Math.min(rows - 1, maxRow + 2);
+  for (let row = readFromRow; row <= readToRow; row += 1) {
+    for (let col = readFromCol; col <= readToCol; col += 1) {
       const cell = row * cols + col;
       const now = state[cell];
       if (now === PAINT_WALL) {
@@ -188,10 +267,10 @@ export const paintPixels = (player, palette, target) => {
       let weight = 4;
       for (let dy = -1; dy <= 1; dy += 1) {
         const r = row + dy;
-        if (r < fromRow || r > toRow) continue;
+        if (r < readFromRow || r > readToRow) continue;
         for (let dx = -1; dx <= 1; dx += 1) {
           const c = col + dx;
-          if ((dx === 0 && dy === 0) || c < fromCol || c > toCol) continue;
+          if ((dx === 0 && dy === 0) || c < readFromCol || c > readToCol) continue;
           const other = r * cols + c;
           if (tint[other] === PAINT_WALL) continue;
           const part = dx === 0 || dy === 0 ? 2 : 1;
@@ -217,7 +296,9 @@ export const paintPixels = (player, palette, target) => {
     const ownRow = Math.floor(v);
     const at = y * width * 4;
     if (ownRow < minRow || ownRow > maxRow) {
-      for (let x = x0; x < x1; x += 1) data[at + x * 4 + 3] = 0;
+      // Outside what is painted there is nothing; outside a part drawn alone
+      // the picture is left as it is.
+      if (!only) for (let x = x0; x < x1; x += 1) data[at + x * 4 + 3] = 0;
       continue;
     }
     // The two rows of cells whose middles the pixel lies between.
