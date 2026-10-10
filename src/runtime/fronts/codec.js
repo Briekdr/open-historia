@@ -187,8 +187,8 @@ export const decodeBand = (text, count) => {
 // Seven letters a troop, so a side's string is cut cleanly at any multiple of
 // seven: x and y to 1/16 of a cell, strength as 0-100, kind as an index into
 // TROOP_KINDS, owner as an index into its side's list of members, whether it is
-// a named formation, how dug in it is (0-1), and state as an index into
-// TROOP_STATES.
+// a named formation, how dug in it is (0-1, in sevenths), and state as an
+// index into TROOP_STATES (three bits: up to eight states).
 export const TROOP_LETTERS = 7;
 
 const indexIn = (list, value) => {
@@ -206,8 +206,8 @@ export const encodeTroops = (troops) => {
     writer.write(clampInt(indexIn(TROOP_KINDS, troop?.kind), 0, TROOP_KINDS.length - 1), 2);
     writer.write(clampInt(troop?.owner, 0, 7), 3);
     writer.write(troop?.named ? 1 : 0, 1);
-    writer.write(clampInt((Number(troop?.dig) || 0) * 15, 0, 15), 4);
-    writer.write(clampInt(indexIn(TROOP_STATES, troop?.state), 0, TROOP_STATES.length - 1), 2);
+    writer.write(clampInt((Number(troop?.dig) || 0) * 7, 0, 7), 3);
+    writer.write(clampInt(indexIn(TROOP_STATES, troop?.state), 0, TROOP_STATES.length - 1), 3);
   }
   return writer.end();
 };
@@ -224,8 +224,8 @@ export const decodeTroops = (text) => {
     const kind = Math.min(TROOP_KINDS.length - 1, reader.read(2));
     const owner = reader.read(3);
     const named = reader.read(1) === 1;
-    const dig = reader.read(4) / 15;
-    const state = reader.read(2);
+    const dig = reader.read(3) / 7;
+    const state = Math.min(TROOP_STATES.length - 1, reader.read(3));
     troops.push({ x, y, strength, kind, owner, named, dig, state });
   }
   return troops;
@@ -320,8 +320,8 @@ const encodeTrack = (samples) => {
     writer.write(clampInt((Number(sample?.x) || 0) * TROOP_UNITS, 0, 4095), 12);
     writer.write(clampInt((Number(sample?.y) || 0) * TROOP_UNITS, 0, 4095), 12);
     writer.write(clampInt(sample?.strength, 0, 100), 7);
-    writer.write(clampInt(indexIn(TROOP_STATES, sample?.state), 0, TROOP_STATES.length - 1), 2);
-    writer.write(0, 3);
+    writer.write(clampInt(indexIn(TROOP_STATES, sample?.state), 0, TROOP_STATES.length - 1), 3);
+    writer.write(0, 2);
   }
   return writer.end();
 };
@@ -335,8 +335,8 @@ const decodeTrack = (text) => {
     const x = reader.read(12) / TROOP_UNITS;
     const y = reader.read(12) / TROOP_UNITS;
     const strength = Math.min(100, reader.read(7));
-    const state = reader.read(2);
-    reader.read(3);
+    const state = Math.min(TROOP_STATES.length - 1, reader.read(3));
+    reader.read(2);
     samples.push({ day, x, y, strength, state });
   }
   return samples;

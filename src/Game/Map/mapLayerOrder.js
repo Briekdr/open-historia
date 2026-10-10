@@ -98,6 +98,7 @@ export const MAP_LAYER_ORDER = [
   // formations that have counters of their own.
   "fronts-sides",
   "fronts-sides-count",
+  "fronts-troops-dug",
   "fronts-troops",
   "fronts-troops-kind",
   "fronts-troops-name",

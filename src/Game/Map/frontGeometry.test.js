@@ -5,7 +5,10 @@ import { encodeTroops } from "../../runtime/fronts/codec.js";
 import { createFrame, projectorOf } from "../../runtime/fronts/frame.js";
 import { battlefieldsAtDay, frontViewOf, normalizeBattlefield } from "../../runtime/fronts/record.js";
 import { createReplayRecorder } from "../../runtime/fronts/replay.js";
-import { ARROW_FRESH_DAYS, ARROW_MERGE_REACH, arrowGroupsOf, arrowRing, frontArrowFeatures, frontArrowRgb, frontAt, frontShownOn, frontTroopFeatures, stageOf } from "./frontGeometry.js";
+import {
+  ARROW_FRESH_DAYS, ARROW_GROUP_DAYS, ARROW_MERGE_REACH, ARROW_STILL_MIN_ZOOM, arrowDetailAt, arrowGroupsOf, arrowRing,
+  frontArrowFeatures, frontArrowRgb, frontAt, frontShownOn, frontTroopFeatures, stageOf,
+} from "./frontGeometry.js";
 
 const frame = createFrame({ west: 30, south: 46, east: 40, north: 52 });
 const sides = [["Russia", "Belarus"], ["Ukraine"]];
@@ -197,7 +200,7 @@ test("a way is written out as an arrow along its last days and a line along what
   assert.equal(frontArrowFeatures([frontAt(stage, 2)], coloursOf, options).features.length, 0);
   const moving = frontArrowFeatures([frontAt(stage, 5)], coloursOf, options).features;
   assert.equal(moving.length, 1);
-  assert.deepEqual(moving[0].properties, { battlefield: "Eastern Ukraine", side: 0, index: 0, troops: 1, rgb: "top:Belarus", dark: "side:Belarus", moving: true, past: false });
+  assert.deepEqual(moving[0].properties, { battlefield: "Eastern Ukraine", side: 0, index: 0, troops: 1, rgb: "top:Belarus", dark: "side:Belarus", moving: true, past: false, alpha: 1 });
   assert.equal(moving[0].geometry.type, "Polygon");
   const ring = moving[0].geometry.coordinates[0];
   assert.deepEqual(ring[0], ring.at(-1));
@@ -211,11 +214,27 @@ test("a way is written out as an arrow along its last days and a line along what
   const cut = toCell(...both[0].geometry.coordinates.at(-1));
   assert.ok(near(cut[1], 20, 1e-6) && cut[0] > 9 && cut[0] < 12, "where it was six days before");
   assert.equal(both[0].properties.rgb, "top:Belarus");
+  // An arrow drawn for more days lies along more of the way, and the line is the shorter for it.
+  const longer = frontArrowFeatures([frontAt(stage, 10), null], coloursOf, { ...options, day: [10], days: 12 }).features;
+  assert.deepEqual(longer.map((feature) => [feature.geometry.type, feature.properties.past]), [["Polygon", false]], "all seven days of it are arrow");
+  const spanOf = (feature) => {
+    const cells = feature.geometry.coordinates[0].map(([lng, lat]) => toCell(lng, lat));
+    return Math.max(...cells.map((cell) => cell[0])) - Math.min(...cells.map((cell) => cell[0]));
+  };
+  assert.ok(spanOf(longer[0]) > spanOf(both[1]) + 1, "and it reaches further back");
   // Long after it stopped, there is no arrow: only the line of the way it went.
   const settled = frontArrowFeatures([frontAt(stage, 10), null], coloursOf, { ...options, day: [20] }).features;
   assert.deepEqual(settled.map((feature) => [feature.geometry.type, feature.properties.past]), [["LineString", true]]);
   const end = toCell(...settled[0].geometry.coordinates.at(-1));
   assert.ok(near(end[0], 15, 1e-6) && near(end[1], 26, 1e-6), "all the way to where it stands");
+  // From far off the way of one standing still is left out: the ground it took says where it went.
+  assert.equal(frontArrowFeatures([frontAt(stage, 10), null], coloursOf, { ...options, day: [20], still: false }).features.length, 0);
+  assert.equal(frontArrowFeatures([frontAt(stage, 10), null], coloursOf, { ...options, day: [10], still: false }).features.length, 2, "one still going keeps both");
+  // And so is an arrow along a way shorter than is worth drawing from there.
+  const short = frontArrowFeatures([frontAt(stage, 2.5)], coloursOf, { ...options, day: [2.5] }).features;
+  assert.deepEqual(short.map((feature) => feature.properties.side), [0, 1], "three quarters of a cell so far, the one pushing and the one pushed");
+  assert.equal(frontArrowFeatures([frontAt(stage, 2.5)], coloursOf, { ...options, day: [2.5], leastOf: () => 2 }).features.length, 0);
+  assert.equal(frontArrowFeatures([frontAt(stage, 5)], coloursOf, { ...options, day: [5], leastOf: () => 2 }).features.length, 1, "drawn once it has gone that far");
 });
 
 test("troops going the same way close together share one broader arrow; from closer in each has its own", () => {
@@ -255,12 +274,15 @@ test("troops going the same way close together share one broader arrow; from clo
   // A shared arrow is broader than one troop's, and lies in the middle of those that share it.
   const single = far.find((feature) => feature.properties.index === 12);
   assert.ok(shared.every((feature) => breadthOf(feature, 1) > breadthOf(single, 0) * 1.3), "broader, for being more");
-  const groups = arrowGroupsOf(stage, 1.2 * ARROW_MERGE_REACH);
-  assert.ok(groups.every((group) => group.members.length >= 2));
-  assert.equal(arrowGroupsOf(stage, 1.2 * ARROW_MERGE_REACH), groups, "worked out once for a zoom");
+  const groups = arrowGroupsOf(stage, 11, 1.2 * ARROW_MERGE_REACH);
+  assert.ok(groups.length >= 1 && groups.every((group) => group.members.length >= 2));
+  assert.equal(arrowGroupsOf(stage, 11, 1.2 * ARROW_MERGE_REACH), groups, "worked out once for a zoom");
+  assert.equal(arrowGroupsOf(stage, 9.5, 1.2 * ARROW_MERGE_REACH), groups, "and for every day the same grouping covers");
+  assert.equal(arrowGroupsOf(stage, 11, 1.2 * ARROW_MERGE_REACH * 1.01), groups, "nor again for a zoom a hair off");
   for (const group of groups) {
     const rows = group.members.map((member) => 10 + member * 2);
-    assert.ok(Math.max(...rows) - Math.min(...rows) <= 2 * 1.2 * ARROW_MERGE_REACH * 1.7, "none further from its leader than counts as together");
+    // (A reach is rounded to one of a few to a doubling: a little slack.)
+    assert.ok(Math.max(...rows) - Math.min(...rows) <= 2 * 1.2 * ARROW_MERGE_REACH * 1.7 * 1.07, "none further from its leader than counts as together");
   }
 
   // From close in (an arrow is narrow in cells) nobody is near enough to share.
@@ -269,6 +291,159 @@ test("troops going the same way close together share one broader arrow; from clo
   assert.ok(near.every((feature) => feature.properties.troops === 1));
   // Before any of them has set off there is no arrow at all.
   assert.equal(frontArrowFeatures([frontAt(stage, 2)], coloursOf, { day: [2], halfWidthOf: () => 1.2 }).features.length, 0);
+});
+
+// A front of `count` troops abreast, a cell apart, going east a cell and a
+// half a day at paces of their own, with whoever `others(day)` adds.
+const broadFront = ({ count = 40, days = 12, others = () => [], standing = [] } = {}) => {
+  const recorder = createReplayRecorder({ sides, cols: frame.cols, rows: frame.rows });
+  for (let day = 0; day <= days; day += 1) {
+    recorder.record(day, [
+      [
+        ...Array.from({ length: count }, (_, index) => ({ x: 8 + day * 1.5 * (1 + ((index * 7) % 5) * 0.02), y: 4 + index, strength: 80, state: 1 })),
+        ...others(day),
+      ],
+      [],
+    ]);
+  }
+  const extra = others(days);
+  return stageOf(frontViewOf(record({
+    replay: recorder.finish({ days }),
+    troops: [[
+      ...Array.from({ length: count }, (_, index) => ({ x: 26, y: 4 + index, strength: 80 })),
+      ...extra.map((troop, index) => ({ x: troop.x, y: troop.y, strength: 80, ...(standing[index] ?? {}) })),
+    ], []],
+    named: standing.flatMap((entry, index) => (entry?.named ? [{ s: 0, i: count + index, name: "1st Guards Tank Army", unitId: "unit-1" }] : [])),
+  })));
+};
+const twoColours = (name) => ({ top: `top:${name}`, side: `side:${name}` });
+const arrowsIn = (features) => features.filter((feature) => !feature.properties.past);
+
+test("the further off the map is seen from, the fewer the arrows and the more troops in each", () => {
+  // In px on screen: troops share an arrow over a greater distance the
+  // further off, an arrow must stand for a greater part of its side, and a
+  // short movement or the way of one standing still is left out.
+  const zooms = [4.5, 5, 6, 7, 8, 9];
+  const details = zooms.map(arrowDetailAt);
+  for (let index = 1; index < details.length; index += 1) {
+    assert.ok(details[index].reach <= details[index - 1].reach, `reach at ${zooms[index]}`);
+    assert.ok(details[index].share <= details[index - 1].share, `share at ${zooms[index]}`);
+    assert.ok(details[index].least <= details[index - 1].least, `least at ${zooms[index]}`);
+    assert.ok(details[index].halfWidth >= details[index - 1].halfWidth, "an arrow itself is no broader from far off");
+    assert.ok(details[index].days <= details[index - 1].days, `days at ${zooms[index]}`);
+  }
+  // From far off an arrow lies along more days of the way, so it is about as
+  // long on screen from anywhere and not a stub on a map of the whole front.
+  assert.equal(arrowDetailAt(9).days, ARROW_FRESH_DAYS);
+  assert.equal(arrowDetailAt(7).days, ARROW_FRESH_DAYS);
+  assert.equal(arrowDetailAt(6).days, 2 * ARROW_FRESH_DAYS);
+  assert.equal(arrowDetailAt(3).days, 20, "never more than twenty");
+  assert.ok(details[0].reach > 1.5 * details.at(-1).reach);
+  assert.ok(details[0].share > 0 && arrowDetailAt(10).share === 0 && arrowDetailAt(10).least === 0, "from close in everything is drawn");
+  assert.equal(arrowDetailAt(ARROW_STILL_MIN_ZOOM - 0.1).still, false);
+  assert.equal(arrowDetailAt(ARROW_STILL_MIN_ZOOM).still, true);
+
+  // Forty troops abreast on forty cells of front, as the layers would draw
+  // them at a zoom: a cell is so many px there.
+  const stage = broadFront();
+  const drawnAt = (zoom, day = 11) => {
+    const detail = arrowDetailAt(zoom);
+    const cellsOf = (px) => () => (px * 360) / (frame.cell * 512 * 2 ** zoom);
+    return arrowsIn(frontArrowFeatures([frontAt(stage, day)], twoColours, {
+      day: [day], halfWidthOf: cellsOf(detail.halfWidth), reachOf: cellsOf(detail.reach), leastOf: cellsOf(detail.least), still: detail.still, share: detail.share,
+    }).features);
+  };
+  const counts = [5, 6, 7, 8, 10, 12].map((zoom) => drawnAt(zoom).length);
+  for (let index = 1; index < counts.length; index += 1) assert.ok(counts[index] >= counts[index - 1], `never more from further off: ${counts}`);
+  assert.ok(counts[0] <= 3, `a broad front from far off is a few arrows: ${counts}`);
+  assert.equal(counts.at(-1), 40, `and close in every troop has its own: ${counts}`);
+  const far = drawnAt(5);
+  assert.equal(far.reduce((sum, feature) => sum + feature.properties.troops, 0), 40, "all of them in those few");
+  assert.ok(far.every((feature) => feature.properties.troops >= 10));
+});
+
+test("from far off an arrow is drawn only for a fair part of a side, and always for a formation with a name", () => {
+  // Beside the forty going east: two going north together, one going north
+  // alone, and a formation with a name of its own going south.
+  const stage = broadFront({
+    others: (day) => [
+      { x: 70, y: 10 + day * 1.5, strength: 80, state: 1 },
+      { x: 71, y: 10 + day * 1.5, strength: 80, state: 1 },
+      { x: 90, y: 10 + day * 1.5, strength: 80, state: 1 },
+      { x: 80, y: 60 - day * 1.5, strength: 80, state: 1 },
+    ],
+    standing: [{}, {}, {}, { named: true, kind: 1 }],
+  });
+  const drawn = (share) => arrowsIn(frontArrowFeatures([frontAt(stage, 11)], twoColours, { day: [11], halfWidthOf: () => 0.4, reachOf: () => 6, share }).features);
+  const all = drawn(0);
+  assert.ok(all.some((feature) => feature.properties.troops === 2 && feature.properties.index === 40), "the two going north share one");
+  assert.ok(all.some((feature) => feature.properties.troops === 1 && feature.properties.index === 42));
+  assert.ok(all.some((feature) => feature.properties.troops === 1 && feature.properties.index === 43));
+  assert.equal(all.reduce((sum, feature) => sum + feature.properties.troops, 0), 44);
+  // A twentieth of forty-four is three troops: the pair and the one alone are
+  // left out, and the named formation is not.
+  const fair = drawn(0.05);
+  assert.ok(fair.every((feature) => feature.properties.troops >= 3 || feature.properties.index === 43));
+  assert.ok(fair.some((feature) => feature.properties.index === 43), "the formation with a name");
+  assert.ok(!fair.some((feature) => feature.properties.index === 40 || feature.properties.index === 42));
+  assert.equal(
+    fair.reduce((sum, feature) => sum + feature.properties.troops, 0),
+    1 + all.filter((feature) => feature.properties.troops >= 3).reduce((sum, feature) => sum + feature.properties.troops, 0),
+  );
+  // Their lines go with them.
+  const lines = frontArrowFeatures([frontAt(stage, 11)], twoColours, { day: [11], halfWidthOf: () => 0.4, reachOf: () => 6, share: 0.05 }).features.filter((feature) => feature.properties.past);
+  assert.ok(!lines.some((feature) => feature.properties.index === 40 || feature.properties.index === 42));
+});
+
+test("who shares an arrow is worked out for the days it covers, and one grouping fades into the next", () => {
+  // Two troops go east side by side for nine days; then one turns north.
+  const recorder = createReplayRecorder({ sides, cols: frame.cols, rows: frame.rows });
+  for (let day = 0; day <= 18; day += 1) {
+    const east = Math.min(day, 9) * 2;
+    const after = Math.max(0, day - 9) * 2;
+    recorder.record(day, [[
+      { x: 10 + east + after, y: 10, strength: 80, state: 1 },
+      { x: 10 + east, y: 12 + after, strength: 80, state: 1 },
+    ], []]);
+  }
+  const stage = stageOf(frontViewOf(record({ replay: recorder.finish({ days: 18 }), troops: [[{ x: 46, y: 10, strength: 80 }, { x: 28, y: 30, strength: 80 }], []] })));
+  const drawn = (day) => arrowsIn(frontArrowFeatures([frontAt(stage, day)], twoColours, { day: [day], halfWidthOf: () => 0.5 }).features)
+    .map((feature) => [feature.properties.troops, Math.round(feature.properties.alpha * 100) / 100]);
+  assert.equal(ARROW_GROUP_DAYS, 3);
+  // While they go together they share one, whole.
+  assert.deepEqual(drawn(5), [[2, 1]]);
+  assert.deepEqual(drawn(8.9), [[2, 1]]);
+  assert.equal(arrowGroupsOf(stage, 8, 0.5 * ARROW_MERGE_REACH).length, 1);
+  // Once they part they have one each, however long they went together before.
+  assert.equal(arrowGroupsOf(stage, 12, 0.5 * ARROW_MERGE_REACH).length, 0);
+  assert.deepEqual(drawn(12), [[1, 1], [1, 1]]);
+  assert.deepEqual(drawn(18), [[1, 1], [1, 1]]);
+  // Between, the one fades as the others come up: nothing jumps.
+  assert.deepEqual(drawn(9), [[2, 1]], "as the grouping changes, still the old one whole");
+  assert.deepEqual(drawn(9.5), [[2, 0.5], [1, 0.5], [1, 0.5]]);
+  const early = drawn(9.25);
+  const late = drawn(9.75);
+  assert.ok(early[0][1] > 0.5 && early[1][1] < 0.5 && late[0][1] < 0.5 && late[1][1] > 0.5);
+  assert.deepEqual(drawn(10), [[1, 1], [1, 1]]);
+});
+
+test("troops crossing each other's way do not share an arrow, however near", () => {
+  // Two columns of four pass through the same place going opposite ways.
+  const recorder = createReplayRecorder({ sides, cols: frame.cols, rows: frame.rows });
+  for (let day = 0; day <= 6; day += 1) {
+    recorder.record(day, [[
+      ...Array.from({ length: 4 }, (_, index) => ({ x: 10 + day * 2, y: 10 + index * 0.5, strength: 80, state: 1 })),
+      ...Array.from({ length: 4 }, (_, index) => ({ x: 22 - day * 2, y: 10.25 + index * 0.5, strength: 80, state: 1 })),
+    ], []]);
+  }
+  const stage = stageOf(frontViewOf(record({
+    replay: recorder.finish({ days: 6 }),
+    troops: [[...Array.from({ length: 4 }, (_, index) => ({ x: 22, y: 10 + index * 0.5, strength: 80 })), ...Array.from({ length: 4 }, (_, index) => ({ x: 10, y: 10.25 + index * 0.5, strength: 80 }))], []],
+  })));
+  const arrows = arrowsIn(frontArrowFeatures([frontAt(stage, 5)], twoColours, { day: [5], halfWidthOf: () => 0.5, reachOf: () => 20 }).features);
+  assert.deepEqual(arrows.map((feature) => feature.properties.troops).sort(), [4, 4]);
+  const groups = arrowGroupsOf(stage, 5, 20);
+  assert.deepEqual(groups.map((group) => [...group.members].sort((a, b) => a - b)).sort((a, b) => a[0] - b[0]), [[0, 1, 2, 3], [4, 5, 6, 7]]);
 });
 
 test("an arrow's colour is its side's hue made strong, so it shows on ground painted that side's colour", () => {

@@ -119,7 +119,7 @@ test("a battlefield's taken ground lies over the fills and under the borders, it
   const paint = [...Array.from({ length: 12 }, (_, slot) => `fronts-paint-under-${slot}`), ...Array.from({ length: 12 }, (_, slot) => `fronts-paint-${slot}`)];
   assert.ok(index("fronts-paint-under-11") < index("fronts-paint-0"), "every picture is cleared before any is coloured");
   const ground = ["fronts-arrows-past", "fronts-arrows-shadow", "fronts-arrows-edge", "fronts-arrows"];
-  const troops = ["fronts-sides", "fronts-sides-count", "fronts-troops", "fronts-troops-kind", "fronts-troops-name"];
+  const troops = ["fronts-sides", "fronts-sides-count", "fronts-troops-dug", "fronts-troops", "fronts-troops-kind", "fronts-troops-name"];
   for (const id of [...paint, ...ground, ...troops]) assert.ok(index(id) >= 0, `${id} is missing from canonical order`);
   for (const id of paint) {
     assert.ok(index(id) > index("custom-regions-fill"));

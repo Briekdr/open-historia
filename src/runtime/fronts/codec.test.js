@@ -153,7 +153,11 @@ test("a troop's path comes back point for point, and a troop with none keeps its
   assert.deepEqual(decodeTracks(""), []);
   assert.equal(encodeTracks(null), "");
   // What is out of range is held to it, and a damaged string reads as far as it goes.
-  assert.deepEqual(decodeTracks(encodeTracks([[{ day: 99999, x: -4, y: 9999, strength: 250, state: 9 }]]))[0][0], { day: 4095, x: 0, y: 255.9375, strength: 100, state: 3 });
+  assert.deepEqual(decodeTracks(encodeTracks([[{ day: 99999, x: -4, y: 9999, strength: 250, state: 9 }]]))[0][0], { day: 4095, x: 0, y: 255.9375, strength: 100, state: 4 });
+  // One that is dug in is kept as that, in a path and where it stands.
+  assert.equal(decodeTracks(encodeTracks([[{ day: 3, x: 5, y: 5, strength: 70, state: "dug in" }]]))[0][0].state, 4);
+  const stood = decodeTroops(encodeTroops([{ x: 5, y: 5, strength: 70, dig: 1, state: "dug in" }, { x: 6, y: 5, strength: 70, dig: 3 / 7, state: "holding" }]));
+  assert.deepEqual(stood.map((troop) => [troop.state, troop.dig]), [[4, 1], [0, 3 / 7]]);
   assert.equal(decodeTracks(text.slice(0, TRACK_LETTERS + 3))[0].length, 1);
 });
 

@@ -5,7 +5,9 @@
 // stands; and behind each is an arrow in its side's colour, raised off the
 // map, along the way it has come in the last few days, with a faint line
 // along what it walked before. Troops going one way together share one
-// broader arrow. The front
+// broader arrow, and the further off the map is seen from, the more of them
+// share it: a handful of broad arrows from far off, each column's own from
+// close in. The front
 // is where the colours meet and where the counters face each other. The
 // regions keep their shapes and their owners' colours underneath: the paint is
 // laid over them, not made of them.
@@ -32,7 +34,7 @@ import { createOwnerRgbResolver, ownerDisplayCss, parseColorToRgb } from "./owne
 import { enforceMapLayerOrder } from "./mapLayerOrder.js";
 import { POLITICAL_FILL_OPACITY_STOPS } from "./vnext/presentationPolicy.js";
 import { getFrontTargets, settleFront, startFrontsSync, subscribeFronts } from "./frontsController.js";
-import { frontArrowFeatures, frontArrowRgb, frontAt, frontShownOn, frontTroopFeatures, stageOf } from "./frontGeometry.js";
+import { arrowDetailAt, frontArrowFeatures, frontArrowRgb, frontAt, frontShownOn, frontTroopFeatures, stageOf } from "./frontGeometry.js";
 import { createPaintPlayer, paintPixels, paintScaleFor } from "./frontPaint.js";
 import { shortUnitLabel } from "./unitLabels.js";
 
@@ -70,27 +72,17 @@ const PAINT_CLEAR_OPACITY = 0.94;
 const PAINT_CLEAR_TONE = [0.92, 0.96];
 const PAINT_OPACITY = ["interpolate", ["linear"], ["zoom"], ...POLITICAL_FILL_OPACITY_STOPS.flat()];
 // An arrow is a shape on the ground, so its width is in the map's own
-// measure and has to be worked out for the zoom the map is at: half its full
-// width in px, as [zoom, px]. It is raised by drawing it three times: its
-// shadow, the edge that gives it depth, and its face, each a little up and to
-// the left of the one before.
-const ARROW_HALF_WIDTH_STOPS = [[4, 1.6], [5.5, 2.6], [7, 4.2], [9, 6], [11, 8]];
+// measure and has to be worked out for the zoom the map is at
+// (frontGeometry.js arrowDetailAt gives it in px). It is raised by drawing it
+// three times: its shadow, the edge that gives it depth, and its face, each a
+// little up and to the left of the one before. How much of one shows is its
+// own `alpha`: less than all of it while the troops that share arrows are
+// being sorted anew.
 const ARROW_SHADOW_SHIFT = [3, 4];
 const ARROW_EDGE_SHIFT = [1.4, 2];
 // The edge is the face's colour brought this far toward black.
 const ARROW_EDGE_DARKEN = 0.5;
-const arrowHalfWidthPx = (zoom) => {
-  const stops = ARROW_HALF_WIDTH_STOPS;
-  if (zoom <= stops[0][0]) return stops[0][1];
-  for (let index = 1; index < stops.length; index += 1) {
-    if (zoom <= stops[index][0]) {
-      const [z0, w0] = stops[index - 1];
-      const [z1, w1] = stops[index];
-      return w0 + ((w1 - w0) * (zoom - z0)) / (z1 - z0);
-    }
-  }
-  return stops[stops.length - 1][1];
-};
+const SHOWN = ["coalesce", ["get", "alpha"], 1];
 // How many px wide the map draws the whole world at zoom 0.
 const WORLD_PX = 512;
 
@@ -100,6 +92,13 @@ const TROOP_RADIUS = [
   4.75, ["case", ["get", "named"], 4.2, 3.1],
   7, ["case", ["get", "named"], 7.2, 5.6],
   10, ["case", ["get", "named"], 11, 9],
+];
+// The rampart round one that is dug in, this much wider than its counter.
+const TROOP_RAMPART_RADIUS = [
+  "interpolate", ["linear"], ["zoom"],
+  4.75, ["case", ["get", "named"], 6.4, 5.2],
+  7, ["case", ["get", "named"], 10.4, 8.6],
+  10, ["case", ["get", "named"], 15, 12.8],
 ];
 const IS_TROOP = ["==", ["get", "what"], "troop"];
 const IS_SIDE = ["==", ["get", "what"], "side"];
@@ -268,7 +267,8 @@ const FrontLayers = () => {
     // rebuilds the style they come back as new, empty objects; styledata below
     // refills them.
     let painted = [null, null];
-    // The zoom the arrows were last drawn for: their width is worked out for it.
+    // The zoom the arrows were last drawn for: their width, and which troops
+    // share one, are worked out for it.
     let arrowsAtZoom = -1;
     // Draws every battlefield at the day it stands on. `atRest` is false for a
     // frame of a playing.
@@ -298,14 +298,22 @@ const FrontLayers = () => {
       const troops = source(FRONT_TROOP_SOURCE);
       if (arrows?.setData && troops?.setData) {
         const { colorOf, arrowColorsOf } = colorRef.current;
-        // How wide an arrow is on this battlefield's ground, for the zoom the
-        // map is at: so many px, as cells of its frame.
+        // How the arrows are drawn at the zoom the map is at: so many px, as
+        // cells of each battlefield's frame. A cell is so many degrees of
+        // longitude wide, and the map lays the whole turn of them across its
+        // world's width in px.
         const zoom = mapInstance?.getZoom?.() ?? 5;
-        const halfPx = arrowHalfWidthPx(zoom);
-        // A cell is so many degrees of longitude wide, and the map lays the
-        // whole turn of them across its world's width in px.
-        const halfWidthOf = (drawing) => (halfPx * 360) / (drawing.frame.cell * WORLD_PX * 2 ** zoom);
-        arrows.setData(frontArrowFeatures(drawn, arrowColorsOf, { day: days, halfWidthOf }));
+        const detail = arrowDetailAt(zoom);
+        const cellsOf = (px) => (drawing) => (px * 360) / (drawing.frame.cell * WORLD_PX * 2 ** zoom);
+        arrows.setData(frontArrowFeatures(drawn, arrowColorsOf, {
+          day: days,
+          halfWidthOf: cellsOf(detail.halfWidth),
+          reachOf: cellsOf(detail.reach),
+          leastOf: cellsOf(detail.least),
+          still: detail.still,
+          share: detail.share,
+          days: detail.days,
+        }));
         troops.setData(frontTroopFeatures(drawn, colorOf, { labelOf: shortUnitLabel }));
         painted = [arrows, troops];
         arrowsAtZoom = zoom;
@@ -427,7 +435,8 @@ const FrontLayers = () => {
     };
     // A picture off the screen is not taken up by the map when it is redrawn;
     // it is handed over again when the map has moved.
-    // An arrow drawn for another zoom is the wrong width at this one.
+    // An arrow drawn for another zoom is the wrong width at this one, and
+    // stands for the wrong troops.
     const onMoveEnd = () => {
       if (rafRef.current) return;
       if (playRef.current.size > 0 && Math.abs((mapInstance?.getZoom?.() ?? arrowsAtZoom) - arrowsAtZoom) > 0.12) {
@@ -580,7 +589,7 @@ const FrontLayers = () => {
           paint={{
             "line-color": ["get", "rgb"],
             "line-width": ["interpolate", ["linear"], ["zoom"], 4.5, 0.7, 7, 1.2, 10, 1.8],
-            "line-opacity": 0.4,
+            "line-opacity": ["*", 0.4, SHOWN],
           }}
         />
         <Layer
@@ -591,7 +600,7 @@ const FrontLayers = () => {
           filter={["!", ["get", "past"]]}
           paint={{
             "fill-color": CASING_COLOR,
-            "fill-opacity": 0.28,
+            "fill-opacity": ["*", 0.28, SHOWN],
             "fill-translate": ARROW_SHADOW_SHIFT,
             "fill-translate-anchor": "viewport",
           }}
@@ -604,7 +613,7 @@ const FrontLayers = () => {
           filter={["!", ["get", "past"]]}
           paint={{
             "fill-color": ["get", "dark"],
-            "fill-opacity": 0.95,
+            "fill-opacity": ["*", 0.95, SHOWN],
             "fill-translate": ARROW_EDGE_SHIFT,
             "fill-translate-anchor": "viewport",
           }}
@@ -617,7 +626,7 @@ const FrontLayers = () => {
           filter={["!", ["get", "past"]]}
           paint={{
             "fill-color": ["get", "rgb"],
-            "fill-opacity": 0.94,
+            "fill-opacity": ["*", 0.94, SHOWN],
             "fill-outline-color": ["get", "dark"],
           }}
         />
@@ -656,6 +665,23 @@ const FrontLayers = () => {
             "text-color": "#ffffff",
             "text-halo-color": "rgba(0,0,0,0.7)",
             "text-halo-width": 1,
+          }}
+        />
+        {/* A troop that is dug in stands inside its rampart: a dark ring with a
+            pale rim round its counter. It does not move while it is so. */}
+        <Layer
+          id="fronts-troops-dug"
+          type="circle"
+          beforeId={troopBefore}
+          minzoom={TROOP_MIN_ZOOM}
+          filter={["all", IS_TROOP, ["==", ["get", "state"], "dug in"]]}
+          paint={{
+            "circle-radius": TROOP_RAMPART_RADIUS,
+            "circle-color": "rgba(16, 20, 28, 0.82)",
+            "circle-stroke-width": 1.2,
+            "circle-stroke-color": "#e6ebf2",
+            "circle-stroke-opacity": 0.9,
+            "circle-pitch-alignment": "map",
           }}
         />
         <Layer

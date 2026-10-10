@@ -55,7 +55,9 @@ export const LOG_TEXT_MAX = 160;
 
 export const BATTLEFIELD_STATUSES = Object.freeze(["active", "frozen", "closed"]);
 export const TROOP_KINDS = Object.freeze(["infantry", "armor", "artillery"]);
-export const TROOP_STATES = Object.freeze(["holding", "advancing", "encircled", "spent"]);
+// "dug in" is a stance, not a pause: a troop told to hold a defence digs in,
+// fights the stronger for it, and does not move at all while it is so.
+export const TROOP_STATES = Object.freeze(["holding", "advancing", "encircled", "spent", "dug in"]);
 
 // What a side can be told to do on a stretch of the line, and what the story
 // may say came of it. These are the words an order is written in.
