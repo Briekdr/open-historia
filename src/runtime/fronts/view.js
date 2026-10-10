@@ -32,6 +32,8 @@ const carryFor = (carry, orders, side) => {
     seen.under = [0, 1].map((index) => pair(carry.under[index]).map((serves) => (index === side ? kept.get(serves) ?? -1 : -1)));
   }
   if (Array.isArray(carry.ages)) seen.ages = carry.ages.filter((_, index) => kept.has(index));
+  // How far along a route drawn for it each troop has got says who is on one.
+  if (Array.isArray(carry.next)) seen.next = [0, 1].map((index) => pair(carry.next[index]).map((point) => (index === side ? point : -1)));
   // Which general each troop is under is drawn for both sides, and says
   // nothing a map does not; who they are and what they were told is a side's own.
   for (const key of ["generals", "talk", "plans"]) {

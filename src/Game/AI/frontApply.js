@@ -4,9 +4,15 @@
 // read the map. This is where the game hands them over, and the only file
 // gameplay.js calls for any of it:
 //
+//   forecastTurnFronts   a turn about to be asked for: the engine is run over
+//                        the days it will cover, under the orders that already
+//                        stand, so that the story is written knowing how the
+//                        war went (the [Fronts] block tells it). No request.
 //   applyTurnFronts      a turn being applied (applySimulationResult): the engine
 //                        is run over the days the turn covers and its changes of
-//                        hands are put on the turn's events
+//                        hands are put on the turn's events. After a forecast it
+//                        is the same run again, with the answer's orders put at
+//                        its end for the next period to carry out
 //   withFrontUnits       the formations that went onto a battlefield or came back
 //   frontsLiveBlock      the [Fronts] block of a time skip's prompt
 //   frontPowers,         the old stand-ins for a front (a counter raised for a
@@ -128,9 +134,111 @@ const warStagesOf = ({ wars, updates, events, stopDate, round }) => {
 
 // ---- a turn being applied --------------------------------------------------------------
 
+// The world a turn's run is to find: as it stands, with the plans of the turn
+// written onto its battlefields where a war is being fought. A world with no
+// such battlefield is handed back untouched and the map's cities are not read.
+const fighting = (world) => asArray(world?.battlefields).some((row) => row?.status === "active");
+const plannedWorld = async (world, game) => {
+  if (!fighting(world)) return world;
+  try {
+    return turnPlanned({ world, game, cities: await readFrontCities(world, game), espionage: isActiveFeatureEnabled("espionage") });
+  } catch (error) {
+    console.warn("[fronts] the turn's plans could not be read; the battlefields are run as they stand.", error);
+    return world;
+  }
+};
+
 const pauseFor = (signal) => async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   if (signal?.aborted) throw (signal.reason instanceof Error ? signal.reason : new DOMException("Timeline jump cancelled.", "AbortError"));
+};
+
+// What the engine is given of a turn besides its events: the same for the run
+// made before the story is asked for and for the one that applies it, so that
+// the second is the first again.
+const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fromDate }) => {
+  let front = null;
+  const direction = getActiveWorldDirection();
+  return {
+    createFrontRun,
+    regionTypes: asArray(world?.regionTypes),
+    groups: isActiveFeatureEnabled("groups"),
+    readMap: async () => {
+      front = await readFrontMap(world, game, campaignId);
+      return { map: front.map, baseOwners: front.baseOwners, regionIds: front.regionIds, arenas: arenasFor(front.map.key) };
+    },
+    loadRegions: typeof loadRegions === "function"
+      ? async () => engineRegionsOf(await loadRegions(), { nameOf: (id) => front?.names.get(id) })
+      : null,
+    pause: pauseFor(signal),
+    pace: frontsPace(),
+    tempoAllowance: (days) => (direction?.territoryTempo > 0 ? territoryTempoAllowance(direction.territoryTempo, Math.max(1, days)) : null),
+    // The same turn of the same campaign is the same run, whoever applies it and how often.
+    seed: `${clean(campaignId)}|${round}|${fromDate}`,
+    players: humanCountriesOf(game),
+  };
+};
+
+// ---- the period, fought before its story is written -------------------------------------
+
+// The last period worked out, kept while the same turn is being asked for: a
+// request that is retried, or asked of the next model on the list, finds it done.
+let foreseen = { key: "", value: null };
+
+// Runs the front engine over the days a turn is ABOUT to cover, under the
+// orders that already stand (the campaign's, and what was ordered in the war
+// room), before the story of those days is asked for. Nothing is written: the
+// world is the caller's own and stays as it is.
+//   world, game    the turn's world and game as they were read for it
+//   toDate         the date the turn is to land on
+//   requestedDays  how long the skip is, where the calendar cannot be counted
+//   loadRegions    reads the map's regions file, should the engine need it
+// Returns { fromDate, toDate, days, battlefields, news, flips }: the
+// battlefields as the period leaves them and what happened on them, or null
+// when there is nothing to tell (fronts off, no battlefield being fought, no
+// whole day to run, or the map could not be read). Then the turn is asked for
+// as it always was and the engine runs after it.
+export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "", toDate = "", requestedDays = 0, loadRegions = null, signal = null } = {}) => {
+  if (!frontsOn() || !fighting(world)) return null;
+  const fromDate = clean(game?.gameDate);
+  const target = clean(toDate) || fromDate;
+  const round = (Number(game?.round) || 1) + 1;
+  try {
+    const planned = await plannedWorld(world, game);
+    const key = [
+      clean(campaignId), round, fromDate, target, Number(requestedDays) || 0, frontsPace(),
+      hashOf(JSON.stringify(asArray(planned?.battlefields))),
+      hashOf(JSON.stringify(asArray(world?.wars))),
+      hashOf(JSON.stringify(asArray(world?.units).map((unit) => [unit?.id, unit?.committedTo, unit?.lng, unit?.lat, unit?.strength]))),
+    ].join("|");
+    if (foreseen.key === key) return foreseen.value;
+    const startedAt = Date.now();
+    const run = await runTurnFronts({
+      ...turnRunInput({ world, game, campaignId, loadRegions, signal, round, fromDate }),
+      world: planned,
+      events: [],
+      frontOrders: [],
+      warStages: [asArray(world?.wars)],
+      fromDate,
+      toDate: target,
+      requestedDays,
+    });
+    const days = Number(run?.stats?.days) || 0;
+    const value = run?.battlefields && days > 0
+      ? { fromDate, toDate: target, days, battlefields: run.battlefields, news: asArray(run.news), flips: asArray(run.flips) }
+      : null;
+    foreseen = { key, value };
+    if (value) {
+      const told = `the period's land war worked out before its story: ${days} day${days === 1 ? "" : "s"}, ${value.flips.length} region${value.flips.length === 1 ? "" : "s"} changed hands, ${value.news.length} thing${value.news.length === 1 ? "" : "s"} to tell (${Date.now() - startedAt} ms).`;
+      console.info(`[OH fronts] ${told}`);
+      logDebugEvent("turn", `Fronts: ${told}`, { battlefields: value.battlefields.map((record) => record.name) }, { verbose: true });
+    }
+    return value;
+  } catch (error) {
+    if (signal?.aborted || error?.name === "AbortError") throw error;
+    console.warn("[fronts] the period could not be fought before its story; the turn is asked for as it stands and the engine runs after it.", error);
+    return null;
+  }
 };
 
 // Runs the front engine over a turn that is about to be applied.
@@ -138,6 +246,9 @@ const pauseFor = (signal) => async () => {
 //   frontOrders   the orders that survived with them (nativeFrontLedger.js)
 //   warUpdates    the turn's war ledger records, as the ledger will merge them
 //   loadRegions   reads the map's regions file (gameplay.js createRenderedRegionsReader)
+//   foretold      true when the turn was asked for with its period already
+//                 fought and told (forecastTurnFronts): the run is that one
+//                 again, and the answer's orders are for the period after
 // Returns null when fronts are off. Otherwise { events, battlefields,
 // unitChanges, ... }: the events with what an earlier apply's run added taken
 // out and this run's changes of hands put on, the battlefields to write (null
@@ -149,6 +260,7 @@ export const applyTurnFronts = async ({
   baseWorld = {},
   campaignId = "",
   events = [],
+  foretold = false,
   frontOrders = [],
   loadRegions = null,
   nextGame = {},
@@ -165,10 +277,8 @@ export const applyTurnFronts = async ({
   try {
     // The map is read only once there is a war, a battlefield or an order to
     // run on: a turn of peace costs nothing here.
-    let front = null;
-    const direction = getActiveWorldDirection();
     const run = await runTurnFronts({
-      createFrontRun,
+      ...turnRunInput({ world: baseWorld, game: baseGame, campaignId, loadRegions, signal, round, fromDate }),
       // With the turn's plans on its battlefields (frontPlans.js): the Board's
       // operations sent, and a side warned by its agents dug in.
       world: await plannedWorld(baseWorld, baseGame),
@@ -178,22 +288,8 @@ export const applyTurnFronts = async ({
       fromDate,
       toDate,
       requestedDays,
-      regionTypes: asArray(baseWorld?.regionTypes),
-      groups: isActiveFeatureEnabled("groups"),
-      readMap: async () => {
-        front = await readFrontMap(baseWorld, baseGame, campaignId);
-        return { map: front.map, baseOwners: front.baseOwners, regionIds: front.regionIds, arenas: arenasFor(front.map.key) };
-      },
-      loadRegions: typeof loadRegions === "function"
-        ? async () => engineRegionsOf(await loadRegions(), { nameOf: (id) => front?.names.get(id) })
-        : null,
-      pause: pauseFor(signal),
-      pace: frontsPace(),
-      tempoAllowance: (days) => (direction?.territoryTempo > 0 ? territoryTempoAllowance(direction.territoryTempo, Math.max(1, days)) : null),
-      // The same turn of the same campaign is the same run, whoever applies it and how often.
-      seed: `${clean(campaignId)}|${round}|${fromDate}`,
-      players: humanCountriesOf(baseGame),
       narratesCombat: eventNarratesHardCombat,
+      foretold: foretold === true,
     });
     for (const note of run.notes) noteReceipt(receipt, note.kind, note.text);
     if (run.stats) {
@@ -215,20 +311,6 @@ export const applyTurnFronts = async ({
     console.warn("[fronts] the front engine could not be run for this turn; the turn goes on without it and the battlefields stand as they were.", error);
     logDebugEvent("turn", "Fronts: the engine could not be run for this turn; the battlefields stand as they were.", error, { problem: true });
     return { events: stripFrontOps(events), battlefields: null, unitChanges: [], notes: [], flips: [], stats: null };
-  }
-};
-
-// The world a turn's run is to find: as it stands, with the plans of the turn
-// written onto its battlefields where a war is being fought. A world with no
-// such battlefield is handed back untouched and the map's cities are not read.
-const fighting = (world) => asArray(world?.battlefields).some((row) => row?.status === "active");
-const plannedWorld = async (world, game) => {
-  if (!fighting(world)) return world;
-  try {
-    return turnPlanned({ world, game, cities: await readFrontCities(world, game), espionage: isActiveFeatureEnabled("espionage") });
-  } catch (error) {
-    console.warn("[fronts] the turn's plans could not be read; the battlefields are run as they stand.", error);
-    return world;
   }
 };
 
@@ -277,9 +359,11 @@ export const withFrontUnits = (world, fronts) => {
 // ---- the prompt -------------------------------------------------------------------------
 
 // The [Fronts] block of a time skip's live records; "" with fronts off, so the
-// prompt is then exactly what it was.
-export const frontsLiveBlock = (world, game) => (frontsOn()
-  ? buildFrontsBlock({ battlefields: world?.battlefields, players: humanCountriesOf(game) })
+// prompt is then exactly what it was. `foreseen` is what forecastTurnFronts
+// gave for the turn, when it gave anything: the block then tells the
+// battlefields as the period leaves them and what happened on them.
+export const frontsLiveBlock = (world, game, foreseen = null) => (frontsOn()
+  ? buildFrontsBlock({ battlefields: world?.battlefields, players: humanCountriesOf(game), period: foreseen })
   : "");
 
 // What the simulator is told of the plans agents have carried off from the

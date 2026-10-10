@@ -67,6 +67,14 @@ test("the plans of both sides become lines, heads and names", () => {
   assert.deepEqual(of("way").map((feature) => feature.properties.decoy), [false, false, false, true, false]);
   for (const feature of of("way")) assert.equal(feature.properties.colour, PLAN_COLOURS[feature.properties.tone]);
   for (const feature of of("head")) assert.equal(feature.geometry.type, "Polygon");
+  // A movement time has passed over is being made, or has been: its arrow is
+  // off the map, unless it is the one the panel points at.
+  const past = [plan({ id: "order:5", begun: true }), plan({ id: "project:p2", kind: "project", done: true, ways: [] }), plan({ id: "order:6" })];
+  assert.deepEqual(planFeatures({ plans: past }).features.filter((feature) => feature.properties.what === "way").map((feature) => feature.properties.plan), ["order:6"]);
+  assert.deepEqual(planFeatures({ plans: past, pointed: "order:5" }).features.filter((feature) => feature.properties.what === "way").map((feature) => feature.properties.plan), ["order:5", "order:6"]);
+  assert.equal(planTone(plan({ kind: "project", live: true, done: true })), "idle", "an operation that has been carried out is no longer bright");
+  // What is known of the other side's is drawn whatever its age.
+  assert.equal(planFeatures({ known: [plan({ id: "known:1", begun: true })] }).features.filter((feature) => feature.properties.what === "way").length, 1);
   assert.deepEqual(planFeatures().features, []);
   assert.deepEqual(planFeatures({ plans: [plan({ ways: [[[30, 50]]] })] }).features, [], "a way of one point is no way");
 });

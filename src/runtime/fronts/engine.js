@@ -797,8 +797,10 @@ const stepDay = (run) => {
   const day = run.day + 1;
   for (let index = 0; index < run.battles.length; index += 1) {
     const battle = run.battles[index];
-    if (battle.status === "active") run.steps += simulateDay(battle, run, day);
-    else if (battle.status === "standing") standDay(battle);
+    if (battle.status === "active") {
+      run.steps += simulateDay(battle, run, day);
+      battle.daysRun += 1;
+    } else if (battle.status === "standing") standDay(battle);
     if (battle.closing && battle.status !== "closed") closeBattle(run, battle, day);
   }
   applyMoments(run, day);
@@ -822,6 +824,16 @@ const snapshot = (run) => {
     flips: run.flips.map(({ day: on, date, battlefield, regionId, from, to, kind }) => ({ day: on, date, battlefield: battlefield.name, regionId, from, to, kind })),
     unitChanges: changes,
     notes: run.notes.map((note) => (note.battlefield && typeof note.battlefield === "object" ? { ...note, battlefield: note.battlefield.name } : { ...note })),
+    // What the days of this run added to each battlefield's log, all of it and
+    // in the order it happened: a record keeps only the last few entries.
+    // A town that changed hands says how large it is, for whoever has to
+    // choose which of many to tell.
+    news: run.battles.flatMap((battle) => battle.log.slice(battle.logFrom).map((entry) => {
+      const told = { ...entry, battlefield: battle.name };
+      if (entry.k !== "city") return told;
+      const city = battle.arena.cities.find((candidate) => `city: ${candidate.name}` === entry.at);
+      return city ? { ...told, size: Math.max(0, Number(city.population) || 0), ...(city.capital ? { capital: true } : {}) } : told;
+    })),
     stats: { days: day, steps: run.steps },
   };
 };

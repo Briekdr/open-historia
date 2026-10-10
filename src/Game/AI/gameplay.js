@@ -196,7 +196,7 @@ import {
   withoutGroupOps,
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
-import { applyTurnFronts, frontPlansBlock, frontPowers, frontRegionTest, frontsLiveBlock, openScenarioFronts, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { applyTurnFronts, forecastTurnFronts, frontPlansBlock, frontPowers, frontRegionTest, frontsLiveBlock, openScenarioFronts, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { readWarRoomAnswer, warRoomRequest, warRoomStanding, warRoomVariables } from "./warRoomContext.js";
 import { bindFrontOrdersToEvents, describeDroppedFrontOrders, frontOrderProseLines, screenFrontOrders } from "./nativeFrontLedger.js";
 import { buildOwnerAliasMap, canonicalOwnerName, toCountryName } from "../../runtime/ownerNames.js";
@@ -2778,8 +2778,10 @@ ${brief}`);
   if (regionTypes) blocks.push(regionTypes);
   // The battlefields and the orders a skip gives them (frontApply.js), after
   // the rules about moving formations and taking regions that it sets aside on
-  // them. "" with fronts off.
-  const fronts = frontsLiveBlock(world, game);
+  // them. "" with fronts off. Where the period was fought before this was
+  // asked for (simulateTimelineJump), they are told as it leaves them, with
+  // what happened on them by date.
+  const fronts = frontsLiveBlock(world, game, variables.frontsForecast ?? null);
   if (fronts) blocks.push(fronts);
   // What agents have carried off of the players' planned movements there.
   const stolenPlans = await frontPlansBlock(world, game);
@@ -8768,6 +8770,8 @@ const applySimulationResult = async ({
     baseWorld,
     campaignId,
     events: freshEvents,
+    // The skip was asked for with its period already fought and told.
+    foretold: result.frontsForetold === true,
     frontOrders,
     loadRegions: createRenderedRegionsReader(),
     nextGame,
@@ -17106,6 +17110,9 @@ const finishTimelineJump = async ({ context, signal, state }) => {
     // How long a skip was asked for: what the front engine runs for where the
     // scenario's calendar is not one the game can count days on.
     requestedDays: context.safeDays,
+    // Whether the answer was written knowing how the period's land war went
+    // (frontApply.js forecastTurnFronts): its orders are then for the period after.
+    frontsForetold: Boolean(context.variables?.frontsForecast),
     storylineUpdates: merged.storylineUpdates,
     breadthRepairContext: selectBreadthRepairContext(state, context),
     generation: state.generation,
@@ -17229,6 +17236,21 @@ export const simulateTimelineJump = async ({ days, mode = "jump", onEvents, onPr
     historicalAnchorMaxItems: WORLD_SIMULATION_HISTORICAL_ANCHOR_MAX_ITEMS,
     targetDate,
   });
+  // The land war of the period is fought BEFORE its story is asked for
+  // (frontApply.js forecastTurnFronts): the engine is run over the days the
+  // skip covers, under the orders that already stand, and what came of it goes
+  // into the prompt, so that the events tell the war that was fought and not
+  // one the model guessed at. No request is made for it. null where there is
+  // nothing to fight, and the skip is then asked for as it always was.
+  const frontsForecast = await forecastTurnFronts({
+    world: bundle.world,
+    game: bundle.game,
+    campaignId: activeCampaignId(),
+    toDate: targetDate,
+    requestedDays: safeDays,
+    loadRegions: createRenderedRegionsReader(),
+    signal,
+  });
   // Guarantee at least one event per queued action, so each planned action has a
   // slot to resolve into (bounded so a huge queue can't demand absurd counts).
   const plannedActionCount = normalizeActions(bundle.actions).filter((action) => action.status === "planned").length;
@@ -17269,7 +17291,7 @@ export const simulateTimelineJump = async ({ days, mode = "jump", onEvents, onPr
     safeDays,
     segmentDays,
     targetDate,
-    variables,
+    variables: frontsForecast ? { ...variables, frontsForecast } : variables,
     // Settings, AI: "Stop when my events fail" (playerTurnFailures.js). Read
     // once, at the start, so a toggle mid-skip does not change the skip.
     // The host's own setting, read from the host's device, is not the other

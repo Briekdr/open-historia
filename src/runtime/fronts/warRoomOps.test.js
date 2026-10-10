@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { chosenOrdersOf, generalsOf, talkOf } from "./command.js";
 import { runFronts } from "./engine.js";
-import { keptPlansOf } from "./plans.js";
+import { keptPlansOf, withProjectPlan } from "./plans.js";
 import { frontInput, syntheticMap } from "./syntheticMap.js";
 import { battlefieldOn } from "./testKit.js";
 import { applyWarRoomOp, cleanWarRoomOp } from "./warRoomOps.js";
@@ -93,6 +93,11 @@ test("a diversion and a redrawn operation are kept as plans, and taken off again
   // Putting the suggested arrow back leaves the rest of what was said of it.
   done = applyWarRoomOp(done.battlefields, { op: "plan", battlefield: name, project: "project-kingfisher", way: [] }, as("Aland"));
   assert.deepEqual(keptPlansOf(done.record, 0).map((plan) => [plan.id, Boolean(plan.way), plan.off === true]), [["d1", true, false], ["project:project-kingfisher", false, true]]);
+  // An operation that was carried out is marked so; told again, the mark comes off.
+  const carried = withProjectPlan(done.record, 0, { project: "project-kingfisher", sent: true });
+  assert.equal(keptPlansOf(carried, 0).find((plan) => plan.kind === "project").sent, true);
+  const again = applyWarRoomOp(done.battlefields.map((row) => (row.name === name ? carried : row)), { op: "plan", battlefield: name, project: "project-kingfisher", again: true }, as("Aland"));
+  assert.equal(keptPlansOf(again.record, 0).find((plan) => plan.kind === "project").sent, undefined);
   done = applyWarRoomOp(done.battlefields, { op: "unplan", battlefield: name, id: "d1" }, as("Aland"));
   assert.deepEqual(keptPlansOf(done.record, 0).map((plan) => plan.id), ["project:project-kingfisher"]);
   assert.deepEqual(keptPlansOf(done.record, 1), []);
@@ -108,6 +113,8 @@ test("an op is cut to its own fields before it is sent anywhere", () => {
   assert.deepEqual([sent.battlefield, sent.troops], ["The Front", [1, 3]]);
   assert.ok(sent.way.length <= 100 && sent.way.length >= 2, `a long way is thinned (${sent.way.length})`);
   assert.deepEqual(cleanWarRoomOp({ op: "plan", battlefield: "F", project: "p", off: false }), { op: "plan", battlefield: "F", project: "p", off: false });
+  assert.deepEqual(cleanWarRoomOp({ op: "plan", battlefield: "F", project: "p", again: true }), { op: "plan", battlefield: "F", project: "p", again: true });
+  assert.deepEqual(cleanWarRoomOp({ op: "plan", battlefield: "F", project: "p", again: "yes" }), { op: "plan", battlefield: "F", project: "p" });
   assert.deepEqual(cleanWarRoomOp({ op: "talk", battlefield: "F", said: "Go.", lines: [{ who: 0, text: " Yes. ", extra: 1 }], orders: [{ command: 0, order: "HOLD" }], names: ["  Gen.  A "] }),
     { op: "talk", battlefield: "F", said: "Go.", lines: [{ who: 0, text: "Yes." }], orders: [{ command: 0, order: "hold", objective: "" }], names: ["Gen. A"] });
 });

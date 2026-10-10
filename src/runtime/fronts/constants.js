@@ -377,6 +377,25 @@ export const SHOULDER_OUT_KM = Object.freeze([8, 30]);
 // that waits these days to mass and then goes this much faster.
 export const COLUMN_BREADTH_KM = 28;
 export const ROUND_KM = 34;
+// Troops picked out and sent along a route drawn for them are no rank and no
+// column: each comes onto the route its own way and keeps a place of its own
+// beside it, drawn by chance, in a stream this many brushes broad for the root
+// of their number and never narrower than the least. Each stops up to so far
+// short of the route's end, and sets off within so many days of the rest.
+export const ROUTE_BREADTH_MIN_KM = 24;
+export const ROUTE_BREADTH_BRUSHES = 1.1;
+export const ROUTE_STOPS_SHORT_KM = 45;
+export const ROUTE_STOPS_SHORT_MOST = 0.6;
+export const ROUTE_SET_OFF_DAYS = 3;
+// A troop that stands within this far of where a route begins is at its
+// beginning already, and makes for the route's next point.
+export const ROUTE_JOIN_KM = 20;
+// An order given by hand that sends troops somewhere is over when they have
+// made it, and also when it cannot be made: once none of them has got this
+// much further along it in this many days, it is given up and they go back to
+// what their stretch of the line is told.
+export const HAND_STALL_DAYS = 6;
+export const HAND_STALL_KM = 4;
 export const BLITZ_BREADTH = 0.5;
 export const BLITZ_MASS_DAYS = 4;
 export const BLITZ_PACE = 1.3;

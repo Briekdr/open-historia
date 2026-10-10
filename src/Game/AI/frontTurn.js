@@ -129,11 +129,15 @@ const warMoments = (warsBefore, warsAfter, { fromDate, days }) => {
 //                 fall each on its own day; read off the first and the last
 //                 alone, both would fall on the day of the later.
 // An order takes effect on the day of the earliest event it rests on, and one
-// that rests on none on the first day. A change of control the model wrote
+// that rests on none on the first day. Except on a battlefield in `settled`
+// (their names, folded): there the period was fought before the story was
+// written and the story was told how it went, so an order is for what comes
+// next: it is put to the troops as the run ends, and what the answer was told
+// happened stays what happened. A change of control the model wrote
 // itself (a control operation, a single region handed over) is told to the
 // engine on its event's day: the world as written wins over the line, which is
 // what makes the engine bend the line round it rather than fight it.
-export const planFrontMoments = ({ events = [], frontOrders = [], warsBefore = [], warsAfter = [], warStages = null, fromDate = "", days = 0, dayOf = () => 0 } = {}) => {
+export const planFrontMoments = ({ events = [], frontOrders = [], warsBefore = [], warsAfter = [], warStages = null, fromDate = "", days = 0, dayOf = () => 0, settled = null } = {}) => {
   const list = asArray(events);
   const dayById = new Map(list.map((event) => [clean(event?.id), dayOf(event)]));
   const stages = asArray(warStages).length >= 2 ? asArray(warStages) : [warsBefore, warsAfter];
@@ -160,8 +164,9 @@ export const planFrontMoments = ({ events = [], frontOrders = [], warsBefore = [
   for (const order of asArray(frontOrders)) {
     if (!isRecord(order) || order.problem) continue;
     const bound = asArray(order.eventIds).map((id) => dayById.get(clean(id))).filter((day) => day !== undefined);
+    const held = settled instanceof Set && settled.has(foldBattlefieldName(order.battlefield));
     const moment = {
-      day: bound.length ? Math.min(...bound) : 0,
+      day: held ? days : bound.length ? Math.min(...bound) : 0,
       type: "order",
       battlefield: clean(order.battlefield),
       side: clean(order.side),
@@ -527,8 +532,11 @@ export const runFrontTurn = async ({ createFrontRun, input, loadRegions = null, 
 // not ride on a secret), and a change later than every event goes on the last.
 // A turn whose every event is such a secret still has the map to change: its
 // last event carries them all. `unattached` is what there was no event at all
-// to carry.
-export const attachFrontFlips = (events, flips, { dayOf = () => 0 } = {}) => {
+// to carry. With `aboutOf(event, battlefield)` (whether an event tells of the
+// war on that battlefield), a change rides on such an event where there is
+// one: the first of its day or later, else the last before it. The map then
+// moves with the report of the fighting, not with whatever came next.
+export const attachFrontFlips = (events, flips, { dayOf = () => 0, aboutOf = null } = {}) => {
   const list = asArray(events);
   const dated = list.map((event, index) => ({ index, day: dayOf(event), open: asArray(event?.audience).length === 0 && !clean(event?.audience) }));
   const carriers = (dated.some((entry) => entry.open) ? dated.filter((entry) => entry.open) : dated.slice(-1))
@@ -538,7 +546,9 @@ export const attachFrontFlips = (events, flips, { dayOf = () => 0 } = {}) => {
   for (const flip of asArray(flips)) {
     const regionId = clean(flip?.regionId);
     if (!regionId) continue;
-    const carrier = carriers.find((entry) => entry.day >= (Number(flip?.day) || 0)) ?? carriers[carriers.length - 1];
+    const day = Number(flip?.day) || 0;
+    const own = typeof aboutOf === "function" ? carriers.filter((entry) => aboutOf(list[entry.index], clean(flip?.battlefield))) : [];
+    const carrier = own.find((entry) => entry.day >= day) ?? own[own.length - 1] ?? carriers.find((entry) => entry.day >= day) ?? carriers[carriers.length - 1];
     if (!carrier) {
       unattached.push(flip);
       continue;
@@ -663,6 +673,11 @@ const listed = (names, most = 3) => `${names.slice(0, most).join("; ")}${names.l
 //   seed             what makes this turn's run its own
 //   players          the countries and groups people play
 //   narratesCombat   (event) => whether an event tells of fighting
+//   foretold         true when the period was fought BEFORE the story was asked
+//                    for and the story was given its account (frontApply.js
+//                    forecastTurnFronts): the same run, then, with the answer's
+//                    orders for the battlefields that were being fought put at
+//                    its end, for the next period to carry out
 // Returns
 //   events           the turn's events: an earlier apply's changes of hands
 //                    taken out, moves of formations that are on a battlefield
@@ -672,6 +687,7 @@ const listed = (names, most = 3) => `${names.slice(0, most).join("; ")}${names.l
 //   unitChanges      for applyFrontUnitChanges
 //   notes            [{ kind, text }] for the turn's receipt
 //   flips, stats     what the engine reported, for the log
+//   news             what the days of the run added to the battlefields' logs
 // The same arguments give the same result: a turn applied twice is one turn.
 export const runTurnFronts = async ({
   createFrontRun,
@@ -700,6 +716,7 @@ export const runTurnFronts = async ({
   // the one run that builds them: what they are called and how many troops
   // each side has. No other run is given any.
   authored = null,
+  foretold = false,
 } = {}) => {
   const cleared = withoutCommittedMoves(stripFrontOps(events), world?.units);
   const list = cleared.events;
@@ -711,7 +728,7 @@ export const runTurnFronts = async ({
         + "Troops on a battlefield are moved by front orders, under [Fronts].",
     });
   }
-  const nothing = (battlefields) => ({ events: list, battlefields, unitChanges: [], notes, flips: [], stats: null });
+  const nothing = (battlefields) => ({ events: list, battlefields, unitChanges: [], notes, flips: [], stats: null, news: [] });
 
   const saved = normalizeBattlefields(world?.battlefields);
   const stages = asArray(warStages).length ? asArray(warStages).map(asArray) : [asArray(world?.wars)];
@@ -765,7 +782,9 @@ export const runTurnFronts = async ({
     stated = statedCaptures({ events: list, battlefields: fought, arenaOf, readers, nameOf });
   }
 
-  const moments = planFrontMoments({ events: list, frontOrders: [...orders, ...stated], warStages: stages, fromDate, days, dayOf })
+  // The battlefields whose period the story was told before it was written.
+  const settled = foretold ? new Set(saved.filter((record) => record.status === "active").map((record) => foldBattlefieldName(record.name))) : null;
+  const moments = planFrontMoments({ events: list, frontOrders: [...orders, ...stated], warStages: stages, fromDate, days, dayOf, settled })
     .map((moment) => {
       if (moment.type === "order") return { ...moment, side: nameOf(withoutKind(moment.side)) };
       if (moment.type === "control") return { ...moment, to: nameOf(moment.to) };
@@ -811,9 +830,22 @@ export const runTurnFronts = async ({
     && !(note?.kind === "unknown-battlefield" && /^border\s*:/i.test(clean(note?.battlefield))));
   notes.push(...describeFrontNotes(told));
 
+  // Which events tell of the war on a battlefield: bound to its war, or with
+  // members of both its sides on the field.
+  const byName = new Map(asArray(result.battlefields).map((record) => [foldBattlefieldName(record.name), record]));
+  const aboutOf = (event, battlefield) => {
+    const record = byName.get(foldBattlefieldName(battlefield));
+    if (!record) return false;
+    const bound = clean(event?.warId);
+    if (bound) return bound === record.warId;
+    return record.sides.every((members) => asArray(event?.combatants).some((name) => members.some((member) => fold(member) === fold(nameOf(name)))));
+  };
+
   // Fighting told on a battlefield no order was written for: the troops there
   // kept the orders they had, and the model is told so it writes them next time.
-  if (typeof narratesCombat === "function") {
+  // (Not where the story was told the fighting before it wrote: it tells what
+  // standing orders did, and owes no line for it.)
+  if (typeof narratesCombat === "function" && !foretold) {
     const human = new Set(asArray(players).map(fold).filter(Boolean));
     const ordered = new Set(orders.map((order) => foldBattlefieldName(order.battlefield)));
     const unordered = asArray(result.battlefields).filter((record) => record.status === "active"
@@ -836,11 +868,18 @@ export const runTurnFronts = async ({
   }
 
   return {
-    events: attachFrontFlips(list, result.flips, { dayOf }).events,
-    battlefields: asArray(result.battlefields),
+    events: attachFrontFlips(list, result.flips, { dayOf, aboutOf }).events,
+    // A battlefield whose period the story was told before it was written says
+    // so (brief.told): the next turn has nothing of this one left to tell. One
+    // that does not (it opened in this answer, or the turn was asked for the
+    // old way) is told then, with the period after it (frontPrompt.js).
+    battlefields: asArray(result.battlefields).map((record) => (settled?.has(foldBattlefieldName(record?.name)) && isRecord(record.brief)
+      ? { ...record, brief: { ...record.brief, told: true } }
+      : record)),
     unitChanges: asArray(result.unitChanges),
     notes,
     flips: asArray(result.flips),
     stats: result.stats ?? null,
+    news: asArray(result.news),
   };
 };

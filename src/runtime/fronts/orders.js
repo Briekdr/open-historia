@@ -64,7 +64,7 @@ import { cellAt, cheapestWay } from "./ground.js";
 import { WHOLE_LINE, describePoint, findPlace, inSector, placeText, resolveSector, sectorMiddle } from "./sectors.js";
 import { findPockets, nearestOwner, surrenderPocket } from "./supply.js";
 import { KIND_ARTILLERY, KIND_INFANTRY, STATE_ADVANCING, STATE_DUG_IN, STATE_HOLDING, controlRadius, createTroop, isAttack, isLive, liveCount, stands } from "./troops.js";
-import { chanceOf, give, giveOut, routeAhead, takeOrder, waysFor } from "./way.js";
+import { chanceOf, give, giveOut, giveRoute, takeOrder, waysFor } from "./way.js";
 
 export { cheapestWay };
 
@@ -295,18 +295,12 @@ export const assignOrder = (battle, run, order, today, { picked = null, lagless 
       troops[index].fallback = null;
     }
   } else if (isAttack(word) && group.length > 0 && Array.isArray(order.way) && order.way.length > 0) {
-    // A route drawn for them: they go along it as they stand, each with its own
-    // place across it, from wherever on it they have got to. It is a way like
-    // any other: what is in it stops them, a pocket beside it draws them off
-    // and they come back to it, and nothing says they will get to its end.
-    let midX = 0;
-    let midY = 0;
-    for (const index of group) {
-      midX += troops[index].x / group.length;
-      midY += troops[index].y / group.length;
-    }
-    const route = routeAhead(order.way.map(([lng, lat]) => battle.place.toCell(lng, lat)), midX, midY);
-    give(battle, side, group, { day: today.day, word: "path", standing: order, lagless, way: route });
+    // A route drawn for them: each goes along it by itself, from wherever on
+    // it it has got to, and they keep no formation (way.js giveRoute). It is a
+    // way like any other: what is in it stops them, a pocket beside it draws
+    // them off and they come back to it, and nothing says they will get to
+    // its end.
+    giveRoute(battle, side, group, { day: today.day, standing: order, lagless, way: order.way.map(([lng, lat]) => battle.place.toCell(lng, lat)) });
     for (const index of group) if (troops[index].state === STATE_DUG_IN) troops[index].state = STATE_HOLDING;
   } else if (isAttack(word) && group.length > 0) {
     const target = order.objective ? findPlace(battle.arena, order.objective) : null;

@@ -46,6 +46,7 @@ import { createSkirmish, skirmishAt } from "./frontSkirmish.js";
 import { contestedOwnersOf, setFrontShownOwners } from "./frontOwnership.js";
 import { shownOwnersAt } from "../../runtime/fronts/replay.js";
 import { shortUnitLabel } from "./unitLabels.js";
+import { useEveryTroopShown } from "./troopDetail.js";
 import { useWarRoom } from "./warRoomStore.js";
 
 const EMPTY_FEATURE_COLLECTION = { type: "FeatureCollection", features: [] };
@@ -146,7 +147,8 @@ const ARROW_MIN_ZOOM = 4.25;
 const SKIRMISH_MIN_ZOOM = 4.75;
 // While the war room is open (GameUI/warRoom.jsx) troops are picked out by
 // hand, so there each has its counter from far off, and the generals' markers
-// give way to them sooner.
+// give way to them sooner. The same while the Events panel is open: what
+// happened is read there, and the map is looked at to see where.
 const WAR_ROOM_SIDE_MARKER_MAX_ZOOM = 5.25;
 const WAR_ROOM_TROOP_MIN_ZOOM = 2.5;
 const WAR_ROOM_TROOP_KIND_MIN_ZOOM = 6.5;
@@ -211,6 +213,7 @@ const FrontLayers = () => {
   // The war room's marks on the troops: the general whose troops are lit, and
   // the troops picked out (warRoomStore.js).
   const warRoomOpen = useWarRoom((state) => state.open);
+  const everyTroopWanted = useEveryTroopShown();
   const warRoomField = useWarRoom((state) => state.battlefield);
   const warRoomSide = useWarRoom((state) => state.side);
   const warRoomLit = useWarRoom((state) => state.highlight);
@@ -836,10 +839,13 @@ const FrontLayers = () => {
     "country-labels-live-managed", "country-labels", "polity-text-renderer", "cities-shapes",
   ]);
   const troopBefore = firstPresent(["units-fill", "units-icons", "units-name"]);
-  const troopMinZoom = warRoomOpen ? WAR_ROOM_TROOP_MIN_ZOOM : TROOP_MIN_ZOOM;
-  const troopKindMinZoom = warRoomOpen ? WAR_ROOM_TROOP_KIND_MIN_ZOOM : TROOP_KIND_MIN_ZOOM;
-  const troopNameMinZoom = warRoomOpen ? WAR_ROOM_TROOP_NAME_MIN_ZOOM : TROOP_NAME_MIN_ZOOM;
-  const sideMarkerMaxZoom = warRoomOpen ? WAR_ROOM_SIDE_MARKER_MAX_ZOOM : SIDE_MARKER_MAX_ZOOM;
+  // Every troop from far off: in the war room, and while the Events panel is
+  // open (troopDetail.js).
+  const everyTroop = warRoomOpen || everyTroopWanted;
+  const troopMinZoom = everyTroop ? WAR_ROOM_TROOP_MIN_ZOOM : TROOP_MIN_ZOOM;
+  const troopKindMinZoom = everyTroop ? WAR_ROOM_TROOP_KIND_MIN_ZOOM : TROOP_KIND_MIN_ZOOM;
+  const troopNameMinZoom = everyTroop ? WAR_ROOM_TROOP_NAME_MIN_ZOOM : TROOP_NAME_MIN_ZOOM;
+  const sideMarkerMaxZoom = everyTroop ? WAR_ROOM_SIDE_MARKER_MAX_ZOOM : SIDE_MARKER_MAX_ZOOM;
   const ofWarRoom = [["==", ["get", "battlefield"], warRoomField], ["==", ["get", "side"], warRoomSide]];
   const litFilter = warRoomOpen && warRoomLit >= 0 ? ["all", ...ofWarRoom, ["==", ["get", "command"], warRoomLit]] : NOTHING;
   const pickedFilter = warRoomOpen && warRoomPicked.length > 0

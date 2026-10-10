@@ -351,6 +351,40 @@ export const withTalk = (record, side, lines) => {
   return { ...record, brief: { ...record.brief, carry: { ...carryOf(record), talk } } };
 };
 
+// The place on a drawn route nearest a point: which stretch of it (counted
+// from 0), and how far along that stretch, from 0 to 1. The points and the
+// point are in the same units, whatever they are.
+export const nearestOnRoute = (points, x, y) => {
+  let best = Infinity;
+  let at = 0;
+  let part = 0;
+  for (let index = 0; index + 1 < points.length; index += 1) {
+    const [ax, ay] = points[index];
+    const dx = points[index + 1][0] - ax;
+    const dy = points[index + 1][1] - ay;
+    const length = dx * dx + dy * dy;
+    const along = length > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / length)) : 0;
+    const off = (x - ax - dx * along) * (x - ax - dx * along) + (y - ay - dy * along) * (y - ay - dy * along);
+    if (off < best) {
+      best = off;
+      at = index;
+      part = along;
+    }
+  }
+  return { at, part };
+};
+
+// The part of a drawn route that still lies ahead of a point: everything after
+// the place on it nearest that point, and the whole of it when that is where
+// it begins. Troops told to follow a route go on with it from where they have
+// got to, and do not go back to the start of it every run; and the arrow the
+// war room draws for a route under way is only what is left of it.
+export const routeAhead = (points, x, y) => {
+  if (points.length <= 1) return points;
+  const { at, part } = nearestOnRoute(points, x, y);
+  return at === 0 && part === 0 ? points : points.slice(at + 1);
+};
+
 // A drawn route cut down to a few points: its ends, and the places where it
 // turns furthest from straight (Douglas and Peucker's way), in degrees.
 export const thinRoute = (points, most = MAX_WAY_POINTS) => {

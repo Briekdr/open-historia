@@ -86,6 +86,7 @@ import {
   FALL_BACK_SEARCH_KM,
   FRONT_PACE_SHARE,
   GAVE_GROUND_REST_DAYS,
+  HAND_STALL_KM,
   HEADING_KEPT,
   HEADING_KEPT_CLOSING,
   HOLDER_SIDE_A,
@@ -790,6 +791,17 @@ export const moveDay = (battle, run, day) => {
       if (run.braked || halted(battle, side, troop.x, troop.y)) return;
       // Going straight out, it keeps its line while the other side's ground is before it.
       if (acts.kind === "way" && acts.own) aimOut(battle, run, side, troop, acts);
+      // Under an order given by hand: where it last stood when it had got
+      // somewhere, and on which day. An order that gets its troops nowhere any
+      // more is given up when the run is saved (battle.js stuckOrders).
+      if (acts.kind === "way" && acts.standing && acts.standing.chosen) {
+        const apart = acts.markDay === undefined ? Infinity : Math.sqrt((troop.x - acts.markX) * (troop.x - acts.markX) + (troop.y - acts.markY) * (troop.y - acts.markY)) * kmAt(troop.y);
+        if (apart > HAND_STALL_KM) {
+          acts.markX = troop.x;
+          acts.markY = troop.y;
+          acts.markDay = day;
+        }
+      }
       steer(battle, run, side, index, troop, acts, day, date, squares, weights);
     });
   }

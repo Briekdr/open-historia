@@ -25,6 +25,7 @@ import {
   CONTROL_RADIUS_MAX_KM,
   DEFAULT_EFFORT,
   FAR_CELLS,
+  HAND_STALL_DAYS,
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
   MAX_COMMANDS,
@@ -43,11 +44,12 @@ import { awayOf, downhill, measure } from "./ground.js";
 import { placeBehind } from "./move.js";
 import { readGenerals, readTalk } from "./command.js";
 import { standingOf } from "./orders.js";
+import { leftOnLeg } from "./way.js";
 import { authoredTroops } from "./scenarioFronts.js";
 import { projectorOf } from "./frame.js";
 import { drawLine, measureLine } from "./line.js";
 import { nearestOwner } from "./supply.js";
-import { KIND_ARMOUR, KIND_ARTILLERY, KIND_INFANTRY, createTroop, drawTraits, dropTheDead, isLive, kindsFor, liveCount, planLanes, shareOut, sideRadiusKm, sizeSides, standAtPlaces, standOff, stands } from "./troops.js";
+import { KIND_ARMOUR, KIND_ARTILLERY, KIND_INFANTRY, createTroop, drawTraits, dropTheDead, isAttack, isLive, kindsFor, liveCount, planLanes, shareOut, sideRadiusKm, sizeSides, standAtPlaces, standOff, stands } from "./troops.js";
 
 const fold = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 const round3 = (value) => Math.round(value * 1000) / 1000;
@@ -213,6 +215,10 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   supplyTurns: -1,
   anchors: [],
   log: [],
+  // How much of the log was there when the run began: what comes after is the
+  // run's own news (engine.js snapshot). And the days of fighting it has had.
+  logFrom: 0,
+  daysRun: 0,
   claims: { stamp: new Int32Array(arena.size), power: new Float32Array(arena.size), moment: 0 },
   // The field as the run found it: what a repulsed attack is put back to, and
   // what the brief measures the run's gains from.
@@ -508,6 +514,11 @@ export const loadBattle = (run, record, arena) => {
       troop.serves = Number.isInteger(serves) ? serves : -1;
     }));
   }
+  // And, of those on a route drawn for them, which of its points each was making for.
+  read.forEach((list, side) => list.forEach((troop, index) => {
+    const next = Array.isArray(carry.next) && Array.isArray(carry.next[side]) ? carry.next[side][index] : -1;
+    troop.next = Number.isInteger(next) && next >= 0 ? next : -1;
+  }));
   // Which general each troop is under, and what the generals are called.
   read.forEach((list, side) => list.forEach((troop, index) => {
     const command = Array.isArray(carry.command) && Array.isArray(carry.command[side]) ? carry.command[side][index] : -1;
@@ -538,6 +549,7 @@ export const loadBattle = (run, record, arena) => {
     .filter((pocket) => (pocket?.s === 0 || pocket?.s === 1) && Number.isInteger(pocket.cell))
     .map((pocket) => ({ s: pocket.s, cell: pocket.cell, days: Math.max(0, Math.floor(Number(pocket.days) || 0)), km2: 0, siege: "", told: pocket.told === true }));
   battle.log = record.log.map((entry) => ({ ...entry }));
+  battle.logFrom = battle.log.length;
   battle.quiet = Math.max(0, Math.floor(Number(carry.quiet) || 0));
   return battle;
 };
@@ -608,6 +620,38 @@ const takenRings = (battle) => {
   return rings;
 };
 
+// The orders given by hand that send troops somewhere (an attack of any kind,
+// a route drawn for them) and have stopped getting them anywhere: not one of
+// the troops that serve it has got further in HAND_STALL_DAYS. Such an order
+// has been carried out as far as it can be: it is given up, and its troops go
+// back to what their stretch of the line is told. A troop drawn off to close
+// on a pocket or to storm a place is at work, and comes back to its way.
+// `serving` says which standing order each troop serves, a list a side.
+const stuckOrders = (battle, serving, day) => {
+  const going = new Map();
+  battle.troops.forEach((list, side) => list.forEach((troop, index) => {
+    const standing = serving[side][index];
+    if (!standing || !standing.chosen || !isAttack(standing.order)) return;
+    const live = troop.order && !troop.order.done ? troop.order : null;
+    const way = live && live.kind === "way" ? live : null;
+    const moves = !way || day - (way.markDay ?? way.since) < HAND_STALL_DAYS;
+    going.set(standing, going.get(standing) === true || moves);
+  }));
+  const stuck = new Set();
+  for (const [order, moves] of going) if (!moves) stuck.add(order);
+  return stuck;
+};
+
+// The plans a side keeps, as they are handed on. A diversion is a movement
+// drawn to be stolen while it is still to come: once days of fighting have
+// passed over it there is nothing left of it to steal, and it is not kept. (A
+// Board operation's entry is kept: it says the operation was sent, and is not
+// to be sent again.)
+const plansKept = (battle) => {
+  if (!Array.isArray(battle.plans) || battle.daysRun <= 0) return battle.plans;
+  return battle.plans.map((list) => (Array.isArray(list) ? list.filter((plan) => plan?.kind !== "diversion") : list));
+};
+
 // The record of a battle as it stands. `day` is the day of the run it is
 // written on; `changes` takes the named formations that fell.
 export const saveBattle = (battle, run, day, changes, brief) => {
@@ -648,7 +692,24 @@ export const saveBattle = (battle, run, day, changes, brief) => {
   const serving = battle.troops.map((list) => list.map((troop) => standingOf(battle, troop)));
   const served = new Set();
   for (const list of serving) for (const order of list) if (order) served.add(order);
-  const orders = battle.orders.filter((order) => !order.chosen || served.has(order));
+  // Nor is one that sends them somewhere they have stopped getting any nearer.
+  const stuck = stuckOrders(battle, serving, day);
+  const orders = battle.orders.filter((order) => !order.chosen || (served.has(order) && !stuck.has(order)));
+  const plans = plansKept(battle);
+  // Which point of its route each troop on one is making for, so that the next
+  // run sends it on from there and not from wherever on the route lies nearest:
+  // a route may cross itself, or come back to where it began.
+  const next = battle.troops.map((list, side) => list.map((troop, index) => {
+    const standing = serving[side][index];
+    if (!standing || !orders.includes(standing) || !Array.isArray(standing.way) || standing.way.length === 0) return -1;
+    let way = troop.order && !troop.order.done ? troop.order : null;
+    if (way && way.kind !== "way") way = way.resume && !way.resume.done ? way.resume : null;
+    if (!way || way.kind !== "way" || way.word !== "path" || !Number.isInteger(way.skip)) return -1;
+    // A leg whose end it has crossed today is behind it, though it has not yet turned onto the next.
+    let leg = way.leg;
+    while (leg < way.legs.length - 1 && leftOnLeg(way.legs[leg], troop) <= 0) leg += 1;
+    return way.skip + leg;
+  }));
   const record = {
     v: BATTLEFIELD_VERSION,
     name: battle.name,
@@ -686,11 +747,12 @@ export const saveBattle = (battle, run, day, changes, brief) => {
         // run finds the same group under each.
         under: serving.map((list) => list.map((order) => (order ? orders.indexOf(order) : -1))),
         ages: orders.map((order) => order.age),
+        ...(next.some((list) => list.some((point) => point >= 0)) ? { next } : {}),
         // Which general each troop is under, and what the generals are called.
         command: battle.troops.map((list) => list.map((troop) => (isLive(troop) ? troop.command : -1))),
         ...(battle.generals.some((names) => names.some(Boolean)) ? { generals: battle.generals } : {}),
         ...(battle.talk.some((lines) => lines.length > 0) ? { talk: battle.talk } : {}),
-        ...(battle.plans ? { plans: battle.plans } : {}),
+        ...(plans ? { plans } : {}),
         ...(battle.status === "standing" ? { quiet: battle.quiet } : {}),
         halts: battle.halts.map(({ s, sector, days }) => ({ s, sector, days })),
         anchors: battle.anchors.map(({ s, x, y }) => ({ s, x, y })),

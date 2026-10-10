@@ -24,6 +24,7 @@ import { useIsMobile } from "../../runtime/useIsMobile.js";
 import { useBackToClose } from "../../runtime/backToClose.js";
 import { MAP_CARD_OPENED, SAFE_BOTTOM, SAFE_LEFT, SAFE_RIGHT } from "../../runtime/mobileUi.js";
 import { BESIDE_DOCK_LEFT, DOCK_BOTTOM_REM, DOCK_HEIGHT_REM, DOCK_LEFT_REM, WAR_ROOM_BUTTON_REM } from "./hudDock.js";
+import { showEveryTroop } from "../Map/troopDetail.js";
 import { dismissRegionPopup } from "../Selection/Regions.jsx";
 import { dismissUnitPopup } from "../Selection/Units.jsx";
 import { dismissFeaturePopup } from "../Selection/Features.jsx";
@@ -596,6 +597,15 @@ const Main = ({
       currentPanel === panelName ? null : panelName
     ));
   }, []);
+
+  // While the Events panel is open the map shows every troop of a battlefield
+  // from far off, as the war room does (Map/troopDetail.js): what happened is
+  // read in the panel, and where it happened is looked for on the map.
+  const eventsOpen = activeBottomPanel === "history";
+  useEffect(() => {
+    showEveryTroop("events", eventsOpen);
+    return () => showEveryTroop("events", false);
+  }, [eventsOpen]);
 
   // On a phone, Back closes the panel on top instead of leaving the game
   // (runtime/backToClose.js; with a mouse nothing changes).

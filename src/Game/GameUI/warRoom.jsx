@@ -352,6 +352,63 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   const other = record ? record.sides[1 - side] ?? [] : [];
   const mine = record ? record.sides[side] ?? [] : [];
   const ownPlans = plans.filter((plan) => !(plan.kind === "order" && !plan.chosen && plan.ways.length === 0));
+  // A movement still to be made has its arrow on the map. One that time has
+  // passed over is being carried out, or has been: it is listed apart, and its
+  // arrow is off the map unless it is pointed at.
+  const planned = ownPlans.filter((plan) => !plan.begun && !plan.done);
+  const underWay = ownPlans.filter((plan) => plan.begun || plan.done);
+  const planRow = (plan) => {
+    const past = plan.begun || plan.done;
+    const tone = planTone(plan);
+    const redrawing = tool === "replan" && replan === plan.project;
+    return (
+      <div
+        key={plan.id}
+        onPointerEnter={() => setWarRoom({ pointed: plan.id })}
+        style={{ ...trayStyle(pointed === plan.id), display: "flex", gap: "0.55rem", marginTop: "0.3rem", padding: "0.4rem 0.5rem" }}
+      >
+        <span aria-hidden="true" style={{ background: past ? PLAN_COLOURS.idle : PLAN_COLOURS[tone], flex: "0 0 auto", height: "0.22rem", marginTop: "0.45rem", width: "0.95rem" }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>
+            {plan.kind === "diversion" && <>Diversion</>}
+            {plan.kind === "route" && <>Route</>}
+            {plan.kind === "project" && <span data-no-translate>{plan.name}</span>}
+            {plan.kind === "order" && (plan.name ? <span data-no-translate>{plan.name}</span> : <OrderWord order={plan.order} />)}
+            {plan.objective && plan.kind !== "project" && <> toward <span data-no-translate>{placeName(plan.objective)}</span></>}
+          </div>
+          <div style={softText}>
+            {plan.kind === "project" && <><OrderWord order={plan.order} />{plan.objective && <> toward <span data-no-translate>{placeName(plan.objective)}</span></>} · </>}
+            {plan.kind === "diversion" && <>made to look like {plan.troops} formations</>}
+            {plan.kind !== "diversion" && !plan.done && <>{plan.troops} formations</>}
+            {plan.done && <>carried out</>}
+            {plan.kind === "project" && !plan.done && <> · <ProjectStatus status={plan.status} /></>}
+            {plan.kind === "project" && plan.off && <> · held back</>}
+            {plan.kind === "project" && plan.edited && <> · redrawn</>}
+            {plan.kind === "order" && !plan.chosen && plan.sector && plan.sector !== "all" && <> · <span data-no-translate>{plan.sector}</span></>}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginTop: "0.1rem" }}>
+            {plan.kind === "project" && plan.own && !plan.done && (
+              <>
+                <button type="button" disabled={locked} onClick={() => takeTool("replan", { replan: plan.project })} style={linkStyle}>{redrawing ? <>Cancel</> : <>Redraw</>}</button>
+                {plan.edited && <button type="button" disabled={locked} onClick={() => act({ op: "plan", battlefield: name, project: plan.project, way: [] })} style={linkStyle}>Suggested way</button>}
+                <button type="button" disabled={locked} onClick={() => act({ op: "plan", battlefield: name, project: plan.project, off: !plan.off })} style={linkStyle}>{plan.off ? <>Let it go ahead</> : <>Hold it back</>}</button>
+              </>
+            )}
+            {plan.kind === "project" && plan.own && plan.done && (
+              <button type="button" disabled={locked} onClick={() => act({ op: "plan", battlefield: name, project: plan.project, again: true })} style={linkStyle}>Send it again</button>
+            )}
+            {plan.kind === "diversion" && <button type="button" disabled={locked} onClick={() => act({ op: "unplan", battlefield: name, id: plan.id })} style={linkStyle}>Remove</button>}
+            {(plan.kind === "route" || (plan.kind === "order" && plan.chosen)) && plan.picked.length > 0 && (
+              <>
+                <button type="button" onClick={() => setWarRoom({ selected: plan.picked })} style={linkStyle}>Pick its troops</button>
+                <button type="button" disabled={locked} onClick={() => act({ op: "release", battlefield: name, troops: plan.picked })} style={linkStyle}>Call it off</button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
   const panelWidth = `calc(${width || WAR_ROOM_WIDTH} + ${SAFE_RIGHT})`;
   const plate = plateStyle();
 
@@ -557,61 +614,24 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
                   <Heading action={(
                     <button type="button" className="oh-tap" aria-pressed={tool === "diversion"} disabled={locked} onClick={() => takeTool("diversion")} style={keyStyle(tool === "diversion", locked)}>Draw a diversion</button>
                   )}>Planned movements</Heading>
-                  {ownPlans.length === 0 && (
+                  {planned.length === 0 && (
                     <div style={{ ...softText, marginTop: "0.4rem" }}>None. A route you draw, an order a general takes, and an operation on your Board that sends troops at a place here all show on the map as arrows.</div>
                   )}
-                  {ownPlans.map((plan) => {
-                    const tone = planTone(plan);
-                    const redrawing = tool === "replan" && replan === plan.project;
-                    return (
-                      <div
-                        key={plan.id}
-                        onPointerEnter={() => setWarRoom({ pointed: plan.id })}
-                        style={{ ...trayStyle(pointed === plan.id), display: "flex", gap: "0.55rem", marginTop: "0.3rem", padding: "0.4rem 0.5rem" }}
-                      >
-                        <span aria-hidden="true" style={{ background: PLAN_COLOURS[tone], flex: "0 0 auto", height: "0.22rem", marginTop: "0.45rem", width: "0.95rem" }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>
-                            {plan.kind === "diversion" && <>Diversion</>}
-                            {plan.kind === "route" && <>Route</>}
-                            {plan.kind === "project" && <span data-no-translate>{plan.name}</span>}
-                            {plan.kind === "order" && (plan.name ? <span data-no-translate>{plan.name}</span> : <OrderWord order={plan.order} />)}
-                            {plan.objective && plan.kind !== "project" && <> toward <span data-no-translate>{placeName(plan.objective)}</span></>}
-                          </div>
-                          <div style={softText}>
-                            {plan.kind === "project" && <><OrderWord order={plan.order} />{plan.objective && <> toward <span data-no-translate>{placeName(plan.objective)}</span></>} · </>}
-                            {plan.kind === "diversion" ? <>made to look like {plan.troops} formations</> : <>{plan.troops} formations</>}
-                            {plan.kind === "project" && <> · <ProjectStatus status={plan.status} /></>}
-                            {plan.kind === "project" && plan.off && <> · held back</>}
-                            {plan.kind === "project" && plan.edited && <> · redrawn</>}
-                            {plan.kind === "order" && !plan.chosen && plan.sector && plan.sector !== "all" && <> · <span data-no-translate>{plan.sector}</span></>}
-                          </div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginTop: "0.1rem" }}>
-                            {plan.kind === "project" && plan.own && (
-                              <>
-                                <button type="button" disabled={locked} onClick={() => takeTool("replan", { replan: plan.project })} style={linkStyle}>{redrawing ? <>Cancel</> : <>Redraw</>}</button>
-                                {plan.edited && <button type="button" disabled={locked} onClick={() => act({ op: "plan", battlefield: name, project: plan.project, way: [] })} style={linkStyle}>Suggested way</button>}
-                                <button type="button" disabled={locked} onClick={() => act({ op: "plan", battlefield: name, project: plan.project, off: !plan.off })} style={linkStyle}>{plan.off ? <>Let it go ahead</> : <>Hold it back</>}</button>
-                              </>
-                            )}
-                            {plan.kind === "diversion" && <button type="button" disabled={locked} onClick={() => act({ op: "unplan", battlefield: name, id: plan.id })} style={linkStyle}>Remove</button>}
-                            {(plan.kind === "route" || (plan.kind === "order" && plan.chosen)) && plan.picked.length > 0 && (
-                              <>
-                                <button type="button" onClick={() => setWarRoom({ selected: plan.picked })} style={linkStyle}>Pick its troops</button>
-                                <button type="button" disabled={locked} onClick={() => act({ op: "release", battlefield: name, troops: plan.picked })} style={linkStyle}>Call it off</button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {planned.map(planRow)}
                   {ownPlans.some((plan) => plan.kind === "diversion") && (
                     <div style={{ ...softText, color: intel.double ? AMBER : BONE_SOFT, marginTop: "0.35rem" }}>
                       {intel.double
                         ? <>The agent of theirs you turned will send them your diversions in place of your plans.</>
                         : <>You have turned no agent of theirs, so there is nobody to show a diversion to. An agent of theirs you have not caught sends them your real plans.</>}
                     </div>
+                  )}
+
+                  {underWay.length > 0 && (
+                    <>
+                      <Heading style={{ marginTop: "0.8rem" }}>Under way</Heading>
+                      <div style={{ ...softText, marginTop: "0.3rem" }}>Time has passed over these, so their arrows are off the map. Point at one to see what is left of it.</div>
+                      {underWay.map(planRow)}
+                    </>
                   )}
 
                   <Heading style={{ marginTop: "0.8rem" }}>What is known of theirs</Heading>

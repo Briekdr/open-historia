@@ -91,8 +91,16 @@ test("on the map at large a troop has its counter only from close in; in the war
   assert.ok(number("TROOP_MIN_ZOOM") >= 7, "really close");
   assert.ok(number("SIDE_MARKER_MAX_ZOOM") >= number("TROOP_MIN_ZOOM"), "a general's marker gives way only once his troops are there");
   assert.ok(number("WAR_ROOM_TROOP_MIN_ZOOM") <= 3, "the whole battlefield with every troop on it");
-  assert.match(layers, /const troopMinZoom = warRoomOpen \? WAR_ROOM_TROOP_MIN_ZOOM : TROOP_MIN_ZOOM;/);
-  assert.match(layers, /const sideMarkerMaxZoom = warRoomOpen \? WAR_ROOM_SIDE_MARKER_MAX_ZOOM : SIDE_MARKER_MAX_ZOOM;/);
+  // Every troop from far off in the war room, and while the Events panel is
+  // open (Map/troopDetail.js): what happened is read there and looked for on the map.
+  assert.match(layers, /const everyTroopWanted = useEveryTroopShown\(\);/);
+  assert.match(layers, /const everyTroop = warRoomOpen \|\| everyTroopWanted;/);
+  assert.match(layers, /const troopMinZoom = everyTroop \? WAR_ROOM_TROOP_MIN_ZOOM : TROOP_MIN_ZOOM;/);
+  assert.match(layers, /const troopKindMinZoom = everyTroop \? WAR_ROOM_TROOP_KIND_MIN_ZOOM : TROOP_KIND_MIN_ZOOM;/);
+  assert.match(layers, /const troopNameMinZoom = everyTroop \? WAR_ROOM_TROOP_NAME_MIN_ZOOM : TROOP_NAME_MIN_ZOOM;/);
+  assert.match(layers, /const sideMarkerMaxZoom = everyTroop \? WAR_ROOM_SIDE_MARKER_MAX_ZOOM : SIDE_MARKER_MAX_ZOOM;/);
+  assert.match(main, /const eventsOpen = activeBottomPanel === "history";\s*useEffect\(\(\) => \{\s*showEveryTroop\("events", eventsOpen\);\s*return \(\) => showEveryTroop\("events", false\);\s*\}, \[eventsOpen\]\);/);
+  assert.match(main, /onOpenEvents=\{\(\) => setActiveBottomPanel\("history"\)\}/, "the Events panel is the bottom panel called history");
   for (const id of ["fronts-troops", "fronts-troops-dug"]) {
     assert.match(layers, new RegExp(`id="${id}"\\s+type="circle"\\s+beforeId=\\{troopBefore\\}\\s+minzoom=\\{troopMinZoom\\}`), `${id} follows the room`);
   }

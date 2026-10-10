@@ -14,8 +14,10 @@
 //                                                                 answered, and the orders they took
 //   { op: "forget",    battlefield }                              the war room's talk there is cleared
 //   { op: "diversion", battlefield, way, troops? }                a movement drawn to be stolen (plans.js)
-//   { op: "plan",      battlefield, project, way?, off? }         a Board operation's arrow redrawn, put
-//                                                                 back (way: []), or told to move nothing
+//   { op: "plan",      battlefield, project, way?, off?, again? } a Board operation's arrow redrawn, put
+//                                                                 back (way: []), told to move nothing, or
+//                                                                 (again) sent once more after it was
+//                                                                 carried out
 //   { op: "unplan",    battlefield, id }                          a diversion taken off
 //
 // Nothing here moves a troop: orders are put to the troops when time next
@@ -133,7 +135,7 @@ const applyTo = (record, side, op, { player, date }) => {
       if (op.way.length > 0 && way.length < 2) return { error: REFUSED.way };
     }
     const off = op.off === true ? true : op.off === false ? false : null;
-    const next = withProjectPlan(record, side, { project, way, off, at: since });
+    const next = withProjectPlan(record, side, { project, way, off, sent: op.again === true ? false : null, at: since });
     // Nothing changed is no failure: an arrow put back that was never moved.
     return { record: next };
   }
@@ -181,6 +183,7 @@ export const cleanWarRoomOp = (op) => {
   if (op.names !== undefined) sent.names = list(op.names).slice(0, MAX_COMMANDS).map((name) => clean(name, 80));
   if (op.project !== undefined) sent.project = clean(op.project, 160);
   if (typeof op.off === "boolean") sent.off = op.off;
+  if (op.again === true) sent.again = true;
   if (op.id !== undefined) sent.id = clean(op.id, 180);
   return sent;
 };

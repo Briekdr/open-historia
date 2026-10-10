@@ -20,7 +20,7 @@ import { createApplicationReceipt } from "../../runtime/applicationReceipt.js";
 import { enlarge, syntheticMap } from "../../runtime/fronts/syntheticMap.js";
 import { setActiveFeatures } from "../../runtime/gameFeatures.js";
 import { normalizeEvents } from "../../runtime/gameState.js";
-import { applyTurnFronts, frontPowers, frontRegionTest, frontsLiveBlock, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { applyTurnFronts, forecastTurnFronts, frontPowers, frontRegionTest, frontsLiveBlock, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { frontsOn, frontsPace, unitsOffBattlefields } from "./frontsGate.js";
 import { FRONT_MARK } from "./frontTurn.js";
 
@@ -172,6 +172,59 @@ test("with fronts on a turn's land war goes through the engine, and what it coul
   await assert.rejects(quietly(() => applyTurnFronts(applyArgs({ nextGame: { ...game, gameDate: "2024-05-30", round: 2 }, signal: cancelled.signal }))), { name: "AbortError" });
 });
 
+test("the period is fought before its story is asked for: what is foreseen is what is then applied, and it is worked out once", async () => {
+  // A war a fortnight old, Aland advancing.
+  const first = await quietly(() => applyTurnFronts(applyArgs({ frontOrders: [{ id: "front-0", battlefield: "The Border", side: "Aland", order: "advance", sector: "all", eventIds: ["e1"] }] })));
+  const overrides = { ...world().regionOwnershipOverrides };
+  for (const flip of first.flips) if (flip.kind === "control") overrides[flip.regionId] = flip.to;
+  const next = world({ battlefields: first.battlefields, regionOwnershipOverrides: overrides });
+  const later = { ...game, gameDate: "2024-03-16", round: 2 };
+  let reads = 0;
+  const asked = { world: next, game: later, campaignId: "campaign", toDate: "2024-03-21", requestedDays: 5, loadRegions: async () => { reads += 1; return geojson; } };
+
+  const foreseen = await quietly(() => forecastTurnFronts(asked));
+  assert.deepEqual([foreseen.fromDate, foreseen.toDate, foreseen.days], ["2024-03-16", "2024-03-21", 5]);
+  assert.deepEqual(foreseen.battlefields.map((record) => record.name), ["The Border"]);
+  assert.equal(foreseen.battlefields[0].asOf, "2024-03-21");
+  assert.equal(next.battlefields[0].asOf, "2024-03-16", "the world it was given is not written to");
+  // Asked again for the same turn (a request retried, the next model on the list): it is not fought again.
+  const readsThen = reads;
+  assert.equal(await quietly(() => forecastTurnFronts(asked)), foreseen);
+  assert.equal(reads, readsThen);
+  // The block is then the period as it leaves the battlefield.
+  const block = frontsLiveBlock(next, later, foreseen);
+  assert.match(block, /It has ALREADY fought this period on every battlefield told in full below/);
+  assert.match(block, /\nBattlefields, as the period from 2024-03-16 to 2024-03-21 leaves them:\n- The Border: Aland against Borduria/);
+
+  // The answer then tells it and gives Borduria an order from its first event:
+  // the turn applied is the five days that were foreseen, and the order stands after them.
+  const applied = await quietly(() => applyTurnFronts(applyArgs({
+    baseGame: later,
+    baseWorld: next,
+    nextGame: { ...later, gameDate: "2024-03-21", round: 3 },
+    events: normalizeEvents([{ id: "g1", date: "2024-03-17", title: "The line is told to stand", description: "x", impacts: {} }]),
+    frontOrders: [{ id: "front-5", battlefield: "The Border", side: "Borduria", order: "dig in", sector: "all", eventIds: ["g1"] }],
+    foretold: true,
+  })));
+  assert.deepEqual(applied.flips, foreseen.flips);
+  assert.deepEqual(applied.news, foreseen.news);
+  assert.deepEqual(applied.battlefields[0].orders.map(({ s, order }) => [s, order]), [[0, "advance"], [1, "dig in"]]);
+
+  // Nothing is foreseen where there is nothing to fight, no whole day to run, or fronts are off.
+  assert.equal(await forecastTurnFronts({ ...asked, world: world() }), null, "no battlefield yet");
+  assert.equal(await quietly(() => forecastTurnFronts({ ...asked, toDate: "2024-03-16", requestedDays: 0.25 })), null, "a skip of hours");
+  try {
+    setActiveFeatures({ fronts: { enabled: false } }, null);
+    assert.equal(await forecastTurnFronts({ ...asked, loadRegions: () => { throw new Error("nothing is read with fronts off"); } }), null);
+  } finally {
+    setActiveFeatures(null, null);
+  }
+  // The player's Cancel stops it.
+  const cancelled = new AbortController();
+  cancelled.abort(new DOMException("Timeline jump cancelled.", "AbortError"));
+  await assert.rejects(quietly(() => forecastTurnFronts({ ...asked, toDate: "2024-05-30", requestedDays: 75, signal: cancelled.signal })), { name: "AbortError" });
+});
+
 test("the formations a run took in, or gave back, are written with the standing orders a committed one no longer has", () => {
   const before = {
     units: [
@@ -264,10 +317,10 @@ test("every other place that applies events is one the engine has no part in", (
 
 test("a time skip's prompt gains the block only with fronts on, after the rules it sets aside", () => {
   const live = functionBody("buildJumpLiveState");
-  assert.match(live, /const fronts = frontsLiveBlock\(world, game\);\s*\n\s*if \(fronts\) blocks\.push\(fronts\);/);
-  assert.ok(live.indexOf("blocks.push(FOLDED_SKIP_CONSEQUENCES)") < live.indexOf("frontsLiveBlock(world, game)"), "after [Every Event Carries Its Consequences]");
-  assert.ok(live.indexOf("[Units and Structures on the Map]") < live.indexOf("frontsLiveBlock(world, game)"));
-  assert.match(read("frontApply.js"), /export const frontsLiveBlock = \(world, game\) => \(frontsOn\(\)\s*\n\s*\? buildFrontsBlock\(\{ battlefields: world\?\.battlefields, players: humanCountriesOf\(game\) \}\)\s*\n\s*: ""\);/);
+  assert.match(live, /const fronts = frontsLiveBlock\(world, game, variables\.frontsForecast \?\? null\);\s*\n\s*if \(fronts\) blocks\.push\(fronts\);/);
+  assert.ok(live.indexOf("blocks.push(FOLDED_SKIP_CONSEQUENCES)") < live.indexOf("frontsLiveBlock(world, game"), "after [Every Event Carries Its Consequences]");
+  assert.ok(live.indexOf("[Units and Structures on the Map]") < live.indexOf("frontsLiveBlock(world, game"));
+  assert.match(read("frontApply.js"), /export const frontsLiveBlock = \(world, game, foreseen = null\) => \(frontsOn\(\)\s*\n\s*\? buildFrontsBlock\(\{ battlefields: world\?\.battlefields, players: humanCountriesOf\(game\), period: foreseen \}\)\s*\n\s*: ""\);/);
   // The contract carries the field under the same switch.
   assert.match(gameplay, /return frontsOn\(\) \? withFrontOrders\(shown\) : shown;/);
   // A side of a battlefield is not "at war with nobody on the map"; with fronts off the set is the units' owners alone.

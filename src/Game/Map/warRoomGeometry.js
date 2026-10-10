@@ -1,7 +1,10 @@
 /*! Open Historia — the war room's planned movements as shapes for the map © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 // A plan (runtime/fronts/plans.js) is drawn as an arrow that has not been
 // walked: a broken line along its way with a head at the end, in a colour that
-// says whose it is and what kind:
+// says whose it is and what kind. Of the player's own, only a movement still
+// to be made is drawn: once time has passed over it, it is being carried out
+// (or has been), what its troops did is on the map already, and its arrow is
+// shown only while the panel points at it:
 //
 //   own      a movement the player's troops are to make: an order, a route
 //   project  a Board operation's, brighter when it is under way
@@ -25,7 +28,7 @@ export const PLAN_COLOURS = Object.freeze({
 export const planTone = (plan, { theirs = false } = {}) => {
   if (theirs) return "known";
   if (plan.kind === "diversion") return "decoy";
-  if (plan.kind === "project") return plan.live ? "project" : "idle";
+  if (plan.kind === "project") return plan.live && !plan.done ? "project" : "idle";
   if (plan.project) return "project";
   return "own";
 };
@@ -134,7 +137,7 @@ export const planFeatures = ({ plans = [], known = [], pointed = "", labelOf = (
       }
     }
   };
-  for (const plan of plans) add(plan, false);
+  for (const plan of plans) if ((!plan.begun && !plan.done) || plan.id === pointed) add(plan, false);
   for (const plan of known) add(plan, true);
   return { type: "FeatureCollection", features };
 };

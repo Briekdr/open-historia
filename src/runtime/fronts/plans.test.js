@@ -203,9 +203,13 @@ test("a diversion is drawn, kept and taken off, and never moves a troop", () => 
   const [plan] = plansOf(drawn, 0, context());
   assert.deepEqual([plan.kind, plan.troops, plan.ways.length, plan.picked.length], ["diversion", 30, 1, 0]);
   assert.equal(drawn.orders.length, 0, "it is no order");
+  // A run over no days leaves it: nothing has happened yet for it to be stolen before.
+  assert.deepEqual(keptPlansOf(run(world, drawn, 0), 0).map((entry) => entry.id), ["d1"]);
   const fought = run(world, drawn, 6);
   assert.deepEqual(decodeTroops(fought.troops[0]).map((troop) => Math.round(troop.x * 4)), decodeTroops(drawn.troops[0]).map((troop) => Math.round(troop.x * 4)), "nobody moved for it");
-  assert.deepEqual(keptPlansOf(fought, 0).map((entry) => entry.id), ["d1"], "and it is still there after a run");
+  // Days of fighting have passed over it: it is taken off, as a movement that was made is.
+  assert.deepEqual(keptPlansOf(fought, 0), []);
+  assert.deepEqual(plansOf(fought, 0, context()), []);
   // A second takes the next name; a way of one point is no way; and there is a most.
   const two = withDiversion(drawn, 0, { way: [[20.9, 49.2], [22, 49.2]] });
   assert.deepEqual(keptPlansOf(two, 0).map((entry) => entry.id), ["d1", "d2"]);
@@ -219,6 +223,43 @@ test("a diversion is drawn, kept and taken off, and never moves a troop", () => 
   const long = withDiversion(record, 0, { way: Array.from({ length: 60 }, (_, index) => [20.9 + index * 0.05, 50 + ((index % 7) - 3) * 0.02]) });
   assert.ok(keptPlansOf(long, 0)[0].way.length <= MAX_WAY_POINTS);
   assert.deepEqual(readPlans("nonsense"), [[], []]);
+});
+
+test("a plan is a movement still to be made: once time has passed over it, it is under way, and then it is gone", () => {
+  const { record } = opened();
+  // A route for six troops with nobody in their way, east and then north.
+  const world = plain();
+  const alone = run(world, battlefieldOn(world, { troops: [row(20.9, 49.85, 50.15, 6), []] }), 0);
+  const way = [[20.9, 50.0], [22.0, 50.0], [22.0, 50.55]];
+  const told = orderTroops(alone, { side: 0, troops: [0, 1, 2, 3, 4, 5], order: "advance", way, by: "Aland" });
+  const [meant] = plansOf(told, 0, context());
+  assert.deepEqual([meant.kind, meant.begun, meant.troops], ["route", false, 6]);
+  assert.ok(Math.abs(endOf(meant)[0] - 22.0) < 0.01 && Math.abs(endOf(meant)[1] - 50.55) < 0.01);
+  // Two days on they are along its first stretch: it is being made, and what
+  // is drawn of it is only what is left, from where they have got to.
+  const early = run(world, told, 2);
+  const [going] = plansOf(early, 0, context());
+  assert.deepEqual([going.kind, going.begun], ["route", true]);
+  assert.ok(going.ways[0][0][0] > meant.ways[0][0][0] + 0.1, `its arrow starts where they are now: ${going.ways[0][0][0]} against ${meant.ways[0][0][0]}`);
+  assert.deepEqual(endOf(going), endOf(meant));
+  // When they have come to its end it is no plan at all.
+  assert.deepEqual(plansOf(run(world, early, 12), 0, context()), []);
+
+  // An order at a place the side holds already has been carried out.
+  const taken = opened([standing(0, "advance", { objective: "city: Alba" }), standing(0, "spearhead", { objective: "city: Brod", sector: "north" })]);
+  assert.deepEqual(plansOf(taken.record, 0, context()).map((plan) => plan.objective), ["city: Brod"]);
+
+  // An operation that sent its troops and whose order is over has been carried
+  // out here: no arrow, and it is not sent again unless the player says so.
+  const board = [operation()];
+  const sent = withProjectPlan(record, 0, { project: "project-kingfisher", sent: true });
+  const [over] = plansOf(sent, 0, context(board));
+  assert.deepEqual([over.kind, over.done, over.ways, over.troops], ["project", true, [], 0]);
+  assert.equal(withOperationOrders(sent, { sides: [0], ...context(board) }), sent, "it sends nothing more");
+  const again = withProjectPlan(sent, 0, { project: "project-kingfisher", sent: false });
+  const [fresh] = plansOf(again, 0, context(board));
+  assert.deepEqual([fresh.done === true, fresh.ways.length], [false, 1]);
+  assert.notEqual(withOperationOrders(again, { sides: [0], ...context(board) }), again, "and told to, it sends them once more");
 });
 
 test("an agent sends its owner the other side's real plans; one that was turned sends the diversions", () => {

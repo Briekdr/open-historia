@@ -9,7 +9,7 @@ import { runFronts } from "./engine.js";
 import { normalizeBattlefield } from "./record.js";
 import { applyFlips, frontInput, syntheticMap } from "./syntheticMap.js";
 import { battlefieldOn, readBattlefield } from "./testKit.js";
-import { routeAhead } from "./way.js";
+import { routeAhead } from "./command.js";
 
 // The generals of a side, the orders a person gives them, and the routes
 // drawn for a body of troops: what the war room writes and the engine does.
@@ -159,6 +159,53 @@ test("a route drawn for a body of troops is a way they go along, from wherever o
   // At its end they stop, and the order is done with.
   assert.deepEqual(chosenOrdersOf(ended, 0), []);
   assert.deepEqual(ended.orders, []);
+});
+
+test("troops sent along a route go each by itself: not abreast, not in the order they stood, not all at once", () => {
+  const world = plain();
+  // Twelve in a line a hundred and thirty kilometres long, sent east along one route.
+  const opened = runFronts(frontInput(world, { battlefields: [battlefieldOn(world, { troops: [row(20.9, 49.4, 50.6, 12), []] })], days: 0, steering: { wander: 0 } })).battlefields[0];
+  const told = orderTroops(opened, { side: 0, troops: Array.from({ length: 12 }, (_, index) => index), order: "advance", way: [[20.9, 50.0], [22.4, 50.0]], by: "Aland" });
+  const days = [];
+  const result = runFronts({ ...frontInput(world, { battlefields: [told], days: 16, steering: { wander: 0 } }), watch: ({ day, troops }) => {
+    days[day] = troops[0].map((troop) => [troop.x, troop.y]);
+  } });
+  const span = (day, axis) => Math.max(...days[day].map((point) => point[axis])) - Math.min(...days[day].map((point) => point[axis]));
+  const across = (day) => days[day].map((point, index) => [point[1], index]).sort((a, b) => a[0] - b[0]).map((entry) => entry[1]).join(",");
+  // Some set off on the first day and some are not ready yet.
+  const gone = days[1].filter((point, index) => Math.abs(point[0] - days[0][index][0]) > 0.3).length;
+  assert.ok(gone >= 1 && gone <= 11, `${gone} of twelve had set off on the first day`);
+  // They come onto the route and go along it as a stream, strung out along it:
+  // a rank would stay as broad as it stood and all of it would be level.
+  assert.ok(span(3, 1) < span(0, 1) * 0.7, `they closed on the route: ${span(0, 1)} cells across, then ${span(3, 1)}`);
+  assert.ok(span(3, 0) > 12, `and are strung out along it: ${span(3, 0)} cells from the first to the last`);
+  // Nobody keeps the place it had in the line.
+  assert.notEqual(across(4), across(0));
+  // They end as a loose body round where the route ends, not as a line across
+  // it, and the order is done with.
+  assert.ok(span(16, 0) > 6, `${span(16, 0)} cells from the foremost to the hindmost at the end`);
+  assert.deepEqual(chosenOrdersOf(result.battlefields[0], 0), []);
+});
+
+test("a route that cannot be made is given up: its troops go back to what the line is told", () => {
+  const blocked = (days) => {
+    const world = plain();
+    // Six sent east into fourteen who are dug in across their way, with nothing to make their losses good.
+    const wall = row(21.25, 49.6, 50.4, 14, { dig: 1, state: 4 });
+    const opened = runFronts(frontInput(world, { battlefields: [battlefieldOn(world, { troops: [row(20.9, 49.85, 50.15, 6), wall], pool: [0, 0] })], days: 0, steering: { wander: 0 } })).battlefields[0];
+    const told = orderTroops(opened, { side: 0, troops: [0, 1, 2, 3, 4, 5], order: "advance", way: [[20.9, 50.0], [22.4, 50.0]], by: "Aland" });
+    const result = runFronts(frontInput(world, { battlefields: [told], days, steering: { wander: 0 } }));
+    applyFlips(world, result.flips);
+    return { record: result.battlefields[0], seen: readBattlefield(result.battlefields[0], world).troops[0] };
+  };
+  // A few days in they are still at it.
+  assert.deepEqual(chosenOrdersOf(blocked(3).record, 0).map((entry) => entry.troops.length), [6]);
+  // A month in they are where they were, alive, and nobody is under the order any more.
+  const month = blocked(30);
+  assert.equal(month.seen.filter((troop) => troop.strength > 0).length, 6);
+  assert.ok(month.seen.every((troop) => troop.lng < 21.2), "they never got through");
+  assert.deepEqual(chosenOrdersOf(month.record, 0), []);
+  assert.deepEqual(month.record.orders, []);
 });
 
 test("two bodies sent round a place by the routes drawn for them shut it in: nothing else says encircle", () => {

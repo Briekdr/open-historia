@@ -178,6 +178,37 @@ const ordersOf = (record, side) => {
   return parts.join("; ");
 };
 
+// What a battlefield's last run did to it, in a sentence: how far each side
+// went in each of the three sectors the line is told by, what each took and
+// lost (a town or a region by its name with its kind, `most` of each and the
+// rest counted), and what is cut off. `moved` says whether any of it happened.
+//   { since, text, moved }
+export const describeSince = (record, { most = 4 } = {}) => {
+  const brief = record?.brief ?? {};
+  const lead = [record?.sides?.[0]?.[0] ?? "", record?.sides?.[1]?.[0] ?? ""];
+  const sectors = Array.isArray(brief.sectors) ? brief.sectors : [];
+  // What moved is told by the same three sectors as the line is, a side at a
+  // time: "Aland advanced 65 km in the north, 22 km in the centre".
+  const moves = [HOLDER_SIDE_A, HOLDER_SIDE_B].map((side) => {
+    const gained = sectors.slice(0, 3).filter((sector) => Math.abs(sector.moved) >= 1 && (sector.moved > 0) === (side === HOLDER_SIDE_A));
+    return gained.length > 0 ? `${lead[side]} advanced ${gained.map((sector) => `${Math.abs(sector.moved)} km in the ${sector.name}`).join(", ")}` : "";
+  }).filter(Boolean);
+  const taken = Array.isArray(brief.taken) ? brief.taken : [[], []];
+  const cities = Array.isArray(brief.cities) ? brief.cities : [[], []];
+  const gains = (side) => [list(cities[side] ?? [], "city", most), list(taken[side] ?? [], "region", most)].filter(Boolean).join(", ");
+  const parts = [moves.length > 0 ? moves.join("; ") : "the line did not move"];
+  const took = gains(0);
+  const lost = gains(1);
+  if (took || lost) parts.push(`${lead[0]} took ${took || "none"}`, `lost ${lost || "none"}`);
+  const pockets = (Array.isArray(brief.pockets) ? brief.pockets : []).slice(0, 2)
+    .map((pocket) => `${pocket.siege ? "Besieged" : "Pocket"}: ${lead[pocket.s]} at ${pocket.at}, ${pocket.days} days.`);
+  return {
+    since: String(brief.since ?? ""),
+    text: `${parts.join("; ")}.${pockets.length > 0 ? ` ${pockets.join(" ")}` : ""}`,
+    moved: moves.length > 0 || Boolean(took || lost),
+  };
+};
+
 // The text of one battlefield for a prompt, at most BRIEF_TEXT_MAX characters.
 // With `viewer` a country or a group fighting there, the other side's standing
 // orders are left out: what a government has told its own side is its own.
@@ -197,24 +228,7 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
   const where = sectors.filter((sector) => sector.from && sector.to);
   const lineText = (most) => (where.length > 0 ? `  Line: ${where.slice(0, most).map((sector) => `${sector.name}: ${sector.from === sector.to ? sector.from : `${sector.from} to ${sector.to}`}`).join("; ")}` : "");
 
-  // What moved is told by the same three sectors as the line is, a side at a
-  // time: "Aland advanced 65 km in the north, 22 km in the centre".
-  const moves = [HOLDER_SIDE_A, HOLDER_SIDE_B].map((side) => {
-    const gained = sectors.slice(0, 3).filter((sector) => Math.abs(sector.moved) >= 1 && (sector.moved > 0) === (side === HOLDER_SIDE_A));
-    return gained.length > 0 ? `${lead[side]} advanced ${gained.map((sector) => `${Math.abs(sector.moved)} km in the ${sector.name}`).join(", ")}` : "";
-  }).filter(Boolean);
-  const taken = Array.isArray(brief.taken) ? brief.taken : [[], []];
-  const cities = Array.isArray(brief.cities) ? brief.cities : [[], []];
-  const gains = (side, most) => [list(cities[side] ?? [], "city", most), list(taken[side] ?? [], "region", most)].filter(Boolean).join(", ");
-  const sinceText = (most) => {
-    const parts = [moves.length > 0 ? moves.join("; ") : "the line did not move"];
-    const took = gains(0, most);
-    const lost = gains(1, most);
-    if (took || lost) parts.push(`${lead[0]} took ${took || "none"}`, `lost ${lost || "none"}`);
-    const pockets = (Array.isArray(brief.pockets) ? brief.pockets : []).slice(0, 2)
-      .map((pocket) => `${pocket.siege ? "Besieged" : "Pocket"}: ${lead[pocket.s]} at ${pocket.at}, ${pocket.days} days.`);
-    return `  Since ${brief.since ?? ""}: ${parts.join("; ")}.${pockets.length > 0 ? ` ${pockets.join(" ")}` : ""}`;
-  };
+  const sinceText = (most) => `  Since ${brief.since ?? ""}: ${describeSince(record, { most }).text}`;
 
   const standing = [HOLDER_SIDE_A, HOLDER_SIDE_B]
     .filter((side) => viewing < 0 || side === viewing)

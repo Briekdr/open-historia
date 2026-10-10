@@ -12,6 +12,14 @@
 //              troops nearest would take, and the player may redraw it;
 //   diversion  a movement drawn to be stolen and never made.
 //
+// A plan is a movement STILL TO BE MADE. Once days of fighting have passed
+// over an order it is no longer that but a movement being made: the plan says
+// so (`begun`), and the war room's map stops drawing its arrow, since what
+// the troops are doing is on the map already. A route that its troops have
+// come to the end of, an order whose place has been taken and an operation
+// that was sent and is over are not plans at all any more; a diversion is
+// taken off by the engine when a period has passed over it (battle.js).
+//
 // The first three are worked out from the record and the Board whenever they
 // are wanted: nothing of them is kept but what the player changed of a Board
 // operation's arrow (redrawn, or told to move nothing). Diversions are kept,
@@ -30,7 +38,7 @@
 // draw, the turn reads it to carry out (AI/frontPlans.js).
 
 import { decodeTroops } from "./codec.js";
-import { chosenOrdersOf, generalsOf, orderTroops, releaseMarked, thinRoute } from "./command.js";
+import { chosenOrdersOf, generalsOf, orderTroops, releaseMarked, routeAhead, thinRoute } from "./command.js";
 import {
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
@@ -283,6 +291,7 @@ const facing = (record, decoded, side, from) => {
 const orderPlans = (record, side, cities, decoded) => {
   const { toCell } = projectorOf(record.frame);
   const under = Array.isArray(carryOf(record).under?.[side]) ? carryOf(record).under[side] : [];
+  const ages = Array.isArray(carryOf(record).ages) ? carryOf(record).ages : [];
   const have = decoded[side].filter(live).length;
   const plans = [];
   (Array.isArray(record.orders) ? record.orders : []).forEach((order, index) => {
@@ -305,14 +314,28 @@ const orderPlans = (record, side, cities, decoded) => {
       sector: order.chosen ? "" : clean(order.sector),
       chosen: order.chosen === true,
       mark: clean(order.mark),
+      // Days of fighting have passed over it: a movement being made, and no
+      // longer one still to be made.
+      begun: Number(ages[index]) > 0,
       ways: [],
     };
     if (plan.kind === "route") {
+      // From where its troops stand, along what was drawn; and once they are
+      // on it, only what is left of it: from the point the middle one of them
+      // is making for (the record says which), or failing that from the place
+      // on it nearest them.
       const from = middleOf(decoded[side], picked);
       const route = order.way.map(([lng, lat]) => toCell(lng, lat));
-      plan.ways = lngLatWays(record, [from ? [from, ...route] : route]);
+      let left = route;
+      if (plan.begun && from) {
+        const making = picked.map((troop) => Number(carryOf(record).next?.[side]?.[troop])).filter((point) => Number.isInteger(point) && point >= 0).sort((a, b) => a - b);
+        left = making.length > 0 ? route.slice(Math.min(route.length - 1, making[Math.floor(making.length / 2)])) : routeAhead(route, from[0], from[1]);
+      }
+      plan.ways = lngLatWays(record, [from ? [from, ...left] : left]);
     } else if (isAttack(word)) {
       const city = plan.objective ? cityNamed(record, cities, plan.objective) : null;
+      // The place is the side's already: the movement has been made.
+      if (city && holderAt(record, Number(city.lng), Number(city.lat)) === side) return;
       if (city) {
         const to = toCell(Number(city.lng), Number(city.lat));
         // An order for a stretch of line that nobody is carrying out yet: the
@@ -463,6 +486,7 @@ const projectPlans = (record, side, context, decoded) => {
       edited: Boolean(mine?.way),
       off: mine?.off === true,
       sent: mine?.sent === true,
+      begun: false,
       // It moves troops when time next passes: an operation under way, of the
       // player's own, that was not told to move nothing.
       live: operation.status === "active" && operation.own && mine?.off !== true,
@@ -497,11 +521,17 @@ const diversionPlans = (record, side) => keptPlansOf(record, side)
     picked: [],
     troops: plan.troops,
     at: plan.at,
+    begun: false,
   }));
 
 // Every plan of a side of a battlefield:
 //   { id, kind, side, order, objective, name, by, ways: [[[lng, lat]...]...],
-//     picked: [troops, by their places in the record's list], troops, ... }
+//     picked: [troops, by their places in the record's list], troops,
+//     begun, done?, ... }
+// `begun`: days of fighting have passed over it, and it is being carried out.
+// `done`: a Board operation that sent its troops and whose order is over: it
+// has been carried out here, has no arrow, and is sent again only if the
+// player says so (withProjectPlan with sent: false).
 // `context`: { projects, cities, player, people } — the Board's entries as
 // the world keeps them, the map's cities, the player's own name, and (in a
 // game more than one person plays) the names of all who play.
@@ -521,7 +551,8 @@ export const plansOf = (record, side, context = {}) => {
       plan.project = of.project;
     }
   }
-  return [...orders, ...projects.filter((plan) => !sent.has(plan.project)), ...diversionPlans(record, side)];
+  const waiting = projects.filter((plan) => !sent.has(plan.project)).map((plan) => (plan.sent ? { ...plan, done: true, ways: [], picked: [], troops: 0 } : plan));
+  return [...orders, ...waiting, ...diversionPlans(record, side)];
 };
 
 // ---- carrying out the Board's operations ---------------------------------------------

@@ -29,6 +29,7 @@
 // "fallback", "pursue", "reduce", "assault", "breakout".
 
 import { hashSeed } from "../unitMotion.js";
+import { nearestOnRoute } from "./command.js";
 import {
   BLITZ_BREADTH,
   BLITZ_MASS_DAYS,
@@ -41,6 +42,12 @@ import {
   POINT_BREADTH,
   POINT_STOPS_SHORT,
   ROUND_KM,
+  ROUTE_BREADTH_BRUSHES,
+  ROUTE_BREADTH_MIN_KM,
+  ROUTE_JOIN_KM,
+  ROUTE_SET_OFF_DAYS,
+  ROUTE_STOPS_SHORT_KM,
+  ROUTE_STOPS_SHORT_MOST,
   SHOULDER_OUT,
   SHOULDER_OUT_KM,
   SHOULDER_STOPS,
@@ -359,29 +366,62 @@ export const waysFor = (battle, run, side, picked, word, target, days) => {
   return { ways: [cells && cells.length > 1 ? bendsOf(field, cells) : [[target.x, target.y]]], ...facing };
 };
 
-// The part of a drawn route that still lies ahead of a point: everything after
-// the place on it nearest that point, and the whole of it when that is where
-// it begins. A body of troops told to follow a route goes on with it from
-// where it has got to, and does not go back to the start of it every run.
-export const routeAhead = (points, x, y) => {
-  if (points.length <= 1) return points;
-  let best = Infinity;
-  let at = 0;
-  let part = 0;
-  for (let index = 0; index + 1 < points.length; index += 1) {
-    const [ax, ay] = points[index];
-    const dx = points[index + 1][0] - ax;
-    const dy = points[index + 1][1] - ay;
-    const length = dx * dx + dy * dy;
-    const along = length > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / length)) : 0;
-    const off = (x - ax - dx * along) * (x - ax - dx * along) + (y - ay - dy * along) * (y - ay - dy * along);
-    if (off < best) {
-      best = off;
-      at = index;
-      part = along;
+// A number from 0 up to 1 that is a troop's own on one route, the same in
+// every run that carries the route on: its place beside the route is not
+// dealt afresh each time.
+const routeChance = (battle, side, index, standing, what) => (hashSeed([battle.name, "route", standing?.since ?? "", side, index, what].join("|")) % 10000) / 10000;
+
+// Tells troops picked out by hand to go along a route drawn for them (its
+// points in cells). They are not a rank and not a column, and they do not keep
+// the shape they stood in: each comes onto the route from where it stands by a
+// way of its own, has a place of its own beside the route that chance gave it
+// (so that who was on the left may well end on the right), sets off when it is
+// ready and not with the rest, and stops its own distance short of the end, so
+// that they end as a loose body round the place and not as a line across it.
+//   day, standing, lagless   as for `give`
+// A route is taken from its beginning: one drawn round a place is gone round,
+// and the troop that happens to stand nearest its far end does not cut across
+// to it. (Only a troop that stands beside the first stretch of it, or where it
+// begins, leaves out the point it begins at.) Carried on from an earlier
+// run, each goes on to the point it was making for when that run ended
+// (troop.next, which the record keeps); for a record that does not say, from
+// the place on the route nearest it.
+export const giveRoute = (battle, side, picked, { day, way, standing, lagless = false }) => {
+  if (picked.length === 0 || way.length === 0) return;
+  const { kmAt } = battle.place;
+  const troops = battle.troops[side];
+  const breadth = Math.max(ROUTE_BREADTH_MIN_KM, Math.sqrt(picked.length) * battle.radiusKm[side] * ROUTE_BREADTH_BRUSHES);
+  for (const index of picked) {
+    const troop = troops[index];
+    let skip = 0;
+    if (way.length > 1 && lagless && Number.isInteger(troop.next) && troop.next >= 0) skip = Math.min(troop.next, way.length - 1);
+    else if (way.length > 1 && lagless) {
+      const { at, part } = nearestOnRoute(way, troop.x, troop.y);
+      skip = at === 0 && part === 0 ? 0 : at + 1;
+    } else if (way.length > 1) {
+      const dx = way[1][0] - way[0][0];
+      const dy = way[1][1] - way[0][1];
+      const fromX = troop.x - way[0][0];
+      const fromY = troop.y - way[0][1];
+      skip = fromX * dx + fromY * dy > 0 || Math.sqrt(fromX * fromX + fromY * fromY) * kmAt(troop.y) <= ROUTE_JOIN_KM ? 1 : 0;
     }
+    const ahead = skip > 0 ? way.slice(skip) : way;
+    const legs = legsOf([troop.x, troop.y], ahead);
+    // It stands at the end of the route already: there is nowhere to send it.
+    if (legs.length === 0) continue;
+    const km = kmAt(troop.y);
+    const slot = (routeChance(battle, side, index, standing, "place") - 0.5) * breadth;
+    const last = legs[legs.length - 1];
+    const short = ROUTE_STOPS_SHORT_KM * routeChance(battle, side, index, standing, "stop");
+    const stop = 1 - Math.min(ROUTE_STOPS_SHORT_MOST, short / Math.max(1e-6, last.length * km));
+    // A troop that was dug in takes a day to leave its works.
+    const lag = lagless ? 0 : troop.lag + (troop.dug ? 1 : 0) + Math.floor(ROUTE_SET_OFF_DAYS * routeChance(battle, side, index, standing, "wait"));
+    troop.dug = false;
+    // `skip`: how many of the route's points lay behind it when it was told,
+    // so that the point it is making for is the route's skip + leg (battle.js).
+    takeOrder(troop, { kind: "way", standing, word: "path", legs, leg: 0, skip: skip + ahead.length - legs.length, slot: slot / km, stop, since: day + lag, day });
+    troop.fallback = null;
   }
-  return at === 0 && part === 0 ? points : points.slice(at + 1);
 };
 
 // How far a troop still has to go to the line across its leg's end, in cells:

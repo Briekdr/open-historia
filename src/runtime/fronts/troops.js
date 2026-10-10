@@ -100,6 +100,9 @@ export const createTroop = ({ x = 0, y = 0, strength = 100, kind = KIND_INFANTRY
   // steps today.
   order: null,
   serves: -1,
+  // On a route drawn for it: which of the route's points it was making for
+  // when the last run ended (way.js giveRoute), or -1.
+  next: -1,
   // Which of its side's generals it is under (command.js); -1 until it is given one.
   command: -1,
   gx: 0,
