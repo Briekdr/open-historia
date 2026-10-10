@@ -362,3 +362,22 @@ test("a run cut at day k ends as the full run stood after day k, with ways, dug-
   assert.equal(JSON.stringify(runFronts(input(12))), JSON.stringify(whole), "and the same every time");
   assert.ok(whole.battlefields[0].log.some((entry) => entry.k === "assault"));
 });
+
+test("a group goes on with its order from one run to the next, the same troops under it", () => {
+  const world = plain({ layout: ["ABBBBBBB", "ABBBBBBB"], cities: [{ name: "Brod", lng: 23.5, lat: 50 }] });
+  const record = battlefieldOn(world, { troops: [row(20.9, 49, 51, 9), row(21.1, 49, 51, 3, { strength: 30 })], pool: [300, 0] });
+  const moments = [order(0, "Aland", "spearhead", { sector: "centre", objective: "city: Brod" }), order(0, "Borduria", "dig in", { sector: "north" })];
+  const first = watchRun(frontInput(world, { battlefields: [record], days: 3, moments, pace: 0.5 }));
+  const group = first.days[3].troops[0].map((troop, index) => ({ ...troop, index })).filter((troop) => troop.at === "way").map((troop) => troop.index);
+  assert.ok(group.length >= 2 && group.length <= 5, `${group.length} troops are on the spearhead`);
+  const [saved] = first.result.battlefields;
+  // The record says who serves which standing order; nothing else of where they were going is kept.
+  assert.deepEqual(saved.brief.carry.under[0].map((serves, index) => (serves >= 0 ? index : -1)).filter((index) => index >= 0), group);
+  assert.equal(saved.orders[saved.brief.carry.under[0][group[0]]].order, "spearhead");
+  // The next run: the same troops are on their way the first day, nobody waits to set off again, and the others are not.
+  const next = watchRun(frontInput(world, { battlefields: first.result.battlefields, days: 3, fromDate: "2024-03-04", pace: 0.5 }));
+  assert.deepEqual(next.days[1].troops[0].map((troop, index) => ({ ...troop, index })).filter((troop) => troop.at === "way").map((troop) => troop.index), group);
+  for (const index of group) assert.ok(next.days[1].troops[0][index].x > next.days[0].troops[0][index].x + 0.5, `troop ${index} went on the first day`);
+  // And Borduria's northern troop is dug in still.
+  assert.ok(next.days[3].troops[1].some((troop) => troop.dug && troop.state === 4));
+});

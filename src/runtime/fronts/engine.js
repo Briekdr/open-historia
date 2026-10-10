@@ -48,7 +48,7 @@ import {
 import { contactAt, findContacts, frameForContact, middleOf } from "./contact.js";
 import { REGIONS_NEEDED, prepare, recordDay, settleRegions, simulateDay, startRecorder } from "./day.js";
 import { redistance, takeCapsule, traceContour } from "./field.js";
-import { pointInFrame, projectorOf } from "./frame.js";
+import { pointInFrame } from "./frame.js";
 import { applyOrder, assignOrder, readSieges } from "./orders.js";
 import { foldBattlefieldName, normalizeBattlefields } from "./record.js";
 import { findPockets } from "./supply.js";
@@ -476,14 +476,30 @@ const landingGround = (run, opening) => {
   return battle;
 };
 
+// An order on a battlefield that is fought over (or frozen): put to its side as it is.
+const orderOnFront = (run, battle, moment, day) => {
+  const today = prepare(battle, day);
+  applyOrder(battle, moment, { ...today, date: run.dateOf(day), run }, run.notes);
+  battle.touched = true;
+  // What a result took is counted on its own day: a town in the log, a region changing hands.
+  if (battle.status === "active" && battle.cityHolder) settleRegions(battle, run, day);
+};
+
 // An order for a border: `border: A / B`, to dig in or to hold. It opens a
 // standing battlefield along the stretch where the two touch if there is none,
 // raises troops there for the side that gives it, and puts the order to them.
+// Between two that are at war already the border is the front: the order goes
+// to every battlefield the two share, whatever it is.
 const applyBorderMoment = (run, moment, day, first, second) => {
   const note = { kind: "", battlefield: clean(moment.battlefield, BATTLEFIELD_NAME_MAX), side: clean(moment.side), ...(moment.ref !== undefined ? { ref: moment.ref } : {}) };
   const names = [clean(`${first} / ${second} border`, BATTLEFIELD_NAME_MAX), clean(`${second} / ${first} border`, BATTLEFIELD_NAME_MAX)];
   let battle = run.battles.find((entry) => entry.status !== "closed" && names.some((name) => foldBattlefieldName(entry.name) === foldBattlefieldName(name))) ?? null;
   if (!battle) {
+    const fronts = run.battles.filter((entry) => entry.status !== "closed" && entry.status !== "standing" && sideOfName(entry, first) >= 0 && sideOfName(entry, second) >= 0 && sideOfName(entry, first) !== sideOfName(entry, second));
+    if (fronts.length > 0) {
+      for (const front of fronts) orderOnFront(run, front, { ...moment, battlefield: front.name }, day);
+      return;
+    }
     const atWar = [...run.wars.values()].some((war) => war.status !== "ended" && warSide(war, first) >= 0 && warSide(war, second) >= 0 && warSide(war, first) !== warSide(war, second));
     if (atWar || !["dig in", "hold"].includes(moment.order) || fold(first) === fold(second)) {
       run.notes.push({ ...note, kind: atWar ? "border-at-war" : "not-at-war" });
@@ -519,9 +535,17 @@ const applyBorderMoment = (run, moment, day, first, second) => {
     findPockets(battle);
     startRecorder(battle, run, day);
   }
+  orderOnBorder(run, battle, moment, day);
+};
+
+// An order given on a border fortified in peace, by whichever name the
+// battlefield was called. The side that gives it raises troops there if it has
+// none; told to leave by every side that has troops there, it is given up.
+const orderOnBorder = (run, battle, moment, day) => {
+  const note = { kind: "", battlefield: battle.name, side: clean(moment.side), ...(moment.ref !== undefined ? { ref: moment.ref } : {}) };
   const side = sideOfName(battle, moment.side);
   if (side < 0) {
-    run.notes.push({ ...note, kind: "side-not-fighting", battlefield: battle.name });
+    run.notes.push({ ...note, kind: "side-not-fighting" });
     return;
   }
   battle.quiet = 0;
@@ -540,8 +564,7 @@ const applyBorderMoment = (run, moment, day, first, second) => {
       paintGround(battle, run);
     }
   }
-  const today = prepare(battle, day);
-  applyOrder(battle, { ...moment, battlefield: battle.name }, { ...today, date: run.dateOf(day), run }, run.notes);
+  orderOnFront(run, battle, { ...moment, battlefield: battle.name }, day);
 };
 
 const applyOrderMoment = (run, moment, day) => {
@@ -568,11 +591,8 @@ const applyOrderMoment = (run, moment, day) => {
     run.notes.push({ kind: "unknown-battlefield", battlefield: clean(moment.battlefield, BATTLEFIELD_NAME_MAX), side: clean(moment.side), ...(moment.ref !== undefined ? { ref: moment.ref } : {}) });
     return;
   }
-  const today = prepare(battle, day);
-  applyOrder(battle, moment, { ...today, date: run.dateOf(day), run }, run.notes);
-  battle.touched = true;
-  // What a result took is counted on its own day: a town in the log, a region changing hands.
-  if (battle.status === "active" && battle.cityHolder) settleRegions(battle, run, day);
+  if (battle.status === "standing") orderOnBorder(run, battle, moment, day);
+  else orderOnFront(run, battle, moment, day);
 };
 
 const applyWarMoment = (run, moment, day) => {

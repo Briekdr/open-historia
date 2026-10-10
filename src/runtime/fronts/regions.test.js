@@ -245,3 +245,24 @@ test("a run cut at day k ends as the full run stood after day k, with regions ch
   assert.ok(whole.flips.some((flip) => flip.to === "Aland"), "regions taken in name");
   assert.ok(whole.battlefields[0].log.some((entry) => entry.k === "whole" && entry.s === 0), "and one of them taken whole");
 });
+
+test("a defender that has won back all but the last of a region finishes it too, once the other side's troops are gone from it", () => {
+  // Aland holds a strip along the western edge of Borduria 1.0 and nothing
+  // else of it: the region is Borduria's in name and on the map.
+  const world = sheet();
+  const { frame, arena, cells } = cellsOf(world, REGION);
+  const strip = cells.slice(0, Math.floor(cells.length * 0.04));
+  const [lng, lat] = projectorOf(frame).toLngLat((strip[1] % arena.cols) + 0.5, Math.floor(strip[1] / arena.cols) + 0.5);
+  const start = (troops) => battlefieldOn(world, { frame, troops: [troops, []], carve: holding(world, REGION, 0.04) });
+  // With nobody of Aland's near it, it goes back that night.
+  const empty = follow(frontInput(world, { battlefields: [start([])], days: 2, steering: steady }));
+  assert.equal(shareOf(empty.seen[0], cells), strip.length / cells.length);
+  assert.equal(shareOf(empty.seen[1], cells), 0, "the strip went back at the end of the first day");
+  assert.deepEqual(empty.days[2].flips, []);
+  assert.deepEqual(empty.days[2].battlefields[0].contested, []);
+  assert.deepEqual(empty.days[2].battlefields[0].log, [], "nothing changed hands in name, so there is nothing to say");
+  // With one of Aland's standing on it, dug in, it stays: the first cells an
+  // advance takes across a region's border are not handed back at night.
+  const held = follow(frontInput(world, { battlefields: [start([{ lng, lat, state: 4, dig: 1 }])], days: 3, steering: steady }));
+  for (let day = 1; day <= 3; day += 1) assert.equal(shareOf(held.seen[day], cells), strip.length / cells.length, `day ${day}: the strip is still Aland's`);
+});

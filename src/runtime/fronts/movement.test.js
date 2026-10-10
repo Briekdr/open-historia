@@ -3,8 +3,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { rasterizeArena } from "./arena.js";
 import { PAINT_OWN_A, decodeTracks, decodeTroops } from "./codec.js";
-import { CONTROL_RADIUS_MAX_KM, HOLDER_SIDE_A, HOLDER_SIDE_B, HOLDER_WALL } from "./constants.js";
-import { createFrontRun, runFronts } from "./engine.js";
+import { HOLDER_SIDE_A, HOLDER_SIDE_B, HOLDER_WALL } from "./constants.js";
+import { runFronts } from "./engine.js";
 import { normalizeBattlefield } from "./record.js";
 import { replayOf } from "./replay.js";
 import { applyFlips, frontInput, syntheticMap } from "./syntheticMap.js";
@@ -39,7 +39,6 @@ const watchRun = (input) => {
   } });
   return { days, result };
 };
-const kmOf = (frame, cells) => cells * frame.km;
 
 // ---- shapes of attack ------------------------------------------------------------
 
@@ -338,12 +337,8 @@ test("taken ground is painted for the member whose troops took it, and the map i
   const [saved] = result.battlefields;
   assert.equal(saved.frames, undefined);
   assert.deepEqual(saved.replay.names, ["Aland", "Cisland", "Borduria"]);
-  // The record's own check keeps all of it. (The regions taken in name and not
-  // yet whole are listed by the name each is shown under; a check that does
-  // not know that shape yet drops that list, and nothing else.)
-  const checked = normalizeBattlefield(saved);
-  assert.deepEqual({ ...checked, contested: saved.contested }, saved);
-  assert.ok(checked.contested.length === 0 || JSON.stringify(checked.contested) === JSON.stringify(saved.contested));
+  // The record's own check keeps all of it, the regions taken in name and not yet whole among it.
+  assert.deepEqual(normalizeBattlefield(saved), saved);
   for (const [id, name] of saved.contested) assert.ok(world.regions.some((region) => region.id === id) && name === "Borduria", "a region still shown as Borduria's");
   const replay = replayOf(saved);
   assert.equal(replay.days, 6);
