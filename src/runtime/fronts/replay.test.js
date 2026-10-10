@@ -1,7 +1,7 @@
 // Run: node --test src/runtime/fronts/replay.test.js
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PAINT_WALL, decodePaint, decodeStates, decodeTracks } from "./codec.js";
+import { PAINT_OWN_A, PAINT_OWN_B, PAINT_WALL, decodePaint, decodeStates, decodeTracks } from "./codec.js";
 import { HOLDER_SIDE_A, HOLDER_SIDE_B, HOLDER_WALL } from "./constants.js";
 import {
   MAX_REPLAY_CHARS,
@@ -56,10 +56,10 @@ test("a run is kept as the ground it began with, every cell that changed hands w
   assert.deepEqual([replay.d, replay.n, replay.s, replay.e], ["2024-03-01", 10, 0, 10]);
   assert.deepEqual(replay.names, ["Russia", "Belarus", "Ukraine"]);
 
-  // As it began: home ground is nobody's paint, the sea is wall.
+  // As it began: home ground is not painted, but whose it is is known; the sea is wall.
   const began = decodeStates(replay.m, COLS * ROWS);
-  assert.equal(began[at(5, 5)], 0);
-  assert.equal(began[at(30, 5)], 0);
+  assert.equal(began[at(5, 5)], PAINT_OWN_A);
+  assert.equal(began[at(30, 5)], PAINT_OWN_B);
   assert.equal(began[at(5, 0)], PAINT_WALL);
   // Then a column a day: 19 cells of land each, in the name of whose troops took them.
   const log = decodePaint(replay.p);
@@ -108,10 +108,10 @@ test("ground is painted only where it is held away from home, and unpainted when
     return state;
   };
   assert.equal(stateOn(1, at(21, 5)), 1, "painted Russia's");
-  assert.equal(stateOn(2, at(21, 5)), 0, "back with its own side: no paint");
+  assert.equal(stateOn(2, at(21, 5)), PAINT_OWN_B, "back with its own side: no paint");
   assert.equal(stateOn(2, at(19, 5)), 3, "painted Ukraine's");
-  assert.equal(stateOn(3, at(19, 5)), 0);
-  assert.equal(stateOn(3, at(21, 5)), 0);
+  assert.equal(stateOn(3, at(19, 5)), PAINT_OWN_A);
+  assert.equal(stateOn(3, at(21, 5)), PAINT_OWN_B);
 });
 
 test("a cell is painted at the moment in the day its troop reached it", () => {
@@ -188,15 +188,34 @@ test("a replay too big to save keeps the ground as it ended, with nothing of how
   const homes = new Uint8Array(big * big).fill(1);
   const painters = new Uint8Array(big * big);
   recorder.record(0, [[], []], { holders, painters, homes });
-  // Side A takes the whole of it, a row a day: 40,000 changes.
+  // Side A takes the whole of it in two days, every other cell a day: forty
+  // thousand changes, no two of which lie side by side at one moment.
+  for (let day = 1; day <= 2; day += 1) {
+    for (let cell = 0; cell < big * big; cell += 1) {
+      if ((cell + Math.floor(cell / big) + day) % 2 === 0) holders[cell] = HOLDER_SIDE_A;
+    }
+    recorder.record(day, [[], []], { holders, painters, homes });
+  }
+  const replay = recorder.finish({ days: 2 });
+  assert.ok(replay.m.length + replay.p.length + replay.t[0].length + replay.t[1].length <= MAX_REPLAY_CHARS);
+  assert.equal(replay.p.length, 0);
+  assert.ok(decodeStates(replay.m, big * big).every((state) => state === 1), "all of it painted, as it ended");
+});
+
+test("ground taken a strip at a time is kept in far fewer letters than a cell at a time", () => {
+  const big = 200;
+  const recorder = createReplayRecorder({ sides, cols: big, rows: big });
+  const holders = new Uint8Array(big * big).fill(HOLDER_SIDE_B);
+  const homes = new Uint8Array(big * big).fill(1);
+  const painters = new Uint8Array(big * big);
+  recorder.record(0, [[], []], { holders, painters, homes });
   for (let day = 1; day <= big; day += 1) {
     holders.fill(HOLDER_SIDE_A, (day - 1) * big, day * big);
     recorder.record(day, [[], []], { holders, painters, homes });
   }
   const replay = recorder.finish({ days: big });
-  assert.ok(replay.m.length + replay.p.length + replay.t[0].length + replay.t[1].length <= MAX_REPLAY_CHARS);
-  assert.equal(replay.p, "");
-  assert.ok(decodeStates(replay.m, big * big).every((state) => state === 1), "all of it painted, as it ended");
+  assert.ok(replay.p.length > 0 && replay.p.length < 6000, `forty thousand cells in ${replay.p.length} letters`);
+  assert.equal(decodePaint(replay.p).cells.length, big * big);
 });
 
 test("the same run gives the same replay", () => {
@@ -288,7 +307,7 @@ test("a replay with nothing left to play is the ground as it ended and where eve
   assert.deepEqual([still.n, still.s, still.e, still.p], [0, 0, 0, ""]);
   const ground = decodeStates(still.m, COLS * ROWS);
   assert.equal(ground[at(25, 5)], 1, "what was taken is painted");
-  assert.equal(ground[at(35, 5)], 0);
+  assert.equal(ground[at(35, 5)], PAINT_OWN_B);
   assert.equal(ground[at(5, 0)], PAINT_WALL);
   const [moved, fallen] = decodeTracks(still.t[0]);
   assert.deepEqual(moved, [{ day: 0, x: 18, y: 5, strength: 80, state: 0 }]);
