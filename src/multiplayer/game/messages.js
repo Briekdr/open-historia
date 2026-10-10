@@ -21,7 +21,10 @@ import { SETTINGS_SCHEMA } from "../host/settings.js";
 // A host and its players must speak the same game: raised whenever these
 // messages or the views (host/projection.js) change in a way an older player's
 // screen would misread. The session refuses a player on another version.
-export const SHARED_GAME_VERSION = "3";
+// 4: the world a player is sent has battlefields in it (their troops, the
+// replay of the last run, the regions still drawn as their old holder's), and
+// a screen from before would draw land war as loose units that are not there.
+export const SHARED_GAME_VERSION = "4";
 
 // Orders are free text in single player; in a shared game one is held to this.
 export const ORDER_MAX_CHARS = 1500;
