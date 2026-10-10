@@ -318,10 +318,10 @@ const besiege = (extraDays = 2) => {
     troops: [row(20.9, 49.46, 50.54, 12), row(21.1, 49.46, 50.54, 5)],
     orders: [standing(0, "encircle", { objective: "city: Brod" })],
   });
-  const run = createFrontRun(frontInput(world, { battlefields: [record], days: 40, steering: steady }));
+  const run = createFrontRun(frontInput(world, { battlefields: [record], days: 70, steering: steady }));
   const days = [run.snapshot()];
   let closed = -1;
-  while (days.length <= 40 && (closed < 0 || days.length <= closed + extraDays)) {
+  while (days.length <= 70 && (closed < 0 || days.length <= closed + extraDays)) {
     run.advance(1);
     days.push(run.snapshot());
     if (closed < 0 && days.at(-1).battlefields[0].brief.pockets.some((pocket) => pocket.siege)) closed = days.length - 1;
@@ -348,7 +348,7 @@ const roundTheTown = (record, world) => {
 const sieges = (record) => record.brief.pockets.filter((pocket) => pocket.siege);
 
 test("a siege: a place a side is told to encircle is shut in and left alone, and is its defenders' twenty days later", () => {
-  const { world, days, closed } = besiege(20);
+  const { world, days, closed } = besiege(45);
   assert.ok(closed >= 3 && closed <= 9, `the ring closed on day ${closed}`);
   // Until the ring closes there is no pocket, and the pincers have gone round the town, not through it.
   for (let day = 0; day < closed; day += 1) assert.deepEqual(days[day].battlefields[0].brief.pockets, []);
@@ -373,8 +373,13 @@ test("a siege: a place a side is told to encircle is shut in and left alone, and
   assert.ok(last.strength > 40, `${last.strength} left`);
   assert.ok(Math.abs(first.strength - last.strength - 20) < 1.7, `twenty days cost it ${first.strength - last.strength}`);
   assert.ok(Math.abs(first.x - last.x) < 0.1 && Math.abs(first.y - last.y) < 0.1, "and it has not been made to give way");
-  // An ordinary pocket of that size would have given up after ten days; this one is there on the twentieth.
-  assert.ok(closed + 20 > closed + 10);
+  // It holds forty-five days where an ordinary pocket holds ten, and then it is the besiegers'.
+  assert.deepEqual(sieges(days[closed + 43].battlefields[0]), [{ s: 1, at: "city: Brod", days: 44, siege: true }]);
+  assert.equal(readBattlefield(days[closed + 43].battlefields[0], world).holderAt(21.42, 50), HOLDER_SIDE_B);
+  const fell = days[closed + 44].battlefields[0];
+  assert.equal(readBattlefield(fell, world).holderAt(21.42, 50), HOLDER_SIDE_A, "on the forty-fifth day it gives up");
+  assert.deepEqual(fell.log.filter((entry) => entry.at === "city: Brod" && entry.k !== "siege").map(({ k, s }) => [k, s]).slice(-2), [["pocket", 1], ["city", 0]]);
+  assert.deepEqual(sieges(fell), []);
 });
 
 test("a siege ends when the place is captured, when the besiegers are repulsed, when it is relieved, and when the order is replaced", () => {
