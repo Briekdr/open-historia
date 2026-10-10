@@ -90,13 +90,13 @@ export const hashSeed = (text) => {
 const ERA_STARTS = [1500, 1850, 1945];
 // A formation going forward against an enemy. Before the tank, "armor" is the
 // heavy cavalry of its day.
-const ADVANCE_KM_PER_DAY = {
+export const ADVANCE_KM_PER_DAY = {
   infantry: [18, 20, 20, 30],
   armor: [30, 35, 35, 50],
   artillery: [12, 15, 18, 30],
 };
 // A redeployment over land: the march, then the troop train, then rail and road.
-const OVERLAND_KM_PER_DAY = {
+export const OVERLAND_KM_PER_DAY = {
   infantry: [25, 28, 300, 500],
   armor: [40, 45, 300, 500],
   artillery: [18, 22, 300, 500],
