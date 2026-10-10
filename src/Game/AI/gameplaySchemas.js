@@ -10,6 +10,7 @@ import { INSTITUTION_LIFECYCLE_DECISIONS } from "../../runtime/institutions.js";
 import { INSTITUTION_CHAT_ACTION_KINDS } from "./institutionChatActions.js";
 import { extractJsonArray } from "./jsonSalvage.js";
 import { LISTEN_IN_MAX_TRENDS } from "../../runtime/listenIn.js";
+import { FRONT_ORDERS_FIELD } from "./nativeFrontLedger.js";
 const textSchema = (description) => ({
   type: "string",
   description,
@@ -1280,6 +1281,13 @@ export const JUMP_FORWARD_SCHEMA = {
       type: "string",
       description: "Political claims; format in prompt. Empty if none.",
     },
+    // The battlefields' orders (nativeFrontLedger.js), the same kind of text
+    // transport. In the contract a skip is SENT only while the game fights its
+    // land wars on battlefields (withFrontOrders); the answer is read either way.
+    [FRONT_ORDERS_FIELD]: {
+      type: "string",
+      description: "Fronts; format in prompt. Empty if none.",
+    },
     // A folded skip's agents' reports (see "The folded time skip" above). Loose
     // here on purpose: each report is checked against the agents' own schema
     // (SPY_INTERCEPT_SCHEMA) when it is filed, so a malformed one costs that
@@ -1316,7 +1324,12 @@ export const AUTO_JUMP_FORWARD_SCHEMA = JUMP_FORWARD_SCHEMA;
 // The lean contract, which foldJumpTool adds to: the answer schema without the
 // board, the agents' reports and the history.
 const JUMP_FORWARD_LEAN_SCHEMA = (() => {
-  const { [AGENT_REPORTS_FIELD]: _agentReports, [HISTORY_FIELD]: _history, ...properties } = JUMP_FORWARD_SCHEMA.properties;
+  const {
+    [AGENT_REPORTS_FIELD]: _agentReports,
+    [HISTORY_FIELD]: _history,
+    [FRONT_ORDERS_FIELD]: _frontOrders,
+    ...properties
+  } = JUMP_FORWARD_SCHEMA.properties;
   return {
     ...JUMP_FORWARD_SCHEMA,
     properties: { ...properties, events: { ...properties.events, items: leanJumpEventSchema } },
@@ -3282,6 +3295,21 @@ const dropGroupOps = (schema) => {
   ]));
 };
 export const withoutGroupOps = (tool) => (tool?.schema ? { ...tool, schema: dropGroupOps(tool.schema) } : tool);
+
+// Fronts on for a game (AI/frontsGate.js): a time skip's tool with the
+// battlefields' orders in its contract. Any other tool, and a skip's tool that
+// already has the field, comes back as it was.
+export const withFrontOrders = (tool) => {
+  const properties = tool?.schema?.properties;
+  if (!properties?.events || !properties?.stopDate || properties[FRONT_ORDERS_FIELD]) return tool;
+  return {
+    ...tool,
+    schema: {
+      ...tool.schema,
+      properties: { ...properties, [FRONT_ORDERS_FIELD]: JUMP_FORWARD_SCHEMA.properties[FRONT_ORDERS_FIELD] },
+    },
+  };
+};
 
 export const GAMEPLAY_SCHEMAS = Object.freeze({
   spyIntercept: SPY_INTERCEPT_SCHEMA,
