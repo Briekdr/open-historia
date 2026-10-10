@@ -18,13 +18,15 @@
 
 import { noteReceipt } from "../../runtime/applicationReceipt.js";
 import { JSON_URLS, loadRegionCatalog, readJson } from "../../runtime/assets.js";
-import { effectiveCityPopulation } from "../../runtime/cityPopulation.js";
+import { frontCitiesOf, readFrontCities } from "../../runtime/frontCities.js";
 import { logDebugEvent } from "../../runtime/debugLog.js";
 import { createFrontRun } from "../../runtime/fronts/engine.js";
 import { getActiveWorldDirection, isActiveFeatureEnabled } from "../../runtime/gameFeatures.js";
 import { humanCountriesOf } from "../../runtime/humanPolities.js";
 import { FREEFORM, normalizeProjection } from "../../../server/mapProjection.js";
+import { stolenPlansBlock, turnPlanned, warRoomIntel } from "./frontPlans.js";
 import { battlefieldPowers, buildFrontsBlock } from "./frontPrompt.js";
+import { buildScenarioFronts, scenarioFrontsPending } from "./frontScenario.js";
 import { frontsOn, frontsPace } from "./frontsGate.js";
 import { applyFrontUnitChanges, battlefieldRegionTest, engineRegionsOf, frontWorldReaders, runTurnFronts, stripFrontOps } from "./frontTurn.js";
 import { applyWarUpdates, eventNarratesHardCombat } from "./nativeWarLedger.js";
@@ -58,6 +60,9 @@ const hashOf = (text) => {
   return (hash >>> 0).toString(36);
 };
 
+// (The cities of the map as the engine is given them are runtime/frontCities.js's.)
+export { frontCitiesOf, readFrontCities };
+
 // What the engine needs of the map besides its shapes: each region's name and
 // who held it before any override, the cities, the structures, and a key that
 // names this map. Read from what the game already keeps in hand (the compact
@@ -79,22 +84,8 @@ const readFrontMap = async (world, game, campaignId) => {
     baseOwners.set(id, clean(row.owner ?? row.country));
     names.set(id, clean(row.name) || id);
   }
-  const date = clean(game?.gameDate || game?.startDate);
   const renames = isRecord(world?.cityRenames) ? world.cityRenames : {};
-  const cities = [];
-  for (const feature of asArray(citiesGeojson?.features)) {
-    const props = isRecord(feature?.properties) ? feature.properties : {};
-    const point = feature?.geometry?.type === "Point" ? feature.geometry.coordinates : null;
-    const name = clean(props.city || props.name);
-    if (!name || !Array.isArray(point) || !Number.isFinite(Number(point[0])) || !Number.isFinite(Number(point[1]))) continue;
-    cities.push({
-      name: clean(renames[name.toLowerCase()]) || name,
-      lng: Number(point[0]),
-      lat: Number(point[1]),
-      population: effectiveCityPopulation(props, { date, cityPopulations: world?.cityPopulations, name }),
-      capital: Boolean(clean(props.capital)) && !["false", "0", "no"].includes(fold(props.capital)),
-    });
-  }
+  const cities = frontCitiesOf(citiesGeojson, world, game);
   // What an assault may be sent at besides a city: the structures of the map,
   // by name and place. (The engine finds a formation among the units it is given.)
   const structures = asArray(world?.markers)
@@ -178,7 +169,9 @@ export const applyTurnFronts = async ({
     const direction = getActiveWorldDirection();
     const run = await runTurnFronts({
       createFrontRun,
-      world: baseWorld,
+      // With the turn's plans on its battlefields (frontPlans.js): the Board's
+      // operations sent, and a side warned by its agents dug in.
+      world: await plannedWorld(baseWorld, baseGame),
       events,
       frontOrders,
       warStages: warStagesOf({ wars: baseWorld?.wars, updates: warUpdates, events, stopDate: toDate, round }),
@@ -225,6 +218,47 @@ export const applyTurnFronts = async ({
   }
 };
 
+// The world a turn's run is to find: as it stands, with the plans of the turn
+// written onto its battlefields where a war is being fought. A world with no
+// such battlefield is handed back untouched and the map's cities are not read.
+const fighting = (world) => asArray(world?.battlefields).some((row) => row?.status === "active");
+const plannedWorld = async (world, game) => {
+  if (!fighting(world)) return world;
+  try {
+    return turnPlanned({ world, game, cities: await readFrontCities(world, game), espionage: isActiveFeatureEnabled("espionage") });
+  } catch (error) {
+    console.warn("[fronts] the turn's plans could not be read; the battlefields are run as they stand.", error);
+    return world;
+  }
+};
+
+// Builds a new game's battlefields from the fronts its scenario begins with
+// (frontScenario.js), on the game's own map. No model is asked anything.
+// Null with fronts off or none to build; otherwise what buildScenarioFronts
+// returns, its `battlefields` null when the map could not be read.
+export const openScenarioFronts = async ({ world = {}, game = {}, campaignId = "", loadRegions = null } = {}) => {
+  if (!frontsOn() || !scenarioFrontsPending(world)) return null;
+  let front = null;
+  return buildScenarioFronts({
+    world,
+    game,
+    createFrontRun,
+    regionTypes: asArray(world?.regionTypes),
+    groups: isActiveFeatureEnabled("groups"),
+    readMap: async () => {
+      front = await readFrontMap(world, game, campaignId);
+      return { map: front.map, baseOwners: front.baseOwners, regionIds: front.regionIds, arenas: arenasFor(front.map.key) };
+    },
+    loadRegions: typeof loadRegions === "function"
+      ? async () => engineRegionsOf(await loadRegions(), { nameOf: (id) => front?.names.get(id) })
+      : null,
+    pace: frontsPace(),
+    seed: `${clean(campaignId)}|1|${clean(game?.gameDate || game?.startDate)}`,
+    players: humanCountriesOf(game),
+  });
+};
+export { scenarioFrontsPending };
+
 // The world's formations after a turn's run: the ones that went onto a
 // battlefield carry its name, the ones that came back stand where their troops
 // stood, and a formation on a battlefield keeps no standing order of its own,
@@ -247,6 +281,24 @@ export const withFrontUnits = (world, fronts) => {
 export const frontsLiveBlock = (world, game) => (frontsOn()
   ? buildFrontsBlock({ battlefields: world?.battlefields, players: humanCountriesOf(game) })
   : "");
+
+// What the simulator is told of the plans agents have carried off from the
+// people playing (frontPlans.js stolenPlansBlock); "" when there is nothing of
+// the kind, so that the prompt is then exactly what it was.
+export const frontPlansBlock = async (world, game) => {
+  if (!frontsOn() || !isActiveFeatureEnabled("espionage") || asArray(world?.spies).length === 0 || !fighting(world)) return "";
+  try {
+    return stolenPlansBlock({ world, game, cities: await readFrontCities(world, game) });
+  } catch {
+    return "";
+  }
+};
+
+// What the player's generals are told of the other side's intentions on one
+// battlefield: what the player's agents and Board have of them, in words.
+export const warRoomIntelText = ({ world, game, record, side, cities }) => warRoomIntel({
+  world, game, record, side, cities, espionage: isActiveFeatureEnabled("espionage"),
+}).lines.join("; ");
 
 // ---- the old stand-ins --------------------------------------------------------------------
 

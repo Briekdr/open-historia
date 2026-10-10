@@ -359,6 +359,31 @@ export const waysFor = (battle, run, side, picked, word, target, days) => {
   return { ways: [cells && cells.length > 1 ? bendsOf(field, cells) : [[target.x, target.y]]], ...facing };
 };
 
+// The part of a drawn route that still lies ahead of a point: everything after
+// the place on it nearest that point, and the whole of it when that is where
+// it begins. A body of troops told to follow a route goes on with it from
+// where it has got to, and does not go back to the start of it every run.
+export const routeAhead = (points, x, y) => {
+  if (points.length <= 1) return points;
+  let best = Infinity;
+  let at = 0;
+  let part = 0;
+  for (let index = 0; index + 1 < points.length; index += 1) {
+    const [ax, ay] = points[index];
+    const dx = points[index + 1][0] - ax;
+    const dy = points[index + 1][1] - ay;
+    const length = dx * dx + dy * dy;
+    const along = length > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / length)) : 0;
+    const off = (x - ax - dx * along) * (x - ax - dx * along) + (y - ay - dy * along) * (y - ay - dy * along);
+    if (off < best) {
+      best = off;
+      at = index;
+      part = along;
+    }
+  }
+  return at === 0 && part === 0 ? points : points.slice(at + 1);
+};
+
 // How far a troop still has to go to the line across its leg's end, in cells:
 // under the leg's own length while it is on its way, and nothing or less once
 // it has crossed.

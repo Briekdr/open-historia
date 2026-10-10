@@ -46,6 +46,7 @@ import { createSkirmish, skirmishAt } from "./frontSkirmish.js";
 import { contestedOwnersOf, setFrontShownOwners } from "./frontOwnership.js";
 import { shownOwnersAt } from "../../runtime/fronts/replay.js";
 import { shortUnitLabel } from "./unitLabels.js";
+import { useWarRoom } from "./warRoomStore.js";
 
 const EMPTY_FEATURE_COLLECTION = { type: "FeatureCollection", features: [] };
 
@@ -117,18 +118,41 @@ const TROOP_RAMPART_RADIUS = [
   7, ["case", ["get", "named"], 10.4, 8.6],
   10, ["case", ["get", "named"], 15, 12.8],
 ];
+// The pool of light a troop stands in while the war room points at its
+// general: wide enough to be seen with the whole battlefield on the screen.
+const TROOP_LIT_RADIUS = [
+  "interpolate", ["linear"], ["zoom"],
+  3, 7,
+  7, 13,
+  10, 19,
+];
 // The state of a troop that is dug in, as the record names it (a word of the
 // data, not of the interface).
 const DUG_IN = TROOP_STATES[4];
 const ADVANCING = TROOP_STATES[1];
 const IS_TROOP = ["==", ["get", "what"], "troop"];
 const IS_SIDE = ["==", ["get", "what"], "side"];
-// Below this the troops of a side are one marker with their number on it;
-// above the other they are a counter each. Both show in between.
-const SIDE_MARKER_MAX_ZOOM = 5.25;
-const TROOP_MIN_ZOOM = 4.75;
-const TROOP_KIND_MIN_ZOOM = 6.5;
+// On the map at large the troops of a side are a marker a general, with their
+// number on it, and a counter each only from really close in: hundreds of
+// counters seen from further off are a swarm that hides the map under them.
+// Both show in the narrow band between the two zooms.
+const SIDE_MARKER_MAX_ZOOM = 7.75;
+const TROOP_MIN_ZOOM = 7.5;
+const TROOP_KIND_MIN_ZOOM = 8;
+const TROOP_NAME_MIN_ZOOM = 7.5;
 const ARROW_MIN_ZOOM = 4.25;
+// A front at rest is seen to stir from much further off than its troops are
+// seen one by one: the ground along it changes colour and changes back.
+const SKIRMISH_MIN_ZOOM = 4.75;
+// While the war room is open (GameUI/warRoom.jsx) troops are picked out by
+// hand, so there each has its counter from far off, and the generals' markers
+// give way to them sooner.
+const WAR_ROOM_SIDE_MARKER_MAX_ZOOM = 5.25;
+const WAR_ROOM_TROOP_MIN_ZOOM = 2.5;
+const WAR_ROOM_TROOP_KIND_MIN_ZOOM = 6.5;
+const WAR_ROOM_TROOP_NAME_MIN_ZOOM = 6;
+const WAR_ROOM_ACCENT = "#2bc1f3";
+const NOTHING = ["==", ["get", "what"], "nothing"];
 
 // Opt-in only, with the map's other probe (?mapFillProbe=1, or localStorage
 // oh:mapFillProbe = "1"): lets a test hold the playing at a day of its choice.
@@ -184,6 +208,13 @@ const FrontLayers = () => {
   // Most games have no battlefield, and then no source or layer is declared.
   const [pictures, setPictures] = useState([]);
   const { polityOverrides, groups, regionOwnershipOverrides } = useWorldState();
+  // The war room's marks on the troops: the general whose troops are lit, and
+  // the troops picked out (warRoomStore.js).
+  const warRoomOpen = useWarRoom((state) => state.open);
+  const warRoomField = useWarRoom((state) => state.battlefield);
+  const warRoomSide = useWarRoom((state) => state.side);
+  const warRoomLit = useWarRoom((state) => state.highlight);
+  const warRoomPicked = useWarRoom((state) => state.selected);
 
   const colors = useMemo(() => {
     const resolveOwnerRgb = createOwnerRgbResolver(colorMap, polityOverrides);
@@ -620,7 +651,7 @@ const FrontLayers = () => {
       skirmishedAt = now;
       // Not for someone who has asked for less motion, not from so far off
       // that no troop is drawn, and not while the map is being dragged.
-      const quiet = reduceMotionEnabled() || (mapInstance?.getZoom?.() ?? 0) < TROOP_MIN_ZOOM
+      const quiet = reduceMotionEnabled() || (mapInstance?.getZoom?.() ?? 0) < SKIRMISH_MIN_ZOOM
         || (typeof document !== "undefined" && document.visibilityState !== "visible") || mapInstance?.isMoving?.() === true;
       if (quiet && !swaying) return;
       skirmishOnce(now / 1000, quiet);
@@ -805,6 +836,15 @@ const FrontLayers = () => {
     "country-labels-live-managed", "country-labels", "polity-text-renderer", "cities-shapes",
   ]);
   const troopBefore = firstPresent(["units-fill", "units-icons", "units-name"]);
+  const troopMinZoom = warRoomOpen ? WAR_ROOM_TROOP_MIN_ZOOM : TROOP_MIN_ZOOM;
+  const troopKindMinZoom = warRoomOpen ? WAR_ROOM_TROOP_KIND_MIN_ZOOM : TROOP_KIND_MIN_ZOOM;
+  const troopNameMinZoom = warRoomOpen ? WAR_ROOM_TROOP_NAME_MIN_ZOOM : TROOP_NAME_MIN_ZOOM;
+  const sideMarkerMaxZoom = warRoomOpen ? WAR_ROOM_SIDE_MARKER_MAX_ZOOM : SIDE_MARKER_MAX_ZOOM;
+  const ofWarRoom = [["==", ["get", "battlefield"], warRoomField], ["==", ["get", "side"], warRoomSide]];
+  const litFilter = warRoomOpen && warRoomLit >= 0 ? ["all", ...ofWarRoom, ["==", ["get", "command"], warRoomLit]] : NOTHING;
+  const pickedFilter = warRoomOpen && warRoomPicked.length > 0
+    ? ["all", IS_TROOP, ...ofWarRoom, ["in", ["get", "index"], ["literal", [...warRoomPicked]]]]
+    : NOTHING;
 
   return (
     <>
@@ -904,7 +944,7 @@ const FrontLayers = () => {
           id="fronts-sides"
           type="circle"
           beforeId={troopBefore}
-          maxzoom={SIDE_MARKER_MAX_ZOOM}
+          maxzoom={sideMarkerMaxZoom}
           filter={IS_SIDE}
           paint={{
             "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 6, 5, 10],
@@ -919,7 +959,7 @@ const FrontLayers = () => {
           id="fronts-sides-count"
           type="symbol"
           beforeId={troopBefore}
-          maxzoom={SIDE_MARKER_MAX_ZOOM}
+          maxzoom={sideMarkerMaxZoom}
           filter={IS_SIDE}
           layout={{
             "text-field": ["to-string", ["get", "count"]],
@@ -934,13 +974,47 @@ const FrontLayers = () => {
             "text-halo-width": 1,
           }}
         />
+        {/* The troops of the general the war room points at stand in a pool of
+            light, and so does his marker from far off. */}
+        <Layer
+          id="fronts-sides-lit"
+          type="circle"
+          beforeId={troopBefore}
+          maxzoom={sideMarkerMaxZoom}
+          filter={["all", IS_SIDE, litFilter]}
+          paint={{
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 10, 5, 15],
+            "circle-color": WAR_ROOM_ACCENT,
+            "circle-opacity": 0.38,
+            "circle-stroke-width": 1.5,
+            "circle-stroke-color": WAR_ROOM_ACCENT,
+            "circle-stroke-opacity": 0.95,
+            "circle-pitch-alignment": "map",
+          }}
+        />
+        <Layer
+          id="fronts-troops-lit"
+          type="circle"
+          beforeId={troopBefore}
+          minzoom={troopMinZoom}
+          filter={["all", IS_TROOP, litFilter]}
+          paint={{
+            "circle-radius": TROOP_LIT_RADIUS,
+            "circle-color": WAR_ROOM_ACCENT,
+            "circle-opacity": 0.5,
+            "circle-stroke-width": 2,
+            "circle-stroke-color": WAR_ROOM_ACCENT,
+            "circle-stroke-opacity": 0.95,
+            "circle-pitch-alignment": "map",
+          }}
+        />
         {/* A troop that is dug in stands inside its rampart: a dark ring with a
             pale rim round its counter. It does not move while it is so. */}
         <Layer
           id="fronts-troops-dug"
           type="circle"
           beforeId={troopBefore}
-          minzoom={TROOP_MIN_ZOOM}
+          minzoom={troopMinZoom}
           filter={["all", IS_TROOP, ["==", ["get", "state"], DUG_IN]]}
           paint={{
             "circle-radius": TROOP_RAMPART_RADIUS,
@@ -955,7 +1029,7 @@ const FrontLayers = () => {
           id="fronts-troops"
           type="circle"
           beforeId={troopBefore}
-          minzoom={TROOP_MIN_ZOOM}
+          minzoom={troopMinZoom}
           filter={IS_TROOP}
           paint={{
             "circle-radius": TROOP_RADIUS,
@@ -977,11 +1051,26 @@ const FrontLayers = () => {
             "circle-pitch-alignment": "map",
           }}
         />
+        {/* The troops picked out in the war room: a ring round each. */}
+        <Layer
+          id="fronts-troops-picked"
+          type="circle"
+          beforeId={troopBefore}
+          minzoom={troopMinZoom}
+          filter={pickedFilter}
+          paint={{
+            "circle-radius": TROOP_RAMPART_RADIUS,
+            "circle-color": "rgba(0, 0, 0, 0)",
+            "circle-stroke-width": 2.2,
+            "circle-stroke-color": "#ffffff",
+            "circle-pitch-alignment": "map",
+          }}
+        />
         <Layer
           id="fronts-troops-kind"
           type="symbol"
           beforeId={troopBefore}
-          minzoom={TROOP_KIND_MIN_ZOOM}
+          minzoom={troopKindMinZoom}
           filter={IS_TROOP}
           layout={{
             "text-field": ["get", "glyph"],
@@ -1000,7 +1089,7 @@ const FrontLayers = () => {
           id="fronts-troops-name"
           type="symbol"
           beforeId={troopBefore}
-          minzoom={6}
+          minzoom={troopNameMinZoom}
           filter={["all", IS_TROOP, ["get", "named"], ["!=", ["get", "label"], ""]]}
           layout={{
             "symbol-sort-key": ["-", ["get", "strength"]],

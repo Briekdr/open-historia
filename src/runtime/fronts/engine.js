@@ -28,6 +28,7 @@ import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf } from "../unitMotion.js
 import { arenaFor } from "./arena.js";
 import { absorbUnit, keepStart, loadBattle, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
+import { assignCommands } from "./command.js";
 import { hashKey } from "./codec.js";
 import {
   BATTLEFIELD_NAME_MAX,
@@ -51,6 +52,7 @@ import { redistance, takeCapsule, traceContour } from "./field.js";
 import { pointInFrame } from "./frame.js";
 import { applyOrder, assignOrder, readSieges } from "./orders.js";
 import { foldBattlefieldName, normalizeBattlefields } from "./record.js";
+import { authoredName } from "./scenarioFronts.js";
 import { findPockets } from "./supply.js";
 import { createTroop, isLive, liveCount, troopsCap } from "./troops.js";
 
@@ -175,6 +177,9 @@ const nameFor = (run, battle) => {
     return battle.sides[side][best];
   });
   const taken = (name) => run.battles.some((other) => other !== battle && foldBattlefieldName(other.name) === foldBattlefieldName(name));
+  // A front its scenario's author named is called that (scenarioFronts.js).
+  const authored = clean(authoredName(run.input?.authored, battle.sides), BATTLEFIELD_NAME_MAX);
+  if (authored && !taken(authored)) return authored;
   const plain = clean(`${lead[0]} - ${lead[1]} front`, BATTLEFIELD_NAME_MAX);
   if (!taken(plain)) return plain;
   const contour = traceContour(battle.field);
@@ -765,6 +770,8 @@ const begin = (run) => {
   for (const battle of run.battles) {
     if (battle.touched && battle.status !== "closed" && battle.recorded === 0) recordDay(battle, 0, run.days === 0);
   }
+  // Every troop is under one of its side's generals from the first day.
+  for (const battle of run.battles) if (battle.status !== "closed") assignCommands(battle);
 };
 
 // Puts each standing order of a battle that was carried over to the troops it
@@ -773,11 +780,17 @@ const begin = (run) => {
 const assignStanding = (run, battle) => {
   if (battle.status === "closed" || battle.orders.length === 0) return;
   const today = prepare(battle, 0);
-  battle.orders.forEach((order, index) => {
+  // Those for a body of troops picked out come last, so that they stand
+  // whatever the stretch of line those troops are on was told; and such an
+  // order is for those troops alone, never for a sector in their place.
+  const turns = battle.orders.map((order, index) => index).sort((a, b) => (battle.orders[a].chosen ? 1 : 0) - (battle.orders[b].chosen ? 1 : 0) || a - b);
+  for (const index of turns) {
+    const order = battle.orders[index];
     const picked = [];
     if (battle.served) battle.troops[order.s].forEach((troop, at) => { if (troop.serves === index) picked.push(at); });
+    if (order.chosen && picked.length === 0) continue;
     assignOrder(battle, run, order, { ...today, date: run.dateOf(0), run }, { picked: picked.length > 0 ? picked : null, lagless: order.age > 0 });
-  });
+  }
 };
 
 const stepDay = (run) => {
@@ -791,6 +804,8 @@ const stepDay = (run) => {
   applyMoments(run, day);
   for (const battle of run.battles) {
     if (battle.status !== "closed" && battle.recorded !== day) recordDay(battle, day, day >= run.days);
+    // Whoever came today (reserves, a landing, a formation taken in) is put under a general.
+    if (battle.status !== "closed") assignCommands(battle);
   }
   run.day = day;
 };

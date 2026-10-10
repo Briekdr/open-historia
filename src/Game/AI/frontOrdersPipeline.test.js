@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 import { FEATURE_KEYS } from "../../../server/gameFeatures.js";
-import { GAMEPLAY_TOOLS, foldJumpTool, validateGameplayPayload, withFrontOrders, withoutGroupOps } from "./gameplaySchemas.js";
+import { GAMEPLAY_SCHEMAS, GAMEPLAY_TOOLS, foldJumpTool, validateGameplayPayload, withFrontOrders, withoutGroupOps } from "./gameplaySchemas.js";
 import { frontsOn, frontsPace } from "./frontsGate.js";
 import { journalTurn, truncateTurn } from "./intervene.js";
 import { mergeSegmentPayloads } from "./jumpSegments.js";
@@ -21,7 +21,7 @@ import { previewScreenedEvent, screenGeneratedWorldEvents } from "./nativeWorldI
 
 const read = (name) => fs.readFileSync(new URL(name, import.meta.url), "utf8");
 
-test("the lean contract does not carry the field, and the field costs the contract under a hundred characters", () => {
+test("the lean contract does not carry the field, and the field costs the contract little over a hundred characters", () => {
   const lean = GAMEPLAY_TOOLS.jumpForward;
   assert.equal("frontOrders" in lean.schema.properties, false);
   const shown = withFrontOrders(lean);
@@ -33,7 +33,13 @@ test("the lean contract does not carry the field, and the field costs the contra
   // while the game fights on battlefields, where it stands in for a move
   // operation a formation and a control operation a region.
   const cost = JSON.stringify(shown.schema).length - JSON.stringify(lean.schema).length;
-  assert.ok(cost > 0 && cost < 100, `front orders cost the jump schema ${cost} chars`);
+  assert.ok(cost > 0 && cost < 120, `front orders cost the jump schema ${cost} chars`);
+  // In what is sent the field must be written, if only as "": a model that may
+  // leave it out does (a live skip with a battle in every other event came
+  // back without one). The lean contract's own list is not touched.
+  assert.ok(shown.schema.required.includes("frontOrders"));
+  assert.equal(lean.schema.required.includes("frontOrders"), false);
+  assert.equal(GAMEPLAY_SCHEMAS.jumpForward.required.includes("frontOrders"), false, "and an answer without it is still read");
   assert.equal(withFrontOrders(shown), shown, "added once");
   assert.equal(withFrontOrders(GAMEPLAY_TOOLS.actions), GAMEPLAY_TOOLS.actions, "no other task's tool is touched");
   // With the other reshapings a skip's tool goes through.

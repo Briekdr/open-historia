@@ -24,7 +24,46 @@ export const MAX_SIDE_MEMBERS = 8;
 // Hundreds a side: a front is to be thick with troops, close together.
 export const MAX_TROOPS_PER_SIDE = 400;
 export const MAX_NAMED_TROOPS = 64;
-export const MAX_ORDERS_PER_SIDE = 6;
+// (A side a person plays has an order for each of its generals and one for
+// every route drawn for a body of troops, besides what its sectors were told.)
+export const MAX_ORDERS_PER_SIDE = 16;
+
+// A side's troops on a battlefield are under its GENERALS, each with a body of
+// them: one general under the first of these counts, two under the second, and
+// so on to the most there are. A route drawn for troops to follow is kept to
+// this many points.
+export const COMMAND_TROOPS = Object.freeze([12, 40, 110, 220]);
+export const MAX_COMMANDS = 5;
+export const MAX_WAY_POINTS = 12;
+export const GENERAL_NAME_MAX = 60;
+// What was said in a side's war room is kept with the battlefield: the last
+// so many lines of it, each cut to this length.
+export const MAX_TALK_LINES = 40;
+export const TALK_TEXT_MAX = 700;
+// What an order given to troops picked out was written for, when not by hand
+// (record.js normalizeOrder), is a word of at most this many letters.
+export const MARK_MAX = 170;
+
+// PLANS (plans.js): the movements a side means to make, as the war room's map
+// draws them before they are made.
+// A side keeps at most this many of the two kinds that are kept (a diversion,
+// and what the player changed of a Board operation's arrow).
+export const MAX_PLANS_PER_SIDE = 12;
+// An arrow for an attack with nothing named is drawn this far out, and the
+// columns of a suggested encirclement pass this far to either side of the
+// place they close on.
+export const PLAN_REACH_KM = 110;
+export const PLAN_STANDOFF_KM = 38;
+// A Board operation that only gives a point takes the place from the nearest
+// city this near it; and a plan with no place named is said to be toward the
+// city this near its end.
+export const PLAN_PLACE_KM = 70;
+// A side that has learnt of a movement against it (an agent's report, true or
+// planted) digs in the troops it has within this far of the way, up to this
+// many of them and this share of all it has there.
+export const WATCH_KM = 45;
+export const WATCH_TROOPS_MOST = 28;
+export const WATCH_SHARE = 0.3;
 
 // The grid the engine keeps its books on. It is never drawn: the line the
 // player sees is traced between the cells' centres, to a fraction of a cell.
@@ -69,6 +108,13 @@ export const TROOP_STATES = Object.freeze(["holding", "advancing", "encircled", 
 // line is pushed: a city, a structure, or a formation of the other side. The
 // troops it takes are sent at that directly, from wherever they are.
 export const FRONT_ORDERS = Object.freeze(["advance", "blitz", "spearhead", "encircle", "hold", "dig in", "fall back", "land", "flank", "assault"]);
+// What a general may be told from the war room (GameUI/warRoom.jsx). An assault
+// on a named place, and a landing, are the campaign's to order: they are given
+// in the orders for the next period.
+export const WAR_ROOM_ORDERS = Object.freeze(["advance", "blitz", "spearhead", "flank", "encircle", "hold", "dig in", "fall back"]);
+// Where a general stands in a line he speaks: he takes the order he was just
+// given, he argues against it (and it is then no order yet), or neither.
+export const WAR_ROOM_STANCES = Object.freeze(["accepts", "objects", "speaks"]);
 export const FRONT_RESULTS = Object.freeze(["breakthrough", "captured", "repulsed", "stalemate", "collapse", "surrender"]);
 export const FRONT_EFFORTS = Object.freeze(["token", "limited", "major", "total"]);
 export const DEFAULT_EFFORT = "major";

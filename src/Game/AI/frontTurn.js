@@ -696,6 +696,10 @@ export const runTurnFronts = async ({
   seed = "",
   players = [],
   narratesCombat = null,
+  // The fronts a scenario begins with (runtime/fronts/scenarioFronts.js), on
+  // the one run that builds them: what they are called and how many troops
+  // each side has. No other run is given any.
+  authored = null,
 } = {}) => {
   const cleared = withoutCommittedMoves(stripFrontOps(events), world?.units);
   const list = cleared.events;
@@ -791,6 +795,7 @@ export const runTurnFronts = async ({
       flipAllowance: frontFlipAllowance({ allowance, events: list }),
       seed,
       arenas,
+      ...(asArray(authored).length ? { authored: asArray(authored) } : {}),
     },
     loadRegions: readRegions,
     pause,

@@ -100,6 +100,8 @@ export const createTroop = ({ x = 0, y = 0, strength = 100, kind = KIND_INFANTRY
   // steps today.
   order: null,
   serves: -1,
+  // Which of its side's generals it is under (command.js); -1 until it is given one.
+  command: -1,
   gx: 0,
   gy: 0,
   paceFactor: 1,

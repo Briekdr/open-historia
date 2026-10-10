@@ -18,6 +18,21 @@ import { isLive } from "./troops.js";
 
 const unique = (names) => [...new Set(names)];
 
+// What a troop is at, in a word a reader of the brief can be shown or told.
+const doingOf = (troop) => {
+  const order = troop.order && !troop.order.done ? troop.order : null;
+  if (troop.pocket) return "cut-off";
+  if (troop.dug) return "dug-in";
+  if (!order) return "holding";
+  if (order.kind === "way") return order.word === "path" ? "on-route" : order.own ? "advancing" : order.word;
+  if (order.kind === "reduce") return "closing";
+  if (order.kind === "assault") return "assaulting";
+  if (order.kind === "fallback") return "falling-back";
+  if (order.kind === "breakout") return "breaking-out";
+  if (order.kind === "pursue") return "pursuing";
+  return "holding";
+};
+
 // The brief of a battle as it stands.
 export const buildBrief = (battle, since) => {
   const { field, arena, place } = battle;
@@ -93,10 +108,42 @@ export const buildBrief = (battle, since) => {
     if (at) pockets.push({ s: pocket.s, at, days: pocket.days, ...(pocket.siege ? { siege: true } : {}) });
   });
 
+  // What each general's body of troops amounts to, a list a side in the order
+  // of their commands: how many, how strong, about where they stand, what
+  // most of them are at, how many are cut off and how many dug in.
+  const commands = [HOLDER_SIDE_A, HOLDER_SIDE_B].map((side) => {
+    const bodies = [];
+    for (const troop of battle.troops[side]) {
+      if (!isLive(troop) || !(troop.command >= 0)) continue;
+      const body = bodies[troop.command] ?? (bodies[troop.command] = { n: 0, strength: 0, x: 0, y: 0, cut: 0, dug: 0, at: new Map() });
+      body.n += 1;
+      body.strength += troop.strength;
+      body.x += troop.x;
+      body.y += troop.y;
+      if (troop.pocket) body.cut += 1;
+      if (troop.dug) body.dug += 1;
+      const doing = doingOf(troop);
+      body.at.set(doing, (body.at.get(doing) ?? 0) + 1);
+    }
+    return Array.from(bodies, (body) => {
+      if (!body) return { n: 0 };
+      let doing = "holding";
+      let most = 0;
+      for (const [what, count] of body.at) {
+        if (count > most) {
+          most = count;
+          doing = what;
+        }
+      }
+      return { n: body.n, pct: Math.round(body.strength / body.n), at: describePoint(arena, body.x / body.n, body.y / body.n), doing, cut: body.cut, dug: body.dug };
+    });
+  });
+
   return {
     km: Math.round(line.total),
     axis: sectors.axis,
     sectors: rows,
+    commands,
     strength,
     taken: [unique(battle.taken[0]), unique(battle.taken[1])],
     cities: [unique(battle.citiesTaken[0]), unique(battle.citiesTaken[1])],
@@ -114,11 +161,20 @@ const list = (names, kind, most = 4) => {
 };
 
 const ordersOf = (record, side) => {
-  const mine = record.orders.filter((order) => order.s === side);
+  const mine = record.orders.map((order, index) => ({ order, index })).filter(({ order }) => order.s === side);
   if (mine.length === 0) return "all hold";
-  const parts = mine.map((order) => `${order.sector} ${order.order}${order.objective ? ` toward ${order.objective}` : ""}`);
+  // An order for a stretch of line is told by its sector; one for a body of
+  // troops picked out, by how many they are.
+  const under = record.brief?.carry?.under?.[side];
+  const serving = (index) => (Array.isArray(under) ? under.reduce((count, serves) => count + (serves === index ? 1 : 0), 0) : 0);
+  const line = mine.filter(({ order }) => !order.chosen);
+  const parts = line.map(({ order }) => `${order.sector} ${order.order}${order.objective ? ` toward ${order.objective}` : ""}`);
+  for (const { order, index } of mine) {
+    if (!order.chosen) continue;
+    parts.push(`${serving(index)} formations ${order.way ? "sent along a route drawn for them" : `${order.order}${order.objective ? ` toward ${order.objective}` : ""}`}`);
+  }
   parts[0] += ` (${record.effort[side]})`;
-  if (!mine.some((order) => order.sector === "all")) parts.push("elsewhere hold");
+  if (!line.some(({ order }) => order.sector === "all")) parts.push("elsewhere hold");
   return parts.join("; ");
 };
 

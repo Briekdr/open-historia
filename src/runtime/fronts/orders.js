@@ -64,7 +64,7 @@ import { cellAt, cheapestWay } from "./ground.js";
 import { WHOLE_LINE, describePoint, findPlace, inSector, placeText, resolveSector, sectorMiddle } from "./sectors.js";
 import { findPockets, nearestOwner, surrenderPocket } from "./supply.js";
 import { KIND_ARTILLERY, KIND_INFANTRY, STATE_ADVANCING, STATE_DUG_IN, STATE_HOLDING, controlRadius, createTroop, isAttack, isLive, liveCount, stands } from "./troops.js";
-import { chanceOf, give, giveOut, takeOrder, waysFor } from "./way.js";
+import { chanceOf, give, giveOut, routeAhead, takeOrder, waysFor } from "./way.js";
 
 export { cheapestWay };
 
@@ -123,6 +123,8 @@ export const readOrders = (battle, line, sectors) => {
   const { arena, place } = battle;
   const views = [[], []];
   for (const order of battle.orders) {
+    // An order for a body of troops picked out is no order for a stretch of line.
+    if (order.chosen) continue;
     const sector = resolveSector(arena, line, sectors, order.sector) ?? WHOLE_LINE;
     const target = order.objective ? findPlace(arena, order.objective) : null;
     const word = isAttack(order.order) && order.age >= ATTACK_LAPSE_DAYS ? "hold" : order.order;
@@ -148,11 +150,15 @@ export const ageOrders = (battle) => {
     if (isAttack(order.order) && order.age >= ATTACK_LAPSE_DAYS) {
       order.order = "hold";
       delete order.objective;
+      delete order.way;
+      // One for troops picked out is over with its attack: they go back to
+      // what their stretch of line is told.
+      if (order.chosen) order.lapsed = true;
       battle.ordersChanged += 1;
     }
   }
   const standing = battle.orders.length;
-  battle.orders = battle.orders.filter((order) => order.order !== "assault" || (!(order.entry && order.entry.over) && order.age <= ASSAULT_DAYS));
+  battle.orders = battle.orders.filter((order) => !order.lapsed && (order.order !== "assault" || (!(order.entry && order.entry.over) && order.age <= ASSAULT_DAYS)));
   if (battle.orders.length !== standing) battle.ordersChanged += 1;
   const before = battle.halts.length;
   for (const halt of battle.halts) halt.days -= 1;
@@ -168,13 +174,15 @@ export const setStandingOrder = (battle, side, order) => {
   const sector = fold(order.sector);
   // An assault is not an order for a stretch of line: it stands beside the others.
   const besides = order.order === "assault";
-  battle.orders = battle.orders.filter((standing) => standing.s !== side || (standing.order === "assault") !== besides
+  // (An order given to troops picked out is theirs until they have carried it
+  // out or are told otherwise: an order for a stretch of line does not end it.)
+  battle.orders = battle.orders.filter((standing) => standing.s !== side || standing.chosen || (standing.order === "assault") !== besides
     || (besides ? fold(standing.objective) !== fold(order.objective) : sector !== "all" && fold(standing.sector) !== sector));
   const set = { ...order, s: side };
   battle.orders.push(set);
   const mine = battle.orders.filter((standing) => standing.s === side);
   if (mine.length > MAX_ORDERS_PER_SIDE) {
-    const dropped = mine[0];
+    const dropped = mine.find((standing) => !standing.chosen) ?? mine[0];
     battle.orders = battle.orders.filter((standing) => standing !== dropped);
   }
   battle.ordersChanged += 1;
@@ -286,6 +294,20 @@ export const assignOrder = (battle, run, order, today, { picked = null, lagless 
       troops[index].order = { kind: "fallback", standing: order, target, since: today.day, day: today.day, gone: 0 };
       troops[index].fallback = null;
     }
+  } else if (isAttack(word) && group.length > 0 && Array.isArray(order.way) && order.way.length > 0) {
+    // A route drawn for them: they go along it as they stand, each with its own
+    // place across it, from wherever on it they have got to. It is a way like
+    // any other: what is in it stops them, a pocket beside it draws them off
+    // and they come back to it, and nothing says they will get to its end.
+    let midX = 0;
+    let midY = 0;
+    for (const index of group) {
+      midX += troops[index].x / group.length;
+      midY += troops[index].y / group.length;
+    }
+    const route = routeAhead(order.way.map(([lng, lat]) => battle.place.toCell(lng, lat)), midX, midY);
+    give(battle, side, group, { day: today.day, word: "path", standing: order, lagless, way: route });
+    for (const index of group) if (troops[index].state === STATE_DUG_IN) troops[index].state = STATE_HOLDING;
   } else if (isAttack(word) && group.length > 0) {
     const target = order.objective ? findPlace(battle.arena, order.objective) : null;
     const days = Math.max(1, run.days - today.day);
@@ -348,12 +370,19 @@ export const assignOrder = (battle, run, order, today, { picked = null, lagless 
   return true;
 };
 
-// The troops a side's standing order has, by their indexes: for the record,
-// so that the next run finds the same group under it.
-export const servingOf = (battle, troop) => {
+// Which of its side's standing orders a troop is carrying out, or null: the
+// one it was taken off to close on a pocket or to assault a place still counts.
+export const standingOf = (battle, troop) => {
   let order = troop.order && !troop.order.done ? troop.order : null;
   if (order && (order.kind === "reduce" || (order.kind === "assault" && !battle.orders.includes(order.standing)))) order = order.resume && !order.resume.done ? order.resume : null;
-  return order && order.standing ? battle.orders.indexOf(order.standing) : -1;
+  return order && order.standing && battle.orders.includes(order.standing) ? order.standing : null;
+};
+
+// The same by its place among the battle's standing orders (-1 for none): for
+// the record, so that the next run finds the same group under it.
+export const servingOf = (battle, troop) => {
+  const standing = standingOf(battle, troop);
+  return standing ? battle.orders.indexOf(standing) : -1;
 };
 
 // ---- the ground a result takes -----------------------------------------------------

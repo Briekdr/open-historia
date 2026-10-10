@@ -1,0 +1,186 @@
+/*! Open Historia — what a person does in the war room, written onto the battlefields © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
+// The war room (GameUI/warRoom.jsx) changes a battlefield in a handful of ways,
+// and every one of them is an OP: a plain object that says what was done. The
+// page playing alone applies it to its own world; a page in a shared game
+// sends it to the host, which applies the very same op for the country that
+// asked (runtime/warRoomWrites.js, multiplayer/host/gameHost.js). So the rules
+// are here once: whose troops they are, what may be ordered, where a way may
+// be drawn.
+//
+//   { op: "order",     battlefield, troops, order, objective? }   troops picked out are told something
+//   { op: "route",     battlefield, troops, way }                 ... or sent along a route drawn for them
+//   { op: "release",   battlefield, troops }                      ... or given back to their stretch of line
+//   { op: "talk",      battlefield, said, lines, orders, names }  what was said to the generals, what they
+//                                                                 answered, and the orders they took
+//   { op: "forget",    battlefield }                              the war room's talk there is cleared
+//   { op: "diversion", battlefield, way, troops? }                a movement drawn to be stolen (plans.js)
+//   { op: "plan",      battlefield, project, way?, off? }         a Board operation's arrow redrawn, put
+//                                                                 back (way: []), or told to move nothing
+//   { op: "unplan",    battlefield, id }                          a diversion taken off
+//
+// Nothing here moves a troop: orders are put to the troops when time next
+// passes (engine.js assignStanding).
+//
+// Pure, and runs in bare node.
+
+import { generalsOf, nameGenerals, orderTroops, readTalk, releaseTroops, withTalk } from "./command.js";
+import { HOLDER_SIDE_A, HOLDER_SIDE_B, MAX_COMMANDS, MAX_TROOPS_PER_SIDE, MAX_WAY_POINTS, TALK_TEXT_MAX, WAR_ROOM_ORDERS } from "./constants.js";
+import { pointInFrame } from "./frame.js";
+import { withDiversion, withProjectPlan, withoutPlan } from "./plans.js";
+import { battlefieldSideOf, foldBattlefieldName, isOpenBattlefield, normalizeBattlefield } from "./record.js";
+
+export const WAR_ROOM_OPS = Object.freeze(["order", "route", "release", "talk", "forget", "diversion", "plan", "unplan"]);
+// The most a drawn way may hold as it is sent: it is thinned to what a route keeps.
+export const WAR_ROOM_WAY_MOST = 400;
+
+const clean = (value, most = 200) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, most).trim();
+const list = (value) => (Array.isArray(value) ? value : []);
+
+// The points of a way that lie on the battlefield, as [lng, lat].
+const wayOn = (record, value) => {
+  const way = [];
+  for (const point of list(value).slice(0, WAR_ROOM_WAY_MOST)) {
+    const lng = Number(point?.[0]);
+    const lat = Number(point?.[1]);
+    if (Number.isFinite(lng) && Number.isFinite(lat) && pointInFrame(record.frame, lng, lat)) way.push([lng, lat]);
+  }
+  return way;
+};
+
+const troopIndexes = (value) => [...new Set(list(value).map(Number).filter((index) => Number.isInteger(index) && index >= 0 && index < MAX_TROOPS_PER_SIDE))];
+
+const REFUSED = Object.freeze({
+  nothing: "Nothing was asked.",
+  closed: "That battlefield is no longer open.",
+  side: "Your troops are not on that battlefield.",
+  troops: "None of those troops are yours to order.",
+  order: "The generals do not know that order.",
+  way: "That way does not cross the battlefield.",
+  room: "There is no room for another order there: release some troops first.",
+  plans: "There is no room for another plan there: take one off first.",
+});
+
+// One record with an op applied to it for one of its sides.
+// Returns { record } or { error }.
+const applyTo = (record, side, op, { player, date }) => {
+  const since = clean(date, 40);
+  if (op.op === "order") {
+    const order = clean(op.order, 20).toLowerCase();
+    if (!WAR_ROOM_ORDERS.includes(order)) return { error: REFUSED.order };
+    const troops = troopIndexes(op.troops);
+    const next = orderTroops(record, { side, troops, order, objective: clean(op.objective, 120), by: player, since });
+    if (next === record) return { error: troops.length === 0 ? REFUSED.troops : REFUSED.room };
+    return { record: next };
+  }
+  if (op.op === "route") {
+    const way = wayOn(record, op.way);
+    if (way.length < 2) return { error: REFUSED.way };
+    const troops = troopIndexes(op.troops);
+    const next = orderTroops(record, { side, troops, order: "advance", way, by: player, since });
+    if (next === record) return { error: troops.length === 0 ? REFUSED.troops : REFUSED.room };
+    return { record: next };
+  }
+  if (op.op === "release") {
+    const next = releaseTroops(record, { side, troops: troopIndexes(op.troops) });
+    return { record: next };
+  }
+  if (op.op === "talk") {
+    const generals = generalsOf(record, side);
+    const commands = new Set(generals.map((general) => general.command));
+    const said = clean(op.said, TALK_TEXT_MAX);
+    const lines = [];
+    if (said) lines.push({ who: "", text: said, at: since });
+    for (const line of list(op.lines).slice(0, 6)) {
+      const who = Number(line?.who);
+      const text = String(line?.text ?? "").trim().slice(0, TALK_TEXT_MAX);
+      if (text && Number.isInteger(who) && commands.has(who)) lines.push({ who, text, at: since });
+    }
+    if (lines.length === 0) return { error: REFUSED.nothing };
+    let next = withTalk(record, side, lines);
+    const names = list(op.names).slice(0, MAX_COMMANDS).map((name) => clean(name, 80));
+    if (names.some(Boolean)) next = nameGenerals(next, side, names);
+    // The orders the generals took: each for the troops under that general now.
+    const told = new Set();
+    for (const entry of list(op.orders).slice(0, MAX_COMMANDS)) {
+      const command = Number(entry?.command);
+      const order = clean(entry?.order, 20).toLowerCase();
+      if (!commands.has(command) || told.has(command) || !WAR_ROOM_ORDERS.includes(order)) continue;
+      told.add(command);
+      const general = generalsOf(next, side).find((one) => one.command === command);
+      if (!general) continue;
+      next = orderTroops(next, { side, troops: general.troops, order, objective: clean(entry?.objective, 120), by: player, since });
+    }
+    return { record: next };
+  }
+  if (op.op === "forget") {
+    const talk = readTalk(record.brief?.carry?.talk);
+    talk[side] = [];
+    return { record: { ...record, brief: { ...record.brief, carry: { ...(record.brief?.carry ?? {}), talk } } } };
+  }
+  if (op.op === "diversion") {
+    const way = wayOn(record, op.way);
+    if (way.length < 2) return { error: REFUSED.way };
+    const next = withDiversion(record, side, { way, troops: Math.max(0, Math.min(MAX_TROOPS_PER_SIDE, Math.round(Number(op.troops) || 0))), at: since });
+    return next === record ? { error: REFUSED.plans } : { record: next };
+  }
+  if (op.op === "plan") {
+    const project = clean(op.project, 160);
+    if (!project) return { error: REFUSED.nothing };
+    // A way given is the arrow redrawn; an empty one puts the suggested arrow back.
+    let way = null;
+    if (Array.isArray(op.way)) {
+      way = wayOn(record, op.way);
+      if (op.way.length > 0 && way.length < 2) return { error: REFUSED.way };
+    }
+    const off = op.off === true ? true : op.off === false ? false : null;
+    const next = withProjectPlan(record, side, { project, way, off, at: since });
+    // Nothing changed is no failure: an arrow put back that was never moved.
+    return { record: next };
+  }
+  if (op.op === "unplan") return { record: withoutPlan(record, side, clean(op.id, 180)) };
+  return { error: REFUSED.nothing };
+};
+
+// The world's battlefields with one op applied, for the country or group that
+// asked. Returns { battlefields } with the one record changed, or { error } in
+// words a person can read. `date` is the game's date, written on what is kept.
+export const applyWarRoomOp = (battlefields, op, { player = "", date = "" } = {}) => {
+  if (!op || !WAR_ROOM_OPS.includes(op.op)) return { error: REFUSED.nothing };
+  const wanted = foldBattlefieldName(op.battlefield);
+  const rows = list(battlefields);
+  const at = rows.findIndex((row) => foldBattlefieldName(row?.name) === wanted && wanted !== "");
+  const record = at >= 0 ? normalizeBattlefield(rows[at]) : null;
+  if (!record || !isOpenBattlefield(record)) return { error: REFUSED.closed };
+  const side = battlefieldSideOf(record, player);
+  if (side !== HOLDER_SIDE_A && side !== HOLDER_SIDE_B) return { error: REFUSED.side };
+  const result = applyTo(record, side, op, { player: clean(player, 120), date });
+  if (result.error) return result;
+  const next = rows.slice();
+  next[at] = result.record;
+  return { battlefields: next, record: result.record, side };
+};
+
+// An op as it may be sent to a host: only the fields an op has, each held to
+// its size, so that what crosses the wire is small and is nothing else.
+export const cleanWarRoomOp = (op) => {
+  if (!op || !WAR_ROOM_OPS.includes(op.op)) return null;
+  const sent = { op: op.op, battlefield: clean(op.battlefield, 120) };
+  if (op.troops !== undefined) sent.troops = troopIndexes(op.troops);
+  if (op.order !== undefined) sent.order = clean(op.order, 20).toLowerCase();
+  if (op.objective !== undefined) sent.objective = clean(op.objective, 120);
+  if (op.way !== undefined) {
+    sent.way = list(op.way).slice(0, WAR_ROOM_WAY_MOST)
+      .map((point) => [Math.round(Number(point?.[0]) * 10000) / 10000, Math.round(Number(point?.[1]) * 10000) / 10000])
+      .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat));
+    // What is kept of a way is a dozen points: no need to send hundreds.
+    if (sent.way.length > MAX_WAY_POINTS * 8) sent.way = sent.way.filter((_, index) => index % Math.ceil(sent.way.length / (MAX_WAY_POINTS * 8)) === 0 || index === sent.way.length - 1);
+  }
+  if (op.said !== undefined) sent.said = clean(op.said, TALK_TEXT_MAX);
+  if (op.lines !== undefined) sent.lines = list(op.lines).slice(0, 6).map((line) => ({ who: Number(line?.who), text: String(line?.text ?? "").trim().slice(0, TALK_TEXT_MAX) }));
+  if (op.orders !== undefined) sent.orders = list(op.orders).slice(0, MAX_COMMANDS).map((entry) => ({ command: Number(entry?.command), order: clean(entry?.order, 20).toLowerCase(), objective: clean(entry?.objective, 120) }));
+  if (op.names !== undefined) sent.names = list(op.names).slice(0, MAX_COMMANDS).map((name) => clean(name, 80));
+  if (op.project !== undefined) sent.project = clean(op.project, 160);
+  if (typeof op.off === "boolean") sent.off = op.off;
+  if (op.id !== undefined) sent.id = clean(op.id, 180);
+  return sent;
+};

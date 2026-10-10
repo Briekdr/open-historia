@@ -196,7 +196,8 @@ import {
   withoutGroupOps,
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
-import { applyTurnFronts, frontPowers, frontRegionTest, frontsLiveBlock, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { applyTurnFronts, frontPlansBlock, frontPowers, frontRegionTest, frontsLiveBlock, openScenarioFronts, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { readWarRoomAnswer, warRoomRequest, warRoomStanding, warRoomVariables } from "./warRoomContext.js";
 import { bindFrontOrdersToEvents, describeDroppedFrontOrders, frontOrderProseLines, screenFrontOrders } from "./nativeFrontLedger.js";
 import { buildOwnerAliasMap, canonicalOwnerName, toCountryName } from "../../runtime/ownerNames.js";
 import { countryGidFromIdentity } from "../../runtime/countryFlags.js";
@@ -2780,6 +2781,9 @@ ${brief}`);
   // them. "" with fronts off.
   const fronts = frontsLiveBlock(world, game);
   if (fronts) blocks.push(fronts);
+  // What agents have carried off of the players' planned movements there.
+  const stolenPlans = await frontPlansBlock(world, game);
+  if (stolenPlans) blocks.push(stolenPlans);
   if (isActiveFeatureEnabled("espionage")) blocks.push(buildSpyOrdersDirective(playerName));
   // And the agents whose reports are due ride on it (prepareFoldedSkip).
   const agentReports = foldedSkip ? normalizeString(variables.foldedAgentReports) : "";
@@ -2827,12 +2831,12 @@ ${brief}`);
 // The tasks that simulate nothing, so no difficulty applies to them: Listen in
 // writes what people are saying, and a harder game does not make them say it
 // differently.
-const TASKS_WITHOUT_DIFFICULTY = new Set(["listenIn"]);
+const TASKS_WITHOUT_DIFFICULTY = new Set(["listenIn", "warRoom"]);
 
 // The tasks that speak for, to or about the player's side.
 const PLAYER_GROUP_TASKS = new Set([
   "actions", "chatActions", "descriptionToAction", "interactiveCreation", "interactiveExecutor",
-  "interactiveSummary", "idleDiplomacy", "gameMaster",
+  "interactiveSummary", "idleDiplomacy", "gameMaster", "warRoom",
 ]);
 
 const buildTaskSystemPrompt = async (taskKey, { variables, lookups = null, reminders = true, promptPack = null } = {}) => {
@@ -12680,6 +12684,106 @@ export const generateListenInFeed = async ({ place, language: askedLanguage, sig
     language,
     posts: normalizeListenInPosts(payload?.posts),
     trends: normalizeListenInTrends(payload?.trends),
+  };
+};
+
+// The fronts a scenario begins with (runtime/fronts/scenarioFronts.js), built
+// into battlefields the first time its game is entered: the engine opens them
+// where the two sides' ground meets and stands the troops along the line, the
+// wars they are fought in are written into the ledger, and the list is cleared
+// from the game's world, which is the mark that it has been done. No request
+// is made. Returns true when they were built, "later" when something else is
+// at work on the game or the map could not be read (the caller tries again),
+// and null when there is nothing to build.
+export const maybeOpenScenarioFronts = async () => {
+  if (!frontsOn()) return null;
+  if (isSimulationBusy()) return "later";
+  // The lock before the first read, as the backstory takes it (issue #724).
+  beginSimulation();
+  try {
+    const campaignId = activeCampaignId();
+    const campaignRuntimeGameUrl = String(JSON_URLS.game || "");
+    const sameGame = () => (!campaignId || activeCampaignId() === campaignId) && String(JSON_URLS.game || "") === campaignRuntimeGameUrl;
+    const bundle = await readGameStateBundle({ force: true });
+    if (!sameGame()) return null;
+    const world = normalizeWorldState(bundle.world);
+    if (!scenarioFrontsPending(world)) return null;
+    const built = await openScenarioFronts({ world, game: bundle.game, campaignId, loadRegions: createRenderedRegionsReader() });
+    if (!built) return null;
+    if (!built.battlefields) return "later";
+    if (!sameGame()) return null;
+    let written = false;
+    await mutateWorldState((current) => {
+      // Built already by another page of this game, or the game was changed.
+      if (!sameGame() || !scenarioFrontsPending(current)) return null;
+      written = true;
+      const open = new Set(built.battlefields.map((record) => record.name.toLowerCase()));
+      return withFrontUnits({
+        ...current,
+        wars: built.wars,
+        battlefields: [...(Array.isArray(current.battlefields) ? current.battlefields : []).filter((record) => !open.has(String(record?.name ?? "").toLowerCase())), ...built.battlefields],
+        scenarioFronts: [],
+      }, built);
+    });
+    if (written) {
+      logDebugEvent("turn", `Fronts: ${built.battlefields.length} battlefield${built.battlefields.length === 1 ? "" : "s"} built from the scenario's fronts.`, {
+        battlefields: built.battlefields.map((record) => record.name),
+        notes: built.notes.length,
+      }, { verbose: true });
+    }
+    return written ? true : null;
+  } finally {
+    endSimulation();
+  }
+};
+
+// What the player's generals answer when he speaks to them over one battlefield
+// (GameUI/warRoom.jsx). One request a message and no lookup functions: the
+// battlefield, its places and what has been said so far are worked out in
+// warRoomContext.js and handed over in the prompt. Nothing is written here: the
+// caller writes what was said and ordered (runtime/warRoomWrites.js), which is
+// where a running turn and a shared game are answered for.
+export const generateWarRoomReply = async ({ battlefield, message, signal } = {}) => {
+  const said = normalizeString(message);
+  if (!said) throw new Error("There is nothing to say to the generals.");
+  if (!frontsOn()) throw new Error("Fronts are switched off for this game.");
+  // Stamped before the read: the caller writes the answer into this campaign
+  // and this battlefield as it stood, whatever is open when it comes back.
+  const campaignId = activeCampaignId();
+  const bundle = await readGameStateBundle({ force: true });
+  const world = normalizeWorldState(bundle.world);
+  const standing = warRoomStanding({ world, game: bundle.game, battlefield });
+  if (standing.error) throw new Error(standing.error);
+  const { record, side, player } = standing;
+  const [variables, cities] = await Promise.all([
+    buildTemplateVariables(bundle, { taskKey: "warRoom" }),
+    readFrontCities(world, bundle.game),
+  ]);
+  const uiLanguage = getStoredLanguage();
+  const { payload } = await runJsonTask("warRoom", {
+    signal,
+    userMessage: warRoomRequest(said),
+    variables: {
+      ...variables,
+      ...warRoomVariables({ record, side, player, cities, intel: warRoomIntelText({ world, game: bundle.game, record, side, cities }) }),
+      warRoomLanguage: listenInFeedLanguage({
+        uiLanguage,
+        uiLanguageName: languageDisplayName(uiLanguage),
+        saveLanguage: bundle.world?.language || bundle.game?.language,
+      }),
+    },
+    // One general answering is an answer; nobody answering is a failed request.
+    validatePayload: (candidate) => (readWarRoomAnswer(candidate, { record, side, cities }).lines.length
+      ? ""
+      : "lines must hold at least one line whose speaker is one of the armies listed."),
+  });
+  return {
+    campaignId,
+    battlefield: record.name,
+    side,
+    asOf: record.asOf,
+    gameDate: normalizeString(bundle.game?.gameDate),
+    ...readWarRoomAnswer(payload, { record, side, cities }),
   };
 };
 

@@ -15,7 +15,7 @@ const sides = [["Russia", "Belarus"], ["Ukraine"]];
 const colorOf = (name) => `color:${name}`;
 const near = (actual, expected, slack = 1e-6) => Math.abs(actual - expected) <= slack;
 
-const record = ({ replay, troops = [[], []], status = "active", named = [] }) => normalizeBattlefield({
+const record = ({ replay, troops = [[], []], status = "active", named = [], brief = {} }) => normalizeBattlefield({
   name: "Eastern Ukraine",
   status,
   sides,
@@ -23,6 +23,7 @@ const record = ({ replay, troops = [[], []], status = "active", named = [] }) =>
   troops: troops.map(encodeTroops),
   named,
   replay,
+  brief,
 });
 
 const runOf = ({ days = 10, opens = 0, closes = days, status = "active" } = {}) => {
@@ -232,9 +233,44 @@ test("a way is written out as an arrow along its last days and a line along what
   assert.equal(frontArrowFeatures([frontAt(stage, 10), null], coloursOf, { ...options, day: [10], still: false }).features.length, 2, "one still going keeps both");
   // And so is an arrow along a way shorter than is worth drawing from there.
   const short = frontArrowFeatures([frontAt(stage, 2.5)], coloursOf, { ...options, day: [2.5] }).features;
-  assert.deepEqual(short.map((feature) => feature.properties.side), [0, 1], "three quarters of a cell so far, the one pushing and the one pushed");
+  assert.deepEqual(short.map((feature) => feature.properties.side), [0], "three quarters of a cell so far: the one pushing has a way, the one pushed back has none");
   assert.equal(frontArrowFeatures([frontAt(stage, 2.5)], coloursOf, { ...options, day: [2.5], leastOf: () => 2 }).features.length, 0);
   assert.equal(frontArrowFeatures([frontAt(stage, 5)], coloursOf, { ...options, day: [5], leastOf: () => 2 }).features.length, 1, "drawn once it has gone that far");
+});
+
+test("a troop that falls back has no way drawn, and when it goes forward again only the way it has come since", () => {
+  // East for four days, back west for three, east again for three.
+  const recorder = createReplayRecorder({ sides, cols: frame.cols, rows: frame.rows });
+  const xAt = (day) => (day <= 4 ? 10 + day * 2 : day <= 7 ? 18 - (day - 4) * 2 : 12 + (day - 7) * 2);
+  for (let day = 0; day <= 10; day += 1) {
+    recorder.record(day, [[{ x: xAt(day), y: 20, strength: 80, state: day === 0 || (day > 4 && day <= 7) ? 0 : 1 }], []]);
+  }
+  const stage = stageOf(frontViewOf(record({ replay: recorder.finish({ days: 10 }), troops: [[{ x: 18, y: 20, strength: 80 }], []] })));
+  const wayOn = (day) => frontAt(stage, day).troops[0][0].way;
+  assert.ok(wayOn(3), "going forward: a way");
+  assert.ok(near(wayOn(3).xs[0], 10, 1e-6), "from where it set off");
+  for (const day of [4.5, 6, 7]) assert.equal(wayOn(day), null, `falling back on day ${day}: none`);
+  const again = wayOn(10);
+  assert.ok(again, "forward again: a way");
+  assert.ok(near(again.xs[0], 12, 0.5) && near(again.xs.at(-1), 18, 1e-6), `only from where it turned (${again.xs[0]} to ${again.xs.at(-1)})`);
+  assert.ok(again.days[0] >= 7);
+  // And it is drawn as one arrow, with no line left from the first advance.
+  const drawn = frontArrowFeatures([frontAt(stage, 10)], (name) => ({ top: name, side: name }), { halfWidthOf: () => 0.4, day: [10] }).features;
+  assert.deepEqual(drawn.map((feature) => feature.geometry.type), ["Polygon"]);
+});
+
+test("the marker seen from far off is a general's: one for each body of a side's troops, where it stands", () => {
+  const standing = [[{ x: 10, y: 10, strength: 80 }, { x: 12, y: 10, strength: 60 }, { x: 40, y: 30, strength: 100 }, { x: 42, y: 34, strength: 0 }], [{ x: 50, y: 50, strength: 90 }]];
+  const recorder = createReplayRecorder({ sides, cols: frame.cols, rows: frame.rows });
+  recorder.record(0, standing);
+  const stage = stageOf(frontViewOf(record({ replay: recorder.finish({ days: 0 }), troops: standing, brief: { carry: { command: [[0, 0, 1, 1], [0]] } } })));
+  const marks = frontTroopFeatures([frontAt(stage, 0)], colorOf).features.filter((feature) => feature.properties.what === "side");
+  assert.deepEqual(marks.map((feature) => [feature.properties.side, feature.properties.command, feature.properties.count, feature.properties.strength]), [[0, 0, 2, 70], [0, 1, 1, 100], [1, 0, 1, 90]]);
+  const { toLngLat } = projectorOf(frame);
+  assert.deepEqual(marks[0].geometry.coordinates, toLngLat(11, 10));
+  assert.deepEqual(marks[1].geometry.coordinates, toLngLat(40, 30), "the dead are not counted, nor where they lay");
+  const troops = frontTroopFeatures([frontAt(stage, 0)], colorOf).features.filter((feature) => feature.properties.what === "troop");
+  assert.deepEqual(troops.map((feature) => [feature.properties.side, feature.properties.command]), [[0, 0], [0, 0], [0, 1], [1, 0]]);
 });
 
 test("troops going the same way close together share one broader arrow; from closer in each has its own", () => {

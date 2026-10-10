@@ -24,6 +24,7 @@ import { projectorOf } from "../../runtime/fronts/frame.js";
 export const TROOP_KIND_GLYPH = Object.freeze({ infantry: "I", armor: "A", artillery: "G" });
 
 const EMPTY = Object.freeze({ type: "FeatureCollection", features: [] });
+const ADVANCING = TROOP_STATES[1];
 
 // ---- the way a troop went -----------------------------------------------------------
 
@@ -109,10 +110,24 @@ export const stageOf = (view) => {
       // its way starts there, and it has none until it has left.
       let setOff = 0;
       while (setOff + 1 < curve.days.length && curve.xs[setOff + 1] === curve.xs[0] && curve.ys[setOff + 1] === curve.ys[0]) setOff += 1;
+      // The stretches of its path it did not walk as an attacker: falling back,
+      // giving ground, coming up behind the line. A way is drawn for an advance
+      // and for nothing else, so each of these ends the way that led up to it.
+      const breaks = [];
+      for (let point = 1; point < track.length; point += 1) {
+        const moved = Math.abs(track[point].x - track[point - 1].x) > 1 / 32 || Math.abs(track[point].y - track[point - 1].y) > 1 / 32;
+        if (!moved || TROOP_STATES[track[point].state] === ADVANCING) continue;
+        const last = breaks[breaks.length - 1];
+        if (last && last.to === track[point - 1].day) last.to = track[point].day;
+        else breaks.push({ from: track[point - 1].day, to: track[point].day });
+      }
+      const command = view.commands?.[side]?.[index];
       made.push({
         track,
         curve,
         setOff,
+        breaks,
+        command: Number.isInteger(command) ? command : -1,
         kind: TROOP_KINDS[standing?.kind ?? 0] ?? TROOP_KINDS[0],
         owner: view.sides[side]?.[standing?.owner ?? 0] ?? view.sides[side]?.[0] ?? "",
         named: standing?.named === true,
@@ -144,7 +159,7 @@ const troopAt = (stage, troop, day) => {
     if (!standing || !(standing.strength > 0)) return null;
     return {
       x: standing.x, y: standing.y, strength: standing.strength, state: TROOP_STATES[standing.state] ?? TROOP_STATES[0],
-      kind: troop.kind, owner: troop.owner, named: troop.named, label: troop.label, moving: false, way: null,
+      kind: troop.kind, owner: troop.owner, named: troop.named, label: troop.label, command: troop.command, moving: false, way: null,
     };
   }
   if (day < track[0].day) return null;
@@ -189,9 +204,23 @@ const troopAt = (stage, troop, day) => {
       way = { xs, ys, days };
     }
   }
+  // A troop that is falling back has no way drawn at all, and one that has
+  // fallen back and gone forward again has only the way it has come since.
+  if (way) {
+    let since = -Infinity;
+    for (const leg of troop.breaks) {
+      if (leg.from >= day) break;
+      if (day <= leg.to) {
+        way = null;
+        break;
+      }
+      since = leg.to;
+    }
+    if (way && since > way.days[0]) [, way] = cutWay(way, since);
+  }
   return {
     x, y, strength, state: TROOP_STATES[to.state] ?? TROOP_STATES[0],
-    kind: troop.kind, owner: troop.owner, named: troop.named, label: troop.label,
+    kind: troop.kind, owner: troop.owner, named: troop.named, label: troop.label, command: troop.command,
     moving: !ended && (Math.abs(to.x - from.x) > 1 / 32 || Math.abs(to.y - from.y) > 1 / 32),
     way,
   };
@@ -220,26 +249,28 @@ export const frontAt = (stage, day) => {
 
 // ---- what the layers read --------------------------------------------------------------
 
-// A point a troop, and one a side: where its troops are on average, with how
-// many they are, for a view from too far off to tell them apart. `colorOf(name)`
-// gives a css colour; `labelOf` shortens a named formation's name to what fits
-// under a counter.
+// A point a troop, and one a general: where his body of troops is on average,
+// with how many they are, for a view from too far off to tell them apart (a
+// side that was never shared out among generals has one for all of it).
+// `colorOf(name)` gives a css colour; `labelOf` shortens a named formation's
+// name to what fits under a counter.
 export const frontTroopFeatures = (shown, colorOf, { labelOf = (name) => name } = {}) => {
   const features = [];
   for (const drawing of shown) {
     if (!drawing) continue;
     const { toLngLat } = drawing;
     drawing.troops.forEach((list, side) => {
-      let count = 0;
-      let x = 0;
-      let y = 0;
-      let strength = 0;
+      const bodies = new Map();
       list.forEach((troop, index) => {
         if (!troop) return;
-        count += 1;
-        x += troop.x;
-        y += troop.y;
-        strength += troop.strength;
+        const command = troop.command ?? -1;
+        const body = bodies.get(command) ?? { count: 0, x: 0, y: 0, strength: 0, owners: new Map() };
+        bodies.set(command, body);
+        body.count += 1;
+        body.x += troop.x;
+        body.y += troop.y;
+        body.strength += troop.strength;
+        body.owners.set(troop.owner, (body.owners.get(troop.owner) ?? 0) + 1);
         features.push({
           type: "Feature",
           geometry: { type: "Point", coordinates: toLngLat(troop.x, troop.y) },
@@ -248,6 +279,7 @@ export const frontTroopFeatures = (shown, colorOf, { labelOf = (name) => name } 
             battlefield: drawing.name,
             side,
             index,
+            command,
             owner: troop.owner,
             rgb: colorOf(troop.owner),
             kind: troop.kind,
@@ -260,21 +292,31 @@ export const frontTroopFeatures = (shown, colorOf, { labelOf = (name) => name } 
           },
         });
       });
-      if (!count) return;
-      const owner = drawing.sides[side]?.[0] ?? "";
-      features.push({
-        type: "Feature",
-        geometry: { type: "Point", coordinates: toLngLat(x / count, y / count) },
-        properties: {
-          what: "side",
-          battlefield: drawing.name,
-          side,
-          owner,
-          rgb: colorOf(owner),
-          count,
-          strength: Math.round(strength / count),
-        },
-      });
+      for (const [command, body] of [...bodies].sort((a, b) => a[0] - b[0])) {
+        // In the colour of whoever most of the body belongs to: the side's first member unless another has more.
+        let owner = drawing.sides[side]?.[0] ?? "";
+        let most = body.owners.get(owner) ?? 0;
+        for (const [name, count] of body.owners) {
+          if (count > most) {
+            most = count;
+            owner = name;
+          }
+        }
+        features.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: toLngLat(body.x / body.count, body.y / body.count) },
+          properties: {
+            what: "side",
+            battlefield: drawing.name,
+            side,
+            command,
+            owner,
+            rgb: colorOf(owner),
+            count: body.count,
+            strength: Math.round(body.strength / body.count),
+          },
+        });
+      }
     });
   }
   return features.length ? { type: "FeatureCollection", features } : EMPTY;

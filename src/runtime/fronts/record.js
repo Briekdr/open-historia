@@ -12,7 +12,11 @@
 //     troops: [text, text],         a side each (codec.js encodeTroops)
 //     named: [{ s, i, name, unitId }],   formations taken in from world.units
 //     pool, base, quality, effort,  a pair each, one value a side
-//     orders: [{ s, sector, order, objective?, effort?, by?, since }],
+//     orders: [{ s, sector, order, objective?, effort?, by?, since, chosen?, way? }],
+//                                   `chosen`: for a body of troops picked out
+//                                   (which ones, the brief's carry says), not for
+//                                   a stretch of line; `way`: the route drawn
+//                                   for them, as [lng, lat] points
 //     replay,                       the last run, kept to be played back: each
 //                                   troop's path and the ground as it was
 //                                   taken (replay.js); null where there is none
@@ -36,7 +40,9 @@ import {
   FRONT_EFFORTS,
   FRONT_ORDERS,
   HOLDER_WALL,
+  MAX_WAY_POINTS,
   LOG_TEXT_MAX,
+  MARK_MAX,
   MAX_BATTLEFIELDS,
   MAX_CLOSED_BATTLEFIELDS,
   MAX_CONTESTED_REGIONS,
@@ -99,6 +105,21 @@ const normalizeOrder = (raw) => {
   if (FRONT_EFFORTS.includes(effort)) entry.effort = effort;
   const by = clean(raw.by, NAME_MAX);
   if (by) entry.by = by;
+  if (raw.chosen === true) entry.chosen = true;
+  // What such an order was written for, where that is not a hand in the war
+  // room: a Board operation's ("plan:" and its id) or a side's precaution
+  // against a movement it has learnt of ("watch"). See plans.js.
+  const mark = entry.chosen ? clean(raw.mark, MARK_MAX) : "";
+  if (mark) entry.mark = mark;
+  const way = [];
+  for (const point of Array.isArray(raw.way) ? raw.way : []) {
+    const lng = Number(Array.isArray(point) ? point[0] : NaN);
+    const lat = Number(Array.isArray(point) ? point[1] : NaN);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lat) > 90) continue;
+    way.push([Math.round(lng * 10000) / 10000, Math.round(lat * 10000) / 10000]);
+    if (way.length >= MAX_WAY_POINTS) break;
+  }
+  if (way.length > 0) entry.way = way;
   return entry;
 };
 
@@ -257,6 +278,9 @@ export const frontViewOf = (battlefield) => {
       frame: battlefield.frame,
       named: battlefield.named,
       troops: [decodeTroops(battlefield.troops[0]), decodeTroops(battlefield.troops[1])],
+      // Which of its side's generals each troop is under, by its place in the
+      // list (command.js); empty for a record that was never shared out.
+      commands: [0, 1].map((side) => (Array.isArray(battlefield.brief?.carry?.command?.[side]) ? battlefield.brief.carry.command[side] : [])),
       replay: replayOf(battlefield),
       window: replayWindowOf(battlefield),
     };

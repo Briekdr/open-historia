@@ -25,7 +25,7 @@ import { describeBattlefield } from "../../runtime/fronts/brief.js";
 import { normalizeBattlefields } from "../../runtime/fronts/record.js";
 import { FRONT_ORDERS_FIELD } from "./nativeFrontLedger.js";
 
-export const FRONTS_BLOCK_MAX = 6000;
+export const FRONTS_BLOCK_MAX = 6400;
 export const FRONTS_BLOCK_HEADING = "[Fronts]";
 
 const asArray = (value) => (Array.isArray(value) ? value : []);
@@ -46,7 +46,7 @@ const FRONT_RULES = [
   "- objective (a place with its kind: `city: Kharkiv`), result (breakthrough | captured | repulsed | stalemate | collapse | surrender: what the story itself decides, on that event's date) and effort (token | limited | major | total) may be left off.",
   "Eastern Ukraine~Russia~spearhead~north~2,3~city: Kharkiv~~major",
   "Eastern Ukraine~Russia~~south~5~city: Mariupol~captured",
-  "An order stands until another replaces it: write a line only for what changes, and an empty string when nothing does. How far an advance gets is worked out by the game and told to you here next period, so an event says a named place fell only when a line gives it as the objective with the result captured.",
+  "An order stands until another replaces it: write a line only for what changes, and an empty string when nothing does. An event of this answer in which a side on a battlefield attacks, presses on, breaks through, digs in, holds fast or falls back is such a change: the line that orders it is owed, with that event's number, and a formation moved in unitOps does not stand in for it. How far an advance gets is worked out by the game and told to you here next period, so an event says a named place fell only when a line gives it as the objective with the result captured.",
 ].join("\n");
 
 // The countries and groups people play: their troops are theirs to order.

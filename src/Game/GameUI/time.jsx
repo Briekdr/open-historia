@@ -14,7 +14,7 @@ import {
     loadRollbackSnapshotIndex,
 } from "../../runtime/assets.js";
 import { undoableTurns } from "../../runtime/turnCommit.js";
-import { applyParkedTurn, canInterveneInLastTurn, declineInteractiveOffer, discardKeptTurn, heldSkipToRerun, interveneAfterEvent, loadParkedTurn, maybeGeneratePregameHistory, retryHeldPlayerEvents, retryPendingJumpSegment, retryPendingProjectsJump, retryPendingChecksJump, rollBackToSnapshot, simulateAutoJump, simulateTimelineJump } from "../AI/gameplayLazy.js";
+import { applyParkedTurn, canInterveneInLastTurn, declineInteractiveOffer, discardKeptTurn, heldSkipToRerun, interveneAfterEvent, loadParkedTurn, maybeGeneratePregameHistory, maybeOpenScenarioFronts, retryHeldPlayerEvents, retryPendingJumpSegment, retryPendingProjectsJump, retryPendingChecksJump, rollBackToSnapshot, simulateAutoJump, simulateTimelineJump } from "../AI/gameplayLazy.js";
 import { HELD_TURN, PARKED_TURN_STALE_NOTE, discardHeldTurn, discardParkedTurn, getHeldTurn, getParkedTurn, isResponseBodyNote } from "../AI/simulationStatus.js";
 import { checksHeldError } from "../AI/turnChecks.js";
 import { describePlayerTurnFailures } from "../AI/playerTurnFailures.js";
@@ -2608,6 +2608,36 @@ const DateWidget = ({
         }
         pregameAttemptedRef.current = true;
         maybeGeneratePregameHistory().catch(() => {});
+    }, [gameData, worldState, events, mainMenuOpen]);
+
+    // The fronts a scenario begins with (runtime/fronts/scenarioFronts.js) are
+    // built into battlefields once, when the game is entered: no request is
+    // made, the engine opens them where the two sides' ground meets. After the
+    // scenario's own pre-history, which writes the wars they are fought in, so
+    // it waits while that is still to be applied; when something else is at
+    // work on the game it is tried again with the next change of the world.
+    // The list is cleared from the world once built, which is what stops this.
+    const scenarioFrontsAttemptedRef = React.useRef(false);
+    useEffect(() => {
+        if (scenarioFrontsAttemptedRef.current || !gameData || !worldState) {
+            return;
+        }
+        if (!Array.isArray(worldState.scenarioFronts) || worldState.scenarioFronts.length === 0) {
+            return;
+        }
+        const fresh =
+            (Number(gameData.round) || 1) === 1 &&
+            (events?.length ?? 0) === 0 &&
+            (worldState.simulationHistory?.length ?? 0) === 0;
+        if ((fresh && prehistoryHasContent(worldState.prehistory)) || isMainMenuOpen()) {
+            return;
+        }
+        scenarioFrontsAttemptedRef.current = true;
+        maybeOpenScenarioFronts()
+            .then((outcome) => {
+                if (outcome === "later") scenarioFrontsAttemptedRef.current = false;
+            })
+            .catch(() => {});
     }, [gameData, worldState, events, mainMenuOpen]);
 
     function setPanel(panelName) {

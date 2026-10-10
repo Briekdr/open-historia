@@ -96,10 +96,20 @@ export const MAP_LAYER_ORDER = [
 
   // A battlefield's troops stand over the cities they fight for, and under the
   // formations that have counters of their own.
+  // The war room's planned movements lie under the troops that are to make
+  // them (WarRoomLayers.jsx); its marks on the troops are among their layers.
+  "warroom-plans-casing",
+  "warroom-plans",
+  "warroom-plans-decoy",
+  "warroom-plans-head",
+  "warroom-plans-label",
+  "fronts-sides-lit",
   "fronts-sides",
   "fronts-sides-count",
+  "fronts-troops-lit",
   "fronts-troops-dug",
   "fronts-troops",
+  "fronts-troops-picked",
   "fronts-troops-kind",
   "fronts-troops-name",
 

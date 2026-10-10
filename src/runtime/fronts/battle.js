@@ -27,6 +27,7 @@ import {
   FAR_CELLS,
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
+  MAX_COMMANDS,
   MAX_CONTESTED_REGIONS,
   MAX_LOG_ENTRIES,
   MAX_NAMED_TROOPS,
@@ -40,7 +41,9 @@ import {
 import { nearestOnContour, openField, ownCell, packField, redistance, setGround, takeCells, traceContour, unpackField } from "./field.js";
 import { awayOf, downhill, measure } from "./ground.js";
 import { placeBehind } from "./move.js";
-import { servingOf } from "./orders.js";
+import { readGenerals, readTalk } from "./command.js";
+import { standingOf } from "./orders.js";
+import { authoredTroops } from "./scenarioFronts.js";
 import { projectorOf } from "./frame.js";
 import { drawLine, measureLine } from "./line.js";
 import { nearestOwner } from "./supply.js";
@@ -189,6 +192,10 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   drawnHomes: null,
   // Whether the record said which troops serve which standing order.
   served: false,
+  // What its generals are called, a list a side in the order of their commands (command.js).
+  generals: [[], []],
+  // What was said in each side's war room: kept with the battlefield, and nothing here reads it.
+  talk: [[], []],
   // A border fortified in peace: the days nothing has been ordered there, and
   // which of its sides have been told to leave it.
   quiet: 0,
@@ -345,6 +352,10 @@ export const raiseTroops = (battle, run, only = -1) => {
   const members = [memberWeights(battle, run, 0), memberWeights(battle, run, 1)];
   const strengths = members.map((list) => list.reduce((sum, weight) => sum + weight, 0));
   const { counts, quality } = sizeSides(line.total, strengths, battle.effort);
+  // A scenario may say how many each side of a front begins with
+  // (scenarioFronts.js): only while a new game's fronts are being built.
+  const said = authoredTroops(run.input?.authored, battle.sides);
+  if (said) for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) if (said[side] > 0) counts[side] = said[side];
   battle.quality = quality.map((value, side) => (only >= 0 && side !== only ? battle.quality[side] : round3(value)));
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     // (On a border fortified in peace only the side that deploys there raises troops.)
@@ -497,6 +508,15 @@ export const loadBattle = (run, record, arena) => {
       troop.serves = Number.isInteger(serves) ? serves : -1;
     }));
   }
+  // Which general each troop is under, and what the generals are called.
+  read.forEach((list, side) => list.forEach((troop, index) => {
+    const command = Array.isArray(carry.command) && Array.isArray(carry.command[side]) ? carry.command[side][index] : -1;
+    troop.command = Number.isInteger(command) && command >= 0 && command < MAX_COMMANDS ? command : -1;
+  }));
+  battle.generals = readGenerals(carry.generals);
+  battle.talk = readTalk(carry.talk);
+  // The plans a side keeps (plans.js) are not the engine's: it hands them on.
+  battle.plans = Array.isArray(carry.plans) ? carry.plans : null;
   const kept = dropTheDead(read, record.named);
   battle.troops = kept.troops;
   battle.named = kept.named;
@@ -621,6 +641,14 @@ export const saveBattle = (battle, run, day, changes, brief) => {
     disputed = disputed.filter((region) => largest.has(region));
   }
   const contested = disputed.map((region) => [arena.ids[region], battle.shown.get(arena.ids[region])]);
+  // Which standing order each troop is carrying out. An order given to troops
+  // picked out that none of them is carrying out any more has been done, or
+  // its troops are gone: it is not kept. (An order for a stretch of line
+  // stands whether or not anybody is carrying it out.)
+  const serving = battle.troops.map((list) => list.map((troop) => standingOf(battle, troop)));
+  const served = new Set();
+  for (const list of serving) for (const order of list) if (order) served.add(order);
+  const orders = battle.orders.filter((order) => !order.chosen || served.has(order));
   const record = {
     v: BATTLEFIELD_VERSION,
     name: battle.name,
@@ -636,7 +664,7 @@ export const saveBattle = (battle, run, day, changes, brief) => {
     base: battle.base.slice(),
     quality: battle.quality.slice(),
     effort: battle.effort.slice(),
-    orders: battle.orders.map(({ s, sector, order, objective, effort, by, since }) => ({
+    orders: orders.map(({ s, sector, order, objective, effort, by, since, chosen, way, mark }) => ({
       s,
       sector,
       order,
@@ -644,6 +672,9 @@ export const saveBattle = (battle, run, day, changes, brief) => {
       ...(objective ? { objective } : {}),
       ...(effort ? { effort } : {}),
       ...(by ? { by } : {}),
+      ...(chosen ? { chosen: true } : {}),
+      ...(chosen && mark ? { mark } : {}),
+      ...(Array.isArray(way) && way.length > 0 ? { way } : {}),
     })),
     replay: battle.replay ?? battle.recorder.finish({ date: run.input.fromDate, days: day }),
     held: "",
@@ -653,8 +684,13 @@ export const saveBattle = (battle, run, day, changes, brief) => {
       carry: {
         // Which of the standing orders each troop is serving, so that the next
         // run finds the same group under each.
-        under: battle.troops.map((list) => list.map((troop) => servingOf(battle, troop))),
-        ages: battle.orders.map((order) => order.age),
+        under: serving.map((list) => list.map((order) => (order ? orders.indexOf(order) : -1))),
+        ages: orders.map((order) => order.age),
+        // Which general each troop is under, and what the generals are called.
+        command: battle.troops.map((list) => list.map((troop) => (isLive(troop) ? troop.command : -1))),
+        ...(battle.generals.some((names) => names.some(Boolean)) ? { generals: battle.generals } : {}),
+        ...(battle.talk.some((lines) => lines.length > 0) ? { talk: battle.talk } : {}),
+        ...(battle.plans ? { plans: battle.plans } : {}),
         ...(battle.status === "standing" ? { quiet: battle.quiet } : {}),
         halts: battle.halts.map(({ s, sector, days }) => ({ s, sector, days })),
         anchors: battle.anchors.map(({ s, x, y }) => ({ s, x, y })),

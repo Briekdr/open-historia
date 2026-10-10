@@ -390,6 +390,24 @@ This is the one asset in `RUNTIME_ONLY_JSON_ASSET_FILES` whose default is an **o
 
 Espionage resolves once per turn in `applySimulationResult`, **after** the standing-order/unit-volume pipeline, so an agent's round is decided against where forces actually ended up. It is deterministic, seeded on `${round}:${key}` with four roll keys — `:detect`, `:turn`, `:suspect`, `:deploy`. **Those key strings are save-compatibility surface**: changing one makes every existing save replay its next round differently. Its events are appended to `freshEvents` *before* `nextEvents` is built, so they persist to the event log.
 
+### 2e-quater. Battlefields: the war room's part, and a scenario's fronts
+
+`world.battlefields[]` (`runtime/fronts/record.js`) is written by the front engine. Three things beside the engine write to a record, all through `runtime/fronts/warRoomOps.js`, and all of it is kept in the record itself:
+
+| Where | What |
+|---|---|
+| `orders[]` with `chosen: true` | An order for troops picked out, not for a stretch of line: `{ s, sector: "all", order, objective?, way?, by, since, chosen, mark? }`. `way` is a route drawn for them, as up to 12 `[lng, lat]` points. `mark` says what wrote it when it was not a hand in the war room: `plan:<project id>` (a Board operation) or `watch` (a side that dug in against a movement it learnt of). An order for a stretch of line never replaces one of these; it ends when its troops have carried it out, are released, or, for an attack, after 120 days. |
+| `brief.carry.under[side][troop]` | Which standing order each troop serves (its place in `orders`), or -1. |
+| `brief.carry.command[side][troop]`, `.generals[side][command]` | Which general each troop is under, and what the generals are called. A record never shared out is shared out on read by the engine's own rule (`command.js`). |
+| `brief.carry.talk[side]` | The last 40 lines said in that side's war room: `{ who: "" (the commander) \| command, text, at }`. |
+| `brief.carry.plans[side]` | Kept plans (`plans.js`): a diversion `{ id, kind: "diversion", way, troops, at }`, and what the player changed of a Board operation's arrow `{ id: "project:<id>", kind: "project", project, way?, off?, sent? }`. Every other planned movement is worked out from the orders and the Board when it is wanted. |
+
+In a shared game a side's chosen orders, generals, talk and plans are its own: `runtime/fronts/view.js` leaves them out of what the other side is sent, and points `under` into the list of orders each viewer gets.
+
+Before each run of the engine `AI/frontPlans.js turnPlanned` writes the turn's plans onto the battlefields where a war is being fought: an Operation of a player's own that is `active` sends the nearest troops not already under a hand order (once), and a side nobody plays digs in the troops it has near a movement its agents have shown it. What those agents carried off is also told to the simulator, in `[What Agents Report of the Fronts]`, only when there is something to tell.
+
+`world.scenarioFronts[]` (`runtime/fronts/scenarioFronts.js`) is a scenario's list of the fronts its games begin with: `{ name, sides: [[names], [names]], war, troops: [n, n], stance: [word, word], generals: [[names], [names]] }`. It is one of `TEMPLATE_WORLD_OVERRIDE_KEYS`, so a new game carries it; the first time the game is entered the engine is run over no days to build the battlefields (`gameplay.js maybeOpenScenarioFronts`), the wars they are fought in are written into the ledger, and the list is cleared, which is the mark that it has been done. It is never sent to a guest of a shared game.
+
 ### 2f. Turn machinery & narrative history
 
 | Field | Type | Default | Meaning (normalizer) |
