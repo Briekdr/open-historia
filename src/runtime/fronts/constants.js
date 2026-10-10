@@ -303,9 +303,15 @@ export const SIEGE_SPARE_KM = 20;
 export const SIEGE_DAYS = 45;
 export const SIEGE_LOSS = 1;
 
-// A region changes hands when the side that does not control it holds this share.
+// A region changes hands in name when the side that does not hold it holds
+// more than this share of it: for the game, at once; on the map, not yet.
 export const FLIP_AT = 0.6;
 export const MIN_DAYS_BETWEEN_FLIPS = 3;
+// On the map it changes hands only when the whole of it is held. A side that
+// holds this share of a region is given the rest of it at night, if nobody of
+// the other side's stands there and the rest is under the size of a pocket: a
+// strip of cells along an edge is not to keep a region from ever being whole.
+export const WHOLE_AT = 0.95;
 // Whose troops are near a region, to say which ally takes it.
 export const CAPTOR_WITHIN_KM = 150;
 

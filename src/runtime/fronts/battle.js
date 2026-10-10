@@ -11,6 +11,12 @@
 // repainted for that side, and one whose controller is no longer in the war
 // becomes wall. The engine never writes who controls a region itself: it
 // reports each change of hands and the game applies it the ordinary way.
+//
+// A region has two holders. Who holds it IN NAME is what the world says: its
+// controller, or the group in whose area it lies. Who it is SHOWN as belonging
+// to is what the map draws, and that changes only when the whole of the region
+// is held: a region taken in name is drawn as its old holder's, with the
+// taker's ground painted over it, until the last of it has changed hands.
 
 import { diffGameDays } from "../gameDates.js";
 import { decodeTroops, encodeLines, encodeTroops } from "./codec.js";
@@ -50,10 +56,18 @@ export const sideOfName = (battle, name) => {
   return -1;
 };
 
-// The side each region of the arena fights on, from who holds it now: the
-// group in whose area it lies if that group is in the war, else its
-// controller. And whose home ground it is: the same for a group's area, else
-// the side of its lawful sovereign.
+// Who holds a region in name: the group in whose area it lies if that group
+// is in the war, else its controller.
+export const holderOf = (battle, run, id) => {
+  const group = run.groupOf(id);
+  return group && sideOfName(battle, group) >= 0 ? group : run.controllerOf(id);
+};
+
+// The side each region of the arena fights on, from who holds it in name. And
+// whose home ground it is for supply: the same for a group's area, else the
+// side of its lawful sovereign. And who the map draws it as belonging to: a
+// region new to the battle is shown as whoever holds it in name, and so is
+// one outside the war, where the engine has no say.
 export const readRegions = (battle, run) => {
   const { arena } = battle;
   const count = arena.ids.length;
@@ -64,15 +78,17 @@ export const readRegions = (battle, run) => {
     const group = sideOfName(battle, run.groupOf(id));
     regionSide[index] = group >= 0 ? group : sideOfName(battle, run.controllerOf(id));
     homeSide[index] = group >= 0 ? group : sideOfName(battle, run.sovereignOf(id));
+    if (!battle.shown.has(id) || regionSide[index] < 0) battle.shown.set(id, holderOf(battle, run, id));
   }
   battle.regionSide = regionSide;
   battle.homeSide = homeSide;
-  // For the map: the side whose home ground each cell is (2 for neither), by
-  // the sovereign of its region alone. Ground a group holds inside a country
-  // is that country's home ground, not the group's: it is shown as taken.
+  // For the map: the side whose home ground each cell is (2 for neither), which
+  // is the side of the name its region is shown under. The map lays a side's
+  // paint over the region's own colour wherever the side holding a cell is
+  // not its home side.
   const homeOfRegion = new Uint8Array(count).fill(2);
   for (let index = 1; index < count; index += 1) {
-    const side = sideOfName(battle, run.sovereignOf(arena.ids[index]));
+    const side = sideOfName(battle, battle.shown.get(arena.ids[index]));
     if (side >= 0) homeOfRegion[index] = side;
   }
   battle.homes = Uint8Array.from(arena.region, (region) => homeOfRegion[region]);
@@ -101,19 +117,19 @@ export const memberIndex = (battle, side, name) => {
 };
 
 // Whose colour each cell a side holds is painted in, worked out afresh: at
-// home, the sovereign of its region; elsewhere whoever the world says holds
-// the region, if that is a member of the side holding the cell, else the
-// member whose troops are nearest. Only the map reads it, and it is never
-// saved: a run begins by working it out again.
+// home, whoever its region is shown as belonging to; elsewhere whoever the
+// world says holds the region, if that is a member of the side holding the
+// cell, else the member whose troops are nearest. Only the map reads it, and
+// it is never saved: a run begins by working it out again.
 export const paintGround = (battle, run) => {
   const { field, arena } = battle;
   const near = [nearestOwner(battle, HOLDER_SIDE_A), nearestOwner(battle, HOLDER_SIDE_B)];
-  const sovereign = [new Int16Array(arena.ids.length).fill(-1), new Int16Array(arena.ids.length).fill(-1)];
+  const shownAs = [new Int16Array(arena.ids.length).fill(-1), new Int16Array(arena.ids.length).fill(-1)];
   const holder = [new Int16Array(arena.ids.length).fill(-1), new Int16Array(arena.ids.length).fill(-1)];
   for (let region = 1; region < arena.ids.length; region += 1) {
     const id = arena.ids[region];
     for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
-      sovereign[side][region] = memberIndex(battle, side, run.sovereignOf(id));
+      shownAs[side][region] = memberIndex(battle, side, battle.shown.get(id));
       const group = memberIndex(battle, side, run.groupOf(id));
       holder[side][region] = group >= 0 ? group : memberIndex(battle, side, run.controllerOf(id));
     }
@@ -122,7 +138,7 @@ export const paintGround = (battle, run) => {
     const side = field.holders[index];
     if (side !== HOLDER_SIDE_A && side !== HOLDER_SIDE_B) continue;
     const region = arena.region[index];
-    const known = battle.homes[index] === side ? Math.max(0, sovereign[side][region]) : holder[side][region];
+    const known = battle.homes[index] === side ? Math.max(0, shownAs[side][region]) : holder[side][region];
     field.painter[index] = known >= 0 ? known : near[side](index);
   }
 };
@@ -141,6 +157,10 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   field: null,
   regionSide: null,
   homeSide: null,
+  // Who the map draws each region as belonging to, by the region's id, and
+  // what the recorder was told of it since the last day was recorded.
+  shown: new Map(),
+  said: [],
   troops: [[], []],
   named: [],
   pool: [0, 0],
@@ -414,6 +434,13 @@ export const loadBattle = (run, record, arena) => {
   });
   battle.status = record.status;
   battle.fresh = false;
+  // Who the map draws each region as: the names the last run left for the
+  // regions it listed. A region it did not list is shown as its holder in name.
+  const carry = record.brief?.carry ?? {};
+  for (const entry of [...(Array.isArray(carry.shown) ? carry.shown : []), ...(Array.isArray(record.contested) ? record.contested : [])]) {
+    if (!Array.isArray(entry) || typeof entry[0] !== "string" || typeof entry[1] !== "string") continue;
+    if (entry[0].trim() && entry[1].trim()) battle.shown.set(entry[0].trim(), entry[1].trim());
+  }
   readRegions(battle, run);
   battle.field = unpackField(arena, record.field, battle.regionSide);
   const read = [decodeTroops(record.troops[0]).map(createTroop), decodeTroops(record.troops[1]).map(createTroop)];
@@ -424,7 +451,6 @@ export const loadBattle = (run, record, arena) => {
   battle.base = record.base.slice();
   battle.quality = record.quality.slice();
   battle.effort = record.effort.slice();
-  const carry = record.brief?.carry ?? {};
   battle.orders = record.orders.map((order, index) => {
     const stood = Array.isArray(carry.ages) && Number.isFinite(carry.ages[index]) ? carry.ages[index] : diffGameDays(order.since, run.input.fromDate);
     return { ...order, age: Math.max(0, Math.floor(Number(stood) || 0)) };
@@ -453,10 +479,11 @@ export const openBattle = (run, { name, warId, sides, frame, arena, day }) => {
   return battle;
 };
 
-// The rings round the ground each side holds in regions that are not its own:
-// what the map hatches. A ring is marked with the side that holds the ground.
+// The rings round the ground each side holds that is not its home ground, by
+// who each region is shown as belonging to: what the map hatches. A ring is
+// marked with the side that holds the ground.
 const takenRings = (battle) => {
-  const { field, arena, regionSide } = battle;
+  const { field } = battle;
   const { cols, rows, size } = field;
   const rings = [];
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
@@ -465,7 +492,7 @@ const takenRings = (battle) => {
     const taken = new Uint8Array(size);
     let any = false;
     for (let index = 0; index < size; index += 1) {
-      if (field.holders[index] !== side || regionSide[arena.region[index]] === side) continue;
+      if (field.holders[index] !== side || battle.homes[index] === side) continue;
       taken[index] = 1;
       any = true;
     }
@@ -527,6 +554,19 @@ export const saveBattle = (battle, run, day, changes, brief) => {
   const troops = battle.troops.map((list, side) => encodeTroops(list.map((troop) => ({ ...troop, x: within(troop.x), y: within(troop.y), owner: owners[side][troop.owner] ?? 0 }))));
   reportTheFallen(battle, changes);
   const closed = battle.status === "closed";
+  // The regions the map draws as someone else's than the world says they are:
+  // taken in name, and not yet whole. If there are too many to list, the
+  // largest are kept.
+  let disputed = [];
+  for (let region = 1; region < arena.ids.length && !closed; region += 1) {
+    const name = battle.shown.get(arena.ids[region]) ?? "";
+    if (battle.regionSide[region] >= 0 && name && fold(name) !== fold(holderOf(battle, run, arena.ids[region]))) disputed.push(region);
+  }
+  if (disputed.length > MAX_CONTESTED_REGIONS) {
+    const largest = new Set(disputed.slice().sort((a, b) => arena.cells[b] - arena.cells[a] || a - b).slice(0, MAX_CONTESTED_REGIONS));
+    disputed = disputed.filter((region) => largest.has(region));
+  }
+  const contested = disputed.map((region) => [arena.ids[region], battle.shown.get(arena.ids[region])]);
   const record = {
     v: BATTLEFIELD_VERSION,
     name: battle.name,
@@ -553,10 +593,12 @@ export const saveBattle = (battle, run, day, changes, brief) => {
     })),
     replay: battle.replay ?? battle.recorder.finish({ date: run.input.fromDate, days: day }),
     held: "",
-    contested: [],
+    contested,
     brief: {
       ...brief,
       carry: {
+        // Kept here as well until the record itself keeps a name for a region.
+        ...(contested.length > 0 ? { shown: contested } : {}),
         ages: battle.orders.map((order) => order.age),
         halts: battle.halts.map(({ s, sector, days }) => ({ s, sector, days })),
         anchors: battle.anchors.map(({ s, x, y }) => ({ s, x, y })),
@@ -569,15 +611,6 @@ export const saveBattle = (battle, run, day, changes, brief) => {
   else {
     record.field = packField(field);
     record.held = encodeLines(takenRings(battle));
-    // The regions a side holds part of without controlling them.
-    const partly = [new Uint8Array(arena.ids.length), new Uint8Array(arena.ids.length)];
-    for (let index = 0; index < field.size; index += 1) {
-      const holder = field.holders[index];
-      if ((holder === HOLDER_SIDE_A || holder === HOLDER_SIDE_B) && battle.regionSide[arena.region[index]] !== holder) partly[holder][arena.region[index]] = 1;
-    }
-    for (let region = 1; region < arena.ids.length && record.contested.length < MAX_CONTESTED_REGIONS; region += 1) {
-      for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) if (partly[side][region]) record.contested.push([arena.ids[region], side]);
-    }
   }
   return record;
 };

@@ -19,7 +19,9 @@ export const SIDES = [["Aland"], ["Borduria"]];
 // A saved battlefield on a sheet, as the engine would have left it, with the
 // troops a test asks for. Each troop is { lng, lat } and whatever else a troop
 // carries (strength, kind, owner, named, dig); `carve(field, toCell)` may
-// change the field before it is saved (a salient, a pocket).
+// change the field before it is saved (a salient, a pocket); `shown` lists
+// the regions the map still draws as someone else's than the sheet says, as
+// [regionId, name]: the ones taken in name and not yet whole.
 export const battlefieldOn = (world, {
   name = "The front",
   sides = SIDES,
@@ -34,6 +36,7 @@ export const battlefieldOn = (world, {
   regionTypes = [],
   carve = null,
   brief = {},
+  shown = [],
   status = "active",
 } = {}) => {
   const laid = frame ?? world.frame({ marginKm });
@@ -68,8 +71,9 @@ export const battlefieldOn = (world, {
     orders,
     replay: null,
     held: "",
-    contested: [],
-    brief,
+    contested: shown,
+    // The engine keeps the list here as well, for a record whose own check does not keep names yet.
+    brief: shown.length > 0 ? { ...brief, carry: { ...brief.carry, shown } } : brief,
     log: [],
   });
 };

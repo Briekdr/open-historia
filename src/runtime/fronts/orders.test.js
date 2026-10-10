@@ -157,7 +157,7 @@ test("stalemate, collapse and surrender", () => {
   assert.deepEqual(given.notes, [{ battlefield: "The front", side: "Aland", ref: 9, kind: "no-pocket-there", detail: "city: Alba" }]);
 });
 
-test("a region changes hands when six tenths of it are held, not before, and a ceiling stops the advance", () => {
+test("a region changes hands in name when more than six tenths of it are held, not before, and a ceiling stops the advance", () => {
   const world = plain();
   const record = battlefieldOn(world, { troops: [row(20.9, 49, 51, 9), row(21.1, 49, 51, 3, { strength: 30 })], orders: [standing(0, "advance")] });
   const arena = rasterizeArena(record.frame, world.regions, {});
@@ -176,18 +176,31 @@ test("a region changes hands when six tenths of it are held, not before, and a c
   for (const flip of result.flips) {
     assert.deepEqual([flip.from, flip.to, flip.kind, flip.battlefield], ["Borduria", "Aland", "control", "The front"]);
     assert.equal(flip.date, `2024-03-${String(flip.day + 1).padStart(2, "0")}`);
-    assert.ok(share(flip.day, flip.regionId) >= FLIP_AT, `${flip.regionId} was ${share(flip.day, flip.regionId)} held on the day it changed hands`);
-    assert.ok(share(flip.day - 1, flip.regionId) < FLIP_AT, "and under six tenths the day before");
+    assert.ok(share(flip.day, flip.regionId) > FLIP_AT, `${flip.regionId} was ${share(flip.day, flip.regionId)} held on the day it changed hands`);
+    assert.ok(share(flip.day - 1, flip.regionId) <= FLIP_AT, "and no more than six tenths the day before");
     assert.ok(!seen.has(flip.regionId) || flip.day - seen.get(flip.regionId) >= MIN_DAYS_BETWEEN_FLIPS, "no region flaps");
     seen.set(flip.regionId, flip.day);
   }
   assert.equal(seen.size, result.flips.length, "each region once");
   assert.deepEqual(result.battlefields[0].brief.taken[0], result.flips.map((flip) => world.regions.find((region) => region.id === flip.regionId).name));
-  // A region part held but not yet taken is listed for the map's hatch.
-  const partway = runFronts(input({ days: 8 }));
-  const takenByThen = new Set(partway.flips.map((flip) => flip.regionId));
-  assert.ok(partway.battlefields[0].contested.some(([id, side]) => side === 0 && !takenByThen.has(id)));
-  assert.ok(partway.battlefields[0].held.length > 0);
+  // From the day a region is taken in name until the day it is whole it is
+  // listed under the name the map still draws it as, and the ground taken in
+  // it is hatched.
+  const stepped = createFrontRun(input());
+  let listed = 0;
+  for (let day = 1; day <= 12; day += 1) {
+    stepped.advance(1);
+    const [saved] = stepped.snapshot().battlefields;
+    const names = new Map(saved.contested);
+    for (const flip of result.flips) {
+      const disputed = flip.day <= day && share(day, flip.regionId) < 1;
+      assert.equal(names.get(flip.regionId), disputed ? "Borduria" : undefined, `${flip.regionId} on day ${day}`);
+      if (disputed) listed += 1;
+    }
+    assert.equal(names.size, result.flips.filter((flip) => flip.day <= day && share(day, flip.regionId) < 1).length, "and no other region");
+    if (names.size > 0) assert.ok(saved.held.length > 0);
+  }
+  assert.ok(listed >= 2, `a region was in dispute on ${listed} days`);
 
   // A scenario's ceiling: two regions may change hands in this run, and then nobody advances.
   const capped = runFronts({ ...input({ flipAllowance: 2 }), watch: ({ day, holders }) => { days[day] = Uint8Array.from(holders); } });

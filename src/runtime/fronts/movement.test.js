@@ -1,7 +1,8 @@
 // Run: node --test src/runtime/fronts/movement.test.js
 import test from "node:test";
 import assert from "node:assert/strict";
-import { decodeTracks, decodeTroops } from "./codec.js";
+import { rasterizeArena } from "./arena.js";
+import { PAINT_OWN_A, decodeTracks, decodeTroops } from "./codec.js";
 import { CONTROL_RADIUS_MAX_KM, HOLDER_SIDE_A, HOLDER_SIDE_B, HOLDER_WALL } from "./constants.js";
 import { createFrontRun, runFronts } from "./engine.js";
 import { normalizeBattlefield } from "./record.js";
@@ -224,13 +225,15 @@ test("troops do not stand evenly spaced, at one depth, or advance in lockstep", 
 });
 
 test("a troop under an attack order never comes back on itself, and one whose attack is over stays where it stands", () => {
-  const world = plain({ cities: [{ name: "Brod", lng: 23.4, lat: 50.4 }] });
+  // Borduria is deep enough here, and the advance slow enough, that nobody
+  // reaches its far edge before the attack is called off.
+  const world = plain({ layout: ["ABBBBBBBB", "ABBBBBBBB"], cities: [{ name: "Brod", lng: 23.4, lat: 50.4 }] });
   const troops = [row(20.9, 49, 51, 11), [...row(21.1, 49, 51, 5, { strength: 60 }), { lng: 21.8, lat: 50.03, dig: 1 }, { lng: 21.85, lat: 49.97, dig: 1 }]];
   const record = battlefieldOn(world, { troops, orders: [standing(0, "advance")], pool: [300, 100] });
   // The strongpoint it goes round is cut off and holds out for ten days: the
   // attack is called off once that is over.
   const moments = [{ day: 22, type: "order", battlefield: "The front", side: "Aland", order: "hold", sector: "all" }];
-  const { days, result } = watchRun(frontInput(world, { battlefields: [record], days: 28, moments }));
+  const { days, result } = watchRun(frontInput(world, { battlefields: [record], days: 28, moments, pace: 0.5 }));
   let checked = 0;
   for (let index = 0; index < troops[0].length; index += 1) {
     for (let day = 2; day <= 22; day += 1) {
@@ -248,7 +251,7 @@ test("a troop under an attack order never comes back on itself, and one whose at
   }
   assert.ok(checked > 60);
   // The path the map is given has no sharp turn in it and never crosses itself.
-  const tracks = replayOf(runFronts(frontInput(world, { battlefields: [record], days: 12 })).battlefields[0]).tracks[0];
+  const tracks = replayOf(runFronts(frontInput(world, { battlefields: [record], days: 22, pace: 0.5 })).battlefields[0]).tracks[0];
   assert.equal(tracks.length, troops[0].length);
   const crosses = (a, b, c, d) => {
     const turn = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
@@ -362,9 +365,31 @@ test("taken ground is painted for the member whose troops took it, and the map i
     }
   }
   assert.ok(north > 100 && south > 100);
-  // Whose home each cell is does not move with the line.
-  for (const day of days) assert.deepEqual(day.homes, days[0].homes);
+  // Whose home a cell is does not move with the line: it changes only on the
+  // day the whole of its region is held, and then for every cell of the region.
   assert.ok(days[0].homes.includes(0) && days[0].homes.includes(1) && days[0].homes.includes(2));
+  const arena = rasterizeArena(record.frame, world.regions, {});
+  let whole = 0;
+  for (let day = 1; day < days.length; day += 1) {
+    const turned = new Set();
+    for (let index = 0; index < arena.size; index += 1) if (days[day].homes[index] !== days[day - 1].homes[index]) turned.add(arena.region[index]);
+    for (const region of turned) {
+      whole += 1;
+      for (let index = 0; index < arena.size; index += 1) {
+        if (arena.region[index] !== region) continue;
+        assert.equal(days[day].holders[index], HOLDER_SIDE_A, "every cell of a region that changed home is held");
+        assert.equal(days[day].homes[index], HOLDER_SIDE_A, "and all of it is home now");
+        assert.equal(days[day].painters[index], days[day].painters[arena.region.indexOf(region)], "painted for one member");
+      }
+    }
+  }
+  assert.ok(whole >= 2, `${whole} regions were taken whole`);
+  // Ground taken in a region that is not yet whole is not home: the map draws it as taken.
+  let takenNotHome = 0;
+  for (let index = 0; index < arena.size; index += 1) {
+    if (days[2].holders[index] === HOLDER_SIDE_A && days[0].holders[index] === HOLDER_SIDE_B && days[2].homes[index] === HOLDER_SIDE_B) takenNotHome += 1;
+  }
+  assert.ok(takenNotHome > 100, `${takenNotHome} cells taken and not yet home on the second day`);
   // A cell that changed hands did so at some part of that day.
   for (let day = 1; day < days.length; day += 1) {
     let changed = 0;
@@ -382,15 +407,35 @@ test("taken ground is painted for the member whose troops took it, and the map i
   const [saved] = result.battlefields;
   assert.equal(saved.frames, undefined);
   assert.deepEqual(saved.replay.names, ["Aland", "Cisland", "Borduria"]);
-  assert.deepEqual(normalizeBattlefield(saved), saved);
+  // The record's own check keeps all of it. (The regions taken in name and not
+  // yet whole are listed by the name each is shown under; a check that does
+  // not know that shape yet drops that list, and nothing else.)
+  const checked = normalizeBattlefield(saved);
+  assert.deepEqual({ ...checked, contested: saved.contested }, saved);
+  assert.ok(checked.contested.length === 0 || JSON.stringify(checked.contested) === JSON.stringify(saved.contested));
+  for (const [id, name] of saved.contested) assert.ok(world.regions.some((region) => region.id === id) && name === "Borduria", "a region still shown as Borduria's");
   const replay = replayOf(saved);
   assert.equal(replay.days, 6);
-  // Painted in the replay as the engine painted it: Cisland's ground in the south is state 2.
+  // Painted in the replay as the engine painted it: ground Cisland took in a
+  // region that is not yet whole is state 2, its name's; a region taken whole
+  // is its holder's own ground, and has no paint over it.
   const ground = Uint8Array.from(replay.paint.began);
   replay.paint.cells.forEach((cell, index) => { ground[cell] = replay.paint.states[index]; });
-  const probe = Math.floor(rows * 0.2) * cols + Math.floor(readBattlefield(record, world).place.toCell(21.5, 50)[0]);
-  assert.equal(last.holders[probe], HOLDER_SIDE_A);
-  assert.equal(ground[probe], 2);
+  let painted = 0;
+  let own = 0;
+  for (let index = 0; index < last.holders.length; index += 1) {
+    if (last.holders[index] !== HOLDER_SIDE_A || days[0].holders[index] !== HOLDER_SIDE_B) continue;
+    if (last.homes[index] === HOLDER_SIDE_A) {
+      assert.equal(ground[index], PAINT_OWN_A, "whole: its holder's own");
+      own += 1;
+    } else {
+      assert.equal(ground[index], 1 + last.painters[index], "taken: painted for the member that took it");
+      painted += 1;
+    }
+  }
+  assert.ok(own > 100 && painted > 100, `${own} cells taken whole, ${painted} taken and painted`);
+  const probe = last.holders.findIndex((holder, index) => holder === HOLDER_SIDE_A && last.homes[index] === HOLDER_SIDE_B && Math.floor(index / cols) < rows * 0.3);
+  assert.equal(ground[probe], 2, "Cisland's, in the south");
   // One path a troop, ending where the record has it.
   for (const side of [0, 1]) {
     const tracks = decodeTracks(saved.replay.t[side]);

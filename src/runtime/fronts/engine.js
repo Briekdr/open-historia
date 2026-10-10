@@ -213,7 +213,7 @@ const startBattle = (run, battle, day) => {
   keepStart(battle);
   readSieges(battle);
   findPockets(battle);
-  startRecorder(battle);
+  startRecorder(battle, run, day);
   recordDay(battle, day);
 };
 
@@ -233,7 +233,7 @@ const closeBattle = (run, battle, day) => {
     occupied.push(`region: ${arena.names[region]}`);
   }
   run.notes.push({ kind: "closed", battlefield: battle, detail: occupied.join(", ") });
-  if (!battle.recorder) startRecorder(battle);
+  if (!battle.recorder) startRecorder(battle, run, day);
   recordDay(battle, day);
   battle.replay = battle.recorder.finish({ date: run.input.fromDate, days: day });
   battle.closing = "";
@@ -589,7 +589,7 @@ const begin = (run) => {
     keepStart(battle);
     readSieges(battle);
     findPockets(battle);
-    startRecorder(battle);
+    startRecorder(battle, run, 0);
   }
   // A formation still marked as committed to a battlefield that is gone, or
   // that does not know it, is given back to the world.
