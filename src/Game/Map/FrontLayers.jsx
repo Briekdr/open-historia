@@ -40,6 +40,7 @@ import { enforceMapLayerOrder } from "./mapLayerOrder.js";
 import { POLITICAL_FILL_OPACITY_STOPS } from "./vnext/presentationPolicy.js";
 import { getFrontTargets, settleFront, startFrontsSync, subscribeFronts } from "./frontsController.js";
 import { arrowDetailAt, frontArrowFeatures, frontArrowRgb, frontAt, frontShownOn, frontTroopFeatures, stageOf } from "./frontGeometry.js";
+import { PAINT_WALL } from "../../runtime/fronts/codec.js";
 import { createPaintPlayer, paintPixels, paintScaleFor } from "./frontPaint.js";
 import { createSkirmish, skirmishAt } from "./frontSkirmish.js";
 import { contestedOwnersOf, setFrontShownOwners } from "./frontOwnership.js";
@@ -70,6 +71,8 @@ const PLAY_FRAMES_PER_SECOND_TOUCH = 12;
 // not need many frames.
 const SKIRMISH_FRAMES_PER_SECOND = 12;
 const SKIRMISH_FRAMES_PER_SECOND_TOUCH = 6;
+// The sources of the map whose regions give the land its shape.
+const MASK_SOURCES = ["custom-regions-source", "custom-regions-repair-source"];
 const NO_SKIRMISH = Object.freeze({ moves: [], cells: new Int32Array(0), states: new Uint8Array(0), turned: new Float32Array(0) });
 
 const UNOWNED_COLOR = "rgb(120, 120, 120)";
@@ -180,7 +183,7 @@ const FrontLayers = () => {
   // The pictures to declare, one a battlefield: [{ key, slot, canvas, coordinates }].
   // Most games have no battlefield, and then no source or layer is declared.
   const [pictures, setPictures] = useState([]);
-  const { polityOverrides, groups } = useWorldState();
+  const { polityOverrides, groups, regionOwnershipOverrides } = useWorldState();
 
   const colors = useMemo(() => {
     const resolveOwnerRgb = createOwnerRgbResolver(colorMap, polityOverrides);
@@ -206,6 +209,10 @@ const FrontLayers = () => {
   // Everything the playing needs, kept out of React state so a frame costs
   // pixels and two setData calls and nothing else.
   const colorRef = useRef(colors);
+  // Whose each region is, by the world: which regions are a battlefield's land
+  // (those of its two sides) is read from it when the land's edge is drawn.
+  const ownersRef = useRef(regionOwnershipOverrides);
+  ownersRef.current = regionOwnershipOverrides;
   // What is on the map: battlefield -> { target, run, stage, picture, slot, start, until, day }.
   const playRef = useRef(new Map());
   const rafRef = useRef(0);
@@ -395,6 +402,112 @@ const FrontLayers = () => {
       paint(false);
       rafRef.current = requestAnimationFrame(tick);
     };
+
+    // ---- the land's own edge ---------------------------------------------------
+    //
+    // The cells know sea from land only by the square, and the colour would
+    // end on squares along every coast. The map has the land's own shape: the
+    // regions it has drawn. So once the map has come to rest each picture is
+    // given a mask made from them, of where the land of its battlefield's two
+    // sides really is, and is drawn again cut to that (frontPaint.js). Only
+    // for the part of the map on the screen, which is all the map has loaded:
+    // the rest goes by the cells until it is looked at.
+    let maskedFor = "";
+    const fold = (name) => String(name ?? "").trim().toLowerCase();
+    const maskOf = (entry, bounds) => {
+      const { picture } = entry;
+      const { target, player } = picture;
+      // A flat sheet's rows are not evenly spaced: it goes by the cells.
+      if (target.rowOf || typeof document === "undefined") return null;
+      const { frame, sides } = entry.target.view;
+      const members = new Set([...(sides?.[0] ?? []), ...(sides?.[1] ?? [])].map(fold));
+      const owners = ownersRef.current ?? {};
+      const { width, height, scale } = target;
+      if (!picture.maskCanvas) {
+        picture.maskCanvas = document.createElement("canvas");
+        picture.maskCanvas.width = width;
+        picture.maskCanvas.height = height;
+      }
+      const context = picture.maskCanvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return null;
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = "#ffffff";
+      const { toCell } = projectorOf(frame);
+      let drawn = 0;
+      for (const sourceId of MASK_SOURCES) {
+        if (!source(sourceId)) continue;
+        let features = [];
+        try {
+          features = mapInstance.querySourceFeatures(sourceId) ?? [];
+        } catch {
+          features = [];
+        }
+        for (const feature of features) {
+          const properties = feature.properties ?? {};
+          const id = String(properties.GID_1 ?? properties.id ?? "");
+          if (!members.has(fold(owners[id] ?? properties.owner))) continue;
+          const { type, coordinates } = feature.geometry ?? {};
+          const polygons = type === "Polygon" ? [coordinates] : type === "MultiPolygon" ? coordinates : [];
+          for (const polygon of polygons) {
+            context.beginPath();
+            for (const ring of polygon) {
+              for (let index = 0; index < ring.length; index += 1) {
+                const [x, y] = toCell(ring[index][0], ring[index][1]);
+                if (index === 0) context.moveTo(x * scale, height - y * scale);
+                else context.lineTo(x * scale, height - y * scale);
+              }
+              context.closePath();
+            }
+            context.fill("evenodd");
+            drawn += 1;
+          }
+        }
+      }
+      if (drawn === 0) return null;
+      const shape = context.getImageData(0, 0, width, height).data;
+      const mask = target.mask?.length === width * height ? target.mask : new Uint8Array(width * height);
+      // The part of the picture the map has on the screen.
+      const [west, south] = toCell(bounds.getWest(), bounds.getSouth());
+      const [east, north] = toCell(bounds.getEast(), bounds.getNorth());
+      const x0 = Math.max(0, Math.floor(west * scale));
+      const x1 = Math.min(width, Math.ceil(east * scale));
+      const y0 = Math.max(0, Math.floor(height - north * scale));
+      const y1 = Math.min(height, Math.ceil(height - south * scale));
+      const { cols, rows, state } = player;
+      for (let y = 0; y < height; y += 1) {
+        const row = Math.min(rows - 1, Math.max(0, Math.floor(rows - (y + 0.5) / scale)));
+        const seen = y >= y0 && y < y1;
+        for (let x = 0; x < width; x += 1) {
+          const at = y * width + x;
+          if (seen && x >= x0 && x < x1) mask[at] = shape[at * 4 + 3];
+          else mask[at] = state[row * cols + Math.min(cols - 1, Math.floor(x / scale))] === PAINT_WALL ? 0 : 255;
+        }
+      }
+      return mask;
+    };
+    const remask = () => {
+      if (rafRef.current || playRef.current.size === 0) return;
+      const bounds = mapInstance?.getBounds?.();
+      if (!bounds) return;
+      const key = [
+        (mapInstance.getZoom?.() ?? 0).toFixed(1), bounds.getWest().toFixed(2), bounds.getSouth().toFixed(2),
+        bounds.getEast().toFixed(2), bounds.getNorth().toFixed(2),
+        ...[...playRef.current.values()].map((entry) => `${entry.target.name}:${entry.picture.canvas.width}`),
+      ].join("|");
+      if (key === maskedFor && ownersRef.current === maskedOwners) return;
+      maskedFor = key;
+      maskedOwners = ownersRef.current;
+      let any = false;
+      for (const entry of playRef.current.values()) {
+        const mask = maskOf(entry, bounds);
+        if (!mask && !entry.picture.target.mask) continue;
+        entry.picture.target.mask = mask ?? undefined;
+        any = true;
+      }
+      if (any) paint(true);
+    };
+    let maskedOwners = null;
+    mapInstance?.on?.("idle", remask);
 
     // ---- skirmishing, while nothing plays --------------------------------------
     //
@@ -644,6 +757,7 @@ const FrontLayers = () => {
     return () => {
       mapInstance?.off?.("styledata", onStyleData);
       mapInstance?.off?.("moveend", onMoveEnd);
+      mapInstance?.off?.("idle", remask);
       repaintRef.current = () => {};
       stop();
       if (skirmishHandle) cancelAnimationFrame(skirmishHandle);

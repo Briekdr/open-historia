@@ -270,3 +270,47 @@ test("a part of the picture is drawn alone, and the rest of it is left as it is"
   // A part where nothing is painted at any time is no part at all.
   assert.equal(paintPixels(player, palette, picture(), { minCol: 2, maxCol: 3, minRow: 4, maxRow: 5 }), null);
 });
+
+test("the colour ends at the land's own edge where the picture is given one, not on the squares of the cells", () => {
+  // Russia holds to column 14, so columns 12 and 13 are painted; rows 0 and 1 are sea.
+  const player = createPaintPlayer(viewOf([14, 14]));
+  player.seek(1);
+  const plain = picture();
+  paintPixels(player, palette, plain);
+  const maskOf = (inCell) => {
+    const target = picture();
+    target.mask = new Uint8Array(target.width * target.height);
+    for (let y = 0; y < target.height; y += 1) {
+      for (let x = 0; x < target.width; x += 1) {
+        const col = Math.floor(x / target.scale);
+        const row = Math.floor(ROWS - (y + 0.5) / target.scale);
+        target.mask[y * target.width + x] = inCell(col, row, x, y, target);
+      }
+    }
+    return target;
+  };
+  // A mask that says what the cells say changes nothing.
+  const same = maskOf((col, row) => (row < 2 ? 0 : 255));
+  paintPixels(player, palette, same);
+  assert.deepEqual(same.data, plain.data);
+  // The land reaches half way into the cells that count as sea: the colour runs out to there, and no further.
+  const coast = maskOf((col, row, x, y, target) => (row >= 2 ? 255 : y < target.height - 1.5 * target.scale ? 255 : 0));
+  paintPixels(player, palette, coast);
+  const pixel = (target, x, y) => [...target.data.subarray((y * target.width + x) * 4, (y * target.width + x) * 4 + 4)];
+  const xMid = Math.floor(13.5 * coast.scale);
+  const yLandward = coast.height - 1 - Math.floor(1.75 * coast.scale);
+  const ySeaward = coast.height - 1 - Math.floor(1.25 * coast.scale);
+  assert.equal(pixel(plain, xMid, yLandward)[3], 0, "by the cells alone it stops at the square");
+  assert.deepEqual(pixel(coast, xMid, yLandward), [200, 0, 0, 255], "with the land's shape it reaches the shore, in the colour of the land beside it");
+  assert.equal(pixel(coast, xMid, ySeaward)[3], 0, "and not the water beyond");
+  assert.equal(pixel(coast, Math.floor(16.5 * coast.scale), yLandward)[3], 0, "where the land beside it is not painted, neither is this");
+  // The sea reaches into a cell that counts as land: the colour is cut back to the shore.
+  const bay = maskOf((col, row, x, y, target) => (row < 2 ? 0 : row === 2 && y > target.height - 2.5 * target.scale ? 0 : 255));
+  paintPixels(player, palette, bay);
+  assert.equal(pixel(bay, xMid, bay.height - 1 - Math.floor(2.125 * bay.scale))[3], 0);
+  assert.equal(pixel(bay, xMid, bay.height - 1 - Math.floor(2.75 * bay.scale))[3], 255);
+  // A pixel that is half land is half painted.
+  const half = maskOf((col, row) => (row < 2 ? 0 : 128));
+  paintPixels(player, palette, half);
+  assert.ok(Math.abs(pixelAt(half, 13, 5)[3] - 128) <= 1);
+});

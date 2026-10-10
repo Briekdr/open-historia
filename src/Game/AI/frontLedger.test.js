@@ -74,6 +74,21 @@ test("prose where records go is ignored, and a record nothing can be done with s
   assert.deepEqual(decodeFrontOrders(""), []);
   assert.deepEqual(decodeFrontOrders(null), []);
   assert.equal(decodeFrontOrders(Array.from({ length: 40 }, () => "A~B~hold~all").join("\n")).length, MAX_FRONT_ORDERS_PER_PASS);
+  // An assault names what is attacked: a city, a structure or a formation. Without one it is no order.
+  const assaults = decodeFrontOrders([
+    "Eastern Ukraine~Russia~assault~all~2~city: Mariupol",
+    "Eastern Ukraine~Russia~storm~south~3~structure: Azovstal works",
+    "Eastern Ukraine~Ukraine~take~all~~unit: 1st Guards Tank Army~~total",
+    "Eastern Ukraine~Russia~assault~all~4",
+    "Eastern Ukraine~Russia~outflank~north~5~city: Izium",
+  ].join("\n"));
+  assert.deepEqual(assaults.map((entry) => [entry.order, entry.objective, entry.problem ?? ""]), [
+    ["assault", "city: Mariupol", ""],
+    ["assault", "structure: Azovstal works", ""],
+    ["assault", "unit: 1st Guards Tank Army", ""],
+    ["assault", "", "an assault has to name what is attacked"],
+    ["flank", "city: Izium", ""],
+  ]);
 });
 
 test("an order is tied to the ids of the events it named, once", () => {

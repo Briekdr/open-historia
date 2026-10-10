@@ -8,10 +8,15 @@
 //
 //   battlefield  its name, as the prompt lists it
 //   side         the country or group being ordered, by its exact name
-//   order        advance | blitz | spearhead | encircle | hold | dig in | fall back | land
+//   order        advance | blitz | spearhead | flank | encircle | assault | hold | dig in |
+//                fall back | land
 //   sector       all | north | centre | south | east | west | northeast ... | a place on the line
 //   events       the numbers of the events of this answer that tell of it; may be blank
-//   objective    a place by name ("city: Kharkiv"); blank for none
+//   objective    a place by name ("city: Kharkiv"); blank for none. An assault
+//                has to have one, and it may be a city, a structure or a
+//                formation of the other side ("structure: Azovstal works",
+//                "unit: 3rd Assault Brigade"): the troops it takes go at that
+//                directly
 //   result       what the story says came of it, when the story needs to say:
 //                breakthrough | captured | repulsed | stalemate | collapse | surrender
 //   effort       token | limited | major | total
@@ -46,7 +51,9 @@ const wordTable = (canonical, synonyms) => {
   return table;
 };
 const ORDER_WORDS = wordTable(FRONT_ORDERS, {
-  advance: ["attack", "attacks", "push", "offensive", "assault", "advances", "press", "pursue"],
+  advance: ["attack", "attacks", "push", "offensive", "advances", "press", "pursue"],
+  flank: ["outflank", "flanking", "flanks", "outflanks", "turn the flank"],
+  assault: ["storm", "storms", "take", "takes", "seize", "seizes", "assaults", "assault on", "attack on", "strike at"],
   blitz: ["blitzkrieg", "mass", "massed attack", "massed assault"],
   spearhead: ["thrust", "drive", "armoured thrust", "armored thrust"],
   encircle: ["envelop", "encirclement", "pincer", "pincers", "surround"],
@@ -133,6 +140,7 @@ const parseFrontOrderLine = (line, index) => {
   else if (!side) record.problem = "no side is named";
   else if (!order && !result) record.problem = orderRaw ? `"${orderRaw.slice(0, 40)}" is not an order` : "no order is given";
   else if (order === "land" && !objective) record.problem = "a landing has to name where";
+  else if (order === "assault" && !objective) record.problem = "an assault has to name what is attacked";
   return record;
 };
 

@@ -12,6 +12,13 @@
 // placed between them by how far each is the one side's or the other's. So the
 // colour spreads round a troop as it goes instead of arriving a square at a
 // time, and an edge that runs aslant across the cells is drawn as a slant.
+//
+// The cells know the sea, and the land of countries outside the war, only by
+// the square: a cell is one or the other. The land does not end on squares.
+// So the picture may be given a MASK, a byte a pixel, of where the
+// battlefield's land really is (FrontLayers.jsx makes it from the regions the
+// map has drawn): the colour is cut to it, and runs out over the cells that
+// count as sea to reach it. With no mask the colour ends on the squares.
 
 import { PAINT_OWN_A, PAINT_OWN_B, PAINT_TICKS_PER_DAY, PAINT_WALL } from "../../runtime/fronts/codec.js";
 
@@ -48,6 +55,7 @@ export const createPaintPlayer = (view) => {
   const firstOfB = (view.sides?.[0]?.length ?? 0) + 1;
   let applied = 0;
   let day = -Infinity;
+  let besideCells = null;
 
   let bounds = null;
   const reach = (cell) => {
@@ -98,6 +106,34 @@ export const createPaintPlayer = (view) => {
     since,
     was,
     sideOf: (value) => (value === PAINT_OWN_A ? 0 : value === PAINT_OWN_B ? 1 : value < firstOfB ? 0 : 1),
+    // For a cell that counts as sea or as land outside the war: the cell of
+    // the battlefield's land nearest it, if one lies beside it, else -1. Land
+    // that the land's own shape puts in such a cell is painted as that
+    // neighbour is. (What counts as sea never changes in a run.)
+    get beside() {
+      if (besideCells) return besideCells;
+      besideCells = new Int32Array(size).fill(-1);
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          const cell = row * cols + col;
+          if (state[cell] !== PAINT_WALL) continue;
+          let nearest = 9;
+          for (let dy = -1; dy <= 1; dy += 1) {
+            const r = row + dy;
+            if (r < 0 || r >= rows) continue;
+            for (let dx = -1; dx <= 1; dx += 1) {
+              const c = col + dx;
+              if ((dx === 0 && dy === 0) || c < 0 || c >= cols || state[r * cols + c] === PAINT_WALL) continue;
+              if (dx * dx + dy * dy < nearest) {
+                nearest = dx * dx + dy * dy;
+                besideCells[cell] = r * cols + c;
+              }
+            }
+          }
+        }
+      }
+      return besideCells;
+    },
     get bounds() { return bounds; },
     get day() { return day; },
     // Lays over the ground as it stands the cells that are for the moment
@@ -180,8 +216,10 @@ export const paintScaleFor = (cols, rows) => Math.max(2, Math.min(6, Math.floor(
 // edge) the middle of pixel row y lies, for a frame whose rows are not evenly
 // spaced on the map; left out, they are. `only`, when given, is the cells to
 // draw, as { minCol, maxCol, minRow, maxRow }: the rest of the picture is left
-// as it is. Returns the pixels written, as { x, y, width, height }, or null
-// when nothing is painted in this run.
+// as it is. `target.mask`, when given, is a byte a pixel: how much of that
+// pixel is the battlefield's land (0 none of it, 255 all). Returns the pixels
+// written, as { x, y, width, height }, or null when nothing is painted in
+// this run.
 //
 // Every cell of land is one side's or the other's, or on its way from one to
 // the other, and the edge of the colour is drawn where that crosses half-way.
@@ -192,8 +230,9 @@ export const paintScaleFor = (cols, rows) => Math.max(2, Math.min(6, Math.floor(
 export const paintPixels = (player, palette, target, only = null) => {
   const { cols, rows, state, since, was, bounds, day, sideOf } = player;
   if (!bounds) return null;
-  const { data, width, height, scale, rowOf } = target;
+  const { data, width, height, scale, rowOf, mask } = target;
   const size = cols * rows;
+  const beside = mask ? player.beside : null;
 
   // A part drawn alone is drawn two cells wider than asked: a cell's colour
   // reaches half a cell past it, and its edge is placed by the cells round it.
@@ -309,11 +348,25 @@ export const paintPixels = (player, palette, target, only = null) => {
       const u = (x + 0.5) / scale;
       const ownCol = Math.floor(u);
       const pixel = at + x * 4;
-      const own = ownRow * cols + ownCol;
-      // Sea, and land that is nobody's in this war, is never painted.
-      if (tint[own] === PAINT_WALL) {
+      let own = ownRow * cols + ownCol;
+      // How much of this pixel is the battlefield's land: all of it, going by
+      // the cells alone; going by the mask, what the land's own shape gives.
+      const land = mask ? mask[y * width + x] : 255;
+      if (land === 0) {
         data[pixel + 3] = 0;
         continue;
+      }
+      // Sea, and land that is nobody's in this war, is never painted. But a
+      // cell that counts as such may have the battlefield's land in it, where
+      // the land's edge crosses the cell: that is painted as the cell of land
+      // beside it is.
+      if (tint[own] === PAINT_WALL) {
+        const stand = beside ? beside[own] : -1;
+        if (stand < 0 || tint[stand] === PAINT_WALL) {
+          data[pixel + 3] = 0;
+          continue;
+        }
+        own = stand;
       }
       const colA = Math.max(fromCol, Math.min(toCol, Math.floor(u - 0.5)));
       const colB = Math.max(fromCol, Math.min(toCol, colA + 1));
@@ -355,7 +408,7 @@ export const paintPixels = (player, palette, target, only = null) => {
       data[pixel] = palette[colour];
       data[pixel + 1] = palette[colour + 1];
       data[pixel + 2] = palette[colour + 2];
-      data[pixel + 3] = Math.round(palette[colour + 3] * solid);
+      data[pixel + 3] = land === 255 ? Math.round(palette[colour + 3] * solid) : Math.round((palette[colour + 3] * solid * land) / 255);
     }
   }
   return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };

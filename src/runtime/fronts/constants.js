@@ -61,7 +61,10 @@ export const TROOP_STATES = Object.freeze(["holding", "advancing", "encircled", 
 
 // What a side can be told to do on a stretch of the line, and what the story
 // may say came of it. These are the words an order is written in.
-export const FRONT_ORDERS = Object.freeze(["advance", "blitz", "spearhead", "encircle", "hold", "dig in", "fall back", "land"]);
+// "assault" is the one order that names WHAT is attacked and not where the
+// line is pushed: a city, a structure, or a formation of the other side. The
+// troops it takes are sent at that directly, from wherever they are.
+export const FRONT_ORDERS = Object.freeze(["advance", "blitz", "spearhead", "encircle", "hold", "dig in", "fall back", "land", "flank", "assault"]);
 export const FRONT_RESULTS = Object.freeze(["breakthrough", "captured", "repulsed", "stalemate", "collapse", "surrender"]);
 export const FRONT_EFFORTS = Object.freeze(["token", "limited", "major", "total"]);
 export const DEFAULT_EFFORT = "major";
