@@ -139,8 +139,12 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
   const where = sectors.filter((sector) => sector.from && sector.to);
   const lineText = (most) => (where.length > 0 ? `  Line: ${where.slice(0, most).map((sector) => `${sector.name}: ${sector.from === sector.to ? sector.from : `${sector.from} to ${sector.to}`}`).join("; ")}` : "");
 
-  const moves = sectors.filter((sector) => Math.abs(sector.moved) >= 1).slice(0, 3)
-    .map((sector) => `${lead[sector.moved > 0 ? 0 : 1]} advanced ${Math.abs(sector.moved)} km in the ${sector.name}`);
+  // What moved is told by the same three sectors as the line is, a side at a
+  // time: "Aland advanced 65 km in the north, 22 km in the centre".
+  const moves = [HOLDER_SIDE_A, HOLDER_SIDE_B].map((side) => {
+    const gained = sectors.slice(0, 3).filter((sector) => Math.abs(sector.moved) >= 1 && (sector.moved > 0) === (side === HOLDER_SIDE_A));
+    return gained.length > 0 ? `${lead[side]} advanced ${gained.map((sector) => `${Math.abs(sector.moved)} km in the ${sector.name}`).join(", ")}` : "";
+  }).filter(Boolean);
   const taken = Array.isArray(brief.taken) ? brief.taken : [[], []];
   const cities = Array.isArray(brief.cities) ? brief.cities : [[], []];
   const gains = (side, most) => [list(cities[side] ?? [], "city", most), list(taken[side] ?? [], "region", most)].filter(Boolean).join(", ");
@@ -161,9 +165,11 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
   const words = sectors.map((sector) => sector.name);
   const valid = `  Sectors: ${words.length > 0 ? `${words.join(", ")}, or a place on the line.` : "all, or a place on the line."}`;
 
-  // Too long: the line is told in fewer sectors, then fewer names are listed.
+  // The line is told by the three sectors of the way it mostly runs: the other
+  // words are only other cuts of the same line. Too long still: fewer names
+  // are listed, then fewer sectors.
   let text = "";
-  for (const [mostSectors, mostNames] of [[9, 4], [3, 4], [3, 2], [2, 1], [0, 1]]) {
+  for (const [mostSectors, mostNames] of [[3, 4], [3, 2], [3, 1], [2, 1], [0, 1]]) {
     text = [head, strength, lineText(mostSectors), sinceText(mostNames), orders, valid].filter(Boolean).join("\n");
     if (text.length <= BRIEF_TEXT_MAX) return text;
   }

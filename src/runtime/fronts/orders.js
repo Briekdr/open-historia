@@ -41,7 +41,7 @@ import {
 import { nearestHeld, redistance, restoreCells, takeCapsule, takeCells } from "./field.js";
 import { WHOLE_LINE, describePoint, findPlace, inSector, placeText, resolveSector, sectorMiddle } from "./sectors.js";
 import { findPockets, nearestOwner, surrenderPocket } from "./supply.js";
-import { KIND_INFANTRY, controlRadius, createTroop, isAttack, isLive, liveCount, stands } from "./troops.js";
+import { KIND_INFANTRY, STATE_ADVANCING, controlRadius, createTroop, isAttack, isLive, liveCount, stands } from "./troops.js";
 
 const fold = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 
@@ -281,7 +281,7 @@ const capture = (battle, side, target, date) => {
     troops[index].x = (cell % field.cols) + 0.5;
     troops[index].y = Math.floor(cell / field.cols) + 0.5;
     troops[index].dig = 0;
-    troops[index].walkedToday = true;
+    troops[index].state = STATE_ADVANCING;
   });
   giveWay(battle, 1 - side, CAPTURED_LOSS, date);
   redistance(field);
@@ -300,10 +300,31 @@ const repulse = (battle, side, sector, date) => {
     if (gained && inSector(sector, (index % field.cols) + 0.5, Math.floor(index / field.cols) + 0.5, place.kmAt)) cells.push(index);
   }
   restoreCells(field, cells, battle.startPhi, nearestOwner(battle, 1 - side));
+  // What the side still holds on that sector, for its troops to go back to:
+  // straight back behind the restored line, not sideways into the next sector.
+  const behind = [];
+  for (let index = 0; index < field.size; index += 1) {
+    if (field.holders[index] === side && inSector(sector, (index % field.cols) + 0.5, Math.floor(index / field.cols) + 0.5, place.kmAt)) behind.push(index);
+  }
   for (const troop of battle.troops[side]) {
     if (!isLive(troop) || !inSector(sector, troop.x, troop.y, place.kmAt)) continue;
     troop.strength *= 1 - REPULSED_LOSS;
     troop.dig = 0;
+    troop.hx = 0;
+    troop.hy = 0;
+    if (stands(field, side, troop.x, troop.y)) continue;
+    let nearest = Infinity;
+    let home = -1;
+    for (const index of behind) {
+      const dx = (index % field.cols) + 0.5 - troop.x;
+      const dy = Math.floor(index / field.cols) + 0.5 - troop.y;
+      if (dx * dx + dy * dy >= nearest) continue;
+      nearest = dx * dx + dy * dy;
+      home = index;
+    }
+    if (home < 0) continue;
+    troop.x = (home % field.cols) + 0.5;
+    troop.y = Math.floor(home / field.cols) + 0.5;
   }
   giveWay(battle, side, 0, date, field.cols + field.rows);
   redistance(field);

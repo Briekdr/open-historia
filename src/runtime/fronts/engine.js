@@ -42,7 +42,7 @@ import {
   TROOP_KINDS,
 } from "./constants.js";
 import { contactAt, findContacts, frameForContact, middleOf } from "./contact.js";
-import { REGIONS_NEEDED, prepare, recordDay, simulateDay, startRecorder } from "./day.js";
+import { REGIONS_NEEDED, prepare, recordDay, settleRegions, simulateDay, startRecorder } from "./day.js";
 import { redistance, takeCapsule, traceContour } from "./field.js";
 import { pointInFrame, projectorOf } from "./frame.js";
 import { applyOrder } from "./orders.js";
@@ -444,6 +444,8 @@ const applyOrderMoment = (run, moment, day) => {
   const today = prepare(battle, day);
   applyOrder(battle, moment, { ...today, date: run.dateOf(day) }, run.notes);
   battle.touched = true;
+  // What a result took is counted on its own day: a town in the log, a region changing hands.
+  if (battle.status === "active" && battle.cityHolder) settleRegions(battle, run, day);
 };
 
 const applyWarMoment = (run, moment, day) => {
