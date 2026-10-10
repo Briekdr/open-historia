@@ -10,6 +10,8 @@
 
 import { installWebApiRouter } from "./router.js";
 import { ensureSeeded } from "./libraryStore.js";
+import * as idb from "./idb.js";
+import { bringHttpSavesAcross } from "./saveMove.js";
 import { markEntered, showHomePage, shouldShowHome } from "./homePage.js";
 import { connectBestNode } from "./nodeConnect.js";
 import { isNativeApp, showNativeBoot } from "./nativeBoot.js";
@@ -42,6 +44,10 @@ export const installWebBackend = async () => {
   // gap where it was is most of the difference between an app and a web page in a
   // shell. Everything after this point is the same on both.
   const boot = isNativeApp() ? showNativeBoot({ local: Boolean(import.meta.env.VITE_OH_NATIVE) }) : null;
+
+  // Saves this browser holds under the site's http address come across first,
+  // so the library below already has them (saveMove.js). Never in the app.
+  if (!isNativeApp()) await bringHttpSavesAcross({ db: idb });
 
   // Seed the default scenario before any /api call, then intercept.
   try {
