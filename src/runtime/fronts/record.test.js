@@ -208,6 +208,10 @@ test("the list as it was seen on a date places the date in each battlefield's ow
   assert.deepEqual(frontViewOf(battlefieldsAsSeen(list, "2024-12-31")[0]).window, { from: 31, until: 31 });
   assert.deepEqual(frontViewOf(battlefieldsAsSeen(list, "2024-01-01")[0]).window, { from: 0, until: 0 }, "before the run: how it stood when the run began");
   assert.equal(battlefieldsAsSeen(list, null), list);
+  // A turn being revealed: at each event, the days since the event before it are played.
+  assert.deepEqual(frontViewOf(battlefieldsAsSeen(list, "2024-03-16", "2024-03-06")[0]).window, { from: 5, until: 15 });
+  assert.deepEqual(frontViewOf(battlefieldsAsSeen(list, "2024-03-16", "2024-03-20")[0]).window, { from: 15, until: 15 }, "never backwards");
+  assert.deepEqual(frontViewOf(battlefieldsAsSeen(list, "2024-03-16", "not a date")[0]).window, { from: 15, until: 15 });
   assert.equal(battlefieldsAsSeen(list, "the third age")[0], list[0], "a date the calendar cannot place");
   // The same on a BC calendar, where the text of a date does not sort.
   const ancient = normalizeBattlefields([battlefield({ replay: replayOfRun({ date: "-0219-03-01" }) })]);

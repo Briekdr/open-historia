@@ -55,6 +55,8 @@ import {
 } from "./eventFocus.js";
 import { setWorldStateOverride } from "../Map/useWorldState.js";
 import { getUnitById, setUnitsOverride } from "../Map/unitsController.js";
+import { getBattlefields, setFrontsOverride } from "../Map/frontsController.js";
+import { battlefieldsAsSeen } from "../../runtime/fronts/record.js";
 import { useIsMobile } from "../../runtime/useIsMobile.js";
 import { primeRuntimeValue } from "../../runtime/runtimeStore.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
@@ -3649,6 +3651,9 @@ const DateWidget = ({
                     // The orders of the same moment, so a patrol's ring and a
                     // march's heading move with their units (unitsController.js).
                     setUnitsOverride(livePreview.units ?? [], livePreview.pendingUnitOrders ?? []);
+                    // The land war of a turn still being written has not been
+                    // fought yet: its battlefields stand as they are.
+                    setFrontsOverride(null);
                     return;
                 } catch (error) {
                     // Unvalidated impacts again: the map waits rather than taking the panel.
@@ -3657,6 +3662,7 @@ const DateWidget = ({
             }
             setWorldStateOverride(null);
             setUnitsOverride(null);
+            setFrontsOverride(null);
             return;
         }
         const record = latestTurnRecord;
@@ -3672,6 +3678,7 @@ const DateWidget = ({
         if (!stagingActive) {
             setWorldStateOverride(null);
             setUnitsOverride(null);
+            setFrontsOverride(null);
             return;
         }
         const revealed = record.events.slice(0, Math.max(1, visibleEventCount));
@@ -3695,6 +3702,14 @@ const DateWidget = ({
         });
         setWorldStateOverride(stagedWorld);
         setUnitsOverride(stagedWorld.units ?? [], stagedWorld.pendingUnitOrders ?? []);
+        // The battlefields as they stood at the event being read: the map
+        // plays the days since the event before it, so the troops are seen
+        // going where the event says they went (frontsController.js).
+        setFrontsOverride(battlefieldsAsSeen(
+            getBattlefields(),
+            revealed[revealed.length - 1]?.date,
+            revealed.length > 1 ? revealed[revealed.length - 2]?.date : record.fromDate,
+        ));
     }, [latestTurnRecord, liveStageBase, liveTurnRecord, olderTurnRecord, openPanel, skipInFlight, stagedBase, totalVisibleEvents, visibleEventCount]);
 
     // Never leave a stale override behind when this widget unmounts.
@@ -3702,6 +3717,7 @@ const DateWidget = ({
         () => () => {
             setWorldStateOverride(null);
             setUnitsOverride(null);
+            setFrontsOverride(null);
         },
         [],
     );

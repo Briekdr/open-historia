@@ -299,13 +299,17 @@ export const battlefieldsAtDay = (battlefields, until, from = until) => {
 
 // The same by date, each battlefield placing the date in its own run. No date
 // is the list as it stands, and so is a date the calendar cannot place.
-export const battlefieldsAsSeen = (battlefields, date) => {
+// `fromDate` is the date the map is to start playing from to reach it (a turn
+// being revealed plays, at each event, the days since the event before it);
+// left out, or one the calendar cannot place, the date is simply shown.
+export const battlefieldsAsSeen = (battlefields, date, fromDate = date) => {
   const list = normalizeBattlefields(battlefields);
   if (date === null || date === undefined || date === "") return list;
   const seen = [];
   for (const battlefield of list) {
     const day = replayDayOn(battlefield.replay, date);
-    const then = day === null ? battlefield : atDay(battlefield, day, day);
+    const since = day === null ? null : replayDayOn(battlefield.replay, fromDate);
+    const then = day === null ? battlefield : atDay(battlefield, since === null ? day : Math.min(since, day), day);
     if (then) seen.push(then);
   }
   made.add(seen);
