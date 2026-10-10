@@ -1,7 +1,7 @@
 // Run: node --test src/runtime/fronts/record.test.js
 import test from "node:test";
 import assert from "node:assert/strict";
-import { encodeMask, encodeTroops } from "./codec.js";
+import { PAINT_OWN_B, encodeMask, encodeTroops } from "./codec.js";
 import { HOLDER_SIDE_A, HOLDER_SIDE_B, HOLDER_WALL, MAX_BATTLEFIELDS, MAX_CLOSED_BATTLEFIELDS, MAX_ORDERS_PER_SIDE, MAX_TROOPS_PER_SIDE } from "./constants.js";
 import { createFrame, projectorOf } from "./frame.js";
 import {
@@ -167,7 +167,7 @@ test("what the map draws is the troops as they stand and the replay of the last 
   assert.deepEqual(view.named, [{ s: 0, i: 0, name: "1st Guards Tank Army", unitId: "unit-1" }]);
   assert.equal(view.replay.days, 31);
   assert.equal(view.replay.paint.began.length, frame.cols * frame.rows);
-  assert.equal(view.replay.paint.began[35], 0, "as the run began, nothing was painted");
+  assert.equal(view.replay.paint.began[35], PAINT_OWN_B, "as the run began, nothing was painted");
   assert.equal(view.replay.paint.cells.length, 10 * frame.rows, "ten columns taken, a cell at a time");
   assert.deepEqual(view.replay.paint.names, ["Russia", "Belarus", "Ukraine"]);
   assert.equal(view.replay.tracks[0][0].at(-1).x, 39);

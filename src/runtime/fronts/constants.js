@@ -21,7 +21,7 @@ export const BATTLEFIELD_NAME_MAX = 80;
 
 // A side is the countries (or groups) fighting together on it.
 export const MAX_SIDE_MEMBERS = 8;
-// Hundreds a side, standing close together: a war is to look like one.
+// Hundreds a side: a front is to be thick with troops, close together.
 export const MAX_TROOPS_PER_SIDE = 400;
 export const MAX_NAMED_TROOPS = 64;
 export const MAX_ORDERS_PER_SIDE = 6;

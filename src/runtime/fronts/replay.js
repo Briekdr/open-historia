@@ -14,9 +14,9 @@
 //     names  whose colour taken ground is painted in: the members of side 0,
 //            then those of side 1
 //     m      the painted ground as the replay begins, a state a cell (codec.js
-//            encodeStates): 0 for ground shown as its region's own, 1 + an
-//            index into `names` for ground painted in that name, PAINT_WALL
-//            for sea and land that is nobody's in this war
+//            encodeStates): PAINT_OWN_A or PAINT_OWN_B for ground a side
+//            holds at home, 1 + an index into `names` for ground painted in
+//            that name, PAINT_WALL for sea and land that is nobody's in this war
 //     p      every change of that ground after it, with its time (codec.js
 //            encodePaint)
 //
@@ -36,6 +36,8 @@ import { diffGameDays } from "../gameDates.js";
 import {
   PACKED_TEXT,
   PAINT_NAMES_MAX,
+  PAINT_OWN_A,
+  PAINT_OWN_B,
   PAINT_TICKS_PER_DAY,
   PAINT_WALL,
   TRACK_DAY_MAX,
@@ -49,14 +51,20 @@ import {
 import { HOLDER_SIDE_A, HOLDER_SIDE_B, TROOP_STATES } from "./constants.js";
 
 export const MAX_TRACK_POINTS = 32;
-// How far, in cells, a point left out of a path may lie from where the points
-// kept put the troop on that day.
-export const TRACK_TOLERANCE = 0.1;
+// How far, in cells, a point left out of a path may lie to the SIDE of where
+// the points kept put the troop on that day. Being a little ahead of or behind
+// that place counts for less (TRACK_ALONG): a troop's pace changes from day to
+// day with its fighting, and a path that kept every such day would be all
+// points; what is seen is the way it went, and roughly when.
+export const TRACK_TOLERANCE = 0.2;
+const TRACK_ALONG = 0.3;
 // Strength counts toward that too: this many points of strength as one cell.
 const STRENGTH_PER_CELL = 40;
 // A path is saved to 1/16 of a cell: two points nearer than that are one.
 const SAME_PLACE = 1 / 32;
-export const MAX_REPLAY_CHARS = 48000;
+// A run of hundreds of troops across a wide front is some tens of thousands
+// of characters; this is the most a replay may be.
+export const MAX_REPLAY_CHARS = 120000;
 const TEXT_MAX = 200000;
 const DATE_MAX = 40;
 const NAME_MAX = 120;
@@ -99,6 +107,10 @@ const thinTrack = (samples, tolerance) => {
     const first = samples[a];
     const last = samples[b];
     const span = last.day - first.day;
+    // The way from the one kept point to the other, to tell ahead from aside.
+    const reach = Math.sqrt((last.x - first.x) ** 2 + (last.y - first.y) ** 2);
+    const wayX = reach > 0 ? (last.x - first.x) / reach : 0;
+    const wayY = reach > 0 ? (last.y - first.y) / reach : 0;
     let worst = 0;
     let at = -1;
     for (let index = a + 1; index < b; index += 1) {
@@ -107,7 +119,9 @@ const thinTrack = (samples, tolerance) => {
       const dx = sample.x - (first.x + (last.x - first.x) * part);
       const dy = sample.y - (first.y + (last.y - first.y) * part);
       const ds = (sample.strength - (first.strength + (last.strength - first.strength) * part)) / STRENGTH_PER_CELL;
-      const off = Math.sqrt(dx * dx + dy * dy + ds * ds);
+      const ahead = (dx * wayX + dy * wayY) * TRACK_ALONG;
+      const aside = reach > 0 ? dx * -wayY + dy * wayX : Math.sqrt(dx * dx + dy * dy);
+      const off = Math.sqrt(ahead * ahead + aside * aside + ds * ds);
       if (off > worst) {
         worst = off;
         at = index;
@@ -160,12 +174,12 @@ export const createReplayRecorder = ({ sides = [[], []], cols = 0, rows = 0 } = 
   const stateOf = (ground, cell) => {
     const holder = ground.holders[cell];
     if (holder !== HOLDER_SIDE_A && holder !== HOLDER_SIDE_B) return PAINT_WALL;
-    if (ground.homes && ground.homes[cell] === holder) return 0;
     const side = holder === HOLDER_SIDE_A ? 0 : 1;
-    if (members[side].length === 0) return 0;
+    const own = side === 0 ? PAINT_OWN_A : PAINT_OWN_B;
+    if ((ground.homes && ground.homes[cell] === holder) || members[side].length === 0) return own;
     const painter = Math.min(ground.painters ? ground.painters[cell] : 0, members[side].length - 1);
     const state = 1 + (side === 0 ? painter : members[0].length + painter);
-    return state <= names.length ? state : 0;
+    return state <= names.length ? state : own;
   };
 
   return {

@@ -197,6 +197,20 @@ test("the changes of painted ground come back in order, however long the wait be
   assert.deepEqual([...decodePaint(encodePaint([{ tick: 9, cell: 1, state: 1 }, { tick: 4, cell: 2, state: 1 }])).ticks], [9, 9]);
   // A damaged string reads as far as it goes.
   assert.equal(decodePaint(text.slice(0, PAINT_LETTERS + 2)).cells.length, 1);
+  // Cells in a row that change together are one entry, however many (up to
+  // sixty-four); a gap, another state or another moment starts a new one.
+  const strip = [
+    ...Array.from({ length: 70 }, (_, index) => ({ tick: 5, cell: 1000 + index, state: 2 })),
+    { tick: 5, cell: 1071, state: 2 },
+    { tick: 5, cell: 1072, state: 3 },
+    { tick: 6, cell: 1073, state: 3 },
+  ];
+  const packed = encodePaint(strip);
+  assert.equal(packed.length, 5 * PAINT_LETTERS, "64 + 6, then one after the gap, one of another state, one a tick later");
+  const unpacked = decodePaint(packed);
+  assert.deepEqual([...unpacked.cells], strip.map((change) => change.cell));
+  assert.deepEqual([...unpacked.states], strip.map((change) => change.state));
+  assert.deepEqual([...unpacked.ticks], strip.map((change) => change.tick));
 });
 
 test("a key names a list and nothing looser", () => {
