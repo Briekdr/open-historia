@@ -32,6 +32,7 @@ import { hashKey } from "./codec.js";
 import {
   BATTLEFIELD_NAME_MAX,
   EFFORT_FACTORS,
+  FRONT_EFFORTS,
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
   LANDING_CELLS,
@@ -40,14 +41,15 @@ import {
   MAX_SIDE_MEMBERS,
   MAX_TROOPS_PER_SIDE,
   POOL_PER_TROOP,
+  STANDING_QUIET_DAYS,
   TROOPS_PER_STRENGTH,
   TROOP_KINDS,
 } from "./constants.js";
 import { contactAt, findContacts, frameForContact, middleOf } from "./contact.js";
 import { REGIONS_NEEDED, prepare, recordDay, settleRegions, simulateDay, startRecorder } from "./day.js";
 import { redistance, takeCapsule, traceContour } from "./field.js";
-import { pointInFrame, projectorOf } from "./frame.js";
-import { applyOrder, readSieges } from "./orders.js";
+import { pointInFrame } from "./frame.js";
+import { applyOrder, assignOrder, readSieges } from "./orders.js";
 import { foldBattlefieldName, normalizeBattlefields } from "./record.js";
 import { findPockets } from "./supply.js";
 import { createTroop, isLive, liveCount, troopsCap } from "./troops.js";
@@ -214,7 +216,7 @@ const startBattle = (run, battle, day) => {
   readSieges(battle);
   findPockets(battle);
   startRecorder(battle, run, day);
-  recordDay(battle, day);
+  recordDay(battle, day, day >= run.days);
 };
 
 const closeBattle = (run, battle, day) => {
@@ -234,7 +236,7 @@ const closeBattle = (run, battle, day) => {
   }
   run.notes.push({ kind: "closed", battlefield: battle, detail: occupied.join(", ") });
   if (!battle.recorder) startRecorder(battle, run, day);
-  recordDay(battle, day);
+  recordDay(battle, day, true);
   battle.replay = battle.recorder.finish({ date: run.input.fromDate, days: day });
   battle.closing = "";
 };
@@ -260,6 +262,7 @@ const contactKey = (run, war) => {
 // for the map's shapes turn after turn.
 const examineWar = (run, war, day) => {
   if (war.status !== "active" || war.sides[0].length === 0 || war.sides[1].length === 0) return;
+  adoptStanding(run, war);
   const key = contactKey(run, war);
   if (key && run.cache?.get(key) === true) return;
   const regions = regionsOf(run);
@@ -348,18 +351,65 @@ const leaveBattle = (run, battle, names) => {
   battle.planKey = "";
 };
 
+// ---- a border fortified in peace -----------------------------------------------
+// Troops may be deployed along a border with no war behind it: a battlefield
+// that is STANDING. Nothing fights there and no ground changes hands; an order
+// to attack is refused. If a war between its two sides begins it becomes
+// active as it stands, with whoever is dug in there.
+
+const BORDER = /^\s*border\s*:\s*(.+?)\s*\/\s*(.+?)\s*$/i;
+
+// Which side of a war a name fights on: 0, 1, or -1.
+const warSide = (war, name) => (war.sides[0].some((member) => fold(member) === fold(name)) ? 0 : war.sides[1].some((member) => fold(member) === fold(name)) ? 1 : -1);
+// A battle's side for a side of its war: the same, unless the battle was laid
+// out before the war and its first side fights on the war's second.
+const battleSide = (battle, side) => (battle.swap ? 1 - side : side);
+
+// A standing battlefield whose two sides have gone to war with each other is
+// that war's from now on: whoever has nobody there yet raises troops.
+const adoptStanding = (run, war) => {
+  for (const battle of run.battles) {
+    if (battle.status !== "standing") continue;
+    const first = warSide(war, battle.sides[0][0]);
+    const second = warSide(war, battle.sides[1][0]);
+    if (first < 0 || second < 0 || first === second) continue;
+    battle.warId = war.id;
+    battle.status = war.status === "ceasefire" ? "frozen" : "active";
+    battle.swap = first === 1;
+    for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) if (liveCount(battle.troops[side]) === 0) raiseTroops(battle, run, side);
+    setRadii(battle);
+    paintGround(battle, run);
+    battle.planKey = "";
+    battle.touched = true;
+  }
+};
+
+// A day on a border fortified in peace: nothing happens. Left at token effort
+// with nothing ordered for long enough, or with nobody on it, it is given up.
+const standDay = (battle) => {
+  battle.quiet += 1;
+  const manned = [HOLDER_SIDE_A, HOLDER_SIDE_B].filter((side) => liveCount(battle.troops[side]) > 0);
+  if (manned.length === 0 || (battle.quiet >= STANDING_QUIET_DAYS && manned.every((side) => battle.effort[side] === "token"))) battle.closing = "stood-down";
+};
+
 // A saved battlefield against its war as the war now stands: who is in it,
 // and whether it is fought, frozen or over.
 const syncWithWar = (run, battle) => {
+  if (battle.status === "standing") {
+    for (const war of run.wars.values()) if (war.status !== "ended") adoptStanding(run, war);
+    if (battle.status === "standing") return;
+  }
   const war = run.wars.get(battle.warId);
   if (!war || war.status === "ended") {
     battle.closing = "war-over";
     return;
   }
+  battle.swap = warSide(war, battle.sides[0][0]) === 1;
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
-    const left = battle.sides[side].filter((member) => !war.sides[side].some((name) => fold(name) === fold(member)));
+    const theirs = war.sides[battleSide(battle, side)];
+    const left = battle.sides[side].filter((member) => !theirs.some((name) => fold(name) === fold(member)));
     if (left.length > 0) leaveBattle(run, battle, left);
-    joinBattle(run, battle, side, war.sides[side]);
+    joinBattle(run, battle, side, theirs);
   }
   battle.status = war.status === "ceasefire" ? "frozen" : "active";
 };
@@ -426,7 +476,103 @@ const landingGround = (run, opening) => {
   return battle;
 };
 
+// An order on a battlefield that is fought over (or frozen): put to its side as it is.
+const orderOnFront = (run, battle, moment, day) => {
+  const today = prepare(battle, day);
+  applyOrder(battle, moment, { ...today, date: run.dateOf(day), run }, run.notes);
+  battle.touched = true;
+  // What a result took is counted on its own day: a town in the log, a region changing hands.
+  if (battle.status === "active" && battle.cityHolder) settleRegions(battle, run, day);
+};
+
+// An order for a border: `border: A / B`, to dig in or to hold. It opens a
+// standing battlefield along the stretch where the two touch if there is none,
+// raises troops there for the side that gives it, and puts the order to them.
+// Between two that are at war already the border is the front: the order goes
+// to every battlefield the two share, whatever it is.
+const applyBorderMoment = (run, moment, day, first, second) => {
+  const note = { kind: "", battlefield: clean(moment.battlefield, BATTLEFIELD_NAME_MAX), side: clean(moment.side), ...(moment.ref !== undefined ? { ref: moment.ref } : {}) };
+  const names = [clean(`${first} / ${second} border`, BATTLEFIELD_NAME_MAX), clean(`${second} / ${first} border`, BATTLEFIELD_NAME_MAX)];
+  let battle = run.battles.find((entry) => entry.status !== "closed" && names.some((name) => foldBattlefieldName(entry.name) === foldBattlefieldName(name))) ?? null;
+  if (!battle) {
+    const fronts = run.battles.filter((entry) => entry.status !== "closed" && entry.status !== "standing" && sideOfName(entry, first) >= 0 && sideOfName(entry, second) >= 0 && sideOfName(entry, first) !== sideOfName(entry, second));
+    if (fronts.length > 0) {
+      for (const front of fronts) orderOnFront(run, front, { ...moment, battlefield: front.name }, day);
+      return;
+    }
+    const atWar = [...run.wars.values()].some((war) => war.status !== "ended" && warSide(war, first) >= 0 && warSide(war, second) >= 0 && warSide(war, first) !== warSide(war, second));
+    if (atWar || !["dig in", "hold"].includes(moment.order) || fold(first) === fold(second)) {
+      run.notes.push({ ...note, kind: atWar ? "border-at-war" : "not-at-war" });
+      return;
+    }
+    if (openBattles(run).length >= MAX_BATTLEFIELDS) {
+      run.notes.push({ ...note, kind: "too-many-battlefields" });
+      return;
+    }
+    const regions = regionsOf(run);
+    if (!regions) throw REGIONS_NEEDED;
+    const map = run.input.map;
+    const sideOf = (id) => {
+      const holder = run.groupOf(id) || run.controllerOf(id);
+      return fold(holder) === fold(first) ? 0 : fold(holder) === fold(second) ? 1 : -1;
+    };
+    for (const contact of findContacts(regions, sideOf, map)) {
+      const frame = frameForContact(contact, map);
+      const arena = frame ? arenaFor(run.cache, map, frame, run.input.regionTypes) : null;
+      battle = arena ? openBattle(run, { name: names[0], warId: "", sides: [[first], [second]], frame, arena, day }) : null;
+      if (battle) break;
+    }
+    if (!battle) {
+      run.notes.push({ ...note, kind: "border-not-found" });
+      return;
+    }
+    battle.status = "standing";
+    run.battles.push(battle);
+    setRadii(battle);
+    paintGround(battle, run);
+    keepStart(battle);
+    readSieges(battle);
+    findPockets(battle);
+    startRecorder(battle, run, day);
+  }
+  orderOnBorder(run, battle, moment, day);
+};
+
+// An order given on a border fortified in peace, by whichever name the
+// battlefield was called. The side that gives it raises troops there if it has
+// none; told to leave by every side that has troops there, it is given up.
+const orderOnBorder = (run, battle, moment, day) => {
+  const note = { kind: "", battlefield: battle.name, side: clean(moment.side), ...(moment.ref !== undefined ? { ref: moment.ref } : {}) };
+  const side = sideOfName(battle, moment.side);
+  if (side < 0) {
+    run.notes.push({ ...note, kind: "side-not-fighting" });
+    return;
+  }
+  battle.quiet = 0;
+  battle.touched = true;
+  if (battle.status === "standing") {
+    if (FRONT_EFFORTS.includes(moment.effort)) battle.effort[side] = moment.effort;
+    // Told to leave by every side that has troops there, it is given up.
+    battle.leaving[side] = moment.order === "fall back";
+    if ([HOLDER_SIDE_A, HOLDER_SIDE_B].every((each) => battle.leaving[each] || liveCount(battle.troops[each]) === 0) && moment.order === "fall back") {
+      battle.closing = "stood-down";
+      return;
+    }
+    if (liveCount(battle.troops[side]) === 0 && ["dig in", "hold"].includes(moment.order)) {
+      raiseTroops(battle, run, side);
+      setRadii(battle);
+      paintGround(battle, run);
+    }
+  }
+  orderOnFront(run, battle, { ...moment, battlefield: battle.name }, day);
+};
+
 const applyOrderMoment = (run, moment, day) => {
+  const border = BORDER.exec(String(moment.battlefield ?? ""));
+  if (border) {
+    applyBorderMoment(run, moment, day, clean(border[1]), clean(border[2]));
+    return;
+  }
   const wanted = foldBattlefieldName(moment.battlefield);
   let battle = wanted ? run.battles.find((entry) => entry.status !== "closed" && foldBattlefieldName(entry.name) === wanted) : null;
   if (!battle && wanted) {
@@ -445,11 +591,8 @@ const applyOrderMoment = (run, moment, day) => {
     run.notes.push({ kind: "unknown-battlefield", battlefield: clean(moment.battlefield, BATTLEFIELD_NAME_MAX), side: clean(moment.side), ...(moment.ref !== undefined ? { ref: moment.ref } : {}) });
     return;
   }
-  const today = prepare(battle, day);
-  applyOrder(battle, moment, { ...today, date: run.dateOf(day) }, run.notes);
-  battle.touched = true;
-  // What a result took is counted on its own day: a town in the log, a region changing hands.
-  if (battle.status === "active" && battle.cityHolder) settleRegions(battle, run, day);
+  if (battle.status === "standing") orderOnBorder(run, battle, moment, day);
+  else orderOnFront(run, battle, moment, day);
 };
 
 const applyWarMoment = (run, moment, day) => {
@@ -470,7 +613,7 @@ const applyWarMoment = (run, moment, day) => {
       if (!war.sides.some((members) => members.some((member) => fold(member) === fold(name))) && war.sides[side].length < MAX_SIDE_MEMBERS) war.sides[side].push(name);
     }
     for (const battle of mine()) {
-      joinBattle(run, battle, side, names);
+      joinBattle(run, battle, battleSide(battle, side), names);
       battle.touched = true;
     }
     examineWar(run, war, day);
@@ -551,7 +694,14 @@ const applyMoments = (run, day) => {
 // that could open a battlefield, no landing where none is.
 const mustHaveRegions = (run) => run.moments.some(({ moment }) => {
   if (moment.type === "war") return ["start", "join-a", "join-b", "resume"].includes(moment.op);
-  if (moment.type !== "order" || moment.order !== "land") return false;
+  if (moment.type !== "order") return false;
+  // An order for a border that has no battlefield yet opens one.
+  const border = BORDER.exec(String(moment.battlefield ?? ""));
+  if (border) {
+    const names = [`${clean(border[1])} / ${clean(border[2])} border`, `${clean(border[2])} / ${clean(border[1])} border`].map(foldBattlefieldName);
+    return !normalizeBattlefields(run.input.battlefields).some((record) => record.status !== "closed" && names.includes(foldBattlefieldName(record.name)));
+  }
+  if (moment.order !== "land") return false;
   const wanted = foldBattlefieldName(moment.battlefield);
   return !normalizeBattlefields(run.input.battlefields).some((record) => record.status !== "closed" && foldBattlefieldName(record.name) === wanted);
 });
@@ -590,6 +740,7 @@ const begin = (run) => {
     readSieges(battle);
     findPockets(battle);
     startRecorder(battle, run, 0);
+    assignStanding(run, battle);
   }
   // A formation still marked as committed to a battlefield that is gone, or
   // that does not know it, is given back to the world.
@@ -603,7 +754,7 @@ const begin = (run) => {
     if (battle.closing) {
       keepStart(battle);
       closeBattle(run, battle, 0);
-    } else recordDay(battle, 0);
+    } else recordDay(battle, 0, run.days === 0);
   }
   for (const war of run.wars.values()) examineWar(run, war, 0);
   if (run.braked) run.notes.push({ kind: "tempo" });
@@ -612,8 +763,21 @@ const begin = (run) => {
   applyMoments(run, 0);
   // What a moment of the first day did is part of the state the run begins from.
   for (const battle of run.battles) {
-    if (battle.touched && battle.status !== "closed" && battle.recorded === 0) recordDay(battle, 0);
+    if (battle.touched && battle.status !== "closed" && battle.recorded === 0) recordDay(battle, 0, run.days === 0);
   }
+};
+
+// Puts each standing order of a battle that was carried over to the troops it
+// is for: the ones the record says were serving it, or failing that those
+// that stand in its sector. The ways are found afresh from where they stand.
+const assignStanding = (run, battle) => {
+  if (battle.status === "closed" || battle.orders.length === 0) return;
+  const today = prepare(battle, 0);
+  battle.orders.forEach((order, index) => {
+    const picked = [];
+    if (battle.served) battle.troops[order.s].forEach((troop, at) => { if (troop.serves === index) picked.push(at); });
+    assignOrder(battle, run, order, { ...today, date: run.dateOf(0), run }, { picked: picked.length > 0 ? picked : null, lagless: order.age > 0 });
+  });
 };
 
 const stepDay = (run) => {
@@ -621,11 +785,12 @@ const stepDay = (run) => {
   for (let index = 0; index < run.battles.length; index += 1) {
     const battle = run.battles[index];
     if (battle.status === "active") run.steps += simulateDay(battle, run, day);
+    else if (battle.status === "standing") standDay(battle);
     if (battle.closing && battle.status !== "closed") closeBattle(run, battle, day);
   }
   applyMoments(run, day);
   for (const battle of run.battles) {
-    if (battle.status !== "closed" && battle.recorded !== day) recordDay(battle, day);
+    if (battle.status !== "closed" && battle.recorded !== day) recordDay(battle, day, day >= run.days);
   }
   run.day = day;
 };

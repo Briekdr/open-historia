@@ -2,16 +2,19 @@
 // A day, in order:
 //
 //   the line is traced and measured, and today's orders are read against it
-//   every troop is read against the line: where its lane is, where it should be
-//   who attacks today, and who steps forward
-//   the moves that are not a step forward: drifting along the lane to mass,
-//   walking up from a long way back, falling back
+//   how far every cell is from each side's ground is measured (ground.js)
+//   what is cut off is found, and who stands in it (supply.js)
+//   the ground to be closed on is found: pockets, and ground squeezed or
+//   cornered between the other side's (closing.js)
+//   who goes where: the nearest troops are drawn in to close, those under an
+//   order steer along their way, the rest hold, fall back or come up (move.js)
 //   the troops that step forward do so, and take the ground they walk through
-//   an enclosed patch too small to be a pocket is filled
+//   pockets are settled: a scrap is overrun, an empty patch filled, one cut
+//   off too long gives up, a siege runs its course
 //   the cells behind the moved line are given their true distances again
 //   the day's losses are counted, works are dug, reserves come up
-//   pockets grow a day older, and give up when their time has come
 //   a region all but held is finished off
+//   orders grow a day older, and an assault that is over is taken off
 //   every third day, supply is worked out again
 //   a region more than six tenths in the other side's hands changes hands in
 //   name, and one wholly held changes hands on the map
@@ -22,9 +25,9 @@
 // the run stops there or goes on, which is what lets a player break into a
 // turn half way through it.
 //
-// WHO GOES WHERE each day is decided in four places and nowhere else:
-// planLanes and settle (troops.js), decideTasks and steer (combat.js).
-// stepForward only carries out what they decided.
+// WHO GOES WHERE each day is decided in move.js (with closing.js for the
+// troops drawn in to close on a pocket, and way.js for what an order is);
+// combat.js only says how far a step gets and what it costs.
 
 import { arenaFor } from "./arena.js";
 import {
@@ -38,19 +41,23 @@ import {
   MAX_GRID_SPAN,
   MIN_DAYS_BETWEEN_FLIPS,
   PATCH_MAX_KM2,
+  REACH_KM,
   TRAIT_DRIVE,
   WHOLE_AT,
 } from "./constants.js";
 import { holderOf, memberIndex, paintGround, readRegions, sideOfName } from "./battle.js";
-import { closeDay, decideTasks, steer, stepForward } from "./combat.js";
+import { findPrey } from "./closing.js";
+import { closeDay, stepForward } from "./combat.js";
 import { countHolders, redistance, resampleField, takeCells, traceContour } from "./field.js";
 import { createFrame, frameBounds, latToY, projectorOf, yToLat } from "./frame.js";
+import { measure } from "./ground.js";
 import { measureLine } from "./line.js";
+import { moveDay } from "./move.js";
 import { ageOrders, readOrders } from "./orders.js";
 import { createReplayRecorder } from "./replay.js";
 import { readSectors } from "./sectors.js";
-import { agePockets, fillPatches, markPockets, markSupply, refreshSupply } from "./supply.js";
-import { drawTraits, isLive, liveCount, planLanes, settle, stands } from "./troops.js";
+import { markPockets, markSupply, refreshSupply, settlePockets } from "./supply.js";
+import { drawTraits, isLive, liveCount, stands } from "./troops.js";
 
 // What a run throws, and catches, when it needs the map's shapes and was not
 // given them: the caller is told, and runs again with the regions.
@@ -60,7 +67,7 @@ export const REGIONS_NEEDED = Symbol("the map's regions are needed");
 // day on, and who it drew it as before. What was said is kept for the rig and
 // the tests to read with the day's record.
 const say = (battle, day, id, name, was = name) => {
-  battle.recorder?.shown?.(day, id, name, was);
+  battle.recorder.shown(day, id, name, was);
   battle.said.push([day, id, name, was]);
 };
 
@@ -70,6 +77,9 @@ const say = (battle, day, id, name, was = name) => {
 // someone else's than the world says: the ones taken in name and not yet whole.
 export const startRecorder = (battle, run, day) => {
   battle.recorder = createReplayRecorder({ sides: battle.sides, cols: battle.frame.cols, rows: battle.frame.rows });
+  // Whose home each cell is, as the map is told it: as it is now until the
+  // run's last day (recordDay says why).
+  battle.drawnHomes = Uint8Array.from(battle.homes);
   const { arena } = battle;
   for (let region = 1; region < arena.ids.length; region += 1) {
     const id = arena.ids[region];
@@ -78,9 +88,8 @@ export const startRecorder = (battle, run, day) => {
   }
 };
 
-// The line, its sectors, the orders as they read today and where every troop
-// stands against the line. Worked out again only when the line, the orders or
-// the troops changed.
+// The line, its sectors and the orders as they read today. Worked out again
+// only when the line, the orders or the troops changed.
 export const prepare = (battle, day) => {
   const contour = traceContour(battle.field);
   const line = measureLine(battle.field, contour);
@@ -98,9 +107,8 @@ export const prepare = (battle, day) => {
     });
   }
   const key = [battle.field.edits, battle.ordersChanged, battle.troops[0].length, liveCount(battle.troops[0]), battle.troops[1].length, liveCount(battle.troops[1]), day].join("|");
-  if (battle.planKey !== key || !battle.plans) {
+  if (battle.planKey !== key) {
     readOrders(battle, line, battle.sectors);
-    battle.plans = [planLanes(battle, HOLDER_SIDE_A, line, battle.views[0]), planLanes(battle, HOLDER_SIDE_B, line, battle.views[1])];
     battle.planKey = key;
   }
   return { day, line, sectors: battle.sectors };
@@ -131,15 +139,12 @@ const captorOf = (battle, run, region, side) => {
   return best >= 0 ? battle.sides[side][best] : "";
 };
 
-// A region all but taken is finished off at night. Where a side holds at least
-// WHOLE_AT of a region that is shown as the other side's, no living troop of
-// the other side stands on the rest of it, the rest is under the size of a
-// pocket and no siege spares any of it, the rest becomes that side's, painted
-// for the member the region goes to (or went to) in name. Cells of the region
-// outside the frame count for whoever holds it in name. Only the side taking
-// a region does this: done both ways, the first cells an advance took across
-// a region's border would go back every night its troops slept on the near
-// side of it. true when any ground changed hands.
+// A region all but held is finished off at night. Where a side holds at least
+// WHOLE_AT of a region, no living troop of the other side stands on the rest
+// of it, the rest is under the size of a pocket and no siege spares any of it,
+// the rest becomes that side's, painted for the member the region goes to (or
+// went to) in name. Cells of the region outside the frame count for whoever
+// holds it in name. true when any ground changed hands.
 export const mopUp = (battle, run) => {
   const { field, arena, place } = battle;
   if (run.braked) return false;
@@ -154,20 +159,42 @@ export const mopUp = (battle, run) => {
     area[holder][arena.region[index]] += km * km;
   }
   const taking = new Int8Array(count).fill(-1);
+  const winningBack = [];
   let any = false;
   for (let region = 1; region < count; region += 1) {
     const owner = battle.regionSide[region];
     if (owner < 0) continue;
     const shownSide = sideOfName(battle, battle.shown.get(arena.ids[region]));
     for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
-      if (side === shownSide || held[1 - side][region] === 0 || !(area[1 - side][region] < PATCH_MAX_KM2)) continue;
+      if (held[1 - side][region] === 0 || !(area[1 - side][region] < PATCH_MAX_KM2)) continue;
       const mine = held[side][region] + (owner === side ? arena.outside[region] : 0);
       if (mine / (arena.cells[region] + arena.outside[region]) < WHOLE_AT) continue;
       taking[region] = side;
+      // The side it is shown as finishes it only when nobody of the other side is near (below).
+      if (side === shownSide) winningBack.push(region);
       any = true;
     }
   }
   if (!any) return false;
+  // A defender that has won back all but the last of a region finishes it too,
+  // but not while the other side's troops are within reach of it: the first
+  // cells an advance takes across a region's border are not handed back at night.
+  if (winningBack.length > 0) {
+    const reach = REACH_KM / battle.frame.km;
+    for (const region of winningBack) {
+      const side = taking[region];
+      for (const troop of battle.troops[1 - side]) {
+        if (!isLive(troop)) continue;
+        const dx = troop.x - arena.centreX[region];
+        const dy = troop.y - arena.centreY[region];
+        const span = Math.sqrt(arena.cells[region] / 3) + reach;
+        if (dx * dx + dy * dy <= span * span) {
+          taking[region] = -1;
+          break;
+        }
+      }
+    }
+  }
   // Not where one of the other side's still stands...
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     for (const troop of battle.troops[side]) {
@@ -391,7 +418,7 @@ export const growIfNeeded = (battle, run, day) => {
   if (!arena) throw REGIONS_NEEDED;
   const carry = carrier(battle.frame, frame);
   const old = battle.field;
-  const before = { arena: battle.arena, lastFlip: battle.lastFlip, startPhi: battle.startPhi, pockets: battle.pockets };
+  const before = { arena: battle.arena, lastFlip: battle.lastFlip, startPhi: battle.startPhi, pockets: battle.pockets, cell: battle.frame.cell };
 
   battle.grown = (battle.grown ?? 0) + 1;
   battle.frame = frame;
@@ -403,12 +430,42 @@ export const growIfNeeded = (battle, run, day) => {
   const began = resampleField({ ...old, phi: before.startPhi }, arena, battle.regionSide);
   battle.startPhi = began.phi;
   battle.startHolders = began.holders;
+  // The ways the troops are going, and the places they are making for, go
+  // onto the new frame with them.
+  const scale = battle.frame.cell !== 0 ? before.cell / battle.frame.cell : 1;
+  const moved = new Set();
+  const carryOrder = (order) => {
+    if (!order || moved.has(order)) return;
+    moved.add(order);
+    if (order.legs && !moved.has(order.legs)) {
+      moved.add(order.legs);
+      for (const leg of order.legs) {
+        [leg.ox, leg.oy] = carry(leg.ox, leg.oy);
+        leg.length *= scale;
+      }
+    }
+    if (order.slot !== undefined) order.slot *= scale;
+    if (order.entry && !moved.has(order.entry)) {
+      moved.add(order.entry);
+      [order.entry.x, order.entry.y] = carry(order.entry.x, order.entry.y);
+    }
+    if (order.target && !moved.has(order.target)) {
+      moved.add(order.target);
+      order.target = { ...order.target, x: carry(order.target.x, order.target.y)[0], y: carry(order.target.x, order.target.y)[1] };
+    }
+    carryOrder(order.resume);
+  };
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     for (const troop of battle.troops[side]) {
       [troop.x, troop.y] = carry(troop.x, troop.y);
       troop.station = null;
+      if (troop.fallback) troop.fallback = carry(troop.fallback[0], troop.fallback[1]);
+      carryOrder(troop.order);
     }
   }
+  battle.close = null;
+  battle.toSide = null;
+  battle.measuredFor = null;
   battle.anchors = battle.anchors.map((anchor) => {
     const [x, y] = carry(anchor.x, anchor.y);
     return { s: anchor.s, x, y };
@@ -433,7 +490,6 @@ export const growIfNeeded = (battle, run, day) => {
   }
   battle.cityHolder = Int8Array.from(arena.cities, (city) => battle.field.holders[city.cell]);
   battle.settledTurns = -1;
-  battle.plans = null;
   battle.planKey = "";
   battle.sectorsFor = null;
   paintGround(battle, run);
@@ -447,14 +503,23 @@ export const growIfNeeded = (battle, run, day) => {
 // ground cell by cell: who holds it, whose troops took it, whose home it is,
 // and when in the day it changed hands. The map paints what a side holds away
 // from home, and plays the colour spreading round each troop as it walks.
-export const recordDay = (battle, day) => {
+//
+// Whose home a cell is, the recorder is told as it stood when the run began,
+// until the run's LAST day. A region taken whole is the taker's home at once
+// here; but the map switches the region's own colour a moment after it is
+// told, and paint taken off the same instant would show the old colour under
+// it for that moment. Kept on to the end of the run, the switch happens under
+// the paint. `last` is whether this is the run's last day.
+export const recordDay = (battle, day, last = false) => {
   const { field } = battle;
-  const ground = { holders: field.holders, painters: field.painter, homes: battle.homes, when: field.when };
+  if (last) battle.drawnHomes.set(battle.homes);
+  const ground = { holders: field.holders, painters: field.painter, homes: battle.drawnHomes, when: field.when };
   battle.recorder.record(day, battle.troops, ground);
   battle.recorded = day;
   // For the rig, and for a test, to watch a run as the recorder is handed it:
   // the day's ground, and what the recorder was told of who regions are shown as.
-  if (battle.watch) battle.watch({ battlefield: battle.name, day, troops: battle.troops, ...ground, shown: battle.said });
+  // (`own` is whose home each cell is to the engine itself, which does not wait for the run's end.)
+  if (battle.watch) battle.watch({ battlefield: battle.name, day, troops: battle.troops, ...ground, own: battle.homes, shown: battle.said });
   battle.said = [];
 };
 
@@ -471,16 +536,15 @@ export const simulateDay = (battle, run, day) => {
     battle.closing = held[0] === 0 || held[1] === 0 ? "taken" : "apart";
     return 0;
   }
+  measure(battle);
   markPockets(battle);
+  findPrey(battle);
   markSupply(battle);
-  decideTasks(battle, run.braked, line);
-  for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) settle(battle, side, battle.views[side], (troop) => troop.attacking, run.advanceKm, run.overlandKm);
-  steer(battle, line, day, run.seed, run.steer);
+  moveDay(battle, run, day);
   const steps = stepForward(battle, run.advanceKm, run.pace);
-  fillPatches(battle, date);
+  settlePockets(battle, date);
   redistance(battle.field);
-  closeDay(battle, date);
-  if (agePockets(battle, date)) redistance(battle.field);
+  closeDay(battle);
   if (mopUp(battle, run)) redistance(battle.field);
   ageOrders(battle);
   refreshSupply(battle, day, run.era);

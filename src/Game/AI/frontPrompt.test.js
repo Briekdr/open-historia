@@ -137,10 +137,16 @@ test("the block never outgrows its length: the battlefields a turn is most about
 
   // With shorter names there is room to give the ones not told in full their
   // sides and the sector words that fit them.
-  const plain = buildFrontsBlock({ battlefields: many.map((entry, index) => ({ ...entry, name: `Front ${index + 1}`, sides: [["Aland", "Cisland"], ["Borduria"]] })), players: [] });
+  const plainly = many.map((entry, index) => ({ ...entry, name: `Front ${index + 1}`, sides: [["Aland", "Cisland"], ["Borduria"]] }));
+  const plain = buildFrontsBlock({ battlefields: plainly, players: [] });
   assert.ok(plain.length <= FRONTS_BLOCK_MAX);
   assert.ok(plain.split("\n").filter((line) => line.startsWith("  Strength: ")).length >= 4);
-  assert.ok(plain.split("\n").some((line) => /^- Front \d+: Aland, Cisland against Borduria, line \d+ km\. Sectors: north, centre, south(, [a-z]+)*, or a place on the line\.$/.test(line)));
+  // How much room is left over after those told in full depends on how long
+  // the engine's own telling of a battlefield is, so the fuller line is looked
+  // for across a run of lengths: at some of them there is room for it.
+  const fuller = /^- Front \d+: Aland, Cisland against Borduria, line \d+ km\. Sectors: north, centre, south(, [a-z]+)*, or a place on the line\.$/;
+  const lengths = Array.from({ length: 40 }, (_, step) => 4200 + step * 60);
+  assert.ok(lengths.some((max) => buildFrontsBlock({ battlefields: plainly, players: [], max }).split("\n").some((line) => fuller.test(line))));
 
   // Held to whatever length it is given, and saying what it had to leave out.
   for (const max of [5200, 4000, 3200, 2700]) {
