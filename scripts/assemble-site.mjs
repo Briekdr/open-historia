@@ -24,7 +24,7 @@ import url from "node:url";
 export const ROOT_PAGES = [
   "wiki", "wiki.css",
   "guides", "get-started", "how-to-play", "ai-setup", "self-hosting",
-  "pax-historia-alternative", "privacy", "sitemap",
+  "pax-historia-alternative", "privacy", "sitemap", "save-move",
   "guides.css", "consent.js", "fonts", "robots.txt", "sitemap.xml",
 ];
 

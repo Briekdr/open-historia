@@ -360,3 +360,20 @@ The interceptor also answers these through the same `ctx` handler pattern (retur
 | `scripts/map-assets.web.json` | the six map files a web build carries, pinned by size and sha256 |
 | `scripts/stage-map-assets.mjs` | downloads and verifies them into `map-cache/`, lays them into a build |
 | `.env.web` | web-mode build config |
+
+## Saves under the site's http address
+
+A browser keeps `http://openhistoria.com` and `https://openhistoria.com` as two sites with two libraries. Players who first came over http had their games stored under it; once every http visit was redirected to https they opened an empty library with their games untouched next door (reported 2026-10-10 as "saves reset after updating"). The game brings them across by itself, once per browser:
+
+1. As it starts, the https game (`src/runtime/web/saveMove.js`) sends the browser to `http://<host>/save-move/`.
+2. That page (`public/save-move/`, served as it is) reads the old library, packs it into one file and posts it as a form to `<game>/save-move/receive`.
+3. The game's service worker (`public/sw.js`, registered for the game's folder) keeps the file in the `oh-save-move` cache and sends the browser back to the game, which merges it into the library and deletes the file.
+
+Nothing is replaced or deleted: a game or scenario whose id is taken arrives as `<id>-moved`, the built-in scenario and identical downloads are not carried twice, settings are copied only where the https address has none, and the http library is left as it was. The trip is tried at most three times, six hours apart, and never again after an answer.
+
+**It does nothing until the site is set up for it.** Two rules are needed at the CDN, for the path `/save-move/` only:
+
+- `http://openhistoria.com/save-move/*` is served without the redirect to https (it is the only place the old library can be read).
+- `https://openhistoria.com/save-move/*` redirects (302) to the same address over http. A browser that upgrades http by itself falls back to http when the https address sends it there, and the game makes the trip only when it sees this redirect, so a site without the rules is never left.
+
+The game's start-up sweep of unknown caches (`src/runtime/assets.js`) leaves `oh-save-move` alone; without that the arriving file was deleted before it was read. `saveMove.test.js` covers the file format, the merge and the wiring; a two-port run in headless Chrome (two ports stand in for the two addresses, switched on by `localStorage["oh:save-move-test-from"]` on loopback only) carried two games and a setting across.
