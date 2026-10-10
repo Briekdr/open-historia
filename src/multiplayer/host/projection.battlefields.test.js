@@ -37,7 +37,7 @@ const state = () => ({
         { s: 0, sector: "north", order: "spearhead", objective: "city: CANARY-RU-OBJECTIVE", since: "2014-03-20" },
         { s: 1, sector: "all", order: "dig in", objective: "city: CANARY-EST-OBJECTIVE", since: "2014-03-21" },
       ],
-      frames: [{ d: "2014-04-01", l: encodeLines([{ points: [[7, 0], [7, frame.rows]] }]), t: ["", ""] }],
+      replay: { d: "2014-04-01", n: 0, s: 0, k: [0], h: [0], l: [encodeLines([{ points: [[7, 0], [7, frame.rows]] }])], t: ["", ""] },
       brief: { km: 210 },
       log: [{ d: "2014-03-25", k: "city", s: 0, at: "city: Narva" }],
     }],
@@ -56,7 +56,7 @@ test("everyone is sent the battlefield, its line, its troops and its log", () =>
   for (const viewer of [LATVIA, RUSSIA, ESTONIA]) {
     const battlefield = seen(viewer);
     assert.equal(battlefield.name, "Narva front");
-    assert.equal(battlefield.frames.length, 1);
+    assert.equal(battlefield.replay.l.length, 1);
     assert.notEqual(battlefield.troops[0], "");
     assert.notEqual(battlefield.troops[1], "");
     assert.deepEqual(battlefield.log, [{ d: "2014-03-25", k: "city", s: 0, at: "city: Narva" }]);

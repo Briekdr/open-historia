@@ -13,8 +13,9 @@
 //     named: [{ s, i, name, unitId }],   formations taken in from world.units
 //     pool, base, quality, effort,  a pair each, one value a side
 //     orders: [{ s, sector, order, objective?, effort?, by?, since }],
-//     frames: [{ d, l, t: [text, text] }],   moments of the last run to draw:
-//                                   the first is how it stood when the run began
+//     replay,                       the last run, kept to be played back: the
+//                                   line day by day and each troop's path
+//                                   (replay.js); null where there is none
 //     held, contested,              what the hatch over taken land is cut from
 //     brief, log                    what the prompt and the card read
 //   }
@@ -23,8 +24,7 @@
 // them. normalizeWorldState runs on every read of the world, so this is shape
 // and length only.
 
-import { diffGameDays } from "../gameDates.js";
-import { PACKED_TEXT, TROOP_LETTERS, decodeLines, decodeMask, decodeTroops } from "./codec.js";
+import { PACKED_TEXT, TROOP_LETTERS, decodeMask, decodeTroops } from "./codec.js";
 import {
   BATTLEFIELD_NAME_MAX,
   BATTLEFIELD_STATUSES,
@@ -37,7 +37,6 @@ import {
   MAX_BATTLEFIELDS,
   MAX_CLOSED_BATTLEFIELDS,
   MAX_CONTESTED_REGIONS,
-  MAX_FRAMES,
   MAX_LOG_ENTRIES,
   MAX_NAMED_TROOPS,
   MAX_ORDERS_PER_SIDE,
@@ -45,6 +44,7 @@ import {
   MAX_TROOPS_PER_SIDE,
 } from "./constants.js";
 import { cellIndexAt, normalizeFrame, projectorOf } from "./frame.js";
+import { normalizeReplay, replayBetween, replayDayOn, replayOf, replayWindowOf } from "./replay.js";
 
 const NAME_MAX = 120;
 const DATE_MAX = 40;
@@ -125,16 +125,6 @@ const normalizeNamed = (value) => {
   return kept;
 };
 
-const normalizeFrames = (value) => {
-  const kept = [];
-  for (const raw of Array.isArray(value) ? value : []) {
-    if (!isRecord(raw)) continue;
-    kept.push({ d: clean(raw.d, DATE_MAX), l: packed(raw.l), t: pairOf(raw.t, troopText) });
-  }
-  // Too many: the state it began from and the newest are the ones a reader needs.
-  return kept.length <= MAX_FRAMES ? kept : [kept[0], ...kept.slice(kept.length - (MAX_FRAMES - 1))];
-};
-
 const normalizeContested = (value) => {
   const kept = [];
   for (const raw of Array.isArray(value) ? value : []) {
@@ -184,7 +174,7 @@ export const normalizeBattlefield = (raw) => {
     quality: pairOf(raw.quality, amount(1)),
     effort: pairOf(raw.effort, (value) => (FRONT_EFFORTS.includes(value) ? value : DEFAULT_EFFORT)),
     orders: normalizeOrders(raw.orders),
-    frames: normalizeFrames(raw.frames),
+    replay: normalizeReplay(raw.replay),
     held: packed(raw.held),
     contested: normalizeContested(raw.contested),
     brief: isRecord(raw.brief) ? raw.brief : {},
@@ -238,71 +228,79 @@ export const isOpenBattlefield = (battlefield) => battlefield?.status === "activ
 
 // ---- reading it ----------------------------------------------------------------
 
-// Which saved moment a date falls on: the last one at or before it. No date is
-// the newest; a date the calendar cannot read is the newest too, since nothing
-// can be placed against it; a date before every moment is the first, the state
-// the run began from.
-const frameIndexAt = (frames, date) => {
-  if (frames.length === 0) return -1;
-  if (date === null || date === undefined || date === "") return frames.length - 1;
-  let chosen = 0;
-  for (let index = 0; index < frames.length; index += 1) {
-    const days = diffGameDays(frames[index].d, date);
-    if (days === null) return frames.length - 1;
-    if (days < 0) break;
-    chosen = index;
-  }
-  return chosen;
-};
-
-// What there is to draw, as of a date in the turn being revealed or, with no
-// date, as it stands. Lines and troops are in cell units of `frame`
-// (projectorOf(frame).toLngLat places them); a troop's `owner` indexes its
-// side's members. Decoded once per record and moment.
+// What the map draws of a battlefield. The troops are as they stand: what kind
+// each is, whose it is and whether it is a named formation do not change in a
+// run, and a troop's place in its side's list is its own for the whole of one,
+// so the path at one place in the replay is the path of the troop at that
+// place here. Lines and paths are in cell units of `frame`
+// (projectorOf(frame).toLngLat places them), and a line runs with side 0's
+// ground on its left. `window` is the days of the replay to play between, for
+// a list made by battlefieldsAtDay, and null to show it as it ended. Read once
+// a record.
 const views = new WeakMap();
-export const frontViewAt = (battlefields, date = null) => {
-  const drawn = [];
-  for (const battlefield of normalizeBattlefields(battlefields)) {
-    const index = frameIndexAt(battlefield.frames, date);
-    if (index < 0) continue;
-    let moments = views.get(battlefield);
-    if (!moments) {
-      moments = new Map();
-      views.set(battlefield, moments);
-    }
-    let view = moments.get(index);
-    if (!view) {
-      const moment = battlefield.frames[index];
-      view = {
-        name: battlefield.name,
-        warId: battlefield.warId,
-        status: battlefield.status,
-        sides: battlefield.sides,
-        frame: battlefield.frame,
-        date: moment.d,
-        index,
-        newest: index === battlefield.frames.length - 1,
-        lines: decodeLines(moment.l),
-        troops: [decodeTroops(moment.t[0]), decodeTroops(moment.t[1])],
-      };
-      moments.set(index, view);
-    }
-    drawn.push(view);
+export const frontViewOf = (battlefield) => {
+  if (!battlefield) return null;
+  let view = views.get(battlefield);
+  if (!view) {
+    view = {
+      name: battlefield.name,
+      warId: battlefield.warId,
+      status: battlefield.status,
+      sides: battlefield.sides,
+      frame: battlefield.frame,
+      named: battlefield.named,
+      troops: [decodeTroops(battlefield.troops[0]), decodeTroops(battlefield.troops[1])],
+      replay: replayOf(battlefield),
+      window: replayWindowOf(battlefield),
+    };
+    views.set(battlefield, view);
   }
-  return drawn;
+  return view;
 };
 
-// The list as it stood on a date within the last run: the moments up to it and
-// no later, for a view of the world as it was seen then. What describes only
-// the end of the run (the hatch's shapes) is left out of an earlier view.
+// A battlefield as it was on a day of its last run, to be played from `from`
+// to `until`: null when it had not opened yet. One that has closed since was
+// still being fought over. What describes only the end of the run (the hatch's
+// shapes) is left out.
+const atDay = (battlefield, from, until) => {
+  const replay = battlefield.replay;
+  if (!replay) return battlefield;
+  if (until < replay.s) return null;
+  const then = { ...battlefield, replay: replayBetween(replay, Math.max(from, replay.s), until), held: "", contested: [] };
+  if (battlefield.status === "closed" && until < replay.k[replay.k.length - 1]) {
+    then.status = "active";
+    delete then.closedDate;
+  }
+  return then;
+};
+
+// The list as it stood on a day of the last run, counted from 0 as the run
+// began, for a view of the world as it was seen then. `from` is the day the
+// map is to start playing from to reach it (a turn being revealed plays the
+// days each event covers); left out, the day is simply shown.
+export const battlefieldsAtDay = (battlefields, until, from = until) => {
+  const list = normalizeBattlefields(battlefields);
+  if (!Number.isFinite(until)) return list;
+  const seen = [];
+  for (const battlefield of list) {
+    const then = atDay(battlefield, Number.isFinite(from) ? from : until, until);
+    if (then) seen.push(then);
+  }
+  made.add(seen);
+  return seen;
+};
+
+// The same by date, each battlefield placing the date in its own run. No date
+// is the list as it stands, and so is a date the calendar cannot place.
 export const battlefieldsAsSeen = (battlefields, date) => {
   const list = normalizeBattlefields(battlefields);
   if (date === null || date === undefined || date === "") return list;
-  const seen = list.map((battlefield) => {
-    const index = frameIndexAt(battlefield.frames, date);
-    if (index < 0 || index === battlefield.frames.length - 1) return battlefield;
-    return { ...battlefield, frames: battlefield.frames.slice(0, index + 1), held: "", contested: [] };
-  });
+  const seen = [];
+  for (const battlefield of list) {
+    const day = replayDayOn(battlefield.replay, date);
+    const then = day === null ? battlefield : atDay(battlefield, day, day);
+    if (then) seen.push(then);
+  }
   made.add(seen);
   return seen;
 };
