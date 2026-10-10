@@ -264,7 +264,6 @@ export const growIfNeeded = (battle, run) => {
   battle.pocketTurns = -1;
   battle.supply = null;
   battle.supplyTurns = -1;
-  battle.swept = [new Int32Array(arena.size).fill(-1), new Int32Array(arena.size).fill(-1)];
   battle.claims = { stamp: new Int32Array(arena.size), power: new Float32Array(arena.size), moment: 0 };
   battle.lastFlip = new Int32Array(arena.ids.length).fill(-1000000);
   for (let region = 1; region < before.arena.ids.length; region += 1) {
@@ -289,8 +288,11 @@ export const growIfNeeded = (battle, run) => {
 // from home, and plays the colour spreading round each troop as it walks.
 export const recordDay = (battle, day) => {
   const { field } = battle;
-  battle.recorder.record(day, battle.troops, { holders: field.holders, painters: field.painter, homes: battle.homes, when: field.when });
+  const ground = { holders: field.holders, painters: field.painter, homes: battle.homes, when: field.when };
+  battle.recorder.record(day, battle.troops, ground);
   battle.recorded = day;
+  // For the rig, and for a test, to watch a run as the recorder is handed it.
+  if (battle.watch) battle.watch({ battlefield: battle.name, day, troops: battle.troops, ...ground });
 };
 
 // ---- the day -------------------------------------------------------------------
@@ -311,7 +313,7 @@ export const simulateDay = (battle, run, day) => {
   decideTasks(battle, run.braked);
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) settle(battle, side, battle.views[side], (troop) => troop.attacking, run.advanceKm, run.overlandKm);
   steer(battle, line, day, run.seed, run.steer);
-  const steps = stepForward(battle, day, run.advanceKm, run.pace);
+  const steps = stepForward(battle, run.advanceKm, run.pace);
   fillPatches(battle, date);
   redistance(battle.field);
   closeDay(battle, date);

@@ -99,8 +99,6 @@ export const GROW_WITHIN_CELLS = 6;
 export const GROW_KM = 400;
 // The drawn line: how far a vertex may be left out of it, in cells.
 export const LINE_SIMPLIFY_CELLS = 0.04;
-// A stretch is marked as pushed where a troop swept ground this near it that day.
-export const PUSHED_WITHIN_CELLS = 2;
 
 // A troop. Each list is by kind, in the order of TROOP_KINDS.
 // How far to either side of its path the ground becomes its side's: this many
@@ -155,6 +153,9 @@ export const ADVANCE_AHEAD_RADII = 4;
 // less the less the troop walked the day before: a full turn takes a walk of
 // TURN_WALK_RADII control radii, and a troop that barely moved turns by
 // TURN_LEAST of it. That is what keeps a slow troop's path from curling.
+// An attacking troop keeps to the axis it set off on where the line beside it
+// faces more than 60 degrees away from it (the cosine of that angle).
+export const AXIS_KEPT_COS = 0.5;
 export const TURN_MOST_COS = 0.7071067811865476;
 export const TURN_WALK_RADII = 1;
 export const TURN_LEAST = 0.15;

@@ -3,10 +3,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { rasterizeArena } from "./arena.js";
 import { decodeLines, encodeLines } from "./codec.js";
-import { HOLDER_SIDE_A, HOLDER_SIDE_B, LINE_MOVED, LINE_PUSHED_BY_A, LINE_PUSHED_BY_B, LINE_QUIET } from "./constants.js";
+import { HOLDER_SIDE_A, HOLDER_SIDE_B } from "./constants.js";
 import { openField, readField, redistance, takeCapsule, traceContour } from "./field.js";
 import { projectorOf } from "./frame.js";
-import { drawLine, flagLine, measureLine, sameFlags } from "./line.js";
+import { drawLine, measureLine } from "./line.js";
 import { COMPASS_WORDS, describePoint, findPlace, inSector, nearestVertex, placeText, readSectors, resolveSector, sectorMiddle } from "./sectors.js";
 import { sideTable, syntheticMap } from "./syntheticMap.js";
 
@@ -80,7 +80,7 @@ test("every saved strand has side A's ground on its left: straight lines, and a 
   for (const [label, layout] of [["north-south", NORTH_SOUTH], ["east-west", EAST_WEST]]) {
     const { field, quiet } = build(layout);
     const contour = traceContour(field);
-    const flags = flagLine(field, contour, quiet, null, 0);
+    const flags = new Uint8Array(contour.x.length);
     const drawn = drawLine(contour, flags);
     assert.ok(drawn[0].points.length <= 4, `${label}: a straight line is drawn with few points (${drawn[0].points.length})`);
     const strands = saved(contour, flags);
@@ -98,7 +98,7 @@ test("every saved strand has side A's ground on its left: straight lines, and a 
   takeCapsule(field, HOLDER_SIDE_B, inA, y, inA + 1, y, 3, 3);
   redistance(field);
   const contour = traceContour(field);
-  const strands = saved(contour, flagLine(field, contour, quiet, null, 0));
+  const strands = saved(contour, new Uint8Array(contour.x.length));
   assert.equal(strands.filter((strand) => strand.closed).length, 2);
   assert.ok(assertLeftIsA(field, strands, "pockets") >= 12);
   const turning = ({ points }) => points.reduce((sum, [ax, ay], index) => {
@@ -119,7 +119,7 @@ test("the drawn line follows the contour closely with far fewer points", () => {
   takeCapsule(field, HOLDER_SIDE_A, x - 1, y, x + 5, y + 2, 2.2, 2.2);
   redistance(field);
   const contour = traceContour(field);
-  const drawn = drawLine(contour, flagLine(field, contour, quiet, null, 0));
+  const drawn = drawLine(contour, new Uint8Array(contour.x.length).fill(1));
   const points = drawn.flatMap((strand) => strand.points);
   assert.ok(points.length < contour.x.length, `${points.length} points for ${contour.x.length} vertices`);
   const off = (px, py) => {
@@ -140,40 +140,6 @@ test("the drawn line follows the contour closely with far fewer points", () => {
   const { first, count } = contour.strands[0];
   assert.deepEqual(drawn[0].points[0], [contour.x[first], contour.y[first]]);
   assert.deepEqual(drawn[0].points.at(-1), [contour.x[first + count - 1], contour.y[first + count - 1]]);
-});
-
-test("a stretch is marked quiet on the border, moved off it, and pushed where ground was swept that day", () => {
-  const { field, frame, quiet } = build(NORTH_SOUTH);
-  const { toCell } = projectorOf(frame);
-  const still = traceContour(field);
-  const before = flagLine(field, still, quiet, null, 0);
-  assert.ok(before.every((flag) => flag === LINE_QUIET));
-  const [x, y] = toCell(22, 51);
-  takeCapsule(field, HOLDER_SIDE_A, x - 1, y, x + 4, y, 2, 2);
-  redistance(field);
-  const contour = traceContour(field);
-  const swept = [new Int32Array(field.size).fill(-1), new Int32Array(field.size).fill(-1)];
-  for (let index = 0; index < field.size; index += 1) {
-    if (Math.hypot((index % field.cols) + 0.5 - (x + 5.5), Math.floor(index / field.cols) + 0.5 - y) < 2) swept[0][index] = 7;
-  }
-  const flags = flagLine(field, contour, quiet, swept, 7);
-  assert.ok(flags.includes(LINE_QUIET) && flags.includes(LINE_MOVED) && flags.includes(LINE_PUSHED_BY_A));
-  assert.ok(!flags.includes(LINE_PUSHED_BY_B) && !flags.includes(255));
-  assert.equal(flagLine(field, contour, quiet, swept, 8).includes(LINE_PUSHED_BY_A), false, "the day after, it is only moved");
-  for (let vertex = 0; vertex < contour.x.length; vertex += 1) {
-    const onBorder = Math.abs(contour.x[vertex] - x) < 0.3;
-    if (flags[vertex] === LINE_QUIET) assert.ok(onBorder, `vertex ${vertex} is quiet at ${contour.x[vertex]}`);
-    if (contour.x[vertex] > x + 1) assert.notEqual(flags[vertex], LINE_QUIET);
-  }
-  assert.equal(sameFlags(flags, Uint8Array.from(flags)), true);
-  assert.equal(sameFlags(flags, before), false);
-  // The marking survives being drawn and saved: every kind of stretch is still there.
-  const kept = new Set(saved(contour, flags).flatMap((strand) => strand.flags));
-  assert.deepEqual([...kept].sort(), [LINE_QUIET, LINE_MOVED, LINE_PUSHED_BY_A]);
-  swept[1].fill(7);
-  swept[0].fill(-1);
-  assert.ok(flagLine(field, contour, quiet, swept, 7).every((flag) => flag === LINE_PUSHED_BY_B));
-  assert.equal(HOLDER_SIDE_B, 1);
 });
 
 test("the sector words that fit a line depend on how it runs", () => {

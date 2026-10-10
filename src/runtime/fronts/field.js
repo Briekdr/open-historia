@@ -28,7 +28,6 @@ import {
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
   HOLDER_WALL,
-  PUSHED_WITHIN_CELLS,
   REDISTANCE_NEAR_CELLS,
   REDISTANCE_REACH_CELLS,
   SUPERSAMPLE,
@@ -491,9 +490,6 @@ export const nearestOnContour = (field, contour, px, py, reach) => {
 //                      taker's own. Side A writes first and leaves its strength
 //                      on the cells it covers; side B then takes such a cell
 //                      only if it is the stronger there.
-//   marks, day         the day is left on every cell the shape comes near,
-//                      which is how a stretch of line is known to have been
-//                      pushed that day
 //   painter, painterQ  the member the ground is taken for: at p, and at q if
 //                      another's (a bridge is painted for the nearer of the two)
 //   from, span         when in the day the walk began and how long it took,
@@ -503,7 +499,6 @@ export const takeCapsule = (field, side, px, py, qx, qy, radiusP, radiusQ, how =
   const { cols, rows, play, phi } = field;
   const claims = how?.claims ?? null;
   const strength = how?.strength ?? 0;
-  const marks = how?.marks ?? null;
   const painterP = how?.painter ?? 0;
   const painterQ = how?.painterQ ?? painterP;
   const from = how?.from ?? 1;
@@ -528,7 +523,6 @@ export const takeCapsule = (field, side, px, py, qx, qy, radiusP, radiusQ, how =
       const oy = cy - (py + sy * along);
       const distance = Math.sqrt(ox * ox + oy * oy) - (radiusP + (radiusQ - radiusP) * along);
       if (distance > EDIT_MARGIN_CELLS) continue;
-      if (marks && distance <= PUSHED_WITHIN_CELLS) marks[index] = how.day;
       if (side === HOLDER_SIDE_A) {
         if (claims && distance < 0 && !(claims.stamp[index] === claims.moment && claims.power[index] >= strength)) {
           claims.stamp[index] = claims.moment;

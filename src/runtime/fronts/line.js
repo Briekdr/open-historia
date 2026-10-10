@@ -6,13 +6,13 @@
 // line each vertex is, in kilometres, and which way the line faces there. The
 // normal always points from side A's ground toward side B's.
 //
-// The DRAWN line is what the map is given: the same strands with their corners
-// rounded and the vertices nothing turns on left out, each stretch marked as
-// quiet, moved or being pushed. Side A's ground stays on the left of every
-// strand's direction of travel, as the contour has it: rounding and thinning
-// keep the order of the vertices, and the map colours each side by that rule.
+// The DRAWN line is the same strands with their corners rounded and the
+// vertices nothing turns on left out: what an outline handed to the map is
+// made with (the rings round taken ground, battle.js). Side A's ground stays on
+// the left of every strand's direction of travel, as the contour has it:
+// rounding and thinning keep the order of the vertices.
 
-import { HOLDER_SIDE_A, LINE_MOVED, LINE_PUSHED_BY_A, LINE_PUSHED_BY_B, LINE_QUIET, LINE_SIMPLIFY_CELLS } from "./constants.js";
+import { LINE_SIMPLIFY_CELLS } from "./constants.js";
 import { projectorOf } from "./frame.js";
 
 // The line with distances along it.
@@ -64,40 +64,6 @@ export const measureLine = (field, contour) => {
   }
   contour.measured = { contour, count, km, nx, ny, strand, total };
   return contour.measured;
-};
-
-// How each vertex of the contour is to be marked.
-//   quiet(cellA, cellB)   whether the two cells either side of a vertex are each
-//                         held by the side that controls their own region: the
-//                         line still lies on the border there
-//   swept                 a pair, a side each: the day each cell last had ground
-//                         swept near it, and `day` the day to mark
-export const flagLine = (field, contour, quiet, swept, day) => {
-  const count = contour.x.length;
-  const flags = new Uint8Array(count);
-  for (let vertex = 0; vertex < count; vertex += 1) {
-    const cellA = contour.cellA[vertex];
-    const cellB = contour.cellB[vertex];
-    if (cellA < 0) {
-      flags[vertex] = 255;
-      continue;
-    }
-    const byA = swept !== null && (swept[0][cellA] === day || swept[0][cellB] === day);
-    const byB = swept !== null && (swept[1][cellA] === day || swept[1][cellB] === day);
-    flags[vertex] = byA ? LINE_PUSHED_BY_A : byB ? LINE_PUSHED_BY_B : quiet(cellA, cellB) ? LINE_QUIET : LINE_MOVED;
-  }
-  // Where a strand meets a wall it is marked as the stretch that leads to it.
-  for (const { first, count: length } of contour.strands) {
-    for (let step = 0; step < length; step += 1) {
-      if (flags[first + step] !== 255) continue;
-      const before = step > 0 ? flags[first + step - 1] : 255;
-      flags[first + step] = before !== 255 ? before : LINE_MOVED;
-    }
-    for (let step = length - 2; step >= 0; step -= 1) {
-      if (contour.cellA[first + step] < 0 && contour.cellA[first + step + 1] >= 0) flags[first + step] = flags[first + step + 1];
-    }
-  }
-  return flags;
 };
 
 // One pass of corner cutting: every stretch gives a point a quarter and three
@@ -164,8 +130,9 @@ const thin = (points, keep, from, to) => {
   }
 };
 
-// The line as the map is to draw it: [{ closed, points: [[x, y]], flags }], a
-// strand of the contour each, in the contour's order and direction.
+// The line as it is to be drawn: [{ closed, points: [[x, y]], flags }], a
+// strand of the contour each, in the contour's order and direction. `flags`
+// marks each vertex of the contour; a vertex where the marking changes is kept.
 export const drawLine = (contour, flags) => {
   const drawn = [];
   for (const { first, count, closed } of contour.strands) {
@@ -205,13 +172,3 @@ export const drawLine = (contour, flags) => {
   return drawn;
 };
 
-// Whether two drawings of the line would be the same drawing: the same
-// contour, marked the same.
-export const sameFlags = (a, b) => {
-  if (!a || !b || a.length !== b.length) return false;
-  for (let index = 0; index < a.length; index += 1) if (a[index] !== b[index]) return false;
-  return true;
-};
-
-// The side of the line a vertex's own cell is on, for whoever plans by it.
-export const ownCellAt = (contour, vertex, side) => (side === HOLDER_SIDE_A ? contour.cellA[vertex] : contour.cellB[vertex]);

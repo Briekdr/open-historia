@@ -72,6 +72,7 @@ import {
   TURN_LEAST,
   TURN_MOST_COS,
   TURN_WALK_RADII,
+  AXIS_KEPT_COS,
   WANDER_DAYS,
 } from "./constants.js";
 import { nearestHeld, ownCell, takeCapsule } from "./field.js";
@@ -152,10 +153,12 @@ export const decideTasks = (battle, braked) => {
       const word = view ? view.word : "hold";
       let stood = view ? view.age : 0;
       troop.task = word;
+      troop.under = view ? view.order : null;
       if (!isAttack(word) && word !== "dig in" && word !== "fall back") {
         const theirs = enemyGoverning[station.vertex];
         if (theirs >= 0 && enemyViews[theirs].word === "fall back") {
           troop.task = "pursue";
+          troop.under = enemyViews[theirs].order;
           stood = enemyViews[theirs].age;
         }
       }
@@ -186,6 +189,8 @@ const baseDirection = (battle, side, troop, line) => {
     const dy = station.aim[1] - troop.y;
     const away = Math.sqrt(dx * dx + dy * dy);
     if (away < 0.5) return false;
+    // Gone past the point it was driving at, a little to one side of it: that is arriving too.
+    if (troop.wasAttacking && troop.axisFor === troop.under && dx * troop.axisX + dy * troop.axisY <= 0) return false;
     base[0] = dx / away;
     base[1] = dy / away;
     return true;
@@ -269,8 +274,23 @@ export const steer = (battle, line, day, seed, weights = {}) => {
         troop.stepping = false;
         continue;
       }
-      const nx = base[0];
-      const ny = base[1];
+      // A troop that was not under this attack order yesterday sets off the
+      // way the order points, and that way is the AXIS of its attack from then
+      // on: it never goes backwards along it, however the line may bend, so
+      // its path cannot curl or cross itself. Where the line beside it faces
+      // quite another way (the flank of a pocket it has passed), it keeps to
+      // its axis and leaves the pocket to starve.
+      const fresh = !troop.wasAttacking || troop.axisFor !== troop.under || (troop.hx === 0 && troop.hy === 0);
+      if (fresh) {
+        troop.axisX = base[0];
+        troop.axisY = base[1];
+        troop.axisFor = troop.under;
+        troop.hx = base[0];
+        troop.hy = base[1];
+      }
+      const along = base[0] * troop.axisX + base[1] * troop.axisY >= AXIS_KEPT_COS;
+      const nx = along ? base[0] : troop.axisX;
+      const ny = along ? base[1] : troop.axisY;
       const radius = controlRadius(troop, kmAt);
       pull[0] = nx * (weights.base ?? STEER_BASE);
       pull[1] = ny * (weights.base ?? STEER_BASE);
@@ -322,13 +342,6 @@ export const steer = (battle, line, day, seed, weights = {}) => {
       pull[1] += ended[1] * (weights.room ?? STEER_ROOM);
       wander(seed, battle, side, index, day, weights.wander ?? STEER_WANDER);
 
-      // A troop that was not stepping yesterday sets off the way its order
-      // points: it was standing, so there is no path yet to come back on.
-      const fresh = !troop.wasStepping || (troop.hx === 0 && troop.hy === 0);
-      if (fresh) {
-        troop.hx = nx;
-        troop.hy = ny;
-      }
       const fromX = troop.hx;
       const fromY = troop.hy;
       turnHeading(troop, pull[0], pull[1]);
@@ -361,6 +374,17 @@ export const steer = (battle, line, day, seed, weights = {}) => {
         const length = Math.sqrt(hx * hx + hy * hy);
         troop.hx = length > 0 ? hx / length : fromX;
         troop.hy = length > 0 ? hy / length : fromY;
+      }
+      // And whatever else pulled at it, never backwards along its axis.
+      for (let pass = 0; pass < 3; pass += 1) {
+        const forward = troop.hx * troop.axisX + troop.hy * troop.axisY;
+        if (forward >= STEER_LEAST_FORWARD) break;
+        const hx = troop.hx + troop.axisX * (STEER_LEAST_FORWARD - forward) * 2;
+        const hy = troop.hy + troop.axisY * (STEER_LEAST_FORWARD - forward) * 2;
+        const length = Math.sqrt(hx * hx + hy * hy);
+        if (!(length > 0)) break;
+        troop.hx = hx / length;
+        troop.hy = hy / length;
       }
     }
   }
@@ -439,22 +463,25 @@ const defenceAgainst = (battle, side, defender, x, y) => {
 // before side B's; ground both step into is kept by the stronger, side A on a
 // tie. `paceKm[kind]` is the era's advance in a day, `pace` the scenario's
 // setting. Returns how many sub-steps were walked.
-export const stepForward = (battle, day, paceKm, pace) => {
+export const stepForward = (battle, paceKm, pace) => {
   const { field, arena, place, claims } = battle;
   const { kmAt } = place;
   const active = steppers(battle);
   if (active.length === 0) return 0;
 
+  const inPlay = (x, y) => x >= 0 && y >= 0 && x < field.cols && y < field.rows && field.play[Math.floor(y) * field.cols + Math.floor(x)] === 1;
   let parts = 1;
   for (const entry of active) {
     const { troop } = entry;
     const cell = Math.max(0, ownCell(field, entry.side, troop.x, troop.y));
     entry.radius = controlRadius(troop, kmAt);
+    // Where it may step: on ground in play, and never backwards along its axis,
+    // even to get round a wall.
+    entry.forward = (x, y) => inPlay(x, y) && (x - troop.x) * troop.axisX + (y - troop.y) * troop.axisY >= 0;
     entry.dayCells = (paceKm[troop.kind] * arena.speed[cell] * troop.supply * pace * troop.drive) / kmAt(troop.y);
     parts = Math.max(parts, Math.ceil(entry.dayCells / (entry.radius * 0.5)));
   }
   parts = Math.min(SUBSTEPS_MAX, parts);
-  const inPlay = (x, y) => x >= 0 && y >= 0 && x < field.cols && y < field.rows && field.play[Math.floor(y) * field.cols + Math.floor(x)] === 1;
   const share = (ATTRITION / 100) / parts;
 
   for (let part = 0; part < parts; part += 1) {
@@ -498,7 +525,7 @@ export const stepForward = (battle, day, paceKm, pace) => {
         const dy = troop.station.aim[1] - troop.y;
         length = Math.min(length, Math.sqrt(dx * dx + dy * dy));
       }
-      entry.length = length > 0 && stepAlong(troop.x, troop.y, troop.hx, troop.hy, length, inPlay, ended) ? length : 0;
+      entry.length = length > 0 && stepAlong(troop.x, troop.y, troop.hx, troop.hy, length, entry.forward, ended) ? length : 0;
       entry.toX = entry.length > 0 ? ended[0] : troop.x;
       entry.toY = entry.length > 0 ? ended[1] : troop.y;
       // What the fight costs, whether or not it gained anything: a failed assault is paid for too.
@@ -521,7 +548,6 @@ export const stepForward = (battle, day, paceKm, pace) => {
     // bridge to its neighbour in the line if that one walked beside it.
     for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
       const troops = battle.troops[side];
-      const marks = battle.swept[side];
       for (const entry of active) {
         if (entry.side !== side) continue;
         entry.troop.stepped = entry.length > 0;
@@ -530,8 +556,6 @@ export const stepForward = (battle, day, paceKm, pace) => {
         takeCapsule(field, side, entry.fromX, entry.fromY, entry.toX, entry.toY, entry.radius, entry.radius, {
           claims,
           strength: entry.power,
-          marks,
-          day,
           painter: troop.owner,
           from: part / parts,
           span: 1 / parts,
@@ -555,8 +579,6 @@ export const stepForward = (battle, day, paceKm, pace) => {
         takeCapsule(field, side, one.x, one.y, other.x, other.y, entry.radius, radiusOther, {
           claims,
           strength: Math.min(one.power, other.power),
-          marks,
-          day,
           painter: one.owner,
           painterQ: other.owner,
           from: (part + 1) / parts,
@@ -680,7 +702,7 @@ export const closeDay = (battle, date) => {
         troop.station = null;
       }
       troop.state = troop.strength <= 0 ? STATE_SPENT : troop.pocket ? STATE_ENCIRCLED : troop.walkedToday ? STATE_ADVANCING : STATE_HOLDING;
-      troop.wasStepping = troop.walkedToday;
+      troop.wasAttacking = troop.attacking;
       troop.walkedBefore = troop.walkedCells;
       troop.walkedCells = 0;
       troop.stepping = false;

@@ -29,6 +29,7 @@ import {
   POOL_PER_TROOP,
   REDISTANCE_REACH_CELLS,
   REPAINT_BELOW,
+  TROOP_UNITS,
 } from "./constants.js";
 import { nearestOnContour, openField, ownCell, packField, redistance, setGround, takeCells, traceContour, unpackField } from "./field.js";
 import { projectorOf } from "./frame.js";
@@ -145,7 +146,6 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   supplyTurns: -1,
   anchors: [],
   log: [],
-  swept: [new Int32Array(arena.size).fill(-1), new Int32Array(arena.size).fill(-1)],
   claims: { stamp: new Int32Array(arena.size), power: new Float32Array(arena.size), moment: 0 },
   // The field as the run found it: what a repulsed attack is put back to, and
   // what the brief measures the run's gains from.
@@ -167,6 +167,7 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   autoNamed: false,
   seed: run.seed,
   even: run.steer.even === true,
+  watch: typeof run.input?.watch === "function" ? run.input.watch : null,
   homes: null,
 });
 
@@ -486,7 +487,11 @@ export const saveBattle = (battle, run, day, changes, brief) => {
       if (!battle.gone[side].has(index)) sides[side].push(member);
     });
   }
-  const troops = battle.troops.map((list, side) => encodeTroops(list.map((troop) => ({ ...troop, owner: owners[side][troop.owner] ?? 0 }))));
+  // A troop's place is kept to a sixteenth of a cell. Rounded to the nearest,
+  // one standing at the very edge of its cell would be saved in the cell next
+  // door, which may be a wall or the other side's: it is kept in its own.
+  const within = (value) => Math.min(Math.floor(value) + 1 - 1 / TROOP_UNITS, Math.max(Math.floor(value), Math.round(value * TROOP_UNITS) / TROOP_UNITS));
+  const troops = battle.troops.map((list, side) => encodeTroops(list.map((troop) => ({ ...troop, x: within(troop.x), y: within(troop.y), owner: owners[side][troop.owner] ?? 0 }))));
   reportTheFallen(battle, changes);
   const closed = battle.status === "closed";
   const record = {

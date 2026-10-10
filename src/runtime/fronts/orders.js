@@ -214,7 +214,7 @@ const cellAt = (field, x, y) => (x >= 0 && y >= 0 && x < field.cols && y < field
 // neighbours in column behind it, walks the cheapest way there; the strip it
 // walks becomes its side's, then the objective itself. false when there is no
 // way to walk.
-const capture = (battle, side, target, day, date) => {
+const capture = (battle, side, target, date) => {
   const { field, arena, place } = battle;
   const troops = battle.troops[side];
   let leader = -1;
@@ -259,7 +259,7 @@ const capture = (battle, side, target, day, date) => {
   }
   let radius = 0;
   for (const index of column) radius = Math.max(radius, controlRadius(troops[index], place.kmAt));
-  const how = { marks: battle.swept[side], day, painter: troops[leader].owner };
+  const how = { painter: troops[leader].owner };
   let fromX = troops[leader].x;
   let fromY = troops[leader].y;
   for (const cell of way) {
@@ -329,7 +329,7 @@ const land = (battle, side, target, today, notes, note) => {
   const x = (cell % field.cols) + 0.5;
   const y = Math.floor(cell / field.cols) + 0.5;
   const [, owner] = memberOf(battle, note.side);
-  takeCapsule(field, side, x, y, x, y, LANDING_CELLS, LANDING_CELLS, { marks: battle.swept[side], day: today.day, painter: Math.max(0, owner) });
+  takeCapsule(field, side, x, y, x, y, LANDING_CELLS, LANDING_CELLS, { painter: Math.max(0, owner) });
   battle.anchors.push({ s: side, x, y });
   for (let landed = 0; landed < Math.min(LANDING_TROOPS, room) && battle.pool[side] >= 10; landed += 1) {
     const sent = Math.min(100, battle.pool[side]);
@@ -397,7 +397,7 @@ export const applyOrder = (battle, moment, today, notes) => {
       target = standing ? findPlace(arena, standing.objective) : null;
     }
     if (!target) notes.push({ ...note, kind: "objective-not-found", detail: "captured" });
-    else if (!capture(battle, side, target, today.day, today.date)) notes.push({ ...note, kind: "objective-unreachable", detail: placeText(target) });
+    else if (!capture(battle, side, target, today.date)) notes.push({ ...note, kind: "objective-unreachable", detail: placeText(target) });
   } else if (result === "breakthrough") {
     const [x, y] = sectorMiddle(today.line, sector, place.kmAt);
     for (const troop of battle.troops[1 - side]) {

@@ -92,16 +92,24 @@ export const createTroop = ({ x = 0, y = 0, strength = 100, kind = KIND_INFANTRY
   lane: 0,
   lag: 0,
   drawn: false,
-  // Which way it is going, a unit vector, or nothing yet.
+  // Which way it is going, a unit vector, or nothing yet; and the axis of
+  // the attack it is on, which it never goes backwards along (combat.js).
   hx: 0,
   hy: 0,
+  axisX: 0,
+  axisY: 0,
+  axisFor: null,
+  under: null,
+  // The order it is driving a spearhead or a pincer for, and where at.
+  thrustFor: null,
+  thrustAim: null,
   // Where it stands against the line today (planLanes).
   station: null,
   // What it did today, and how far it walked forward yesterday.
   task: "",
   attacking: false,
+  wasAttacking: false,
   stepping: false,
-  wasStepping: false,
   stepped: false,
   walkedToday: false,
   walkedCells: 0,
@@ -279,10 +287,9 @@ export const planLanes = (battle, side, line, views) => {
     const apart = Math.abs(line.km[a] - line.km[b]);
     return contour.strands[line.strand[a]].closed ? Math.min(apart, strandKm(a) - apart) : apart;
   };
-  const peaks = [];
-  for (let index = 0; index < views.length; index += 1) {
-    const view = views[index];
-    if (view.word !== "spearhead" && view.word !== "encircle" && view.word !== "flank") continue;
+  // Where a spearhead, a pincer or a flank puts its weight, as vertices of
+  // today's line with the point each drives at.
+  const peaksOf = (index, view) => {
     const [aimX, aimY] = view.target ? [view.target.x, view.target.y] : sectorMiddle(line, view.sector, kmAt);
     let anchor = -1;
     let least = Infinity;
@@ -295,11 +302,8 @@ export const planLanes = (battle, side, line, views) => {
         anchor = vertex;
       }
     }
-    if (anchor < 0) continue;
-    if (view.word === "spearhead") {
-      peaks.push({ view: index, vertex: anchor, aim: view.target ? [aimX, aimY] : null });
-      continue;
-    }
+    if (anchor < 0) return [];
+    if (view.word === "spearhead") return [{ view: index, vertex: anchor, aim: view.target ? [aimX, aimY] : null }];
     // Two pincers, either side of the point nearest the objective, driving to
     // meet beyond it: as far past it as they started from that point.
     const apartKm = Math.min(ENCIRCLE_APART_KM, strandKm(anchor) * ENCIRCLE_APART_SHARE);
@@ -324,10 +328,7 @@ export const planLanes = (battle, side, line, views) => {
       }
       wings.push({ view: index, vertex: pincer, aim: meet });
     }
-    if (view.word === "encircle") {
-      peaks.push(wings[0], wings[1]);
-      continue;
-    }
+    if (view.word === "encircle") return wings;
     // A flank is one pincer: the wing whose way round the objective is the
     // more open, by the defenders standing near the middle of it.
     const open = wings.map((wing) => {
@@ -342,7 +343,34 @@ export const planLanes = (battle, side, line, views) => {
       }
       return defenders;
     });
-    peaks.push(wings[open[1] < open[0] ? 1 : 0]);
+    return [wings[open[1] < open[0] ? 1 : 0]];
+  };
+  const peaks = [];
+  for (let index = 0; index < views.length; index += 1) {
+    const view = views[index];
+    if (view.word !== "spearhead" && view.word !== "encircle" && view.word !== "flank") continue;
+    // The plan is made against the line as it stood when the order was first
+    // read, and kept: an attack bends the line, and where the weight was to
+    // go is not to move because of it.
+    const order = view.order ?? view;
+    if (order.peaksFor !== view.word) {
+      order.peaksFor = view.word;
+      order.peaks = peaksOf(index, view).map((peak) => ({ x: contour.x[peak.vertex], y: contour.y[peak.vertex], aim: peak.aim }));
+    }
+    for (const kept of order.peaks) {
+      let vertex = -1;
+      let least = Infinity;
+      for (let other = 0; other < count; other += 1) {
+        if (governing[other] !== index) continue;
+        const dx = contour.x[other] - kept.x;
+        const dy = contour.y[other] - kept.y;
+        if (dx * dx + dy * dy < least) {
+          least = dx * dx + dy * dy;
+          vertex = other;
+        }
+      }
+      if (vertex >= 0) peaks.push({ view: index, vertex, aim: kept.aim });
+    }
   }
   const half = SPEARHEAD_WIDTH_KM / 2;
   for (const peak of peaks) {
@@ -457,16 +485,25 @@ export const planLanes = (battle, side, line, views) => {
       aim: null,
       thrust: false,
     };
-    // A troop driving in a spearhead or a pincer is one that stands in its peak.
+    // A troop driving in a spearhead or a pincer is one that stands in its
+    // peak. Once it is driving it goes on driving at the same point while the
+    // order stands: the line it is bending out of shape is no longer a fair
+    // measure of where the peak was.
+    const order = governing[vertex] >= 0 ? views[governing[vertex]].order ?? views[governing[vertex]] : null;
     let peakOf = null;
     for (const peak of peaks) {
       if (governing[vertex] !== peak.view || along(vertex, peak.vertex) > half * 1.5) continue;
       if (!peakOf || along(vertex, peak.vertex) < along(vertex, peakOf.vertex)) peakOf = peak;
     }
-    if (peakOf) {
+    if (troop.thrustFor && troop.thrustFor === order) {
+      troop.station.thrust = true;
+      troop.station.aim = troop.thrustAim;
+    } else if (peakOf) {
       troop.station.thrust = true;
       troop.station.aim = peakOf.aim;
-    }
+      troop.thrustFor = order;
+      troop.thrustAim = peakOf.aim;
+    } else troop.thrustFor = null;
   }
 
   // The order the side's troops stand in along the line. It is kept from day
@@ -755,8 +792,9 @@ export const settle = (battle, side, views, attacking, advanceKm, overlandKm) =>
 
     // A troop that steps forward today goes where its heading takes it, and
     // nowhere else: at the head of its own salient every point of the line is
-    // as near as every other, and "along the line" would mean nothing.
-    if (massing && word !== "fall back" && !troop.stepping) {
+    // as near as every other, and "along the line" would mean nothing. Nor
+    // does one that walked forward yesterday and is held up today: it waits.
+    if (massing && word !== "fall back" && !troop.stepping && !(forward && troop.walkedBefore > 0)) {
       const most = advanceKm[troop.kind] * DRIFT_SHARE;
       let drift = Math.max(-most, Math.min(most, station.ideal - station.place));
       if (drift > 0) drift = Math.max(0, Math.min(drift, station.high - station.place));
