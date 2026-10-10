@@ -16,7 +16,7 @@ Open Historia ships with a small **Express** server (`server/server.js`) that is
 4. Installs a per-IP **rate limit** for network callers (`OH_RATE_LIMIT` per minute, default 1200; loopback is exempt).
 5. Calls `ensureScenarioStore()`, `ensureGameStore()`, `ensureMapEditorStore()`, `ensureBasemapStore()` — first-run seeding of `server/data/`.
 6. Installs the **CSRF / cross-origin-write guard** (`crossOriginWriteAllowed` in `server/security.js`). See [Security guard](#security--path-safety).
-7. Registers all `/api/*` routes, then the `/fmg` static mount (if vendored), then `express.static(distDir)`, then the SPA catch-all `GET *splat → dist/index.html`.
+7. Registers all `/api/*` routes, then the `/fmg` static mount and its 404 (if the generator's folder exists), then `express.static(distDir)`, then the SPA catch-all `GET *splat → dist/index.html`.
 8. Listens on `PORT` and the chosen host; an `EADDRINUSE` at startup is turned into a human message instead of a raw stack. Turning LAN sharing on or off later rebinds the listener in place (`rebindListener`).
 
 Route ordering matters: `/fmg/*` and `express.static` are mounted **before** the `*splat` fallback so real files aren't swallowed by `index.html`.
@@ -75,7 +75,7 @@ All routes are JSON in / JSON out unless noted. Errors are `{ error: message }` 
 | GET | `/api/games` | Game catalog (`{ games, activeGameId }`) | `getGameCatalog` |
 | GET | `/api/games/:gameId` | One game's summary + all 7 core JSON assets + its scenario summary | `getGameDetails` |
 | POST | `/api/games` | Create a game from a scenario (or seed from `seedGameId`; a copy keeps its source's scenario even when that scenario is gone, and a refused create leaves nothing on disk) → 201 | `createGame` |
-| PUT | `/api/games/active` | Set the active game (stamps `lastPlayedAt`/`playCount`) | `setActiveGame` |
+| PUT | `/api/games/active` | Set the active game (stamps `lastPlayedAt`/`playCount`). Refused with 400 while this computer hosts a shared game (the engine window is open): the hosted game stays the open one, so making a game with `setActive`, opening one through `PUT /api/games/:gameId` and deleting the hosted game are refused too (`setActiveGameHold`) | `setActiveGame` |
 | PUT | `/api/games/:gameId` | Update meta / `world` / `game` / `prompts` / `storage.*`; `scenarioId` re-points the game at a scenario this library holds (anything else is refused) | `updateGame` |
 | GET | `/api/games/:gameId/export` | Export one game as a bundle (the zip around it is built in the client, `src/runtime/gameZip.js`, so the web build makes the same file) | `exportGameBundle` |
 | POST | `/api/games/import` | Import a game bundle as a new game → 201; never switches the active game | `importGameBundle` |
@@ -157,7 +157,7 @@ A 403 from anywhere but the machine running the server. The library's **Recently
 ### Static / SPA
 | Path | Purpose | Handler |
 | --- | --- | --- |
-| `/fmg/*` | Vendored Fantasy Map Generator (`../fmg/dist`), mounted only if it exists (only `node scripts/fetch-fmg.mjs` creates it; the Workshop hides its Generate tab otherwise) | `express.static(fmgDistDir)` |
+| `/fmg/*` | The game's prepared copy of the Fantasy Map Generator (`../fmg/dist`), mounted only if it exists (the desktop installers pack it; `node scripts/fetch-fmg.mjs` creates it in a source checkout; the Workshop hides its Generate tab otherwise). A file the copy does not carry is a 404, not the SPA page | `express.static(fmgDistDir)`, then a 404 |
 | `/*` (files) | `express.static(dist)` | `express.static(distDir)` |
 | `GET *splat` | SPA fallback → `dist/index.html` | registered last in `server/server.js` |
 

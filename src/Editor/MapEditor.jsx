@@ -48,6 +48,10 @@ import BasemapPicker from "./BasemapPicker.jsx";
 import FlagPicker from "./FlagPicker.jsx";
 import { useMapDocument, createDocument, newId, openStoredDocument } from "./useMapDocument.js";
 import { loadBackgroundFile, rebuildPersistedBackground, vectorLayerToGeoJSON } from "./customBackground.js";
+import ProjectionPanel from "./ProjectionPanel.jsx";
+import { moveFeatureCoords, moveUnits, planBasemapChange } from "./projectionConvert.js";
+import { reprojectPicture } from "./projectionImage.js";
+import { convertPlane, normalizeProjection, sameProjection } from "../../server/mapProjection.js";
 import { addBackgroundToLibrary, getBasemapPayload } from "../runtime/basemapLibrary.js";
 import { saveDocument, loadDocument, downloadJson } from "./documentIO.js";
 import { createSaveRunner, isUnsavedStatus, saveRetryDelay, settleUnsavedWork } from "./documentSaving.js";
@@ -202,7 +206,60 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [d.patchMetadata]);
-  const review = useSuggestionReview({ review: reviewSource, api, d, setBackground: setReviewBackground, regionEpoch });
+  // A suggestion's change of projection (suggestionReview.js): the map moved by
+  // the rule convertProjection moves it by, the picture kept as it is and laid
+  // where the suggestion says. Nothing is drawn again, so it happens at once,
+  // and taking it back is the same call the other way round.
+  const customBgRef = useRef(null);
+  customBgRef.current = customBg;
+  const convertForReview = useCallback((source, target, bounds = null) => {
+    if (!api) return;
+    const from = normalizeProjection(source);
+    const to = normalizeProjection(target);
+    if (sameProjection(from, to)) {
+      // Only the two switches about how the game shows the map.
+      d.patchMetadata({ projection: to });
+      return;
+    }
+    const EARTH = 6378137; // the map's units are metres on the Mercator plane
+    const moveXY = (x, y) => {
+      const [X, Y] = convertPlane(from, to, x / EARTH, y / EARTH);
+      return [X * EARTH, Y * EARTH];
+    };
+    const background = customBgRef.current;
+    const plan = planBasemapChange({ from, to, background, keepPicture: background?.kind === "image" });
+    let nextBg = background;
+    if (plan.kind === "bounds") {
+      // Mercator with no bounds given: the picture fills the square, as it did.
+      const lies = bounds ?? (to.type === "mercator" ? null : plan.bounds);
+      nextBg = rebuildPersistedBackground({ kind: "image", dataUrl: background.dataUrl, aspect: background.aspect, bounds: lies }, { persisted: false });
+    } else if (plan.kind === "vector") {
+      for (const feature of background.layer.getSource().getFeatures()) {
+        feature.getGeometry()?.applyTransform((input, output, stride = 2) => {
+          const out = output ?? input;
+          for (let i = 0; i < input.length; i += stride) {
+            const [x, y] = moveXY(input[i], input[i + 1]);
+            out[i] = x;
+            out[i + 1] = y;
+          }
+          return out;
+        });
+      }
+      nextBg = { ...background, persisted: false };
+    } else if (plan.kind === "plain") {
+      nextBg = { kind: "plain", persisted: false };
+    } else if (plan.kind === "tiles") {
+      nextBg = null;
+    }
+    api.transformRegions(moveXY);
+    d.setFeatures((list) => moveFeatureCoords(list, from, to));
+    d.setUnits((list) => moveUnits(list, from, to));
+    d.patchMetadata({ projection: to, ...(plan.kind === "tiles" ? { customBackground: null } : {}) });
+    if (nextBg !== background) setCustomBg(nextBg);
+    api.fitToData?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, d.setFeatures, d.setUnits, d.patchMetadata]);
+  const review = useSuggestionReview({ review: reviewSource, api, d, setBackground: setReviewBackground, convertProjection: convertForReview, regionEpoch });
   useSuggestionMarkup(api, review, regionEpoch);
   // The review opens beside the map once the scenario's map has loaded.
   useEffect(() => {
@@ -320,6 +377,87 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
       console.warn("[editor] save basemap to library failed:", e);
       setCustomBgId(null);
       return { libraryError: e?.message || String(e) };
+    }
+  };
+
+  // ---- Projection: the whole map moved from one projection to another ----
+  // The picture's own shape, for "Use the picture's own shape": a basemap
+  // restored from a scenario does not carry it.
+  const [pictureAspect, setPictureAspect] = useState(null);
+  useEffect(() => {
+    if (customBg?.kind !== "image" || !customBg.dataUrl) {
+      setPictureAspect(null);
+      return undefined;
+    }
+    let alive = true;
+    const image = new Image();
+    image.onload = () => {
+      if (alive && image.naturalWidth && image.naturalHeight) setPictureAspect(image.naturalWidth / image.naturalHeight);
+    };
+    image.src = customBg.dataUrl;
+    return () => { alive = false; };
+  }, [customBg]);
+  const [projectionBusy, setProjectionBusy] = useState(false);
+  const [projectionError, setProjectionError] = useState("");
+  // Regions, cities, units and basemap, each by its own rule
+  // (projectionConvert.js). The basemap is made ready first: redrawing a
+  // picture is the one step that can fail, and nothing has moved if it does.
+  const convertProjection = async (target, { keepPicture = false } = {}) => {
+    if (!api || projectionBusy) return;
+    const from = normalizeProjection(d.metadata?.projection);
+    const to = normalizeProjection(target);
+    if (sameProjection(from, to)) return;
+    setProjectionBusy(true);
+    setProjectionError("");
+    try {
+      // Let "Converting the map…" reach the screen before the work starts.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const EARTH = 6378137; // the map's units are metres on the Mercator plane
+      const moveXY = (x, y) => {
+        const [X, Y] = convertPlane(from, to, x / EARTH, y / EARTH);
+        return [X * EARTH, Y * EARTH];
+      };
+      const plan = planBasemapChange({ from, to, background: customBg, keepPicture });
+      let nextBg = customBg;
+      if (plan.kind === "redraw") {
+        const redrawn = await reprojectPicture({ dataUrl: customBg.dataUrl, from, to, bounds: customBg.bounds });
+        nextBg = rebuildPersistedBackground({ kind: "image", dataUrl: redrawn.dataUrl, aspect: redrawn.aspect, bounds: redrawn.bounds }, { persisted: false });
+      } else if (plan.kind === "bounds") {
+        nextBg = rebuildPersistedBackground({ kind: "image", dataUrl: customBg.dataUrl, aspect: customBg.aspect, bounds: plan.bounds }, { persisted: false });
+      } else if (plan.kind === "vector") {
+        for (const feature of customBg.layer.getSource().getFeatures()) {
+          feature.getGeometry()?.applyTransform((input, output, stride = 2) => {
+            const out = output ?? input;
+            for (let i = 0; i < input.length; i += stride) {
+              const [x, y] = moveXY(input[i], input[i + 1]);
+              out[i] = x;
+              out[i + 1] = y;
+            }
+            return out;
+          });
+        }
+        nextBg = { ...customBg, persisted: false };
+      } else if (plan.kind === "plain") {
+        nextBg = { kind: "plain", persisted: false };
+      } else if (plan.kind === "tiles") {
+        nextBg = null;
+      }
+      api.transformRegions(moveXY);
+      d.setFeatures((list) => moveFeatureCoords(list, from, to));
+      d.setUnits((list) => moveUnits(list, from, to));
+      // The two switches about how the game shows the map stay as they were.
+      d.patchMetadata({ projection: { ...to, ...(from.globe === false ? { globe: false } : {}), ...(from.wrap === false ? { wrap: false } : {}) }, ...(plan.kind === "tiles" ? { customBackground: null } : {}) });
+      if (nextBg !== customBg) {
+        setCustomBg(nextBg);
+        // A redrawn picture is no longer the one in Your basemaps.
+        if (plan.kind !== "bounds") setCustomBgId(null);
+      }
+      api.fitToData?.();
+    } catch (error) {
+      console.warn("[editor] the map could not be converted:", error);
+      setProjectionError(error?.message || String(error));
+    } finally {
+      setProjectionBusy(false);
     }
   };
 
@@ -863,6 +1001,8 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
     // (buildGameSeed reads doc.metadata.customBackground) re-persists it instead of
     // clearing the scenario's background when the user re-opens and re-applies.
     if (initialMap.background) base.metadata.customBackground = initialMap.background;
+    // And its projection, which the save writes back (exportPreset.js).
+    if (initialMap.projection) base.metadata.projection = initialMap.projection;
     // Same reasoning as the background above, and it is data loss if missed:
     // buildGameSeed emits flags: null when the document has none, and
     // applyMapToScenario reads that null as "clear the scenario's flags.json".
@@ -1400,6 +1540,26 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
         />
       )}
       {openPanel === "layers" && <LayersPanel api={api} onClose={() => setOpenPanel(null)} />}
+      {openPanel === "projection" && (
+        <ProjectionPanel
+          projection={d.metadata?.projection}
+          pictureAspect={pictureAspect}
+          hasPicture={customBg?.kind === "image"}
+          busy={projectionBusy}
+          error={projectionError}
+          onConvert={convertProjection}
+          onView={(patch) => {
+            // { globe } or { wrap }: written only when switched off.
+            const next = { ...normalizeProjection(d.metadata?.projection) };
+            for (const [key, on] of Object.entries(patch)) {
+              if (on) delete next[key];
+              else next[key] = false;
+            }
+            d.patchMetadata({ projection: next });
+          }}
+          onClose={() => setOpenPanel(null)}
+        />
+      )}
       {openPanel === "reference" && (
         <ReferencePanel
           refImage={refImage}

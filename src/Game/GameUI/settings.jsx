@@ -38,6 +38,8 @@ import {
 } from "../AI/providerConfig.js";
 import { formatResetTime } from "../AI/fallbackRunner.js";
 import { contextWindowKey, createContextWindowMemory, describeRememberedWindow } from "../AI/contextWindow.js";
+import { useWorldBackground } from "../Map/useWorldState.js";
+import { endpointIsLocal } from "../AI/localEndpoint.js";
 import { announceRequestBudgetChange, describeJumpCost, requestDay, requestSettings, requestsByTask } from "../AI/requestBudget.js";
 import {
     AI_REQUEST_CONTROL_EVENT,
@@ -325,6 +327,40 @@ const ChatLanguageSelector = () => {
     );
 };
 
+// The Basemap pick, which replaces a scenario's built-in basemap on this
+// device. A scenario with a map of its own (a picture, a drawn map, the plain
+// sea of a flat sheet) keeps it (World.jsx), so there the pick is switched off
+// and says why. What was picked stays stored for the scenarios it applies to.
+const BasemapField = ({ value, onChange }) => {
+    const { background } = useWorldBackground();
+    const ownMap = Boolean(background?.kind);
+    return (
+        <div style={fieldGroupStyle}>
+            <label style={labelStyle} htmlFor="game-basemap-style">Basemap</label>
+            <select id="game-basemap-style" value={ownMap ? "" : value} disabled={ownMap} onChange={(event) => onChange(event.target.value)} style={{ ...inputStyle, cursor: ownMap ? "not-allowed" : "pointer", opacity: ownMap ? 0.6 : 1 }}>
+                <option value="" style={{ color: "black" }}>Scenario default</option>
+                {ESRI_BASEMAPS.map((basemap) => <option key={basemap.id} value={basemap.id} style={{ color: "black" }}>{basemap.label}</option>)}
+            </select>
+            <div style={helperStyle}>{ownMap ? "This scenario uses its own basemap, which cannot be replaced." : "Scenario default uses the map chosen by the scenario author. Overrides apply immediately."}</div>
+        </div>
+    );
+};
+
+// The 3D Globe switch, which a scenario can take away: its map may be a flat
+// sheet that is not to be wrapped round a globe (world.projection.globe).
+const GlobeToggle = ({ enabled, onToggle }) => {
+    const { noGlobe } = useWorldBackground();
+    return (
+        <Toggle
+        label="3D Globe"
+        enabled={enabled && !noGlobe}
+        disabled={noGlobe}
+        inactive={noGlobe ? "The 3D globe is disabled for this scenario's map." : ""}
+        onToggle={onToggle}
+        />
+    );
+};
+
 // On a touch screen the whole row is the switch: the pill alone is 28 px tall,
 // under a thumb's width, and the label beside it is what a thumb goes for. The
 // pill keeps its size and stops shrinking when a long label wraps beside it.
@@ -540,7 +576,9 @@ const ContextWindowField = ({ entry }) => {
     const [, setRevision] = useState(0);
     if (!entry) return null;
     const key = contextWindowKey(entry);
-    const known = contextWindowMemory.remembered(key);
+    // Nothing learned from a server on this machine or network is in force
+    // (main.jsx windowIsLearned), so only the player's own figure is shown for it.
+    const known = contextWindowMemory.remembered(key, { trustLearned: !endpointIsLocal(entry.endpoint) });
     const changed = () => setRevision((value) => value + 1);
     return (
         <div>
@@ -1386,7 +1424,7 @@ const SettingsButton = ({ onToggle, topOffset = "0.5rem", hidden = false }) => (
         cursor: "pointer",
         fontSize: "1.5rem",
         fontWeight: 800,
-        background: "linear-gradient(180deg, rgba(53,53,58,0.58), rgba(17,17,19,0.48))",
+        background: "rgba(35,35,39,0.53)",
         opacity: hidden ? 0 : 1,
         pointerEvents: hidden ? "none" : "auto",
         transition: "opacity 180ms ease 40ms",
@@ -2367,14 +2405,7 @@ const SettingsWorkspace = ({
             {activeSection === "map" && (
                 <>
                 <SettingsSection title="Map presentation" description="Choose the visual base and which political labels are shown.">
-                    <div style={fieldGroupStyle}>
-                        <label style={labelStyle} htmlFor="game-basemap-style">Basemap</label>
-                        <select id="game-basemap-style" value={basemapStyle} onChange={(event) => updateBasemapStyle(event.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-                            <option value="" style={{ color: "black" }}>Scenario default</option>
-                            {ESRI_BASEMAPS.map((basemap) => <option key={basemap.id} value={basemap.id} style={{ color: "black" }}>{basemap.label}</option>)}
-                        </select>
-                        <div style={helperStyle}>Scenario default uses the map chosen by the scenario author. Overrides apply immediately.</div>
-                    </div>
+                    <BasemapField value={basemapStyle} onChange={updateBasemapStyle} />
                     {/* Labels rasterize from the player's LOCAL fonts (the style
                         has no glyph server), so any installed family works - the
                         list only suggests common safe ones. Empty = whatever the
@@ -2400,7 +2431,7 @@ const SettingsWorkspace = ({
                 </SettingsSection>
                 <SettingsSection title="3D map" description="Globe and terrain rendering are presentation features; they do not change world state.">
                     <ExperimentalPill />
-                    <Toggle label="3D Globe" enabled={isGlobeEnabled} onToggle={onToggleGlobe} />
+                    <GlobeToggle enabled={isGlobeEnabled} onToggle={onToggleGlobe} />
                     <Toggle label="3D Terrain" enabled={isTerrainEnabled} onToggle={onToggleTerrain} />
                 </SettingsSection>
                 <SettingsSection title="Camera behavior" description="Fine-grained controls for automatic map movement.">
@@ -2515,8 +2546,8 @@ const SettingsWorkspace = ({
     // ✕ or the bottom of the page.
     return createPortal(
         <div role="dialog" aria-modal="true" aria-label="Game settings" className={leaving ? "oh-fade-out" : closing ? "oh-fade-out-slow" : fromRect ? undefined : "oh-fade-in"} style={{ alignItems: "center", background: "rgba(6,6,7,0.42)", backdropFilter: "blur(18px) saturate(1.2)", display: "flex", inset: 0, justifyContent: "center", padding: isMobile ? `calc(0.45rem + ${SAFE_TOP}) calc(0.45rem + ${SAFE_RIGHT}) calc(0.45rem + ${SAFE_BOTTOM}) calc(0.45rem + ${SAFE_LEFT})` : "clamp(0.8rem, 2vw, 1.6rem)", position: "fixed", zIndex: 2147483000 }}>
-            <div ref={cardRef} className="oh-ws-card" style={{ background: "linear-gradient(180deg, rgba(46,46,50,0.72), rgba(17,17,19,0.62))", backdropFilter: "var(--oh-hud-blur)", WebkitBackdropFilter: "var(--oh-hud-blur)", border: "1px solid var(--oh-hud-border)", borderRadius: isMobile ? "12px" : "18px", boxShadow: "var(--oh-hud-shadow)", color: "white", display: "flex", flexDirection: "column", fontFamily: "sans-serif", height: isMobile ? `calc(${APP_HEIGHT} - 0.9rem - ${SAFE_TOP} - ${SAFE_BOTTOM})` : `min(800px, calc(${APP_HEIGHT} - 2.4rem))`, maxWidth: "1120px", overflow: "hidden", width: isMobile ? `calc(100vw - 0.9rem - ${SAFE_LEFT} - ${SAFE_RIGHT})` : "min(94vw, 1120px)" }}>
-                <div aria-hidden="true" className="oh-ws-tint" style={{ background: "linear-gradient(180deg, rgba(46,46,50,0.68), rgba(17,17,19,0.58))", borderRadius: "inherit", inset: 0, pointerEvents: "none", position: "absolute" }} />
+            <div ref={cardRef} className="oh-ws-card" style={{ background: "rgba(32,32,35,0.67)", backdropFilter: "var(--oh-hud-blur)", WebkitBackdropFilter: "var(--oh-hud-blur)", border: "1px solid var(--oh-hud-border)", borderRadius: isMobile ? "12px" : "18px", boxShadow: "var(--oh-hud-shadow)", color: "white", display: "flex", flexDirection: "column", fontFamily: "sans-serif", height: isMobile ? `calc(${APP_HEIGHT} - 0.9rem - ${SAFE_TOP} - ${SAFE_BOTTOM})` : `min(800px, calc(${APP_HEIGHT} - 2.4rem))`, maxWidth: "1120px", overflow: "hidden", width: isMobile ? `calc(100vw - 0.9rem - ${SAFE_LEFT} - ${SAFE_RIGHT})` : "min(94vw, 1120px)" }}>
+                <div aria-hidden="true" className="oh-ws-tint" style={{ background: "rgba(32,32,35,0.63)", borderRadius: "inherit", inset: 0, pointerEvents: "none", position: "absolute" }} />
                 <div style={{ alignItems: "center", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", gap: "0.75rem", padding: "0.8rem 0.9rem" }}>
                     <button type="button" className="oh-tap" onClick={onBack} aria-label="Back to game menu" title="Back to game menu" style={{ alignItems: "center", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: "8px", color: "rgba(255,255,255,0.66)", cursor: "pointer", display: "flex", fontSize: "1rem", height: "2.25rem", justifyContent: "center", width: "2.25rem" }}>←</button>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -2871,7 +2902,7 @@ const SettingsMenu = ({
             alignItems: "stretch",
             justifyContent: "flex-start",
             height: "auto",
-            background: "linear-gradient(180deg, rgba(46,46,50,0.68), rgba(17,17,19,0.58))",
+            background: "rgba(32,32,35,0.63)",
             border: "1px solid var(--oh-hud-border)",
             boxShadow: "var(--oh-hud-shadow)",
         }}

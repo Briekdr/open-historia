@@ -10,6 +10,10 @@ import { bootText, bootTranslated } from "./bootTexts.js";
 const ENTERED_KEY = "oh:entered";
 const FONTS_HREF = "https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap";
 
+// The independence notice, as it stands on the website: a legal text, shown as
+// written in every language.
+const INDEPENDENCE_NOTICE = "Open Historia is an independent, open-source project and is not affiliated with, endorsed, sponsored, approved, or authorized by Pax Historia. Pax Historia has no involvement in the development, operation, or distribution of Open Historia. Pax Historia™ and all associated trademarks, trade names, and logos are the exclusive property of Pax Historia.";
+
 // The project mark, in place of the classical-building emoji.
 const MARK_SRC = "/icon-192.png";
 
@@ -20,7 +24,6 @@ const css = `
   --ink:#ece4d2;--sepia:#a4987f;--sepia2:#877c66;
   --line:rgba(233,220,192,.14);--line2:rgba(233,220,192,.26);
   --bronze:#c9932f;--gold:#c9932f;--gold-l:#dcb954;--red:#a8394a;--red-d:#7a1e2b;--green:#5d9149;
-  --grad-gold:linear-gradient(100deg,#a7761f 0%,#e0b44a 52%,#b98f2e 100%);
   --shadow:0 18px 42px -22px rgba(0,0,0,.8);--radius:14px;
   --serif:'EB Garamond',Georgia,'Times New Roman',serif;
   --display:'Cinzel',Georgia,'Times New Roman',serif;
@@ -28,8 +31,6 @@ const css = `
   padding:26px 20px;overflow:auto;color:var(--ink);font-family:var(--serif);font-size:17px;line-height:1.6;
   -webkit-font-smoothing:antialiased;
   background:
-  radial-gradient(1200px 540px at 50% -12%, rgba(201,147,47,.14), transparent 60%),
-  radial-gradient(1000px 560px at 100% 2%, rgba(168,57,74,.08), transparent 55%),
   repeating-linear-gradient(112deg, rgba(233,220,192,.02) 0 2px, transparent 2px 7px),
   var(--parch);
 }
@@ -51,9 +52,9 @@ const css = `
     white-space:nowrap;max-width:100%;font-size:clamp(.56rem,2.4vw,.82rem);color:var(--sepia);background:var(--marble2)}
     .oh-badge-icon{width:1.15em;height:1.15em;border-radius:3px;display:block;flex:none;object-fit:contain}
     .oh-logo{font-family:var(--display);font-weight:800;font-size:2.35rem;letter-spacing:.02em;line-height:1.05;margin:18px 0 0;color:var(--ink)}
-    .oh-grad{background:var(--grad-gold);-webkit-background-clip:text;background-clip:text;color:transparent}
+    .oh-grad{color:var(--gold-l)}
     .oh-tag{color:var(--sepia);font-size:1.04rem;margin:12px auto 0;max-width:400px}
-    .oh-rule{width:110px;height:2px;margin:20px auto;background:linear-gradient(90deg,transparent,var(--bronze),transparent)}
+    .oh-rule{width:110px;height:2px;margin:20px auto;background:var(--bronze);opacity:.55}
 
     /* connection panel */
     .oh-conn-sub{color:var(--sepia);font-size:.92rem;margin-top:12px;font-style:italic}
@@ -67,10 +68,11 @@ const css = `
       .oh-btn:disabled:hover{transform:none}
       .oh-btn.ghost{background:var(--marble);border-color:var(--line2);color:var(--ink)}
       .oh-btn.ghost:hover{background:var(--marble2)}
-      .oh-btn.primary{background:linear-gradient(180deg,#98283a,var(--red-d));color:#f7eccf;border-color:rgba(255,222,160,.4);box-shadow:0 12px 30px -12px rgba(0,0,0,.85);font-size:1rem;padding:15px}
-      .oh-btn.primary:hover{background:linear-gradient(180deg,#a12b3e,#7a1e2b)}
+      .oh-btn.primary{background:#892333;color:#f7eccf;border-color:rgba(255,222,160,.4);box-shadow:0 12px 30px -12px rgba(0,0,0,.85);font-size:1rem;padding:15px}
+      .oh-btn.primary:hover{background:#962839}
       .oh-foot{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 18px;margin-top:20px;font-family:var(--display);font-size:.78rem;letter-spacing:.05em;color:var(--sepia2)}
       .oh-foot a{border:0;color:var(--sepia2)}.oh-foot a:hover{color:var(--ink)}
+      .oh-legal{margin:16px auto 0;max-width:430px;font-size:.74rem;line-height:1.5;color:var(--sepia2);text-align:center}
       .oh-trust{margin-top:14px;font-size:.82rem;color:var(--sepia2);font-style:italic}
       .oh-demo{margin:14px 0 0;padding:11px 13px;border:1px solid var(--line2);border-left:3px solid var(--bronze);border-radius:8px;background:rgba(201,147,47,.10);text-align:left}
       .oh-demo b{color:var(--ink)}
@@ -173,6 +175,7 @@ const demoAcknowledged = () => {
                         el("div", { className: "oh-rule" }),
                         play,
                         foot,
+                        el("p", { className: "oh-legal", textContent: INDEPENDENCE_NOTICE }),
         );
         overlay = el("div", { className: "oh-home", id: "oh-home-root" }, card);
         // Already in the player's language (index.js loaded the pack before this).

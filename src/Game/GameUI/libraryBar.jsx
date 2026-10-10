@@ -162,9 +162,22 @@ const TOP_BAR_OFFSET = `calc(0.5rem + ${SAFE_TOP})`;
 
 const DEFAULT_SCENARIO_COVER = "/scenario-placeholder.webp";
 
+// The flat tint over a card's cover picture, so its text reads on any picture
+// (an inset shadow, which lies over the picture). The Accent, the colour its
+// author picked, glows in the corner over that: the one fade the interface
+// keeps (noGradients.test.js).
+const COVER_TINT = "inset 0 0 0 100vmax rgba(4,6,12,0.56)";
+const accentGlowStyle = (accentColor, { at, alpha, reach }) => ({
+  background: `radial-gradient(circle at ${at}, ${accentColor}${alpha}, transparent ${reach})`,
+  inset: 0,
+  opacity: 0.6,
+  pointerEvents: "none",
+  position: "absolute",
+});
+
 const surfaceStyle = {
   background:
-    "linear-gradient(180deg, rgba(50, 50, 55, 0.58) 0%, rgba(17, 17, 19, 0.48) 100%)",
+    "rgba(34,34,37,0.53)",
   border: "1px solid var(--oh-hud-border)",
   boxShadow: "var(--oh-hud-shadow-soft)",
   backdropFilter: "var(--oh-hud-blur)",
@@ -805,16 +818,15 @@ const ScenarioCard = ({ onClone, onEdit, onPlay, onSelect, onUpdate, scenario, s
       <div
         style={{
           background:
-            `linear-gradient(180deg, rgba(4,6,12,0.18) 0%, rgba(4,6,12,0.46) 30%, rgba(5,8,14,0.86) 72%, rgba(5,7,12,0.98) 100%), ` +
-            `linear-gradient(90deg, rgba(3,4,8,0.30) 0%, rgba(3,4,8,0.13) 42%, rgba(3,4,8,0.24) 100%), ` +
-            `radial-gradient(circle at 14% 18%, ${scenario.accentColor}b8, transparent 34%), ` +
             `url("${cardImageUrl}") center/cover, ` +
             `url("${DEFAULT_SCENARIO_COVER}") center/cover`,
+          boxShadow: COVER_TINT,
           inset: 0,
           opacity: 0.96,
           position: "absolute",
         }}
       />
+      <div aria-hidden="true" style={accentGlowStyle(scenario.accentColor, { at: "14% 18%", alpha: "b8", reach: "34%" })} />
       <div
         style={{
           display: "flex",
@@ -1102,16 +1114,15 @@ const GameCard = ({ active, busy, game, onActivate, onArchive, onClone, onEdit, 
       <div
         style={{
           background:
-            `linear-gradient(180deg, rgba(4,6,12,0.15) 0%, rgba(4,6,12,0.40) 30%, rgba(5,8,14,0.84) 74%, rgba(5,7,12,0.97) 100%), ` +
-            `linear-gradient(90deg, rgba(3,4,8,0.28) 0%, rgba(3,4,8,0.11) 42%, rgba(3,4,8,0.22) 100%), ` +
-            `radial-gradient(circle at 16% 20%, ${game.accentColor}a8, transparent 32%), ` +
             `url("${cardImageUrl}") center/cover, ` +
             `url("${DEFAULT_SCENARIO_COVER}") center/cover`,
+          boxShadow: COVER_TINT,
           inset: 0,
           opacity: 0.97,
           position: "absolute",
         }}
       />
+      <div aria-hidden="true" style={accentGlowStyle(game.accentColor, { at: "16% 20%", alpha: "a8", reach: "32%" })} />
       <div
         style={{
           display: "flex",
@@ -1347,7 +1358,7 @@ const MenuRow = ({ action, children, description, emptyText, icon, title }) => {
               {title}
             </div>
           </div>
-          <div style={{ background: "linear-gradient(90deg, rgba(255,255,255,0.12), rgba(255,255,255,0.02))", flex: 1, height: 1 }} />
+          <div style={{ background: "rgba(255,255,255,0.08)", flex: 1, height: 1 }} />
           {action}
         </div>
         {description && (
@@ -2425,11 +2436,15 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   // (useCustomBackground). Nothing to load means ESRI, as before.
   const loadPickerBackground = (scenarioId, descriptor, isCurrent) => {
     const kind = descriptor?.kind;
+    if (kind === "plain") {
+      setPickerBackground({ kind });
+      return;
+    }
     if (kind !== "image" && kind !== "vector") return;
     downloadScenarioJsonAsset(scenarioId, "backgroundData")
       .then((data) => {
         if (!isCurrent()) return;
-        if (kind === "image" && data?.dataUrl) setPickerBackground({ kind, imageUrl: data.dataUrl });
+        if (kind === "image" && data?.dataUrl) setPickerBackground({ kind, imageUrl: data.dataUrl, bounds: descriptor.bounds ?? null });
         else if (kind === "vector" && data?.geojson) setPickerBackground({ kind, geojson: data.geojson });
       })
       .catch(() => {});
@@ -2556,7 +2571,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     try {
       // The checked copy of the post's file, stamped with the link to renew:
       // the post, its file, and the release copy that was downloaded.
-      const bundle = await downloadHubScenario({ postId: post.id, bundleUrl: post.bundleUrl, title: post.title, author: post.author });
+      const bundle = await downloadHubScenario({ postId: post.id, bundleUrl: post.bundleUrl, title: post.title, author: post.author, flatMap: post.flatMap });
       // Noted before the Update: it refreshes the library, and when a game on
       // this scenario is running its effect would otherwise download the
       // basemap that just failed again at once.
@@ -3374,16 +3389,21 @@ const LibraryTopBar = ({ onOpenSettings }) => {
       downloadScenarioJsonAsset(scenario.id, "flags"),
       downloadScenarioJsonAsset(scenario.id, "tags"),
       // The custom map background so re-opening the editor restores it.
-      world.background?.kind ? downloadScenarioJsonAsset(scenario.id, "backgroundData") : Promise.resolve(null),
+      // (A plain sea has a descriptor and nothing to download.)
+      world.background?.kind === "image" || world.background?.kind === "vector"
+        ? downloadScenarioJsonAsset(scenario.id, "backgroundData")
+        : Promise.resolve(null),
     ]).then(([regions, cities, colors, flags, tags, bgData]) => {
       if (!isCurrent()) return;
       const bgDesc = world.background;
       const background =
         bgDesc?.kind === "image" && bgData?.dataUrl
-          ? { kind: "image", dataUrl: bgData.dataUrl }
+          ? { kind: "image", dataUrl: bgData.dataUrl, ...(bgDesc.bounds ? { bounds: bgDesc.bounds } : {}) }
           : bgDesc?.kind === "vector" && bgData?.geojson
             ? { kind: "vector", geojson: bgData.geojson }
-            : null;
+            : bgDesc?.kind === "plain"
+              ? { kind: "plain" }
+              : null;
       setMapEditorSeed({
         name: scenario.name || "",
         author: world.author || "",
@@ -3410,6 +3430,9 @@ const LibraryTopBar = ({ onOpenSettings }) => {
           ? world.polityOverrides
           : {},
         background,
+        // The map's projection (server/mapProjection.js), which the Workshop
+        // shows, converts and saves back.
+        projection: world.projection ?? null,
         basemap: world.basemap || null,
         // Carried like the flags above: a round-trip must not reset it.
         customCities: Boolean(world.customCities),
@@ -3570,6 +3593,9 @@ const LibraryTopBar = ({ onOpenSettings }) => {
         // Custom map background descriptor (kind + placement); null clears it. The
         // heavy payload goes to the backgroundData asset just below.
         background: seed.world?.background ?? null,
+        // The projection the Workshop left the map in; a map that never had one
+        // keeps none, which is Mercator.
+        ...(seed.world?.projection ? { projection: seed.world.projection } : {}),
         // The chosen built-in basemap so the game renders it (not always ocean).
         basemap: seed.world?.basemap ?? null,
         // The starting units placed in the Workshop (world.units, source "scenario").
@@ -4438,7 +4464,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
         <div
           style={{
             background:
-              "linear-gradient(180deg, #111113 0%, #0d0d0f 100%)",
+              "#0f0f11",
             color: "#fff",
             display: "flex",
             flexDirection: "column",

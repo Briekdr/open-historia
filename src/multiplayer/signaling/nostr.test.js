@@ -146,3 +146,92 @@ test("a malformed topic or key is refused up front", () => {
   assert.throws(() => createNostrChannel({ topic: "nope", key: randomBytes(32), WebSocketImpl: network.WebSocket }), /topic/);
   assert.throws(() => createNostrChannel({ topic: toHex(randomBytes(16)), key: randomBytes(8), WebSocketImpl: network.WebSocket }), /key/);
 });
+
+test("a listener whose clock is ahead still hears a sender whose clock is behind", async () => {
+  // A relay holds a subscription's "since" against the SENDER's clock. With a
+  // reach of thirty seconds, a joiner a minute ahead of the host heard nothing
+  // from it for the first half minute, and a joiner further ahead never did.
+  const network = createFakeRelayNetwork();
+  const keys = room();
+  const host = channel(network, keys);
+  const joiner = channel(network, keys, { now: () => Date.now() + 120_000 });
+  await settle();
+  host.instance.publish({ t: "beacon" });
+  joiner.instance.publish({ t: "offer" });
+  await settle();
+  assert.deepEqual(joiner.received, [{ t: "beacon" }]);
+  assert.deepEqual(host.received, [{ t: "offer" }]);
+  host.instance.close();
+  joiner.instance.close();
+});
+
+test("one event passed on by every relay counts once against the burst limit", async () => {
+  // A lobby filling at once is many offers in a second, each from every relay:
+  // counted per copy, the host's answer was crowded out by copies of offers.
+  const network = createFakeRelayNetwork();
+  const keys = room();
+  const at = Date.now();
+  const host = channel(network, keys, { maxEventsPerSecond: 4, now: () => at });
+  const joiner = channel(network, keys);
+  await settle();
+  for (let n = 0; n < 4; n += 1) joiner.instance.publish({ t: "offer", n });
+  await settle(60);
+  assert.deepEqual(host.received.map((payload) => payload.n).sort(), [0, 1, 2, 3], "four events from three relays are four, not twelve");
+  host.instance.close();
+  joiner.instance.close();
+});
+
+test("a relay that says we publish too much is left alone for a while, and still listened to", async () => {
+  // A public relay answered a host's ordinary traffic "rate-limited", and
+  // fourteen seconds of going on regardless made it "banned".
+  const network = createFakeRelayNetwork();
+  const keys = room();
+  let clock = 5_000_000;
+  const logs = [];
+  const host = channel(network, keys, { now: () => clock, log: (line) => logs.push(line) });
+  const joiner = channel(network, keys, { now: () => clock });
+  await settle();
+  network.refuse(RELAYS[0], "rate-limited: you are noting too much");
+  assert.equal(host.instance.publish({ t: "beacon", n: 1 }), 3);
+  await settle();
+  assert.equal(network.relays.get(RELAYS[0]).refused, 1);
+  assert.deepEqual(joiner.received, [{ t: "beacon", n: 1 }], "the other relays carried it");
+  // The next goes to the two that did not complain.
+  assert.equal(host.instance.publish({ t: "beacon", n: 2 }), 2);
+  await settle();
+  assert.equal(network.relays.get(RELAYS[0]).refused, 1, "nothing more was published to it");
+  assert.equal(joiner.received.length, 2);
+  assert.equal(logs.filter((line) => /nothing more is published/.test(line)).length, 1);
+  // What others publish through that relay is still heard.
+  network.refuse(RELAYS[0], "");
+  joiner.instance.publish({ t: "offer" });
+  await settle();
+  assert.deepEqual(host.received, [{ t: "offer" }]);
+  // A minute on, it is published to again.
+  clock += 61_000;
+  assert.equal(host.instance.publish({ t: "beacon", n: 3 }), 3);
+  host.instance.close();
+  joiner.instance.close();
+});
+
+test("a ban is respected for longer, and a relay is never the only one gone quiet", async () => {
+  const network = createFakeRelayNetwork();
+  const keys = room();
+  let clock = 9_000_000;
+  const host = channel(network, keys, { now: () => clock });
+  await settle();
+  network.refuse(RELAYS[0], "banned: too many rate-limit violations, try again later");
+  host.instance.publish({ t: "beacon", n: 1 });
+  await settle();
+  clock += 5 * 60_000;
+  assert.equal(host.instance.publish({ t: "beacon", n: 2 }), 2, "still quiet five minutes on");
+  clock += 11 * 60_000;
+  assert.equal(host.instance.publish({ t: "beacon", n: 3 }), 3);
+  await settle();
+  // Every relay complaining at once: said anyway, since silence helps nobody.
+  for (const url of RELAYS) network.refuse(url, "rate-limited: slow down");
+  host.instance.publish({ t: "beacon", n: 4 });
+  await settle();
+  assert.equal(host.instance.publish({ t: "beacon", n: 5 }), 3);
+  host.instance.close();
+});

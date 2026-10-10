@@ -14,14 +14,16 @@ import {
   basemapMaxZoom,
   basemapProtocolTemplate,
   buildBasemapRenderKey,
+  basemapOverrideFor,
   esriTileTemplate,
-  isBuiltinBasemapId,
   resolveBasemapId,
 } from "../../runtime/assets.js";
 import { configureMapRuntime, ensureBasemapProtocol } from "./mapLibreSetup.js";
 import { MAP_SETTING_KEYS, useMapSettingValue } from "../../runtime/mapSettings.js";
 import { useBrowserOnline } from "../../runtime/networkStatus.js";
 import { markMapIdle } from "../../runtime/mapReadiness.js";
+import { imageQuad } from "../../../server/mapProjection.js";
+import { useWorldBackground } from "./useWorldState.js";
 
 // MapLibre's worker pool is made with the first map, so this goes first.
 configureMapRuntime();
@@ -297,18 +299,6 @@ const getReliefPaints = (basemapId) => {
 // NOT exactly ±90: mercatorYfromLat(±90) is ±Infinity, which makes MapLibre's
 // ImageSource.setCoordinates throw — so we stop a hair short (the custom-bg-base
 // layer fills the negligible remaining sliver).
-const WORLD_IMAGE_COORDS_FLAT = [
-  [-180, 85.0511],
-  [180, 85.0511],
-  [180, -85.0511],
-  [-180, -85.0511],
-];
-const WORLD_IMAGE_COORDS_GLOBE = [
-  [-180, 89.9],
-  [180, 89.9],
-  [180, -89.9],
-  [-180, -89.9],
-];
 
 const buildWorldStyle = (basemapId, customBg, backgroundDeclared, isGlobe, terrainEnabled, offline = false) => {
   // A custom uploaded map replaces the ESRI basemap entirely — no satellite or
@@ -321,7 +311,10 @@ const buildWorldStyle = (basemapId, customBg, backgroundDeclared, isGlobe, terra
         "custom-bg": {
           type: "image",
           url: customBg.imageUrl,
-          coordinates: isGlobe ? WORLD_IMAGE_COORDS_GLOBE : WORLD_IMAGE_COORDS_FLAT,
+          // Where the scenario says its picture lies (world.background.bounds);
+          // with nothing said it fills the whole Mercator square, as it always
+          // did (server/mapProjection.js imageQuad).
+          coordinates: imageQuad(customBg.bounds, { globe: isGlobe }),
         },
       },
       layers: [
@@ -523,7 +516,12 @@ const buildWorldStyle = (basemapId, customBg, backgroundDeclared, isGlobe, terra
 // How long basemap tiles must keep loading before "Loading tiles…" shows.
 const LOADING_TOAST_DELAY_MS = 700;
 
-function World({ mapRef, projection, terrainEnabled, onInitialIdle }) {
+function World({ mapRef, projection: requestedProjection, terrainEnabled, onInitialIdle }) {
+  // What the scenario allows of its map (world.projection): a flat sheet may
+  // not be wrapped round the 3D globe, whatever the player's setting says, and
+  // may not repeat sideways.
+  const { noGlobe, noWrap } = useWorldBackground();
+  const projection = noGlobe ? "mercator" : requestedProjection;
   const hasReportedInitialIdleRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const loadTimerRef = useRef(null);
@@ -598,17 +596,24 @@ function World({ mapRef, projection, terrainEnabled, onInitialIdle }) {
   });
   // A custom uploaded map (image or vector) replaces the ESRI basemap; otherwise
   // the scenario's basemap does, unless the player picked one in Settings → Map.
+  // A scenario with a map of its own keeps it whatever the player picked.
   // `declared` flips on from the background descriptor in world.json (before
   // the heavy payload) so the map drops ESRI immediately rather than flashing
   // satellite Earth.
   const { background: customBg, declared: bgDeclared, basemap: worldBasemap } = useCustomBackground();
   const isGlobe = projection === "globe";
   // The player's basemap pick (Settings → Map) is local to this browser and
-  // reversible. Empty — the default — leaves the scenario author's background
-  // and basemap authoritative; only a real built-in id replaces them, so a
-  // stray value left in localStorage by an older build changes nothing.
+  // reversible. Empty — the default — leaves the scenario author's basemap
+  // authoritative; only a real built-in id replaces it, so a stray value left
+  // in localStorage by an older build changes nothing.
+  //
+  // It replaces a built-in basemap only. A scenario with a map of its own (a
+  // picture, a drawn map, or the plain sea of a flat sheet: `bgDeclared`)
+  // keeps it: its regions are drawn for that map, and a built-in basemap under
+  // them is the Earth under another world. The pick stays stored, and applies
+  // again in a scenario that has none (settings.jsx BasemapField says so).
   const basemapOverride = useMapSettingValue(MAP_SETTING_KEYS.basemapStyle);
-  const validBasemapOverride = isBuiltinBasemapId(basemapOverride) ? basemapOverride : "";
+  const validBasemapOverride = basemapOverrideFor(basemapOverride, { scenarioHasOwnMap: bgDeclared });
   const useScenarioBackground = !validBasemapOverride;
   const effectiveCustomBg = useScenarioBackground ? customBg : null;
   const effectiveBgDeclared = useScenarioBackground ? bgDeclared : false;
@@ -1108,7 +1113,12 @@ function World({ mapRef, projection, terrainEnabled, onInitialIdle }) {
         // The performance win comes from collapsing the country-label layer fanout,
         // not from allowing city/country labels to overlap while the camera moves.
         crossSourceCollisions={true}
-        renderWorldCopies
+        // A map that does not repeat (world.projection.wrap === false) draws one
+        // world, and MapLibre then keeps the camera on it: with no copies it holds
+        // the centre between the two edges by itself. (Bounds of -180..180 given
+        // by hand do the same until the map has no size, a hidden tab, a first
+        // layout, when they throw in its transform.)
+        renderWorldCopies={!noWrap}
         // Cap MapLibre's per-source out-of-view tile-retention cache. Left unset it
         // sizes dynamically to ~(ceil(w/tileSize)+1)*(ceil(h/tileSize)+1)*5 tiles PER
         // source — ~270 at 1080p but ~800 at a 3840x2160 desktop viewport, and
