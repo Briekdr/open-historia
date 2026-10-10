@@ -85,6 +85,14 @@ export const syntheticMap = ({
   };
 };
 
+// The side each region of an arena fights on, from who controls it on a sheet:
+// 0 or 1 for a member of `sides[0]` or `sides[1]`, -1 for anyone else.
+export const sideTable = (arena, world, sides) =>
+  Int8Array.from(arena.ids, (id) => {
+    const owner = world.controllerOf(id);
+    return !owner ? -1 : sides[0].includes(owner) ? 0 : sides[1].includes(owner) ? 1 : -1;
+  });
+
 // A sheet from a picture alone: every letter of `picture` repeated `wide` times
 // across and each line `tall` times down, so a test can draw countries as
 // blocks of many small regions.
