@@ -332,6 +332,17 @@ export const TURN_COS = 0.8660254037844387;
 export const TURN_SIN = 0.5;
 export const TURN_CLOSING = 0.7071067811865476;
 export const WAY_LEAST = 0.2;
+// How far it goes is the fight's business (combat.js), with one thing more: a
+// RANK stays a rank. A troop told to advance, to blitz or to pursue goes no
+// faster than the ground its side holds round it allows. Of the ground within
+// SUPPORT_KM of it that is either side's, with this share its own it goes at
+// its full pace, and with that share or less it waits: those that have slipped
+// past the defenders do not run on down a corridor a brush or two wide, they
+// hold the breach until the rest of the rank comes up. (A spearhead, a flank
+// and an encirclement are thrusts, and are narrow because they mean to be.)
+export const SUPPORT_KM = 100;
+export const SUPPORT_FULL = 0.3;
+export const SUPPORT_NONE = 0.1;
 // Crowding only eases it aside, across its way: by this at most, or this share
 // of its step. Those within this many brushes of it crowd it.
 export const EASE_KM = 2.5;
@@ -379,6 +390,10 @@ export const CLOSE_NEAR_KM = Object.freeze([60, 35]);
 export const CLOSE_FAR_KM = Object.freeze([150, 80]);
 export const CLOSE_UNDER_STRENGTH = 30;
 export const CLOSE_REST_DAYS = 3;
+// One sent to close on ground is at it this many days at the most: it goes in
+// and through once, and ground that keeps growing ahead of it is not to keep
+// it from its order for good.
+export const CLOSE_DAYS_MOST = 10;
 export const CLOSE_GIVEN_UP_DAYS = 6;
 export const CLOSE_WORN = 24;
 // One closing on a pocket leaves it alone from this far off (free, or under an order).

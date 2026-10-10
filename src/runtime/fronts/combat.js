@@ -1,7 +1,9 @@
 /*! Open Historia — battlefields and fronts: the fight, and the ground it takes © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 // The ground changes hands as a direct result of the path each troop takes,
 // and by nothing else. Which way a troop steps is move.js's business; HOW FAR
-// the step gets, and what it costs, is decided here. A troop steps forward by
+// the step gets, and what it costs, is decided here (but for the pace of a
+// rank, which move.js holds to the ground its side holds round each of it:
+// troop.paceFactor). A troop steps forward by
 // what its own local fight allows: nothing below 1.15 to 1, the full pace of
 // its era through ground nobody defends, more or less as its own drive has it.
 // The ground within its control radius of the stretch it just walked becomes

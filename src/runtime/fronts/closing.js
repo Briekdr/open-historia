@@ -95,21 +95,23 @@ const squeeze = (battle, books, side) => {
   books.squeezed[side].fill(0);
   distanceFrom(cols, rows, (cell) => holders[cell] === other && fed[other][cell] === 1 && books.was[other][cell] === 0, grip);
   distanceFrom(cols, rows, (cell) => holders[cell] === other && battle.homes[cell] !== other, toTaken);
-  const mine = (cell) => holders[cell] === side && fed[side][cell] === 1;
+  const fedMine = fed[side];
+  // A cell's neighbours, always in the same order: left, right, up, down (-1 where there is none).
+  const beside = [0, 0, 0, 0];
+  const neighbours = (cell) => {
+    const col = cell % cols;
+    beside[0] = col > 0 ? cell - 1 : -1;
+    beside[1] = col < cols - 1 ? cell + 1 : -1;
+    beside[2] = cell >= cols ? cell - cols : -1;
+    beside[3] = cell + cols < size ? cell + cols : -1;
+  };
   // The parts of its ground that are out of the grip.
   part.fill(-1);
   const parts = [];
   const queue = [];
   const stack = [];
-  const step = (cell, visit) => {
-    const col = cell % cols;
-    if (col > 0) visit(cell - 1);
-    if (col < cols - 1) visit(cell + 1);
-    if (cell >= cols) visit(cell - cols);
-    if (cell + cols < size) visit(cell + cols);
-  };
   for (let start = 0; start < size; start += 1) {
-    if (!mine(start) || grip[start] <= neck || part[start] >= 0) continue;
+    if (holders[start] !== side || fedMine[start] !== 1 || grip[start] <= neck || part[start] >= 0) continue;
     const id = parts.length;
     let count = 0;
     part[start] = id;
@@ -119,11 +121,13 @@ const squeeze = (battle, books, side) => {
       count += 1;
       steps[cell] = 0;
       queue.push(cell);
-      step(cell, (next) => {
-        if (part[next] >= 0 || !mine(next) || grip[next] <= neck) return;
+      neighbours(cell);
+      for (let way = 0; way < 4; way += 1) {
+        const next = beside[way];
+        if (next < 0 || part[next] >= 0 || holders[next] !== side || fedMine[next] !== 1 || grip[next] <= neck) continue;
         part[next] = id;
         stack.push(next);
-      });
+      }
     }
     parts.push({ id, piece: battle.bodyOf[side][start], count });
   }
@@ -133,12 +137,14 @@ const squeeze = (battle, books, side) => {
   // Every cell in the grip belongs with the part it is nearest, going by its own ground.
   for (let head = 0; head < queue.length; head += 1) {
     const cell = queue[head];
-    step(cell, (next) => {
-      if (part[next] >= 0 || !mine(next)) return;
+    neighbours(cell);
+    for (let way = 0; way < 4; way += 1) {
+      const next = beside[way];
+      if (next < 0 || part[next] >= 0 || holders[next] !== side || fedMine[next] !== 1) continue;
       part[next] = part[cell];
       steps[next] = steps[cell] + 1;
       queue.push(next);
-    });
+    }
   }
   // What hangs by a neck, and what reaches too far out through the grip.
   const strand = STRAND_KM / cellKm;
@@ -186,11 +192,13 @@ const squeeze = (battle, books, side) => {
         holding += there[0];
         attacking += there[1];
       }
-      step(cell, (next) => {
-        if (hanging[next] !== 1) return;
+      neighbours(cell);
+      for (let way = 0; way < 4; way += 1) {
+        const next = beside[way];
+        if (next < 0 || hanging[next] !== 1) continue;
         hanging[next] = 2;
         stack.push(next);
-      });
+      }
     }
     if (km2 < SQUEEZED_MIN_KM2 || (taken < cells.length * SQUEEZED_TAKEN && gripped < cells.length * SQUEEZED_NEAR)) continue;
     // A thrust being driven: most of those in it are attacking.

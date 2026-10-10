@@ -140,6 +140,14 @@ test("troops marching past a pocket do not go by it: the nearest wheel in, whate
   assert.ok(closed >= 1 && closed <= 8, `it was closed on day ${closed}`);
   for (const troop of sent) {
     if (!(last.troops[0][troop.index].strength > 0)) continue;
+    // (Never more than ten days at it, whatever else there was to close on along the way.)
+    let longest = 0;
+    let stretch = 0;
+    for (const day of days) {
+      stretch = day.troops[0][troop.index].at === "reduce" ? stretch + 1 : 0;
+      longest = Math.max(longest, stretch);
+    }
+    assert.ok(longest <= 10, `troop ${troop.index} was closing on ground for ${longest} days running`);
     assert.ok(days.slice(closed).some((day) => day.troops[0][troop.index].at === "way"), `troop ${troop.index} went back to its order`);
     assert.ok(last.troops[0][troop.index].x > days[0].troops[0][troop.index].x + 20 / km, `and went on east (${(last.troops[0][troop.index].x - days[0].troops[0][troop.index].x) * km} km)`);
   }
@@ -255,6 +263,9 @@ test("an assault on a formation follows it, and is done when the formation is go
   assert.ok(apart(path[gone - 1], path[1]) > 2, "it had moved from where it stood when the order was given");
   const closest = (day) => Math.min(...sent.map((troop) => apart(days[day].troops[0][troop.index], path[Math.min(day, gone - 1)])));
   assert.ok(closest(gone - 1) * record.frame.km < 12, `they were upon it (${closest(gone - 1) * record.frame.km} km) where it had got to`);
+  // Once they were upon it, it was fought where it stood: it did not slip away from under them.
+  assert.equal(apart(path[gone - 1], path[gone - 3]), 0, "it stood for its last days");
+  assert.ok(path[gone - 1].strength < path[gone - 3].strength - 4, "and was worn down there");
   assert.deepEqual(saved.log.filter((entry) => entry.k === "destroyed"), [{ d: saved.log.find((entry) => entry.k === "destroyed").d, k: "destroyed", s: 0, at: "unit: 9th Guards" }]);
   assert.ok(result.unitChanges.some((change) => change.unitId === "unit-9" && change.remove === true), "and the world is told it is gone");
   for (const troop of sent) assert.notEqual(days[20].troops[0][troop.index].at, "assault");
@@ -380,4 +391,73 @@ test("a group goes on with its order from one run to the next, the same troops u
   for (const index of group) assert.ok(next.days[1].troops[0][index].x > next.days[0].troops[0][index].x + 0.5, `troop ${index} went on the first day`);
   // And Borduria's northern troop is dug in still.
   assert.ok(next.days[3].troops[1].some((troop) => troop.dug && troop.state === 4));
+});
+
+// How long each live troop has stood, day after day, on the other side's
+// ground with none of its own side's within a brush of it: behind the line.
+const leftBehind = (days, frame) => {
+  const reach = Math.ceil(16 / frame.km) + 1;
+  const running = [new Map(), new Map()];
+  let longest = 0;
+  for (const { troops, holders } of days) {
+    troops.forEach((list, side) => list.forEach((troop, index) => {
+      let behind = troop.strength > 0 && holders[Math.floor(troop.y) * frame.cols + Math.floor(troop.x)] === 1 - side;
+      for (let row = Math.max(0, Math.floor(troop.y - reach)); behind && row <= Math.min(frame.rows - 1, Math.floor(troop.y + reach)); row += 1) {
+        for (let col = Math.max(0, Math.floor(troop.x - reach)); col <= Math.min(frame.cols - 1, Math.floor(troop.x + reach)); col += 1) {
+          if (holders[row * frame.cols + col] === side) behind = false;
+        }
+      }
+      running[side].set(index, behind ? (running[side].get(index) ?? 0) + 1 : 0);
+      longest = Math.max(longest, running[side].get(index));
+    }));
+  }
+  return longest;
+};
+
+test("the weaker of two sides that both attack is driven back, not walked through: nobody is left alive behind the other side's line", () => {
+  // Sixty against thirty, both told to advance. The thirty cannot gain; the
+  // sixty can, and the ground under the thirty is taken as they come.
+  const world = syntheticMap({ layout: ["AAABBB", "AAABBB"], legend, west: 20, north: 51, step: 1, stepLat: 1 });
+  const record = battlefieldOn(world, {
+    troops: [row(22.9, 49, 51, 60), row(23.1, 49, 51, 30)],
+    orders: [standing(0, "advance"), standing(1, "advance")],
+    pool: [1800, 900],
+  });
+  const { days } = watchRun(frontInput(world, { battlefields: [record], days: 25 }));
+  // Nobody goes on with an attack from behind the other side's line, at full
+  // strength and untouched: a troop the other side has walked past falls back
+  // onto its own side's ground, or with none to go to is taken within two days.
+  assert.ok(leftBehind(days, record.frame) <= 2, `a troop stood ${leftBehind(days, record.frame)} days behind the other side's line`);
+  // And the weaker side is pushed back fighting: ten days in it still holds
+  // most of its country, with its troops in front of the advance.
+  const began = heldBy(days[0].holders, HOLDER_SIDE_B);
+  assert.ok(heldBy(days[10].holders, HOLDER_SIDE_B) > began * 0.5, `Borduria holds ${heldBy(days[10].holders, HOLDER_SIDE_B)} of ${began} cells on day 10`);
+  assert.ok(heldBy(days[10].holders, HOLDER_SIDE_B) < began * 0.9, "though it has lost ground");
+  assert.ok(days[10].troops[1].filter((troop) => troop.strength > 0).length >= 27, "and most of its troops are still in the field");
+  // Its troops are still under the order they were given: thrown back, they try again from where they stand.
+  assert.ok(days[10].troops[1].filter((troop) => troop.at === "way").length >= 20);
+});
+
+test("a rank stays a rank: the few that slip through a gap in the defenders do not run on alone", () => {
+  // Thirty told to advance on a line 310 km long. The defenders stand thick
+  // on either wing and leave a gap of 50 km in the middle.
+  const world = syntheticMap({ layout: ["ABBBBB", "ABBBBB", "ABBBBB"], legend, west: 20, north: 51.5, step: 1, stepLat: 1 });
+  const record = battlefieldOn(world, {
+    troops: [row(20.9, 48.6, 51.4, 30), [...row(21.1, 48.6, 49.775, 14), ...row(21.1, 50.225, 51.4, 14)]],
+    orders: [standing(0, "advance")],
+    pool: [900, 840],
+  });
+  const ahead = (steering) => {
+    const { days } = watchRun(frontInput(world, { battlefields: [record], days: 8, steering }));
+    const xs = days[8].troops[0].filter((troop) => troop.strength > 0).map((troop) => troop.x).sort((a, b) => a - b);
+    return (xs[xs.length - 1] - xs[Math.floor(xs.length / 2)]) * record.frame.km;
+  };
+  // Those in front of the gap get through, and go on: but at the pace the
+  // ground their side holds round them allows, which is not much while the
+  // breach is a few brushes wide.
+  const held = ahead({});
+  assert.ok(held > 60 && held < 180, `the furthest is ${held.toFixed(0)} km ahead of the middle of its rank after eight days`);
+  // Left to themselves they would be most of the way across the country, down a corridor nobody holds the sides of.
+  const loose = ahead({ rank: 0 });
+  assert.ok(loose > 240 && loose > held + 100, `and ${loose.toFixed(0)} km with nothing to hold them to their rank`);
 });

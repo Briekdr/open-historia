@@ -15,6 +15,22 @@
 //
 // A troop that is dug in does not move at all.
 //
+// Nobody is left alive behind the other side's line. A troop under an order
+// that the other side has walked past (the ground under it theirs, and its own
+// side's further off than its own brush reaches) is driven off like any other:
+// back onto its own side's ground, and on with its order from there; with none
+// to go to it is taken. Ground lost under it at the line itself, its own
+// side's still within its brush, is ground still being fought for: it stands.
+//
+// A RANK stays a rank. One told to advance, to blitz or to pursue goes no
+// faster than the ground its side holds round it allows (troop.paceFactor):
+// the few that slip past the defenders hold the breach until the rest come up,
+// and do not run on down a corridor a brush or two wide. A spearhead, a flank
+// and an encirclement are thrusts, and narrow because they mean to be.
+//
+// A formation an assault has reached is fought where it stands: it does not
+// fall back from under those that are upon it.
+//
 // Besides the ways its side's orders give (way.js), a troop may be sent:
 //   { kind: "reduce" }     at ground to be closed on: in, through, once
 //   { kind: "assault" }    at a named city, structure or formation
@@ -33,6 +49,7 @@ import {
   BREAK_OUT_DAYS,
   BREAK_OUT_KM,
   BREAK_OUT_REST_DAYS,
+  CLOSE_DAYS_MOST,
   CLOSE_GIVEN_UP_DAYS,
   CLOSE_LEAVES_KM,
   CLOSE_REST_DAYS,
@@ -63,6 +80,9 @@ import {
   SLIDE_NEAR_KM,
   SLOT_SLIDE_KM,
   SLOT_SLIDE_MOST,
+  SUPPORT_FULL,
+  SUPPORT_KM,
+  SUPPORT_NONE,
   STEER_DRIFT,
   STEER_PRESS,
   STEER_PRESS_KM,
@@ -75,7 +95,7 @@ import {
 } from "./constants.js";
 import { drawIn, liveOrder } from "./closing.js";
 import { eachNear, squaresOf } from "./combat.js";
-import { awayOf, cellAt, cellsOf, downhill, measure } from "./ground.js";
+import { awayOf, cellAt, cellsOf, downhill, heldRound, measure } from "./ground.js";
 import { describePoint, inSector } from "./sectors.js";
 import { KIND_ARTILLERY, STATE_ADVANCING, controlRadius, isLive, reachCells, standOff, stands } from "./troops.js";
 import { leftOnLeg } from "./way.js";
@@ -122,7 +142,9 @@ export const placeBehind = (battle, side, troop, depth) => {
 
 // The moves of a troop with no order to carry out today. `attackers` are the
 // other side's troops that walked forward yesterday.
-const hold = (battle, side, troop, date, attackers) => {
+const hold = (battle, side, troop, day, date, attackers) => {
+  // A formation an assault has reached is fought where it stands.
+  if (troop.pinned >= day - 1) return;
   const { field, arena, place } = battle;
   const { kmAt } = place;
   const other = 1 - side;
@@ -134,8 +156,9 @@ const hold = (battle, side, troop, date, attackers) => {
   const order = liveOrder(troop);
 
   // Told to fall back: away from the other side's ground, or toward the place
-  // named, a day's march further every day until it has gone far enough.
-  if (order && order.kind === "fallback") {
+  // named, a day's march further every day until it has gone far enough. (One
+  // the other side has already walked over is driven off like any other.)
+  if (order && order.kind === "fallback" && onOwn) {
     if (order.gone >= FALL_BACK_MAX_KM) return;
     let dx = 0;
     let dy = 0;
@@ -163,7 +186,10 @@ const hold = (battle, side, troop, date, attackers) => {
     return;
   }
 
-  if (troop.fallback && Math.abs(troop.fallback[0] - troop.x) < 0.3 && Math.abs(troop.fallback[1] - troop.y) < 0.3) troop.fallback = null;
+  // The place it is falling back to is done with when it is there, or when
+  // the place itself has been lost: then it picks again.
+  if (troop.fallback && ((Math.abs(troop.fallback[0] - troop.x) < 0.3 && Math.abs(troop.fallback[1] - troop.y) < 0.3)
+    || field.holders[cellAt(field, troop.fallback[0], troop.fallback[1])] !== side)) troop.fallback = null;
   if (!troop.fallback && (!onOwn || away < depth * HOLD_TOO_NEAR)) {
     // Driven off: it picks ONE place to fall back to and goes straight there.
     troop.fallback = placeBehind(battle, side, troop, depth);
@@ -275,6 +301,7 @@ const steer = (battle, run, side, index, troop, order, day, date, squares, weigh
   let ay = troop.hy;
   let slide = 0;
   let closing = false;
+  let ranked = false;
   if (order.kind === "breakout") {
     // Toward its own side's ground, until it is joined to it again.
     if (!troop.pocket) {
@@ -307,7 +334,11 @@ const steer = (battle, run, side, index, troop, order, day, date, squares, weigh
     // Close enough for its part: it stands there, its ground round the place,
     // and whoever is nearest takes it. Nobody stacks on the spot.
     if (gap <= order.ring / km) {
-      if (entry.unit && gap < reachCells(kmAt, troop.y)) entry.unit.strength = Math.max(0, entry.unit.strength - ASSAULT_WEAR);
+      if (entry.unit && gap < reachCells(kmAt, troop.y)) {
+        // Upon it: it is worn, and it does not get away while they are.
+        entry.unit.strength = Math.max(0, entry.unit.strength - ASSAULT_WEAR);
+        entry.unit.pinned = day;
+      }
       troop.plant = true;
       return;
     }
@@ -323,6 +354,11 @@ const steer = (battle, run, side, index, troop, order, day, date, squares, weigh
       endReduce(troop, day, false);
       return;
     }
+    // Long enough at it: it has done its part, and others are sent if more is needed.
+    if (day - order.day >= CLOSE_DAYS_MOST) {
+      endReduce(troop, day, true);
+      return;
+    }
     const lies = left > 0.5 * cellKm && downhill(field, books.toPrey[side], troop.x, troop.y, toward);
     if (order.entered && lies && toward[0] * troop.hx + toward[1] * troop.hy < 0.1) {
       endReduce(troop, day, true);
@@ -334,6 +370,7 @@ const steer = (battle, run, side, index, troop, order, day, date, squares, weigh
     closing = true;
   } else if (order.kind === "pursue") {
     if (downhill(field, battle.toSide[other], troop.x, troop.y, toward)) [ax, ay] = toward;
+    ranked = true;
   } else {
     // Along its leg, to the line across the leg's end: the whole group crosses
     // a line, nobody is sent to a point.
@@ -353,6 +390,15 @@ const steer = (battle, run, side, index, troop, order, day, date, squares, weigh
     const across = (troop.x - leg.ox) * -leg.ay + (troop.y - leg.oy) * leg.ax;
     slide = Math.max(-SLOT_SLIDE_MOST, Math.min(SLOT_SLIDE_MOST, (order.slot - across) / (SLOT_SLIDE_KM / km)));
     if (order.word === "blitz") troop.paceFactor = BLITZ_PACE;
+    ranked = order.word === "advance" || order.word === "blitz";
+  }
+  // A rank stays a rank: one of it goes no faster than the ground its side
+  // holds round it allows, and run out ahead it waits for the rest to come up.
+  // (Not a thrust, which is narrow because it means to be; nor one sent
+  // straight at a place, closing on a pocket or breaking out.)
+  if (ranked && (weights.rank ?? 1) > 0) {
+    const held = heldRound(field, side, troop.x, troop.y, SUPPORT_KM / km);
+    troop.paceFactor *= Math.max(0, Math.min(1, (held - SUPPORT_NONE) / (SUPPORT_FULL - SUPPORT_NONE)));
   }
 
   // The weak places in front of it: away from where the defenders are thick.
@@ -527,9 +573,18 @@ export const moveDay = (battle, run, day) => {
           troop.order = order;
         }
       }
-      const acts = order && day >= order.since && order.kind !== "fallback" && (!troop.pocket || order.kind === "breakout") ? order : null;
+      let acts = order && day >= order.since && order.kind !== "fallback" && (!troop.pocket || order.kind === "breakout") ? order : null;
+      // Under an order, and the other side has walked past it: the ground it
+      // stands on is theirs, and its own side's is further off than its own
+      // brush reaches. It is driven off like any other troop, back onto its
+      // own side's ground (or taken, with none to go to), and goes on with its
+      // order from there. Nobody attacks from behind the other side's line.
+      // (Ground lost under it at the line itself, with its own side's still
+      // within its brush, is ground still being fought for: it stands.)
+      if (acts && acts.kind !== "breakout" && (troop.fallback
+        || (!stands(field, side, troop.x, troop.y) && cellsOf(field, toSide[side], troop.x, troop.y) * cellKm > troop.radiusKm))) acts = null;
       if (!acts) {
-        hold(battle, side, troop, date, walked[other]);
+        hold(battle, side, troop, day, date, walked[other]);
         return;
       }
       if (run.braked || halted(battle, side, troop.x, troop.y)) return;

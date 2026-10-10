@@ -130,6 +130,30 @@ export const awayOf = (battle, side, x, y) => {
   return near < FAR_CELLS - 1 ? near : battle.toSide[1 - side][cell] / 3;
 };
 
+// How much of the ground round a point is a side's: its share of the cells
+// within `reach` cells that either side holds. Sea and the land of those not
+// in the war are nobody's and count for nothing, so a coast does not read as
+// the other side's. 1 where neither side holds anything near.
+export const heldRound = (field, side, x, y, reach) => {
+  const col0 = Math.floor(x);
+  const row0 = Math.floor(y);
+  const span = Math.ceil(reach);
+  const within = reach * reach;
+  let own = 0;
+  let theirs = 0;
+  for (let row = Math.max(0, row0 - span); row <= Math.min(field.rows - 1, row0 + span); row += 1) {
+    const dy = row + 0.5 - y;
+    for (let col = Math.max(0, col0 - span); col <= Math.min(field.cols - 1, col0 + span); col += 1) {
+      const dx = col + 0.5 - x;
+      if (dx * dx + dy * dy > within) continue;
+      const holder = field.holders[row * field.cols + col];
+      if (holder === side) own += 1;
+      else if (holder === 1 - side) theirs += 1;
+    }
+  }
+  return own + theirs > 0 ? own / (own + theirs) : 1;
+};
+
 // The cheapest way over ground in play from one cell to another, by what the
 // ground costs to cross: a list of cells from the first to the last, or null
 // when there is no way. Cells are settled in order of cost and, at equal cost,

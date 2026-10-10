@@ -107,6 +107,9 @@ export const createTroop = ({ x = 0, y = 0, strength = 100, kind = KIND_INFANTRY
   fallback: null,
   stranded: 0,
   slid: false,
+  // The day an assault sent at it was last upon it: it is fought where it
+  // stands, and does not fall back from under it.
+  pinned: -9,
   // The day until which it is not sent at a pocket again, or does not try to break out again.
   rested: 0,
   spent: 0,
