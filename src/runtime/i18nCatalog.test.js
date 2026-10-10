@@ -47,7 +47,7 @@ test("every interface string in the source is in the committed catalog", () => {
 test("every string of the gameplay features' definitions is in the committed catalog", () => {
   const catalog = new Set(CATALOG);
   const strings = featureDefinitionStrings(FEATURE_DEFINITIONS);
-  assert.ok(strings.includes("Espionage"), "the definitions were read");
+  assert.ok(strings.includes("Fronts") && strings.includes("Espionage"), "the definitions were read");
   const missing = strings.map(catalogText).filter((entry) => entry && !catalog.has(entry));
   assert.deepEqual(
     missing,
