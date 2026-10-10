@@ -21,6 +21,11 @@
 // works dug facing the enemy are no help against an attacker coming from the
 // side or from behind: that is what a flank is for.
 //
+// Ground that is cut off is fought for like any other, at a disadvantage: its
+// troops attack and defend at a share of their power, and may still break out
+// or throw their besiegers back. Only a place under siege is left alone: the
+// side that was told to encircle it sweeps round it and never into it.
+//
 // Only + - * / and square roots from here down, in index order: the same
 // input gives the same war to the last digit on every machine.
 
@@ -32,6 +37,8 @@ import {
   ATTRITION_RATIO_MIN,
   BLITZ_READY_SHARE,
   COMPASS_16,
+  CONTROL_RADIUS_MAX_KM,
+  CONTROL_RADIUS_MIN_CELLS,
   DIG_LOST_KM,
   DIG_MAX_DIG_IN,
   DIG_MAX_HOLD,
@@ -47,13 +54,17 @@ import {
   LINK_RADII,
   OVERRUN_CELLS,
   PINNED_LOSS,
+  POCKET_ATTACK,
   POCKET_DEFENCE,
   POCKET_LOSS,
   QUIET_ATTRITION,
   RATIO_NEEDED,
   RATIO_SOFTNESS,
+  REACH_KM,
+  REACH_MIN_CELLS,
   REINFORCE_PER_DAY,
   RETREAT_LOSS,
+  SIEGE_LOSS,
   STEER_BASE,
   STEER_GROUND,
   STEER_LEAST_FORWARD,
@@ -63,6 +74,7 @@ import {
   STEER_RESISTANCE,
   STEER_RESISTANCE_RADII,
   STEER_ROOM,
+  STEER_ROOM_RADII,
   STEER_WANDER,
   SUBSTEPS_MAX,
   SURROUNDED_DEFENCE,
@@ -77,7 +89,7 @@ import {
 } from "./constants.js";
 import { nearestHeld, ownCell, takeCapsule } from "./field.js";
 import { describePoint, inSector } from "./sectors.js";
-import { STATE_ADVANCING, STATE_ENCIRCLED, STATE_HOLDING, STATE_SPENT, controlRadius, isAttack, isLive, reachCells, roomFrom, stands, stepAlong, turnHeading } from "./troops.js";
+import { STATE_ADVANCING, STATE_ENCIRCLED, STATE_HOLDING, STATE_SPENT, controlRadius, isAttack, isLive, reachCells, stands, stepAlong, turnHeading } from "./troops.js";
 
 const clampRatio = (value) => (value < ATTRITION_RATIO_MIN ? ATTRITION_RATIO_MIN : value > ATTRITION_RATIO_MAX ? ATTRITION_RATIO_MAX : value);
 
@@ -87,6 +99,70 @@ const terrainDefence = (speed) => 1 + Math.min(0.8, Math.max(0, 1 - speed)) * TE
 // What a troop is worth in defence where it stands; `dug` is whether its works count.
 const defensivePower = (battle, side, troop, dug = true) =>
   troop.strength * TROOP_DEFENCE[troop.kind] * (1 + (dug ? troop.dig : 0)) * battle.quality[side] * troop.supply * (troop.pocket ? POCKET_DEFENCE : 1);
+// And in attack.
+const offensivePower = (battle, side, troop) =>
+  troop.strength * TROOP_ATTACK[troop.kind] * battle.quality[side] * troop.supply * (troop.pocket ? POCKET_ATTACK : 1);
+
+// ---- who is near whom ----------------------------------------------------------
+
+// The furthest anything here looks from where it stands, in cells, on the
+// row of the frame where a kilometre is the most cells: a troop's reach, and
+// the three control radii within which it reads the defenders ahead.
+const lookOf = (battle) => {
+  if (battle.lookFor === battle.place) return battle.look;
+  let least = Infinity;
+  for (let row = 0; row < battle.place.rowKm.length; row += 1) if (battle.place.rowKm[row] < least) least = battle.place.rowKm[row];
+  battle.look = Math.ceil(Math.max(REACH_MIN_CELLS, REACH_KM / least, STEER_RESISTANCE_RADII * Math.max(CONTROL_RADIUS_MIN_CELLS, CONTROL_RADIUS_MAX_KM / least)));
+  battle.lookFor = battle.place;
+  return battle.look;
+};
+
+// Troops by the square of ground they stand in, so that who is near whom is
+// asked of the neighbours and not of every pair: with hundreds a side, every
+// pair is what a day would otherwise be spent on. A square is as wide as the
+// furthest anything looks, so everything within that of a point is in the nine
+// squares round it. Each square lists its troops in the order of the side's
+// own list, and the squares are always read in the same order.
+const squaresOf = (battle, troops, wanted) => {
+  const { cols, rows } = battle.field;
+  const span = lookOf(battle);
+  const across = Math.floor(cols / span) + 1;
+  const down = Math.floor(rows / span) + 1;
+  const heads = new Int32Array(across * down).fill(-1);
+  const nexts = new Int32Array(troops.length);
+  for (let index = troops.length - 1; index >= 0; index -= 1) {
+    const troop = troops[index];
+    if (!wanted(troop)) continue;
+    const square = Math.min(down - 1, Math.max(0, Math.floor(troop.y / span))) * across + Math.min(across - 1, Math.max(0, Math.floor(troop.x / span)));
+    nexts[index] = heads[square];
+    heads[square] = index;
+  }
+  return { troops, heads, nexts, across, down, span };
+};
+
+// Calls `visit(troop, index)` for every troop listed in the nine squares round a point.
+const eachNear = (squares, x, y, visit) => {
+  const col = Math.min(squares.across - 1, Math.max(0, Math.floor(x / squares.span)));
+  const row = Math.min(squares.down - 1, Math.max(0, Math.floor(y / squares.span)));
+  for (let dy = -1; dy <= 1; dy += 1) {
+    if (row + dy < 0 || row + dy >= squares.down) continue;
+    for (let dx = -1; dx <= 1; dx += 1) {
+      if (col + dx < 0 || col + dx >= squares.across) continue;
+      for (let at = squares.heads[(row + dy) * squares.across + col + dx]; at >= 0; at = squares.nexts[at]) visit(squares.troops[at], at);
+    }
+  }
+};
+
+// Whether a point lies in ground a side is leaving alone: `spare` is its
+// list of discs, x, y and radius in cells.
+const spared = (spare, x, y) => {
+  for (let at = 0; at < spare.length; at += 3) {
+    const dx = x - spare[at];
+    const dy = y - spare[at + 1];
+    if (dx * dx + dy * dy <= spare[at + 2] * spare[at + 2]) return true;
+  }
+  return false;
+};
 
 // ---- who steps -----------------------------------------------------------------
 
@@ -127,7 +203,8 @@ const tooFarAhead = (battle, side, troop) => {
 // has gathered; under a spearhead, a pincer or a flank, if it stands in the
 // peak; under a plain advance, unless it has run too far ahead of its
 // neighbour. Where the other side is falling back, a troop not told to dig in
-// or to fall back itself goes after it.
+// or to fall back itself goes after it. A troop that is cut off steps like any
+// other: a pocket may break out.
 export const decideTasks = (battle, braked) => {
   const { kmAt } = battle.place;
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
@@ -163,7 +240,7 @@ export const decideTasks = (battle, braked) => {
         }
       }
       troop.attacking = isAttack(word) || troop.task === "pursue";
-      if (!troop.attacking || braked || troop.pocket || stood < troop.lag || halted(battle, side, station.lx, station.ly)) continue;
+      if (!troop.attacking || braked || stood < troop.lag || halted(battle, side, station.lx, station.ly)) continue;
       if (word === "blitz" && inPlace[station.view] < wanted[station.view] * BLITZ_READY_SHARE) continue;
       if ((word === "spearhead" || word === "encircle" || word === "flank") && !station.thrust) continue;
       if (word === "advance" && tooFarAhead(battle, side, troop)) continue;
@@ -212,9 +289,12 @@ const baseDirection = (battle, side, troop, line) => {
   const { first, count } = line.contour.strands[line.strand[station.vertex]];
   let nx = 0;
   let ny = 0;
-  for (let step = 0; step < count; step += 1) {
-    const vertex = first + step;
-    if (Math.abs(line.km[vertex] - station.km) > spanKm) continue;
+  // A strand's vertices are in the order of their distance along it: the
+  // stretch is found by walking back from the troop's own vertex.
+  let low = station.vertex;
+  while (low > first && line.km[low - 1] >= station.km - spanKm) low -= 1;
+  for (let vertex = low; vertex < first + count && line.km[vertex] <= station.km + spanKm; vertex += 1) {
+    if (line.km[vertex] < station.km - spanKm) continue;
     nx += line.nx[vertex];
     ny += line.ny[vertex];
   }
@@ -264,9 +344,9 @@ export const steer = (battle, line, day, seed, weights = {}) => {
   const { kmAt } = place;
   const cost = groundCost(arena);
   const { cols, rows } = field;
+  const standing = [squaresOf(battle, battle.troops[0], isLive), squaresOf(battle, battle.troops[1], isLive)];
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     const troops = battle.troops[side];
-    const enemies = battle.troops[1 - side];
     for (let index = 0; index < troops.length; index += 1) {
       const troop = troops[index];
       if (!troop.stepping) continue;
@@ -299,16 +379,15 @@ export const steer = (battle, line, day, seed, weights = {}) => {
       let awayX = 0;
       let awayY = 0;
       const near = radius * STEER_RESISTANCE_RADII;
-      for (const enemy of enemies) {
-        if (!isLive(enemy)) continue;
+      eachNear(standing[1 - side], troop.x, troop.y, (enemy) => {
         const dx = enemy.x - troop.x;
         const dy = enemy.y - troop.y;
         const apart = dx * dx + dy * dy;
-        if (!(apart > 0) || apart > near * near || dx * nx + dy * ny <= 0) continue;
+        if (!(apart > 0) || apart > near * near || dx * nx + dy * ny <= 0) return;
         const power = defensivePower(battle, 1 - side, enemy);
         awayX -= (power * dx) / apart;
         awayY -= (power * dy) / apart;
-      }
+      });
       addUnit(awayX, awayY, weights.resistance ?? STEER_RESISTANCE);
 
       // The pull of a prize: the nearest town the other side holds, roughly ahead.
@@ -336,10 +415,25 @@ export const steer = (battle, line, day, seed, weights = {}) => {
       const south = row > 0 ? cost[here - cols] : arena.costWorst;
       addUnit(west - east, south - north, weights.ground ?? STEER_GROUND);
 
-      // Room from its own side, and a wander of its own.
-      roomFrom(troops, index, radius, ended);
-      pull[0] += ended[0] * (weights.room ?? STEER_ROOM);
-      pull[1] += ended[1] * (weights.room ?? STEER_ROOM);
+      // Room from its own side: away from the nearest of it that crowds it,
+      // the earlier in the list of two as near. And a wander of its own.
+      let crowd = -1;
+      let closest = radius * STEER_ROOM_RADII * radius * STEER_ROOM_RADII;
+      eachNear(standing[side], troop.x, troop.y, (other, at) => {
+        if (at === index) return;
+        const dx = troop.x - other.x;
+        const dy = troop.y - other.y;
+        const apart = dx * dx + dy * dy;
+        if (apart < closest || (apart === closest && crowd >= 0 && at < crowd)) {
+          closest = apart;
+          crowd = at;
+        }
+      });
+      if (crowd >= 0 && closest > 0) {
+        const apart = Math.sqrt(closest);
+        pull[0] += ((troop.x - troops[crowd].x) / apart) * (weights.room ?? STEER_ROOM);
+        pull[1] += ((troop.y - troops[crowd].y) / apart) * (weights.room ?? STEER_ROOM);
+      }
       wander(seed, battle, side, index, day, weights.wander ?? STEER_WANDER);
 
       const fromX = troop.hx;
@@ -397,13 +491,17 @@ const kernel = (distance, reach) => {
   return left > 0 ? left * left : 0;
 };
 
+const stepsToday = (troop) => troop.stepping && isLive(troop);
+
 // The troops of both sides that step today, in a fixed order: side A's by
 // index, then side B's.
 const steppers = (battle) => {
   const list = [];
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     battle.troops[side].forEach((troop, index) => {
-      if (troop.stepping && isLive(troop)) list.push({ side, index, troop });
+      if (!stepsToday(troop)) return;
+      troop.entry = { side, index, troop };
+      list.push(troop.entry);
     });
   }
   return list;
@@ -414,7 +512,8 @@ const steppers = (battle) => {
 // directions, further when from opposite sides; (faceX, faceY) is the way it
 // faces, toward the nearest of the other side's ground, which is the only way
 // its works are any use. Worked out once a moment for each defender.
-const readDefender = (battle, side, troop, active, moment) => {
+// `attackers` is the other side's troops that step, by square.
+const readDefender = (battle, side, troop, attackers, moment) => {
   if (troop.flankMoment === moment) return;
   troop.flankMoment = moment;
   const { kmAt } = battle.place;
@@ -436,18 +535,17 @@ const readDefender = (battle, side, troop, active, moment) => {
   // The directions the attackers in reach come from, and the widest angle between two of them.
   let least = 1;
   const from = [];
-  for (const entry of active) {
-    if (entry.side === side) continue;
-    const dx = entry.troop.x - troop.x;
-    const dy = entry.troop.y - troop.y;
+  eachNear(attackers, troop.x, troop.y, (attacker) => {
+    const dx = attacker.x - troop.x;
+    const dy = attacker.y - troop.y;
     const apart = Math.sqrt(dx * dx + dy * dy);
-    if (!(apart > 0) || apart > reach) continue;
+    if (!(apart > 0) || apart > reach) return;
     for (let other = 0; other < from.length; other += 2) {
       const between = (from[other] * dx + from[other + 1] * dy) / apart;
       if (between < least) least = between;
     }
     from.push(dx / apart, dy / apart);
-  }
+  });
   troop.flank = least < FLANK_OPPOSITE_COS ? SURROUNDED_DEFENCE : least < 0 ? FLANKED_DEFENCE : 1;
 };
 
@@ -475,9 +573,10 @@ export const stepForward = (battle, paceKm, pace) => {
     const { troop } = entry;
     const cell = Math.max(0, ownCell(field, entry.side, troop.x, troop.y));
     entry.radius = controlRadius(troop, kmAt);
-    // Where it may step: on ground in play, and never backwards along its axis,
-    // even to get round a wall.
-    entry.forward = (x, y) => inPlay(x, y) && (x - troop.x) * troop.axisX + (y - troop.y) * troop.axisY >= 0;
+    // Where it may step: on ground in play, never into a place its side is
+    // besieging, and never backwards along its axis, even to get round a wall.
+    const spare = battle.spared[entry.side];
+    entry.forward = (x, y) => inPlay(x, y) && !spared(spare, x, y) && (x - troop.x) * troop.axisX + (y - troop.y) * troop.axisY >= 0;
     entry.dayCells = (paceKm[troop.kind] * arena.speed[cell] * troop.supply * pace * troop.drive) / kmAt(troop.y);
     parts = Math.max(parts, Math.ceil(entry.dayCells / (entry.radius * 0.5)));
   }
@@ -486,31 +585,30 @@ export const stepForward = (battle, paceKm, pace) => {
 
   for (let part = 0; part < parts; part += 1) {
     claims.moment += 1;
+    const stepping = [squaresOf(battle, battle.troops[0], stepsToday), squaresOf(battle, battle.troops[1], stepsToday)];
+    const standing = [squaresOf(battle, battle.troops[0], isLive), squaresOf(battle, battle.troops[1], isLive)];
     // Every troop's fight and step, from where everyone stands now.
     for (const entry of active) {
       const { side, troop } = entry;
       const reach = reachCells(kmAt, troop.y);
       let attack = 0;
-      for (const other of active) {
-        if (other.side !== side) continue;
-        const dx = other.troop.x - troop.x;
-        const dy = other.troop.y - troop.y;
+      eachNear(stepping[side], troop.x, troop.y, (other) => {
+        const dx = other.x - troop.x;
+        const dy = other.y - troop.y;
         const weight = kernel(Math.sqrt(dx * dx + dy * dy), reach);
-        if (weight > 0) attack += other.troop.strength * TROOP_ATTACK[other.troop.kind] * battle.quality[side] * other.troop.supply * weight;
-      }
+        if (weight > 0) attack += offensivePower(battle, side, other) * weight;
+      });
       const aheadX = troop.x + troop.hx * entry.radius;
       const aheadY = troop.y + troop.hy * entry.radius;
       let defence = 0;
-      const enemies = battle.troops[1 - side];
-      for (const enemy of enemies) {
-        if (!isLive(enemy)) continue;
+      eachNear(standing[1 - side], aheadX, aheadY, (enemy) => {
         const dx = enemy.x - aheadX;
         const dy = enemy.y - aheadY;
         const weight = kernel(Math.sqrt(dx * dx + dy * dy), reach);
-        if (!(weight > 0)) continue;
-        readDefender(battle, 1 - side, enemy, active, claims.moment);
+        if (!(weight > 0)) return;
+        readDefender(battle, 1 - side, enemy, stepping[side], claims.moment);
         defence += defenceAgainst(battle, 1 - side, enemy, troop.x, troop.y) * weight;
-      }
+      });
       const raw = defence;
       if (inPlay(aheadX, aheadY)) defence *= terrainDefence(arena.speed[Math.floor(aheadY) * field.cols + Math.floor(aheadX)]);
       const ratio = defence > 0 ? attack / defence : Infinity;
@@ -532,22 +630,23 @@ export const stepForward = (battle, paceKm, pace) => {
       if (raw > 0 && attack > 0) {
         troop.loss += troop.strength * share * clampRatio(defence / attack);
         const theirs = share * clampRatio(attack / defence);
-        for (const enemy of enemies) {
-          if (!isLive(enemy)) continue;
+        eachNear(standing[1 - side], aheadX, aheadY, (enemy) => {
           const dx = enemy.x - aheadX;
           const dy = enemy.y - aheadY;
           const weight = kernel(Math.sqrt(dx * dx + dy * dy), reach);
-          if (!(weight > 0)) continue;
+          if (!(weight > 0)) return;
           enemy.loss += enemy.strength * theirs * ((defenceAgainst(battle, 1 - side, enemy, troop.x, troop.y) * weight) / raw);
           enemy.engaged = true;
-        }
+        });
       }
     }
 
     // The moves, and the ground each takes: the strip it walked, and the
-    // bridge to its neighbour in the line if that one walked beside it.
+    // bridge to its neighbour in the line if that one walked beside it. A side
+    // laying siege to a place leaves the ground round the place alone.
     for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
       const troops = battle.troops[side];
+      const spare = battle.spared[side].length > 0 ? battle.spared[side] : null;
       for (const entry of active) {
         if (entry.side !== side) continue;
         entry.troop.stepped = entry.length > 0;
@@ -559,6 +658,7 @@ export const stepForward = (battle, paceKm, pace) => {
           painter: troop.owner,
           from: part / parts,
           span: 1 / parts,
+          spare,
         });
         troop.x = entry.toX;
         troop.y = entry.toY;
@@ -582,18 +682,22 @@ export const stepForward = (battle, paceKm, pace) => {
           painter: one.owner,
           painterQ: other.owner,
           from: (part + 1) / parts,
+          spare,
         });
       }
     }
 
     // Giving way: a troop that did not step, standing where a step's sweep
-    // came, is pushed along that step, so that it is still in front of the attacker.
+    // came, is pushed along that step, so that it is still in front of the
+    // attacker. The attackers were listed by square where they stood before
+    // they stepped, and no step is as long as a square is wide.
     for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
       for (const troop of battle.troops[side]) {
         if (!isLive(troop) || troop.stepped) continue;
         let pusher = null;
-        for (const entry of active) {
-          if (entry.side === side || entry.length <= 0 || (pusher && entry.length <= pusher.length)) continue;
+        eachNear(stepping[1 - side], troop.x, troop.y, (attacker) => {
+          const entry = attacker.entry;
+          if (entry.length <= 0 || (pusher && (entry.length < pusher.length || (entry.length === pusher.length && entry.index >= pusher.index)))) return;
           const sx = entry.toX - entry.fromX;
           const sy = entry.toY - entry.fromY;
           const span = sx * sx + sy * sy;
@@ -602,7 +706,7 @@ export const stepForward = (battle, paceKm, pace) => {
           const ox = troop.x - (entry.fromX + sx * along);
           const oy = troop.y - (entry.fromY + sy * along);
           if (Math.sqrt(ox * ox + oy * oy) <= entry.radius + GIVE_WAY_MARGIN_CELLS) pusher = entry;
-        }
+        });
         if (!pusher) continue;
         // Far enough along the step to stand clear of the ground it took.
         const sx = pusher.toX - pusher.fromX;
@@ -625,6 +729,7 @@ export const stepForward = (battle, paceKm, pace) => {
     }
     for (const entry of active) entry.troop.stepped = false;
   }
+  for (const entry of active) entry.troop.entry = null;
   return parts;
 };
 
@@ -637,33 +742,35 @@ export const stepForward = (battle, paceKm, pace) => {
 export const closeDay = (battle, date) => {
   const { field, arena, place } = battle;
   const { kmAt } = place;
+  const standing = [squaresOf(battle, battle.troops[0], isLive), squaresOf(battle, battle.troops[1], isLive)];
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
-    const troops = battle.troops[side];
-    const enemies = battle.troops[1 - side];
-    for (const troop of troops) {
+    for (const troop of battle.troops[side]) {
       if (!isLive(troop)) continue;
       // A quiet stretch in contact costs a little: a tenth of a fight's worth.
       if (!troop.engaged && !troop.walkedToday && troop.loss === 0) {
         const reach = reachCells(kmAt, troop.y);
         let theirs = 0;
         let ours = 0;
-        for (const enemy of enemies) {
-          if (!isLive(enemy)) continue;
+        eachNear(standing[1 - side], troop.x, troop.y, (enemy) => {
           const dx = enemy.x - troop.x;
           const dy = enemy.y - troop.y;
           theirs += enemy.strength * kernel(Math.sqrt(dx * dx + dy * dy), reach);
-        }
+        });
         if (theirs > 0) {
-          for (const friend of troops) {
-            if (!isLive(friend)) continue;
+          eachNear(standing[side], troop.x, troop.y, (friend) => {
             const dx = friend.x - troop.x;
             const dy = friend.y - troop.y;
             ours += friend.strength * kernel(Math.sqrt(dx * dx + dy * dy), reach);
-          }
+          });
           troop.loss += troop.strength * (ATTRITION / 100) * QUIET_ATTRITION * clampRatio(theirs / ours);
         }
       }
-      troop.strength -= troop.loss + (troop.pinned ? PINNED_LOSS : 0) + (troop.pocket ? POCKET_LOSS : 0);
+    }
+  }
+  for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
+    // Cut off, a troop wastes away: slowly where it is besieged in a place, fast in an open pocket.
+    for (const troop of battle.troops[side]) {
+      if (isLive(troop)) troop.strength -= troop.loss + (troop.pinned ? PINNED_LOSS : 0) + (troop.pocket ? (troop.besieged ? SIEGE_LOSS : POCKET_LOSS) : 0);
     }
   }
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {

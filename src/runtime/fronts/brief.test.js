@@ -28,7 +28,7 @@ test("the brief says where the line runs, how strong each side is and what moved
     order(0, "Borduria", "dig in"),
     order(3, "Aland", "advance", { sector: "north" }),
   ];
-  const result = runFronts(frontInput(sheet, { battlefields: [record], days: 10, moments, steering: { even: true, wander: 0 } }));
+  const result = runFronts(frontInput(sheet, { battlefields: [record], days: 8, moments, steering: { even: true, wander: 0 } }));
   const [saved] = result.battlefields;
   const { brief } = saved;
   assert.ok(brief.km > 200 && Number.isInteger(brief.km));

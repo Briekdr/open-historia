@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { decodeTracks, decodeTroops } from "./codec.js";
-import { CONTROL_RADIUS_KM, HOLDER_SIDE_A, HOLDER_SIDE_B, HOLDER_WALL } from "./constants.js";
+import { CONTROL_RADIUS_MAX_KM, HOLDER_SIDE_A, HOLDER_SIDE_B, HOLDER_WALL } from "./constants.js";
 import { createFrontRun, runFronts } from "./engine.js";
 import { normalizeBattlefield } from "./record.js";
 import { replayOf } from "./replay.js";
@@ -111,18 +111,19 @@ test("a column bends round a strongpoint, toward a town, and through the gap in 
   const blocked = battlefieldOn(world, { troops: [row(20.9, 49, 51, 9), clump], orders: [standing(0, "advance"), standing(1, "dig in")] });
   const { days } = watchRun(frontInput(world, { battlefields: [blocked], days: 9, steering: steady }));
   const frame = blocked.frame;
-  const radius = CONTROL_RADIUS_KM[0] / frame.km;
+  const radius = CONTROL_RADIUS_MAX_KM / frame.km;
   const strong = days[0].troops[1].reduce((sum, troop) => [sum[0] + troop.x / 3, sum[1] + troop.y / 3], [0, 0]);
-  // The attacker that faces it, the fifth of nine, is held up in front of it...
+  // The attacker that faces it, the fifth of nine, is held up in front of it,
+  // and so is the one beside it that the strongpoint reaches...
   for (let day = 0; day <= 6; day += 1) assert.ok(days[day].troops[0][4].x < strong[0] - 2, `held up on day ${day}`);
-  // ...while the line either side of it goes round, wide of the strongpoint,
+  // ...while the line either side of them goes round, wide of the strongpoint,
   // and closes in again behind it.
   const bowOf = (path) => {
     const [ax, ay] = [path[0].x, path[0].y];
     const [bx, by] = [path.at(-1).x, path.at(-1).y];
     return Math.max(...path.map((troop) => Math.abs((troop.x - ax) * (by - ay) - (troop.y - ay) * (bx - ax)) / Math.hypot(bx - ax, by - ay)));
   };
-  for (const index of [2, 3, 5, 6]) {
+  for (const index of [2, 3, 6, 7]) {
     const path = days.map((day) => day.troops[0][index]);
     const passing = path.find((troop) => troop.x >= strong[0]);
     assert.ok(passing && Math.abs(passing.y - strong[1]) >= radius, `troop ${index} passed ${kmOf(frame, Math.abs((passing ?? path[0]).y - strong[1]))} km to the side of it`);
@@ -195,9 +196,10 @@ test("no step ends in a wall, no march ends on the other side's ground, and a he
 // ---- individuals, not a rank ---------------------------------------------------------
 
 test("troops do not stand evenly spaced, at one depth, or advance in lockstep", () => {
-  // A border 450 km long: thirty counters a side.
+  // A border 450 km long, and two states that each field thirty counters.
   const world = syntheticMap({ layout: ["ABBBB", "ABBBB", "ABBBB", "ABBBB"], legend, west: 20, north: 52, step: 1.4, stepLat: 1 });
-  const opened = runFronts(frontInput(world, { days: 0 }));
+  const thirty = () => 2.5;
+  const opened = runFronts(frontInput(world, { days: 0, strengthOf: thirty }));
   const seen = readBattlefield(opened.battlefields[0], world);
   for (const side of [0, 1]) {
     const list = seen.troops[side].slice().sort((a, b) => a.y - b.y);
@@ -210,11 +212,11 @@ test("troops do not stand evenly spaced, at one depth, or advance in lockstep", 
     const depths = list.map((troop) => Math.abs(troop.x - border));
     assert.ok(Math.max(...depths) >= 2 * Math.min(...depths), `the furthest back stands twice as far back as the nearest (${Math.min(...depths)} to ${Math.max(...depths)} cells)`);
   }
-  assert.deepEqual(runFronts(frontInput(world, { days: 0 })).battlefields[0].troops, opened.battlefields[0].troops, "the same input stands them in the same places");
-  assert.notDeepEqual(runFronts(frontInput(world, { days: 0, seed: "other" })).battlefields[0].troops, opened.battlefields[0].troops);
+  assert.deepEqual(runFronts(frontInput(world, { days: 0, strengthOf: thirty })).battlefields[0].troops, opened.battlefields[0].troops, "the same input stands them in the same places");
+  assert.notDeepEqual(runFronts(frontInput(world, { days: 0, strengthOf: thirty, seed: "other" })).battlefields[0].troops, opened.battlefields[0].troops);
 
   // Ten days of advance against a weak, even defence: no lockstep.
-  const fought = watchRun(frontInput(world, { days: 10, strengthOf: (name) => (name === "Aland" ? 300 : 100), moments: [{ day: 0, type: "order", battlefield: "Aland - Borduria front", side: "Aland", order: "advance", sector: "all" }] }));
+  const fought = watchRun(frontInput(world, { days: 10, strengthOf: (name) => (name === "Aland" ? 6 : 2), moments: [{ day: 0, type: "order", battlefield: "Aland - Borduria front", side: "Aland", order: "advance", sector: "all" }] }));
   const advance = fought.days[10].troops[0].map((troop, index) => troop.x - fought.days[0].troops[0][index].x).filter((gone, index) => fought.days[10].troops[0][index].strength > 0);
   const mean = advance.reduce((sum, gone) => sum + gone, 0) / advance.length;
   assert.ok(mean > 20, `they advanced ${mean} cells on average`);
@@ -225,11 +227,13 @@ test("a troop under an attack order never comes back on itself, and one whose at
   const world = plain({ cities: [{ name: "Brod", lng: 23.4, lat: 50.4 }] });
   const troops = [row(20.9, 49, 51, 11), [...row(21.1, 49, 51, 5, { strength: 60 }), { lng: 21.8, lat: 50.03, dig: 1 }, { lng: 21.85, lat: 49.97, dig: 1 }]];
   const record = battlefieldOn(world, { troops, orders: [standing(0, "advance")], pool: [300, 100] });
-  const moments = [{ day: 12, type: "order", battlefield: "The front", side: "Aland", order: "hold", sector: "all" }];
-  const { days, result } = watchRun(frontInput(world, { battlefields: [record], days: 18, moments }));
+  // The strongpoint it goes round is cut off and holds out for ten days: the
+  // attack is called off once that is over.
+  const moments = [{ day: 22, type: "order", battlefield: "The front", side: "Aland", order: "hold", sector: "all" }];
+  const { days, result } = watchRun(frontInput(world, { battlefields: [record], days: 28, moments }));
   let checked = 0;
   for (let index = 0; index < troops[0].length; index += 1) {
-    for (let day = 2; day <= 12; day += 1) {
+    for (let day = 2; day <= 22; day += 1) {
       const now = [days[day].troops[0][index].x - days[day - 1].troops[0][index].x, days[day].troops[0][index].y - days[day - 1].troops[0][index].y];
       const then = [days[day - 1].troops[0][index].x - days[day - 2].troops[0][index].x, days[day - 1].troops[0][index].y - days[day - 2].troops[0][index].y];
       if (Math.hypot(...now) <= 0.05 || Math.hypot(...then) <= 0.05) continue;
@@ -237,8 +241,8 @@ test("a troop under an attack order never comes back on itself, and one whose at
       assert.ok(now[0] * then[0] + now[1] * then[1] >= 0, `troop ${index} doubled back on day ${day}`);
     }
     // After the attack is called off nobody walks back into a row.
-    for (let day = 14; day <= 18; day += 1) {
-      const moved = Math.hypot(days[day].troops[0][index].x - days[13].troops[0][index].x, days[day].troops[0][index].y - days[13].troops[0][index].y);
+    for (let day = 24; day <= 28; day += 1) {
+      const moved = Math.hypot(days[day].troops[0][index].x - days[23].troops[0][index].x, days[day].troops[0][index].y - days[23].troops[0][index].y);
       assert.ok(moved <= 0.1, `troop ${index} moved ${moved} cells after its attack was over`);
     }
   }
@@ -264,22 +268,29 @@ test("a troop under an attack order never comes back on itself, and one whose at
 // ---- flanking ------------------------------------------------------------------------
 
 test("a defender holds worse against two directions at once, and works are no help from behind", () => {
-  // A strip of Borduria 70 km wide between two lands of Aland's, and one
+  // A strip of Borduria 107 km wide between two lands of Aland's, and one
   // defender in it, standing behind the western edge and facing it.
-  const world = syntheticMap({ layout: ["~~~~~~~", "AABBAA~", "~~~~~~~"], legend, west: 20, north: 50.75, step: 0.5, stepLat: 0.5 });
-  const fight = (attackers, extra = {}, days = 8) => {
+  const world = syntheticMap({ layout: ["~~~~~~~~", "AABBBAA~", "~~~~~~~~"], legend, west: 20, north: 51, step: 0.5, stepLat: 1 });
+  const fight = (attackers, extra = {}, days = 6) => {
     const record = battlefieldOn(world, { troops: [attackers, [{ lng: 21.2, lat: 50, ...extra }]], orders: [standing(0, "advance"), standing(1, "hold")] });
     const result = runFronts(frontInput(world, { battlefields: [record], days, steering: steady }));
     return readBattlefield(result.battlefields[0], world);
   };
+  const untouched = readBattlefield(battlefieldOn(world), world);
   const west = { lng: 20.93, lat: 50 };
-  const east = { lng: 22.07, lat: 50 };
-  // The same two attackers: side by side in front of it, it is still fighting
-  // after eight days; one in front and one behind, it is gone in five.
-  const sideBySide = fight([{ lng: 20.93, lat: 49.95 }, { lng: 20.93, lat: 50.05 }]);
-  const opposite = fight([west, east], {}, 5);
-  assert.ok(sideBySide.troops[1][0].strength > 50, `side by side: ${sideBySide.troops[1][0].strength} left after eight days`);
-  assert.equal(opposite.troops[1][0].strength, 0, "from both sides: it did not last five");
+  const east = { lng: 22.57, lat: 50 };
+  // One attacker in front of it gets nowhere in six days. With another coming
+  // at it from behind, the same attacker breaks in, and the defender comes off
+  // worse than against either of them alone.
+  const front = fight([west]);
+  const behind = fight([east]);
+  const both = fight([west, east]);
+  const [startX] = untouched.place.toCell(20.93, 50);
+  assert.ok(Math.abs(front.troops[0][0].x - startX) < 0.1, "alone in front of it: no step forward");
+  assert.equal(front.held[1], untouched.held[1], "and no ground");
+  assert.ok(both.troops[0][0].x > startX + 0.5, `with another behind the defender it broke in: ${both.troops[0][0].x - startX} cells`);
+  assert.ok(both.troops[1][0].x > front.troops[1][0].x, "and the defender gave way");
+  assert.ok(both.troops[1][0].strength < Math.min(front.troops[1][0].strength, behind.troops[1][0].strength) - 2, `the defender: ${both.troops[1][0].strength} left, against ${front.troops[1][0].strength} and ${behind.troops[1][0].strength}`);
 
   // Works dug facing the enemy count against the front...
   const dugFront = fight([west], { dig: 1 }, 10);
@@ -290,7 +301,7 @@ test("a defender holds worse against two directions at once, and works are no he
   const dug = fight([east], { dig: 1 }, 2);
   const open = fight([east], {}, 2);
   assert.deepEqual(dug.holders, open.holders, "dug in or not, the same ground is lost to an attack from behind");
-  assert.ok(dug.held[1] < readBattlefield(battlefieldOn(world), world).held[1], "and ground was lost");
+  assert.ok(dug.held[1] < untouched.held[1], "and ground was lost");
 });
 
 test("a flank sends its troops round one side of the defenders, and none through them", () => {
@@ -305,7 +316,7 @@ test("a flank sends its troops round one side of the defenders, and none through
   assert.deepEqual(result.notes, []);
   const frame = record.frame;
   const [townX, townY] = readBattlefield(record, world).place.toCell(22.0, 50);
-  const radius = CONTROL_RADIUS_KM[0] / frame.km;
+  const radius = CONTROL_RADIUS_MAX_KM / frame.km;
   const movers = days[12].troops[0].map((troop, index) => ({ index, gone: troop.x - days[0].troops[0][index].x })).filter((troop) => troop.gone > 4);
   assert.ok(movers.length >= 2, `${movers.length} troops went round`);
   const sides = new Set();

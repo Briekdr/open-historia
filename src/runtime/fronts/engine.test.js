@@ -8,6 +8,7 @@ import { createFrontRun, runFronts } from "./engine.js";
 import { normalizeBattlefields } from "./record.js";
 import { applyFlips, enlarge, frontInput, syntheticMap } from "./syntheticMap.js";
 import { battlefieldOn, readBattlefield } from "./testKit.js";
+import { sideRadiusKm, sizeSides } from "./troops.js";
 
 const legend = { A: "Aland", B: "Borduria", C: "Cisland", N: "Neutralia", "~": null };
 const cities = [
@@ -22,9 +23,11 @@ const sheet = (layout = ["AAABBB", "AAABBB", "AAABBB", "AAABBB", "~~~~~~"], opti
 const withoutReplay = (battlefields) => battlefields.map(({ replay: _replay, ...rest }) => rest);
 const order = (day, side, word, extra = {}) => ({ day, type: "order", battlefield: "Aland - Borduria front", side, order: word, sector: "all", ...extra });
 
-test("a battlefield opens by itself where two sides at war touch, with troops on both in proportion", () => {
+test("a battlefield opens by itself where two sides at war touch, each side sized by its own strength", () => {
   const world = sheet();
-  const result = runFronts(frontInput(world, { days: 0, strengthOf: (name) => (name === "Aland" ? 200 : 100) }));
+  // Aland brings four points of strength and Borduria two: twelve counters a point.
+  const sized = (aland, borduria) => frontInput(world, { days: 0, strengthOf: (name) => (name === "Aland" ? aland : borduria) });
+  const result = runFronts(sized(4, 2));
   assert.equal(result.battlefields.length, 1);
   const [record] = result.battlefields;
   assert.equal(record.name, "Aland - Borduria front");
@@ -35,13 +38,11 @@ test("a battlefield opens by itself where two sides at war touch, with troops on
   assert.deepEqual(result.flips, []);
   const seen = readBattlefield(record, world);
   const [ours, theirs] = seen.troops;
-  // 12 and a counter for every 25 km of line for the heavier side; the other in proportion.
   assert.ok(Math.abs(record.brief.km - 222) < 12, `${record.brief.km} km of line`);
-  assert.equal(ours.length, Math.round(12 + record.brief.km / 25));
-  assert.equal(theirs.length, Math.round(ours.length / 2));
-  assert.deepEqual(record.pool, [ours.length * 30, theirs.length * 30]);
-  assert.equal(record.quality[0], 1);
-  assert.ok(Math.abs(record.quality[1] - (ours.length / 2) / theirs.length) < 0.001, "what the count rounds away of the ratio is carried by quality");
+  assert.equal(ours.length, 48);
+  assert.equal(theirs.length, 24);
+  assert.deepEqual(record.pool, [48 * 30, 24 * 30]);
+  assert.deepEqual(record.quality, [1, 1]);
   for (const troop of ours) {
     assert.equal(seen.holderAt(troop.lng, troop.lat), 0, "on its own side of the line");
     assert.ok(troop.lng > 21.05 && troop.lng < 21.5, `near the line (${troop.lng})`);
@@ -50,6 +51,28 @@ test("a battlefield opens by itself where two sides at war touch, with troops on
   // A modern force: three in ten armour, three in twenty artillery.
   assert.equal(ours.filter((troop) => troop.kind === 1).length, Math.round(ours.length * 0.3));
   assert.equal(ours.filter((troop) => troop.kind === 2).length, Math.round(ours.length * 0.15));
+  // A great power and a middling one on so short a front: each has a counter
+  // for every kilometre and a half of it and no more, and what one has over
+  // the other is carried by its quality.
+  const [crowded] = runFronts(sized(24, 13)).battlefields;
+  const most = decodeTroops(crowded.troops[0]).length;
+  assert.ok(most >= 140 && most <= 155 && Math.abs(most - crowded.brief.km / 1.5) <= 1, `${most} counters on ${crowded.brief.km} km`);
+  assert.equal(decodeTroops(crowded.troops[1]).length, most);
+  assert.deepEqual(crowded.quality, [1.5, 1]);
+  // And a state too small for the least still has six, the worse for it.
+  const [uneven] = runFronts(sized(0.2, 2)).battlefields;
+  assert.deepEqual(uneven.troops.map((list) => decodeTroops(list).length), [6, 24]);
+  assert.deepEqual(uneven.quality, [0.5, 1]);
+  // On a line long enough for them: a great power fields hundreds, more or
+  // fewer as its effort is, a middling one half as many, a small state a dozen or two.
+  assert.deepEqual(sizeSides(1500, [24, 13], ["major", "major"]), { counts: [288, 156], quality: [1, 1] });
+  assert.deepEqual(sizeSides(1500, [24, 13], ["total", "token"]).counts, [400, 47]);
+  assert.deepEqual(sizeSides(1500, [1.5, 1], ["major", "limited"]).counts, [18, 7]);
+  // How wide a strip a troop takes follows from how close its side stands: nine
+  // tenths of the line each has, never under 6 km nor over 16.
+  assert.equal(sideRadiusKm(1500, 288), 6);
+  assert.equal(sideRadiusKm(1500, 156), 0.9 * 1500 / 156);
+  assert.equal(sideRadiusKm(1500, 18), 16);
   // What the game is handed is what its own check of the world would keep.
   assert.deepEqual(normalizeBattlefields(result.battlefields), result.battlefields);
   assert.equal(record.frames, undefined);
@@ -90,7 +113,7 @@ test("two runs of one input are the same to the last character", () => {
     order(5, "Aland", "blitz", { sector: "north" }),
     order(8, "Aland", "spearhead", { sector: "centre", objective: "city: Brod", result: "captured" }),
   ];
-  const input = () => frontInput(world, { days: 14, moments, strengthOf: (name) => (name === "Aland" ? 180 : 100) });
+  const input = () => frontInput(world, { days: 14, moments, strengthOf: (name) => (name === "Aland" ? 3.6 : 2) });
   const first = runFronts(input());
   const second = runFronts(input());
   assert.equal(JSON.stringify(second), JSON.stringify(first));
@@ -108,7 +131,7 @@ test("a run cut at day k ends as the full run stood after day k", () => {
     order(9, "Borduria", "fall back"),
     { day: 9, type: "control", regionId: "r0-0", to: "Borduria" },
   ];
-  const input = (days) => frontInput(world, { days, moments: moments.filter((moment) => moment.day <= days), strengthOf: (name) => (name === "Aland" ? 160 : 100) });
+  const input = (days) => frontInput(world, { days, moments: moments.filter((moment) => moment.day <= days), strengthOf: (name) => (name === "Aland" ? 3.2 : 2) });
   const run = createFrontRun(input(12));
   for (const k of [0, 1, 2, 5, 6, 9, 12]) {
     while (run.snapshot().stats.days < k) run.advance(1);
@@ -192,7 +215,7 @@ test("a ceasefire freezes a battlefield, and the war resuming thaws it", () => {
     { day: 3, type: "war", warId: "war-1", op: "ceasefire", names: [] },
     { day: 7, type: "war", warId: "war-1", op: "resume", names: [] },
   ];
-  const input = (days) => frontInput(world, { days, moments: moments.filter((moment) => moment.day <= days), strengthOf: (name) => (name === "Aland" ? 300 : 100) });
+  const input = (days) => frontInput(world, { days, moments: moments.filter((moment) => moment.day <= days), strengthOf: (name) => (name === "Aland" ? 6 : 2) });
   const atThree = runFronts(input(3)).battlefields[0];
   const atSeven = runFronts(input(6)).battlefields[0];
   const atTen = runFronts(input(10)).battlefields[0];

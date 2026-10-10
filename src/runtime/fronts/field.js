@@ -495,6 +495,9 @@ export const nearestOnContour = (field, contour, px, py, reach) => {
 //   from, span         when in the day the walk began and how long it took,
 //                      as parts of the day: a cell is taken when the walk
 //                      came level with it
+//   spare              discs of ground the sweep leaves alone, as a flat list
+//                      of x, y and radius in cells: what is taken is the strip
+//                      less the discs, so the line comes to run round them
 export const takeCapsule = (field, side, px, py, qx, qy, radiusP, radiusQ, how = null) => {
   const { cols, rows, play, phi } = field;
   const claims = how?.claims ?? null;
@@ -503,6 +506,7 @@ export const takeCapsule = (field, side, px, py, qx, qy, radiusP, radiusQ, how =
   const painterQ = how?.painterQ ?? painterP;
   const from = how?.from ?? 1;
   const span = how?.span ?? 0;
+  const spare = how?.spare ?? null;
   const reach = Math.max(radiusP, radiusQ) + EDIT_MARGIN_CELLS;
   const col0 = Math.max(0, Math.floor(Math.min(px, qx) - reach));
   const col1 = Math.min(cols - 1, Math.floor(Math.max(px, qx) + reach));
@@ -521,7 +525,19 @@ export const takeCapsule = (field, side, px, py, qx, qy, radiusP, radiusQ, how =
       along = along < 0 ? 0 : along > 1 ? 1 : along;
       const ox = cx - (px + sx * along);
       const oy = cy - (py + sy * along);
-      const distance = Math.sqrt(ox * ox + oy * oy) - (radiusP + (radiusQ - radiusP) * along);
+      let distance = Math.sqrt(ox * ox + oy * oy) - (radiusP + (radiusQ - radiusP) * along);
+      if (spare) {
+        // The strip less each spared disc: a cell is as far inside what is
+        // taken as it is inside the strip and outside every disc, and a cell
+        // within a disc is never inside it at all.
+        for (let at = 0; at < spare.length; at += 3) {
+          const dx = cx - spare[at];
+          const dy = cy - spare[at + 1];
+          const within = spare[at + 2] - Math.sqrt(dx * dx + dy * dy);
+          if (within > distance) distance = within;
+          if (within >= 0 && distance < LEAST) distance = LEAST;
+        }
+      }
       if (distance > EDIT_MARGIN_CELLS) continue;
       if (side === HOLDER_SIDE_A) {
         if (claims && distance < 0 && !(claims.stamp[index] === claims.moment && claims.power[index] >= strength)) {

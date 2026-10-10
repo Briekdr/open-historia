@@ -26,11 +26,12 @@
 import { addGameDays } from "../gameDates.js";
 import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf } from "../unitMotion.js";
 import { arenaFor } from "./arena.js";
-import { absorbUnit, keepStart, lineLength, loadBattle, openBattle, paintGround, raiseTroops, readRegions, reconcile, releaseNamed, saveBattle, sideOfName } from "./battle.js";
+import { absorbUnit, keepStart, loadBattle, memberWeights, openBattle, paintGround, raiseTroops, readRegions, reconcile, releaseNamed, saveBattle, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
 import { hashKey } from "./codec.js";
 import {
   BATTLEFIELD_NAME_MAX,
+  EFFORT_FACTORS,
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
   LANDING_CELLS,
@@ -39,16 +40,17 @@ import {
   MAX_SIDE_MEMBERS,
   MAX_TROOPS_PER_SIDE,
   POOL_PER_TROOP,
+  TROOPS_PER_STRENGTH,
   TROOP_KINDS,
 } from "./constants.js";
 import { contactAt, findContacts, frameForContact, middleOf } from "./contact.js";
 import { REGIONS_NEEDED, prepare, recordDay, settleRegions, simulateDay, startRecorder } from "./day.js";
 import { redistance, takeCapsule, traceContour } from "./field.js";
 import { pointInFrame, projectorOf } from "./frame.js";
-import { applyOrder } from "./orders.js";
+import { applyOrder, readSieges } from "./orders.js";
 import { foldBattlefieldName, normalizeBattlefields } from "./record.js";
 import { findPockets } from "./supply.js";
-import { createTroop, isLive, liveCount } from "./troops.js";
+import { createTroop, isLive, liveCount, troopsCap } from "./troops.js";
 
 const clean = (value, max = 120) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max).trim();
 const fold = (value) => clean(value).toLowerCase();
@@ -206,8 +208,10 @@ const startBattle = (run, battle, day) => {
   run.battles.push(battle);
   raiseTroops(battle, run);
   absorbUnits(battle, run);
+  setRadii(battle);
   paintGround(battle, run);
   keepStart(battle);
+  readSieges(battle);
   findPockets(battle);
   startRecorder(battle);
   recordDay(battle, day);
@@ -283,12 +287,12 @@ const examineWar = (run, war, day) => {
 // ---- a war changing ------------------------------------------------------------
 
 // Counters for a member that has just joined a battle, on its side's ground
-// along the line: as many as its weight is of the side's.
+// along the line: as many as its own strength brings, while the line has room
+// for them.
 const raiseFor = (battle, run, side, owner) => {
-  const others = battle.sides[side].reduce((sum, member, index) => sum + (index === owner || battle.gone[side].has(index) ? 0 : run.strengthOf(member)), 0);
-  const live = liveCount(battle.troops[side]);
-  const wanted = others > 0 ? Math.round((live * run.strengthOf(battle.sides[side][owner])) / others) : live;
-  const count = Math.max(0, Math.min(MAX_TROOPS_PER_SIDE - battle.troops[side].length, Math.max(2, wanted)));
+  const wanted = Math.round(TROOPS_PER_STRENGTH * memberWeights(battle, run, side)[owner] * EFFORT_FACTORS[battle.effort[side]]);
+  const room = Math.min(MAX_TROOPS_PER_SIDE - battle.troops[side].length, troopsCap(battle.lineKm) - liveCount(battle.troops[side]));
+  const count = Math.max(0, Math.min(room, Math.max(2, wanted)));
   const contour = traceContour(battle.field);
   const own = side === HOLDER_SIDE_A ? contour.cellA : contour.cellB;
   const cells = [];
@@ -532,6 +536,13 @@ const applyMoments = (run, day) => {
     }
   }
   for (const battle of run.battles) if (battle.closing && battle.status !== "closed") closeBattle(run, battle, day);
+  // What a moment did to the orders or the ground is read at once: which
+  // places are besieged, and what is cut off.
+  for (const battle of run.battles) {
+    if (battle.status === "closed" || !battle.touched) continue;
+    readSieges(battle);
+    findPockets(battle);
+  }
 };
 
 // ---- the run -------------------------------------------------------------------
@@ -568,13 +579,15 @@ const begin = (run) => {
   for (const battle of run.battles) {
     syncWithWar(run, battle);
     reconcile(battle, run);
-    lineLength(battle);
+    setRadii(battle);
   }
   for (const battle of run.battles) {
     if (battle.closing) continue;
     if (battle.status === "active") absorbUnits(battle, run);
+    setRadii(battle);
     paintGround(battle, run);
     keepStart(battle);
+    readSieges(battle);
     findPockets(battle);
     startRecorder(battle);
   }

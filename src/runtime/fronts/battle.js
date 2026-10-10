@@ -16,8 +16,8 @@ import { diffGameDays } from "../gameDates.js";
 import { decodeTroops, encodeLines, encodeTroops } from "./codec.js";
 import {
   BATTLEFIELD_VERSION,
+  CONTROL_RADIUS_MAX_KM,
   DEFAULT_EFFORT,
-  EFFORT_FACTORS,
   FAR_CELLS,
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
@@ -35,7 +35,7 @@ import { nearestOnContour, openField, ownCell, packField, redistance, setGround,
 import { projectorOf } from "./frame.js";
 import { drawLine, measureLine } from "./line.js";
 import { nearestOwner } from "./supply.js";
-import { KIND_ARMOUR, KIND_ARTILLERY, KIND_INFANTRY, createTroop, drawTraits, dropTheDead, isLive, kindsFor, planLanes, shareOut, sizeSides, standAtPlaces } from "./troops.js";
+import { KIND_ARMOUR, KIND_ARTILLERY, KIND_INFANTRY, createTroop, drawTraits, dropTheDead, isLive, kindsFor, liveCount, planLanes, shareOut, sideRadiusKm, sizeSides, standAtPlaces } from "./troops.js";
 
 const fold = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 const round3 = (value) => Math.round(value * 1000) / 1000;
@@ -141,6 +141,10 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   pockets: [],
   pocketOf: null,
   pocketTurns: -1,
+  // The sieges that stand, and the ground each side's steps leave alone (orders.js).
+  sieges: [],
+  spared: [[], []],
+  siegeKey: "",
   supplied: [null, null],
   supply: null,
   supplyTurns: -1,
@@ -167,6 +171,7 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   autoNamed: false,
   seed: run.seed,
   even: run.steer.even === true,
+  radiusKm: [CONTROL_RADIUS_MAX_KM, CONTROL_RADIUS_MAX_KM],
   watch: typeof run.input?.watch === "function" ? run.input.watch : null,
   homes: null,
 });
@@ -181,6 +186,15 @@ export const keepStart = (battle) => {
 export const lineLength = (battle) => {
   battle.lineKm = measureLine(battle.field, traceContour(battle.field)).total;
   return battle.lineKm;
+};
+
+// Each side's control radius for the run, from how close its troops stand
+// along the line as the run finds them. Worked out once: a side that loses
+// troops does not paint a wider strip for it.
+export const setRadii = (battle) => {
+  lineLength(battle);
+  battle.radiusKm = [HOLDER_SIDE_A, HOLDER_SIDE_B].map((side) => sideRadiusKm(battle.lineKm, liveCount(battle.troops[side])));
+  for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) for (const troop of battle.troops[side]) troop.radiusKm = battle.radiusKm[side];
 };
 
 // ---- what the world did --------------------------------------------------------
@@ -227,9 +241,10 @@ export const reconcile = (battle, run) => {
 
 // ---- raising -------------------------------------------------------------------
 
-// A side's weight on a battle: what each of its members can bring, a member on
-// several battlefields splitting itself among them by the length of their lines.
-const memberWeights = (battle, run, side) => battle.sides[side].map((member, index) => {
+// A side's strength on a battle: what each of its members brings to it, a
+// member on several battlefields splitting itself among them by the length of
+// their lines.
+export const memberWeights = (battle, run, side) => battle.sides[side].map((member, index) => {
   if (battle.gone[side].has(index)) return 0;
   let elsewhere = 0;
   for (const other of run.battles) {
@@ -246,8 +261,8 @@ export const raiseTroops = (battle, run) => {
   const line = measureLine(battle.field, traceContour(battle.field));
   battle.lineKm = line.total;
   const members = [memberWeights(battle, run, 0), memberWeights(battle, run, 1)];
-  const weights = members.map((list, side) => list.reduce((sum, weight) => sum + weight, 0) * EFFORT_FACTORS[battle.effort[side]]);
-  const { counts, quality } = sizeSides(line.total, weights);
+  const strengths = members.map((list) => list.reduce((sum, weight) => sum + weight, 0));
+  const { counts, quality } = sizeSides(line.total, strengths, battle.effort);
   battle.quality = quality.map(round3);
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     const room = Math.max(0, Math.min(counts[side], MAX_TROOPS_PER_SIDE - battle.troops[side].length));
@@ -404,7 +419,7 @@ export const loadBattle = (run, record, arena) => {
     .map((anchor) => ({ s: anchor.s, x: anchor.x, y: anchor.y }));
   battle.pockets = (Array.isArray(carry.pockets) ? carry.pockets : [])
     .filter((pocket) => (pocket?.s === 0 || pocket?.s === 1) && Number.isInteger(pocket.cell))
-    .map((pocket) => ({ s: pocket.s, cell: pocket.cell, days: Math.max(0, Math.floor(Number(pocket.days) || 0)) }));
+    .map((pocket) => ({ s: pocket.s, cell: pocket.cell, days: Math.max(0, Math.floor(Number(pocket.days) || 0)), km2: 0, siege: "", told: pocket.told === true }));
   battle.log = record.log.map((entry) => ({ ...entry }));
   return battle;
 };
@@ -527,7 +542,7 @@ export const saveBattle = (battle, run, day, changes, brief) => {
         ages: battle.orders.map((order) => order.age),
         halts: battle.halts.map(({ s, sector, days }) => ({ s, sector, days })),
         anchors: battle.anchors.map(({ s, x, y }) => ({ s, x, y })),
-        pockets: battle.pockets.map(({ s, cell, days }) => ({ s, cell, days })),
+        pockets: battle.pockets.map(({ s, cell, days, told }) => ({ s, cell, days, ...(told ? { told: true } : {}) })),
       },
     },
     log: battle.log.slice(-MAX_LOG_ENTRIES),

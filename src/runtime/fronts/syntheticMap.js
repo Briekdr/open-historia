@@ -95,7 +95,8 @@ export const sideTable = (arena, world, sides) =>
   });
 
 // What the engine is handed for a run on a sheet: one war between Aland and
-// Borduria, nothing ordered, thirty days. A test changes what it needs to.
+// Borduria, two small states of equal strength (two dozen counters each),
+// nothing ordered, thirty days. A test changes what it needs to.
 export const frontInput = (world, overrides = {}) => {
   const days = overrides.days ?? 30;
   const fromDate = overrides.fromDate ?? "2024-03-01";
@@ -113,7 +114,7 @@ export const frontInput = (world, overrides = {}) => {
     units: [],
     map: world.map,
     regionTypes: [],
-    strengthOf: () => 100,
+    strengthOf: () => 2,
     pace: 1,
     flipAllowance: null,
     seed: "a seed",

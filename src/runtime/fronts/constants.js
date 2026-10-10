@@ -21,7 +21,8 @@ export const BATTLEFIELD_NAME_MAX = 80;
 
 // A side is the countries (or groups) fighting together on it.
 export const MAX_SIDE_MEMBERS = 8;
-export const MAX_TROOPS_PER_SIDE = 96;
+// Hundreds a side, standing close together: a war is to look like one.
+export const MAX_TROOPS_PER_SIDE = 400;
 export const MAX_NAMED_TROOPS = 64;
 export const MAX_ORDERS_PER_SIDE = 6;
 
@@ -101,10 +102,14 @@ export const GROW_KM = 400;
 export const LINE_SIMPLIFY_CELLS = 0.04;
 
 // A troop. Each list is by kind, in the order of TROOP_KINDS.
-// How far to either side of its path the ground becomes its side's: this many
-// kilometres at full strength, less as it weakens, never under the least.
-export const CONTROL_RADIUS_KM = Object.freeze([14, 12, 10]);
-export const CONTROL_RADIUS_AT_NOTHING = 0.6;
+// How far to either side of its path the ground becomes its side's. It is one
+// figure for a whole side, worked out once a run from how close its troops
+// stand: this share of the length of line each has, held between two bounds,
+// so that a troop among hundreds paints a strip and not a province. Never
+// under the least in cells: a brush narrower than a cell paints nothing.
+export const CONTROL_RADIUS_OF_SPACING = 0.9;
+export const CONTROL_RADIUS_MIN_KM = 6;
+export const CONTROL_RADIUS_MAX_KM = 16;
 export const CONTROL_RADIUS_MIN_CELLS = 0.9;
 // How far it fights.
 export const REACH_KM = 40;
@@ -172,13 +177,17 @@ export const FLANKED_DEFENCE = 0.75;
 export const SURROUNDED_DEFENCE = 0.55;
 export const FLANK_OPPOSITE_COS = -0.7;
 
-// Raising troops. The heavier side has TROOPS_BASE + a counter for every
-// TROOPS_KM_EACH of line; the other in proportion, never under TROOPS_MIN.
-export const TROOPS_BASE = 12;
-export const TROOPS_KM_EACH = 25;
+// Raising troops. A side is sized by its own strength and by nothing else:
+// this many counters for each point of strength its members bring here (a
+// great power brings about 24, a small state one or two), scaled by the effort
+// it is making. Never under TROOPS_MIN, and never more than one for every
+// TROOPS_LINE_KM_EACH of line, which is what keeps a short front from being
+// stacked. What the count cannot carry of a side's strength its quality does.
+export const TROOPS_PER_STRENGTH = 12;
+export const TROOPS_LINE_KM_EACH = 1.5;
 export const TROOPS_MIN = 6;
 export const POOL_PER_TROOP = 30;
-export const EFFORT_FACTORS = Object.freeze({ token: 0.4, limited: 0.7, major: 1, total: 1.4 });
+export const EFFORT_FACTORS = Object.freeze({ token: 0.3, limited: 0.6, major: 1, total: 1.4 });
 // The share of a side that is armour (cavalry before the tank) and artillery,
 // by era: before 1500, 1500 to 1849, 1850 to 1944, from 1945.
 export const ARMOUR_SHARE_BY_ERA = Object.freeze([0.15, 0.15, 0.1, 0.3]);
@@ -275,13 +284,24 @@ export const SUPPLY_EVERY_DAYS = 3;
 export const SUPPLY_FULL_KM = Object.freeze([120, 180, 300, 450]);
 export const SUPPLY_FAR_FACTOR = 2.5;
 export const SUPPLY_LEAST = 0.4;
-// A body of ground cut off from every source. Under this many square
-// kilometres it is a patch, filled the day the ring closes; from this size up
-// it is a pocket, an encirclement that has to be starved out or cleared.
+// A body of ground cut off from every source. With none of its side's troops
+// in it and under this many square kilometres it is a patch, filled the day
+// the ring closes. Anything else is a pocket, fought for like any other ground
+// but at a disadvantage: its troops attack and defend at these shares of their
+// power and waste away by this much a day, and it gives up after this many
+// days, or once no troop is left in it.
 export const PATCH_MAX_KM2 = 1500;
 export const POCKET_DAYS = 10;
-export const POCKET_LOSS = 4;
-export const POCKET_DEFENCE = 0.5;
+export const POCKET_LOSS = 2;
+export const POCKET_ATTACK = 0.7;
+export const POCKET_DEFENCE = 0.75;
+// A siege: a side told to encircle a place takes the ground round it and
+// leaves the place itself, this far round it. What is shut in there is
+// besieged: it is never filled as a patch, holds this many days, and wastes
+// this much a day.
+export const SIEGE_SPARE_KM = 20;
+export const SIEGE_DAYS = 45;
+export const SIEGE_LOSS = 1;
 
 // A region changes hands when the side that does not control it holds this share.
 export const FLIP_AT = 0.6;

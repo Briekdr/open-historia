@@ -1,7 +1,7 @@
 // Run: node --test src/runtime/fronts/dynamics.test.js
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CONTROL_RADIUS_KM, HOLDER_SIDE_A, HOLDER_SIDE_B, LINK_RADII, PATCH_MAX_KM2 } from "./constants.js";
+import { CONTROL_RADIUS_MAX_KM, HOLDER_SIDE_A, HOLDER_SIDE_B, LINK_RADII, PATCH_MAX_KM2 } from "./constants.js";
 import { createFrontRun, runFronts } from "./engine.js";
 import { takeCapsule } from "./field.js";
 import { applyFlips, frontInput, syntheticMap } from "./syntheticMap.js";
@@ -93,7 +93,7 @@ test("the ground changes hands only where a troop walked", () => {
   assert.ok(Math.hypot(cityX - path[4][0], cityY - path[4][1]) < Math.hypot(cityX - path[0][0], cityY - path[0][1]) - 28, "toward its objective");
   assert.ok(path[4][1] > path[0][1], "which lies a little north of it");
 
-  const radius = CONTROL_RADIUS_KM[0] / kmAt(path[0][1]);
+  const radius = CONTROL_RADIUS_MAX_KM / kmAt(path[0][1]);
   let taken = 0;
   let same = 0;
   for (let index = 0; index < after.holders.length; index += 1) {
@@ -113,7 +113,7 @@ test("the ground changes hands only where a troop walked", () => {
 });
 
 test("two troops advancing within the link distance leave nothing between their paths; further apart they leave a strip", () => {
-  const linkKm = LINK_RADII * CONTROL_RADIUS_KM[0];
+  const linkKm = LINK_RADII * CONTROL_RADIUS_MAX_KM;
   // On a short border two troops stand 27 km apart; on a long one, 110.
   const run = (world, lats) => {
     const record = battlefieldOn(world, { troops: [lats.map((lat) => ({ lng: 20.9, lat })), []], orders: [standing(0, "advance")] });
@@ -214,7 +214,7 @@ test("a wall stops the line, and is never anybody's", () => {
   }
 });
 
-test("a small enclosed patch is filled the day the ring closes; a large one is a pocket that holds ten days", () => {
+test("an empty patch is filled the day the ring closes; one with troops in it is a pocket, and holds ten days", () => {
   const world = plain({ cities: [{ name: "Brod", lng: 23.0, lat: 50.0 }] });
   const pocketOf = (radiusKm, manned) => {
     const record = battlefieldOn(world, {
@@ -224,38 +224,79 @@ test("a small enclosed patch is filled the day the ring closes; a large one is a
     });
     return dayByDay(frontInput(world, { battlefields: [record], days: 12, steering: steady }));
   };
-  const cellKm2 = 16;
-  const small = pocketOf(18, true);
+  // Nobody in it, and under the size of a pocket: gone the same day, and not news.
+  const empty = pocketOf(18, false);
   assert.ok(Math.PI * 18 * 18 < PATCH_MAX_KM2);
-  const filled = readBattlefield(small[1].battlefields[0], world);
-  assert.equal(filled.holderAt(23.0, 50.0), HOLDER_SIDE_B, "the patch is the other side's at the end of the first day");
-  assert.ok(filled.troops[0].every((troop) => troop.strength === 0), "whoever stood in it is gone");
-  assert.deepEqual(small[1].battlefields[0].log, [
-    { d: "2024-03-02", k: "overrun", at: "city: Brod", s: 0 },
-    { d: "2024-03-02", k: "city", at: "city: Brod", s: 1 },
-  ], "said once, not once a troop; and the town in it is the other side's again");
-  assert.deepEqual(small[1].battlefields[0].brief.pockets, []);
+  assert.equal(readBattlefield(empty[0].battlefields[0], world).holderAt(23.0, 50.0), HOLDER_SIDE_A);
+  assert.equal(readBattlefield(empty[1].battlefields[0], world).holderAt(23.0, 50.0), HOLDER_SIDE_B, "the empty patch is the other side's at the end of the first day");
+  assert.deepEqual(empty[1].battlefields[0].log, [{ d: "2024-03-02", k: "city", at: "city: Brod", s: 1 }], "the town in it is the other side's again");
+  assert.deepEqual(empty[1].battlefields[0].brief.pockets, []);
 
-  const large = pocketOf(28, true);
-  assert.ok(Math.PI * 28 * 28 > PATCH_MAX_KM2 + 8 * cellKm2);
+  // The same ground, 600 square kilometres of it, with defenders in it: a
+  // pocket however small, still theirs the day the ring closes and for nine more.
+  const small = pocketOf(14, true);
+  assert.ok(Math.abs(Math.PI * 14 * 14 - 600) < 20);
   for (let day = 0; day <= 9; day += 1) {
-    const seen = readBattlefield(large[day].battlefields[0], world);
+    const seen = readBattlefield(small[day].battlefields[0], world);
     assert.equal(seen.holderAt(23.0, 50.0), HOLDER_SIDE_A, `still held on day ${day}`);
     if (day === 0) continue;
-    assert.deepEqual(large[day].battlefields[0].brief.pockets, [{ s: 0, at: "city: Brod", days: day }]);
+    assert.deepEqual(small[day].battlefields[0].brief.pockets, [{ s: 0, at: "city: Brod", days: day }]);
     for (const troop of seen.troops[0]) {
       assert.equal(troop.state, 2, "encircled");
-      assert.ok(Math.abs(troop.strength - (100 - 4 * day)) < 2.5, `wasting away: ${troop.strength} on day ${day}`);
+      assert.ok(Math.abs(troop.strength - (100 - 2 * day)) < 1.5, `wasting away for want of supply: ${troop.strength} on day ${day}`);
     }
   }
-  const fallen = readBattlefield(large[10].battlefields[0], world);
-  assert.equal(fallen.holderAt(23.0, 50.0), HOLDER_SIDE_B, "it surrenders on the tenth day and its ground changes hands");
+  const fallen = readBattlefield(small[10].battlefields[0], world);
+  assert.equal(fallen.holderAt(23.0, 50.0), HOLDER_SIDE_B, "it gives up on the tenth day and its ground changes hands");
   assert.ok(fallen.troops[0].every((troop) => troop.strength === 0));
-  assert.deepEqual(large[10].battlefields[0].log, [{ d: "2024-03-11", k: "pocket", at: "city: Brod", s: 0 }, { d: "2024-03-11", k: "city", at: "city: Brod", s: 1 }]);
-  // With nobody in it a pocket gives up at once.
-  const empty = pocketOf(28, false);
-  assert.equal(readBattlefield(empty[1].battlefields[0], world).holderAt(23.0, 50.0), HOLDER_SIDE_B);
-  assert.equal(readBattlefield(empty[0].battlefields[0], world).holderAt(23.0, 50.0), HOLDER_SIDE_A);
+  assert.deepEqual(small[10].battlefields[0].log, [{ d: "2024-03-11", k: "pocket", at: "city: Brod", s: 0 }, { d: "2024-03-11", k: "city", at: "city: Brod", s: 1 }], "said once, not once a troop");
+  // A large one with nobody in it gives up at once too.
+  const vacant = pocketOf(28, false);
+  assert.ok(Math.PI * 28 * 28 > PATCH_MAX_KM2);
+  assert.equal(readBattlefield(vacant[1].battlefields[0], world).holderAt(23.0, 50.0), HOLDER_SIDE_B);
+  assert.equal(readBattlefield(vacant[0].battlefields[0], world).holderAt(23.0, 50.0), HOLDER_SIDE_A);
+});
+
+test("a pocket is fought for like any other ground: a strong one holds against a weak ring, and takes some back", () => {
+  const world = plain({ cities: [{ name: "Brod", lng: 23.0, lat: 50.0 }, { name: "Zapad", lng: 22.2, lat: 50.0 }] });
+  // Eight of Aland's at full strength, standing all round the edge of a pocket
+  // 56 km across at Brod, and eight of Borduria's at a third of theirs in a
+  // ring round it.
+  const circle = [[1, 0], [0.707, 0.707], [0, 1], [-0.707, 0.707], [-1, 0], [-0.707, -0.707], [0, -1], [0.707, -0.707]];
+  const round = (km, extra = {}) => circle.map(([east, north]) => ({ lng: 23.0 + (east * km) / 71.5, lat: 50.0 + (north * km) / 111.2, ...extra }));
+  const pocket = (ringStrength, orders) => battlefieldOn(world, {
+    troops: [round(22), round(44, { strength: ringStrength })],
+    orders,
+    carve: (field, toCell) => disc(field, HOLDER_SIDE_A, ...toCell(23.0, 50.0), 7),
+  });
+  // The ring is told to attack; the pocket to drive for Zapad, the way home.
+  const fought = pocket(30, [standing(0, "spearhead", { sector: "city: Brod", objective: "city: Zapad" }), standing(1, "advance", { sector: "city: Brod" })]);
+  const days = dayByDay(frontInput(world, { battlefields: [fought], days: 5, steering: steady }));
+  const [x, y] = readBattlefield(fought, world).place.toCell(23.0, 50.0);
+  // The ground Aland holds within 80 km of the town: the pocket, and nothing else of its own.
+  const held = (day) => {
+    const seen = readBattlefield(days[day].battlefields[0], world);
+    let cells = 0;
+    for (let index = 0; index < seen.holders.length; index += 1) {
+      const dx = (index % seen.frame.cols) + 0.5 - x;
+      const dy = Math.floor(index / seen.frame.cols) + 0.5 - y;
+      if (seen.holders[index] === HOLDER_SIDE_A && dx * dx + dy * dy < 400) cells += 1;
+    }
+    return cells;
+  };
+  for (let day = 1; day <= 5; day += 1) {
+    const seen = readBattlefield(days[day].battlefields[0], world);
+    assert.equal(seen.holderAt(23.0, 50.0), HOLDER_SIDE_A, `the pocket stands on day ${day}`);
+    assert.ok(held(day) >= held(day - 1), `and has lost no ground on day ${day} (${held(day)} cells after ${held(day - 1)})`);
+    assert.deepEqual(days[day].battlefields[0].brief.pockets, [{ s: 0, at: "city: Brod", days: day }], "cut off all the same");
+    assert.ok(seen.troops[0].every((troop) => troop.state === 2 && troop.strength > 80 && troop.strength < 100 - day), "its troops waste, and fight on");
+  }
+  assert.ok(held(5) > held(0) + 50, `it took ground: ${held(0)} cells became ${held(5)}`);
+  assert.equal(readBattlefield(days[5].battlefields[0], world).holderAt(22.2, 50.0), HOLDER_SIDE_A, "and the town it drove for");
+  // With nothing ordered, and a ring as strong as itself, it is only starved.
+  const starved = dayByDay(frontInput(world, { battlefields: [pocket(100, [])], days: 10, steering: steady }));
+  assert.deepEqual(starved[9].battlefields[0].field, starved[0].battlefields[0].field, "nobody attacked, and nothing moved");
+  assert.equal(readBattlefield(starved[10].battlefields[0], world).holderAt(23.0, 50.0), HOLDER_SIDE_B, "and after ten days cut off it gave up");
 });
 
 test("supply is by home ground: a peninsula apart is fed, defenders ringed on their own soil are not", () => {

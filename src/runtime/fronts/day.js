@@ -35,6 +35,7 @@ import {
   MAX_CELLS,
   MAX_GRID_SPAN,
   MIN_DAYS_BETWEEN_FLIPS,
+  TRAIT_DRIVE,
 } from "./constants.js";
 import { paintGround, readRegions, sideOfName } from "./battle.js";
 import { closeDay, decideTasks, steer, stepForward } from "./combat.js";
@@ -71,7 +72,10 @@ export const prepare = (battle, day) => {
   battle.lineKm = line.total;
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     battle.troops[side].forEach((troop, index) => {
-      if (!troop.drawn) drawTraits(troop, battle.seed, battle.name, side, index, battle.even);
+      if (troop.drawn) return;
+      // A troop new to the run: it draws its own hand, and has its side's radius.
+      drawTraits(troop, battle.seed, battle.name, side, index, battle.even);
+      troop.radiusKm = battle.radiusKm[side];
     });
   }
   const key = [battle.field.edits, battle.ordersChanged, battle.troops[0].length, liveCount(battle.troops[0]), battle.troops[1].length, liveCount(battle.troops[1]), day].join("|");
@@ -166,9 +170,26 @@ export const settleRegions = (battle, run, day) => {
 
 // ---- the frame growing ---------------------------------------------------------
 
-// Which edges of the frame the line has come near, with ground in play at the
-// edge beside it: [west, south, east, north], or null.
-const edgesToGrow = (battle) => {
+// How near an edge the line may come before the frame grows, in cells: never
+// nearer than the line can come in one more day, which is the full step of the
+// fastest troop over the fastest ground. A line that reached the edge would
+// leave one side holding nothing on the frame, and the battle would read as won.
+const growWithin = (battle, run) => {
+  if (battle.withinFor !== battle.arena) {
+    let fastest = 0;
+    for (let index = 0; index < battle.arena.size; index += 1) if (battle.arena.speed[index] > fastest) fastest = battle.arena.speed[index];
+    let least = Infinity;
+    for (let row = 0; row < battle.place.rowKm.length; row += 1) if (battle.place.rowKm[row] < least) least = battle.place.rowKm[row];
+    const stepKm = Math.max(run.advanceKm[0], run.advanceKm[1], run.advanceKm[2]) * run.pace * TRAIT_DRIVE[1] * fastest;
+    battle.within = Math.max(GROW_WITHIN_CELLS, Math.ceil(stepKm / least) + 2);
+    battle.withinFor = battle.arena;
+  }
+  return battle.within;
+};
+
+// Which edges of the frame the line has come within `within` cells of, with
+// ground in play at the edge beside it: [west, south, east, north], or null.
+const edgesToGrow = (battle, within) => {
   const { field } = battle;
   const { cols, rows, play } = field;
   const contour = traceContour(field);
@@ -182,19 +203,19 @@ const edgesToGrow = (battle) => {
   for (let vertex = 0; vertex < contour.x.length; vertex += 1) {
     const x = contour.x[vertex];
     const y = contour.y[vertex];
-    const span = GROW_WITHIN_CELLS + 2;
-    if (!grow[0] && x < GROW_WITHIN_CELLS && landBy(y - span, y + span, 0, true)) grow[0] = true;
-    if (!grow[2] && x > cols - GROW_WITHIN_CELLS && landBy(y - span, y + span, cols - 1, true)) grow[2] = true;
-    if (!grow[1] && y < GROW_WITHIN_CELLS && landBy(x - span, x + span, 0, false)) grow[1] = true;
-    if (!grow[3] && y > rows - GROW_WITHIN_CELLS && landBy(x - span, x + span, rows - 1, false)) grow[3] = true;
+    const span = within + 2;
+    if (!grow[0] && x < within && landBy(y - span, y + span, 0, true)) grow[0] = true;
+    if (!grow[2] && x > cols - within && landBy(y - span, y + span, cols - 1, true)) grow[2] = true;
+    if (!grow[1] && y < within && landBy(x - span, x + span, 0, false)) grow[1] = true;
+    if (!grow[3] && y > rows - within && landBy(x - span, x + span, rows - 1, false)) grow[3] = true;
   }
   return grow.some(Boolean) ? grow : null;
 };
 
 // A larger frame for a battle: the same cells where the limits allow, so the
 // line does not move at all; else a coarser grid over the wider box.
-const largerFrame = (frame, grow, map) => {
-  const more = Math.max(GROW_WITHIN_CELLS * 2, Math.round(GROW_KM / frame.km));
+const largerFrame = (frame, grow, map, within) => {
+  const more = Math.max(within * 2, Math.round(GROW_KM / frame.km));
   const west = grow[0] ? more : 0;
   const south = grow[1] ? more : 0;
   const cols = frame.cols + west + (grow[2] ? more : 0);
@@ -226,9 +247,10 @@ const carrier = (from, to) => {
 // begins again from the day the frame grew. false when there was nothing to do.
 export const growIfNeeded = (battle, run) => {
   if ((battle.grown ?? 0) >= 6) return false;
-  const grow = edgesToGrow(battle);
+  const within = growWithin(battle, run);
+  const grow = edgesToGrow(battle, within);
   if (!grow) return false;
-  const frame = largerFrame(battle.frame, grow, run.input.map);
+  const frame = largerFrame(battle.frame, grow, run.input.map, within);
   if (!frame || (frame.cols === battle.frame.cols && frame.rows === battle.frame.rows && frame.cell === battle.frame.cell)) return false;
   const arena = arenaFor(run.input.arenas, run.input.map, frame, run.input.regionTypes);
   if (!arena) throw REGIONS_NEEDED;
@@ -258,10 +280,14 @@ export const growIfNeeded = (battle, run) => {
   });
   battle.pockets = before.pockets.map((pocket) => {
     const [x, y] = carry((pocket.cell % old.cols) + 0.5, Math.floor(pocket.cell / old.cols) + 0.5);
-    return { s: pocket.s, cell: Math.floor(y) * arena.cols + Math.floor(x), days: pocket.days, km2: pocket.km2 };
+    return { ...pocket, cell: Math.floor(y) * arena.cols + Math.floor(x) };
   });
   battle.pocketOf = null;
   battle.pocketTurns = -1;
+  // The sieges are places on the frame: they are read again on the new one.
+  battle.sieges = [];
+  battle.spared = [[], []];
+  battle.siegeKey = "";
   battle.supply = null;
   battle.supplyTurns = -1;
   battle.claims = { stamp: new Int32Array(arena.size), power: new Float32Array(arena.size), moment: 0 };

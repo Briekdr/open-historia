@@ -84,11 +84,13 @@ export const buildBrief = (battle, since) => {
       }
     }
   }
+  // What is cut off with troops in it: a pocket by where it lies, a besieged
+  // place by its own name.
   const pockets = [];
   battle.pockets.forEach((pocket, index) => {
     if (!manned.has(index)) return;
-    const at = describePoint(arena, (pocket.cell % field.cols) + 0.5, Math.floor(pocket.cell / field.cols) + 0.5);
-    if (at) pockets.push({ s: pocket.s, at, days: pocket.days });
+    const at = pocket.siege || describePoint(arena, (pocket.cell % field.cols) + 0.5, Math.floor(pocket.cell / field.cols) + 0.5);
+    if (at) pockets.push({ s: pocket.s, at, days: pocket.days, ...(pocket.siege ? { siege: true } : {}) });
   });
 
   return {
@@ -154,7 +156,7 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
     const lost = gains(1, most);
     if (took || lost) parts.push(`${lead[0]} took ${took || "none"}`, `lost ${lost || "none"}`);
     const pockets = (Array.isArray(brief.pockets) ? brief.pockets : []).slice(0, 2)
-      .map((pocket) => `Pocket: ${lead[pocket.s]} at ${pocket.at}, ${pocket.days} days.`);
+      .map((pocket) => `${pocket.siege ? "Besieged" : "Pocket"}: ${lead[pocket.s]} at ${pocket.at}, ${pocket.days} days.`);
     return `  Since ${brief.since ?? ""}: ${parts.join("; ")}.${pockets.length > 0 ? ` ${pockets.join(" ")}` : ""}`;
   };
 

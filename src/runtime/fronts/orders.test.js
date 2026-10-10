@@ -183,8 +183,10 @@ test("a region changes hands when six tenths of it are held, not before, and a c
   assert.equal(seen.size, result.flips.length, "each region once");
   assert.deepEqual(result.battlefields[0].brief.taken[0], result.flips.map((flip) => world.regions.find((region) => region.id === flip.regionId).name));
   // A region part held but not yet taken is listed for the map's hatch.
-  assert.ok(result.battlefields[0].contested.some(([id, side]) => side === 0 && !seen.has(id)));
-  assert.ok(result.battlefields[0].held.length > 0);
+  const partway = runFronts(input({ days: 8 }));
+  const takenByThen = new Set(partway.flips.map((flip) => flip.regionId));
+  assert.ok(partway.battlefields[0].contested.some(([id, side]) => side === 0 && !takenByThen.has(id)));
+  assert.ok(partway.battlefields[0].held.length > 0);
 
   // A scenario's ceiling: two regions may change hands in this run, and then nobody advances.
   const capped = runFronts({ ...input({ flipAllowance: 2 }), watch: ({ day, holders }) => { days[day] = Uint8Array.from(holders); } });
@@ -214,11 +216,11 @@ test("a group holds an area without owning it: its gains are takes, and what a s
   assert.equal(seen.troops[0].length > 5 && seen.troops[1].length > 5, true);
 
   // Aland advances into the area: each region it wins is released from the group, and is Aland's as it always was.
-  const won = runFronts(frontInput(world, { ...base, battlefields: [record], days: 8, strengthOf: (name) => (name === "Aland" ? 400 : 100), moments: [{ day: 0, type: "order", battlefield: record.name, side: "Aland", order: "advance", sector: "all" }] }));
+  const won = runFronts(frontInput(world, { ...base, battlefields: [record], days: 8, strengthOf: (name) => (name === "Aland" ? 8 : 2), moments: [{ day: 0, type: "order", battlefield: record.name, side: "Aland", order: "advance", sector: "all" }] }));
   assert.ok(won.flips.length >= 2);
   for (const flip of won.flips) assert.deepEqual([flip.from, flip.to, flip.kind], ["Free East", "Aland", "groupRelease"]);
   // The group advances out of it: each region it wins is a take.
-  const lost = runFronts(frontInput(world, { ...base, battlefields: [record], days: 8, strengthOf: (name) => (name === "Aland" ? 100 : 400), moments: [{ day: 0, type: "order", battlefield: record.name, side: "Free East", order: "advance", sector: "all" }] }));
+  const lost = runFronts(frontInput(world, { ...base, battlefields: [record], days: 8, strengthOf: (name) => (name === "Aland" ? 2 : 8), moments: [{ day: 0, type: "order", battlefield: record.name, side: "Free East", order: "advance", sector: "all" }] }));
   assert.ok(lost.flips.length >= 1);
   for (const flip of lost.flips) assert.deepEqual([flip.from, flip.to, flip.kind], ["Aland", "Free East", "groupTake"]);
   // The next run finds the area as the flips left it.
@@ -278,8 +280,8 @@ test("the frame grows when the line nears its edge, and the line stays where it 
   const roomy = battlefieldOn(world, { troops, orders: [standing(0, "advance")] });
   const arenas = new Map();
   const run = (record, days, extra = {}) => runFronts(frontInput(world, { battlefields: [record], days, steering: steady, arenas, ...extra }));
-  // Before the line is near the edge the frame is as it was.
-  assert.deepEqual(run(tight, 2).battlefields[0].frame, small);
+  // While the line cannot reach the edge in a day's advance the frame is as it was.
+  assert.deepEqual(run(tight, 1).battlefields[0].frame, small);
   const grown = run(tight, 6).battlefields[0];
   assert.ok(grown.frame.cols > small.cols, `${small.cols} columns grew to ${grown.frame.cols}`);
   assert.equal(grown.frame.cell, small.cell, "the same cells, more of them");
@@ -298,6 +300,6 @@ test("the frame grows when the line nears its edge, and the line stays where it 
   const bare = { ...world.map, regions: null };
   const kept = new Map();
   run(tight, 0, { arenas: kept });
-  assert.equal(run(tight, 2, { arenas: kept, map: bare }).needsRegions, undefined);
+  assert.equal(run(tight, 1, { arenas: kept, map: bare }).needsRegions, undefined);
   assert.deepEqual(run(tight, 6, { arenas: kept, map: bare }), { needsRegions: true });
 });

@@ -14,6 +14,12 @@
 // side whose orders are not the engine's to change (a human player's). It is
 // then applied against the orders that side already has, and they are left
 // exactly as they are.
+//
+// A side told to ENCIRCLE a place lays siege to it. For as long as that order
+// stands its troops go round the place and never into it: no step of theirs
+// takes ground within twenty kilometres of it. What they shut in there is
+// besieged (supply.js), and stays so until the order is replaced, the story
+// says the place was captured or the besiegers repulsed, or the ring is opened.
 
 import {
   ATTACK_LAPSE_DAYS,
@@ -23,6 +29,7 @@ import {
   CAPTURED_COLUMN,
   CAPTURED_LOSS,
   COLLAPSE_LEFT,
+  CONTROL_RADIUS_MIN_CELLS,
   EFFORT_FACTORS,
   FRONT_EFFORTS,
   FRONT_ORDERS,
@@ -37,6 +44,7 @@ import {
   OVERRUN_CELLS,
   POOL_PER_TROOP,
   REPULSED_LOSS,
+  SIEGE_SPARE_KM,
 } from "./constants.js";
 import { nearestHeld, redistance, restoreCells, takeCapsule, takeCells } from "./field.js";
 import { WHOLE_LINE, describePoint, findPlace, inSector, placeText, resolveSector, sectorMiddle } from "./sectors.js";
@@ -60,6 +68,32 @@ export const memberOf = (battle, name) => {
     }
   }
   return [-1, -1];
+};
+
+const cellAt = (field, x, y) => (x >= 0 && y >= 0 && x < field.cols && y < field.rows ? Math.floor(y) * field.cols + Math.floor(x) : -1);
+
+// ---- sieges ------------------------------------------------------------------------
+
+// The sieges that stand, from the orders as they are: every order to encircle
+// a place that has not lapsed, unless the place is already the encircler's.
+// battle.sieges becomes [{ by, x, y, cell, at }], `at` the place in words, and
+// battle.spared[side] the ground that side's steps leave alone, as a flat list
+// of x, y and radius in cells. Read again whenever the orders may have changed.
+export const readSieges = (battle) => {
+  const { arena, field, place } = battle;
+  const sieges = [];
+  const spared = [[], []];
+  for (const order of battle.orders) {
+    if (order.order !== "encircle" || !order.objective || order.age >= ATTACK_LAPSE_DAYS) continue;
+    const target = findPlace(arena, order.objective);
+    const cell = target ? cellAt(field, target.x, target.y) : -1;
+    if (cell < 0 || field.holders[cell] === order.s) continue;
+    spared[order.s].push(target.x, target.y, SIEGE_SPARE_KM / place.kmAt(target.y));
+    sieges.push({ by: order.s, x: target.x, y: target.y, cell, at: placeText(target) });
+  }
+  battle.sieges = sieges;
+  battle.spared = spared;
+  battle.siegeKey = sieges.map((siege) => `${siege.by}:${siege.cell}`).join(",");
 };
 
 // ---- standing orders as they read today ------------------------------------------
@@ -87,6 +121,7 @@ export const readOrders = (battle, line, sectors) => {
   }
   battle.views = views;
   battle.haltsToday = battle.halts.map((halt) => ({ s: halt.s, sector: resolveSector(arena, line, sectors, halt.sector) ?? WHOLE_LINE }));
+  readSieges(battle);
 };
 
 // A day passes for the orders: each has stood a day longer, an attack that has
@@ -207,8 +242,6 @@ const giveWay = (battle, side, lossShare, date, reach = OVERRUN_CELLS) => {
   }
 };
 
-const cellAt = (field, x, y) => (x >= 0 && y >= 0 && x < field.cols && y < field.rows ? Math.floor(y) * field.cols + Math.floor(x) : -1);
-
 // "Captured": the objective is the attacker's by the end of the day, by a
 // walk. Its strongest troop nearest the objective, with up to three of its
 // neighbours in column behind it, walks the cheapest way there; the strip it
@@ -328,8 +361,51 @@ const repulse = (battle, side, sector, date) => {
   }
   giveWay(battle, side, 0, date, field.cols + field.rows);
   redistance(field);
+  liftSieges(battle, side, sector, date);
   battle.halts.push({ s: side, sector: sectorText(sector), days: HALT_DAYS });
   battle.ordersChanged += 1;
+};
+
+// A repulsed besieger: its sieges on that sector are lifted. Putting back the
+// ground it took this run opens most rings. One that was closed before the
+// run began is opened by a relief column: from the besieged side's nearest
+// ground outside, the cheapest way in to the place is walked, and what it
+// walks through is that side's again.
+const liftSieges = (battle, side, sector, date) => {
+  const { field, place } = battle;
+  const other = 1 - side;
+  readSieges(battle);
+  for (const siege of battle.sieges) {
+    if (siege.by !== side || !inSector(sector, siege.x, siege.y, place.kmAt)) continue;
+    findPockets(battle);
+    if (battle.pocketOf[other][siege.cell] < 0) continue;
+    let goal = -1;
+    let nearest = Infinity;
+    for (let index = 0; index < field.size; index += 1) {
+      if (field.holders[index] !== other || battle.pocketOf[other][index] >= 0) continue;
+      const dx = (index % field.cols) + 0.5 - siege.x;
+      const dy = Math.floor(index / field.cols) + 0.5 - siege.y;
+      if (dx * dx + dy * dy < nearest) {
+        nearest = dx * dx + dy * dy;
+        goal = index;
+      }
+    }
+    const way = cheapestWay(battle, goal, siege.cell);
+    if (!way) continue;
+    const radius = Math.max(CONTROL_RADIUS_MIN_CELLS, battle.radiusKm[other] / place.kmAt(siege.y));
+    const how = { painter: nearestOwner(battle, other)(goal) };
+    let fromX = (goal % field.cols) + 0.5;
+    let fromY = Math.floor(goal / field.cols) + 0.5;
+    for (const cell of way) {
+      const x = (cell % field.cols) + 0.5;
+      const y = Math.floor(cell / field.cols) + 0.5;
+      takeCapsule(field, other, fromX, fromY, x, y, radius, radius, how);
+      fromX = x;
+      fromY = y;
+    }
+    giveWay(battle, side, 0, date);
+    redistance(field);
+  }
 };
 
 // "Land": the attacker takes a disc of ground at a place the other side holds,

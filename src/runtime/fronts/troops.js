@@ -24,9 +24,11 @@ import { hashSeed } from "../unitMotion.js";
 import {
   ARMOUR_SHARE_BY_ERA,
   ARTILLERY_SHARE_BY_ERA,
-  CONTROL_RADIUS_AT_NOTHING,
-  CONTROL_RADIUS_KM,
+  CONTROL_RADIUS_MAX_KM,
   CONTROL_RADIUS_MIN_CELLS,
+  CONTROL_RADIUS_MIN_KM,
+  CONTROL_RADIUS_OF_SPACING,
+  EFFORT_FACTORS,
   DRIFT_SHARE,
   ENCIRCLE_APART_KM,
   ENCIRCLE_APART_SHARE,
@@ -56,9 +58,9 @@ import {
   TRAIT_DRIVE,
   TRAIT_LAG_DAYS,
   TRAIT_LANE,
-  TROOPS_BASE,
-  TROOPS_KM_EACH,
+  TROOPS_LINE_KM_EACH,
   TROOPS_MIN,
+  TROOPS_PER_STRENGTH,
   TURNS,
   WEIGHT_ADVANCE,
   WEIGHT_BLITZ,
@@ -86,6 +88,8 @@ export const createTroop = ({ x = 0, y = 0, strength = 100, kind = KIND_INFANTRY
   named,
   dig,
   state,
+  // Its side's control radius, in kilometres (sideRadiusKm).
+  radiusKm: CONTROL_RADIUS_MAX_KM,
   // What it drew for this run; an even hand until it draws.
   drive: 1,
   depth: 1,
@@ -127,6 +131,7 @@ export const createTroop = ({ x = 0, y = 0, strength = 100, kind = KIND_INFANTRY
   // Where it stands in the war.
   body: -1,
   pocket: false,
+  besieged: false,
   supply: 1,
   stuck: 0,
 });
@@ -134,11 +139,13 @@ export const createTroop = ({ x = 0, y = 0, strength = 100, kind = KIND_INFANTRY
 export const isLive = (troop) => troop.strength > 0;
 export const liveCount = (troops) => troops.reduce((count, troop) => count + (troop.strength > 0 ? 1 : 0), 0);
 
+// A side's control radius, in kilometres: nine tenths of the length of line
+// each of its troops has, within bounds. The same for every troop of the
+// side, and worked out once a run.
+export const sideRadiusKm = (lineKm, troops) =>
+  Math.min(CONTROL_RADIUS_MAX_KM, Math.max(CONTROL_RADIUS_MIN_KM, (CONTROL_RADIUS_OF_SPACING * lineKm) / Math.max(1, troops)));
 // How far to either side of its path the ground becomes its side's, in cells.
-export const controlRadius = (troop, kmAt) => Math.max(
-  CONTROL_RADIUS_MIN_CELLS,
-  (CONTROL_RADIUS_KM[troop.kind] * (CONTROL_RADIUS_AT_NOTHING + (1 - CONTROL_RADIUS_AT_NOTHING) * troop.strength / 100)) / kmAt(troop.y),
-);
+export const controlRadius = (troop, kmAt) => Math.max(CONTROL_RADIUS_MIN_CELLS, troop.radiusKm / kmAt(troop.y));
 // How far a troop standing on a row fights, in cells.
 export const reachCells = (kmAt, y) => Math.max(REACH_MIN_CELLS, REACH_KM / kmAt(y));
 // How far behind the line it stands when it is not attacking, in cells.
@@ -170,20 +177,24 @@ export const drawTraits = (troop, seed, name, side, index, even = false) => {
 
 // ---- raising -------------------------------------------------------------------
 
-// How many counters each side has on a line of `lineKm`, from the two sides'
-// weights (only their ratio matters). The heavier has a counter for every
-// stretch of line; the other in proportion, never under the least. What the
-// count cannot carry of the ratio is carried by quality.
-export const sizeSides = (lineKm, weights) => {
-  const heavy = weights[1] > weights[0] ? 1 : 0;
-  const light = 1 - heavy;
-  const most = Math.min(MAX_TROOPS_PER_SIDE, Math.max(TROOPS_MIN, Math.round(TROOPS_BASE + lineKm / TROOPS_KM_EACH)));
-  const ratio = weights[heavy] > 0 ? Math.max(0, weights[light]) / weights[heavy] : 1;
-  const counts = [0, 0];
-  counts[heavy] = most;
-  counts[light] = Math.min(most, Math.max(TROOPS_MIN, Math.round(most * ratio)));
-  const quality = [1, 1];
-  quality[light] = Math.min(QUALITY_MAX, Math.max(QUALITY_MIN, (ratio * most) / counts[light]));
+// The most counters a side may have on a line of `lineKm`: one for every
+// stretch of it, so that a short front is not stacked.
+export const troopsCap = (lineKm) => Math.max(TROOPS_MIN, Math.min(MAX_TROOPS_PER_SIDE, Math.floor(lineKm / TROOPS_LINE_KM_EACH)));
+
+// How many counters each side has on a line of `lineKm`. Each is sized by
+// its own strength (what its members bring here) and the effort it is making,
+// and by nothing of the other side's: a great power fields hundreds, a small
+// state a dozen or two. What the count cannot carry of a side's strength,
+// because the line is too short for it or the least is more than it has, its
+// quality carries as far as quality goes; where both sides are over, only what
+// one has over the other.
+export const sizeSides = (lineKm, strengths, efforts = ["major", "major"]) => {
+  const cap = troopsCap(lineKm);
+  const wanted = strengths.map((strength, side) => TROOPS_PER_STRENGTH * Math.max(0, strength) * (EFFORT_FACTORS[efforts[side]] ?? 1));
+  const counts = wanted.map((count) => Math.max(TROOPS_MIN, Math.min(cap, Math.round(count))));
+  const over = wanted.map((count, side) => count / counts[side]);
+  const both = Math.max(1, Math.min(over[0], over[1]));
+  const quality = over.map((share) => Math.min(QUALITY_MAX, Math.max(QUALITY_MIN, share / both)));
   return { counts, quality };
 };
 
@@ -334,7 +345,7 @@ export const planLanes = (battle, side, line, views) => {
     const open = wings.map((wing) => {
       const midX = (contour.x[wing.vertex] + (meet ? meet[0] : aimX)) / 2;
       const midY = (contour.y[wing.vertex] + (meet ? meet[1] : aimY)) / 2;
-      const near = (FLANK_OPEN_RADII * CONTROL_RADIUS_KM[KIND_INFANTRY]) / kmAt(midY);
+      const near = (FLANK_OPEN_RADII * (battle.radiusKm?.[side] ?? CONTROL_RADIUS_MAX_KM)) / kmAt(midY);
       let defenders = 0;
       for (const enemy of battle.troops[1 - side]) {
         const dx = enemy.x - midX;

@@ -4,14 +4,18 @@
 // holds, and thins with distance, so a thrust weakens the further it gets from
 // home.
 //
-// A body of ground with no way back to a source is ENCLOSED, and what becomes
-// of it depends on its size. A small patch, under 1,500 square kilometres, is
-// filled the day the ring closes round it: the gap between two columns that
-// have met, the sliver a thrust left behind. It goes to the other side at
-// once and whoever stood in it is lost. A larger one is a POCKET, a real
-// encirclement: it cannot attack, it defends at half, its troops waste away,
-// and after ten days, or once no troop is left in it, it surrenders. Nothing
-// fills a pocket early; it has to be starved out or walked into.
+// A body of ground with no way back to a source is ENCLOSED. A small patch of
+// it that nobody stands in, under 1,500 square kilometres, is filled the day
+// the ring closes round it: the gap between two columns that have met, the
+// sliver a thrust left behind. Anything else is a POCKET, and a pocket is
+// fought for like any other ground, only at a disadvantage: its troops attack
+// and defend at a share of their power and waste away for want of supply, and
+// after ten days, or once no troop is left in it, it gives up. Until then its
+// troops may break out, or throw the ring back.
+//
+// A place the other side was told to encircle is the one exception: enclosed,
+// it is BESIEGED. It is never filled as a patch whatever its size, its troops
+// waste more slowly, and it holds for forty-five days.
 //
 // What counts as a way back is the subtle part. Encirclements nearly always
 // happen on the defender's own soil, where every cut-off piece still holds
@@ -31,6 +35,7 @@ import {
   HOLDER_SIDE_B,
   PATCH_MAX_KM2,
   POCKET_DAYS,
+  SIEGE_DAYS,
   SUPPLY_EVERY_DAYS,
   SUPPLY_FAR_FACTOR,
   SUPPLY_FULL_KM,
@@ -175,12 +180,15 @@ const suppliedBodies = (battle, side) => {
 };
 
 // Finds the enclosed ground as it now lies. battle.pockets becomes
-// [{ s, cell, days, km2 }], a pocket that was already one keeping the days it
-// has stood, and battle.pocketOf[side][cell] the entry a cell is in, or -1.
-// Worked out again only when ground has changed hands.
+// [{ s, cell, days, km2, siege, told }], a pocket that was already one keeping
+// the days it has stood, and battle.pocketOf[side][cell] the entry a cell is
+// in, or -1. `siege` is the place it is besieged for, in words, or "": a
+// pocket that holds a place the other side was told to encircle; `told` is
+// whether the log has said so. Worked out again only when ground has changed
+// hands, or the sieges that stand have changed.
 export const findPockets = (battle) => {
   const { field, place } = battle;
-  if (battle.pocketTurns === field.turns && battle.pocketOf) return;
+  if (battle.pocketTurns === field.turns && battle.pocketSieges === battle.siegeKey && battle.pocketOf) return;
   const before = battle.pocketOf;
   const known = battle.pockets;
   const pockets = [];
@@ -196,7 +204,7 @@ export const findPockets = (battle) => {
       if (body < 0 || supplied[body] || !touched[body]) continue;
       if (pocketOfBody[body] < 0) {
         pocketOfBody[body] = pockets.length;
-        pockets.push({ s: side, cell: index, days: 0, km2: 0 });
+        pockets.push({ s: side, cell: index, days: 0, km2: 0, siege: "", told: false });
       }
       const pocket = pockets[pocketOfBody[body]];
       const km = place.rowKm[Math.floor(index / field.cols)];
@@ -205,29 +213,52 @@ export const findPockets = (battle) => {
       // Any cell it shares with a pocket that was there before makes it that
       // pocket still, however it has shrunk.
       const was = before ? before[side][index] : known.findIndex((entry) => entry.s === side && entry.cell === index);
-      if (was >= 0 && known[was] && known[was].days > pocket.days) pocket.days = known[was].days;
+      if (was < 0 || !known[was]) continue;
+      if (known[was].days > pocket.days) pocket.days = known[was].days;
+      if (known[was].told) pocket.told = true;
     }
   }
+  for (const siege of battle.sieges) {
+    const index = pocketOf[1 - siege.by][siege.cell];
+    if (index >= 0 && !pockets[index].siege) pockets[index].siege = siege.at;
+  }
+  // A siege that has ended and begins again is news again.
+  for (const pocket of pockets) if (!pocket.siege) pocket.told = false;
   battle.pockets = pockets;
   battle.pocketOf = pocketOf;
   battle.pocketTurns = field.turns;
+  battle.pocketSieges = battle.siegeKey;
 };
 
-// Which troops stand in a pocket today.
+// Which pockets have a live troop of their own side standing in them.
+const mannedPockets = (battle) => {
+  const manned = new Uint8Array(battle.pockets.length);
+  for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
+    for (const troop of battle.troops[side]) {
+      const cell = ownCell(battle.field, side, troop.x, troop.y);
+      if (isLive(troop) && cell >= 0 && battle.pocketOf[side][cell] >= 0) manned[battle.pocketOf[side][cell]] = 1;
+    }
+  }
+  return manned;
+};
+
+// Which troops stand in a pocket today, and which of those in a besieged place.
 export const markPockets = (battle) => {
   findPockets(battle);
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     for (const troop of battle.troops[side]) {
       const cell = ownCell(battle.field, side, troop.x, troop.y);
-      troop.pocket = isLive(troop) && cell >= 0 && battle.pocketOf[side][cell] >= 0;
+      const pocket = isLive(troop) && cell >= 0 ? battle.pocketOf[side][cell] : -1;
+      troop.pocket = pocket >= 0;
+      troop.besieged = pocket >= 0 && battle.pockets[pocket].siege !== "";
     }
   }
 };
 
 // Enclosed ground goes to the other side: every cell of it, painted for the
 // member whose troops are nearest, and the troops that stood in it are lost.
-// The log says where, once: `kind` is "pocket" for one that gave up, "overrun"
-// for a patch that was filled with someone in it.
+// The log says where, once: `kind` is "pocket" for one that gave up; a patch
+// that is filled had nobody in it, and is not news.
 const giveUp = (battle, index, date, kind) => {
   const { field, arena } = battle;
   const pocket = battle.pockets[index];
@@ -256,13 +287,21 @@ const giveUp = (battle, index, date, kind) => {
 // A pocket surrenders now (the story said so): `index` is its place in battle.pockets.
 export const surrenderPocket = (battle, index, date) => giveUp(battle, index, date, "pocket");
 
-// After the day's sweeps: every enclosed patch under the size of a pocket is
-// filled. true when any was.
+// After the day's sweeps: every enclosed patch under the size of a pocket
+// that none of its side's troops stand in is filled, and a place that has just
+// been shut in goes to the log as besieged. true when any patch was filled.
 export const fillPatches = (battle, date) => {
   findPockets(battle);
+  const manned = mannedPockets(battle);
   let any = false;
   for (let index = 0; index < battle.pockets.length; index += 1) {
-    if (battle.pockets[index].km2 >= PATCH_MAX_KM2) continue;
+    const pocket = battle.pockets[index];
+    if (pocket.siege) {
+      if (!pocket.told) battle.log.push({ d: date, k: "siege", s: pocket.s, at: pocket.siege });
+      pocket.told = true;
+      continue;
+    }
+    if (pocket.km2 >= PATCH_MAX_KM2 || manned[index]) continue;
     giveUp(battle, index, date, "overrun");
     any = true;
   }
@@ -271,21 +310,16 @@ export const fillPatches = (battle, date) => {
 };
 
 // The end of a day for the pockets: each is a day older, and one that has
-// stood its ten days, or has no troop left in it, surrenders. true when any did.
+// stood its time (ten days, forty-five for a besieged place), or has no troop
+// left in it, gives up. true when any did.
 export const agePockets = (battle, date) => {
   findPockets(battle);
   let any = false;
-  const manned = new Uint8Array(battle.pockets.length);
-  for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
-    for (const troop of battle.troops[side]) {
-      const cell = ownCell(battle.field, side, troop.x, troop.y);
-      if (isLive(troop) && cell >= 0 && battle.pocketOf[side][cell] >= 0) manned[battle.pocketOf[side][cell]] = 1;
-    }
-  }
+  const manned = mannedPockets(battle);
   for (let index = 0; index < battle.pockets.length; index += 1) {
     const pocket = battle.pockets[index];
     pocket.days += 1;
-    if (manned[index] && pocket.days < POCKET_DAYS) continue;
+    if (manned[index] && pocket.days < (pocket.siege ? SIEGE_DAYS : POCKET_DAYS)) continue;
     giveUp(battle, index, date, "pocket");
     any = true;
   }
@@ -367,11 +401,17 @@ export const refreshSupply = (battle, day, era) => {
   battle.supplyTurns = field.turns;
 };
 
-// How well supplied each troop is where it stands today.
+// How well supplied each troop is where it stands today. A troop that is cut
+// off is not weighed by its distance from home: what being cut off costs it is
+// its own figures (a pocket's share of attack and defence, and its wasting).
 export const markSupply = (battle) => {
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     const supply = battle.supply?.[side];
     for (const troop of battle.troops[side]) {
+      if (troop.pocket) {
+        troop.supply = 1;
+        continue;
+      }
       const cell = ownCell(battle.field, side, troop.x, troop.y);
       const value = supply && cell >= 0 ? supply[cell] : 0;
       // Ground taken since supply was last worked out has no figure yet: a
