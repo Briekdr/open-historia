@@ -111,6 +111,8 @@ export const frontInput = (world, overrides = {}) => {
     sovereignOf: world.sovereignOf,
     groupAreas: {},
     isGroup: () => false,
+    // (A test of something else leaves every side to the orders the test gives it: staff.js is tested by itself.)
+    staff: false,
     units: [],
     map: world.map,
     regionTypes: [],

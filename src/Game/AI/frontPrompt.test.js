@@ -37,6 +37,8 @@ const fought = async () => {
   };
   const run = await runTurnFronts({
     createFrontRun,
+    // (Every side is left to the orders this test gives it: a side's own staff is tested in frontStaff.test.js.)
+    staff: false,
     world,
     events: [{ id: "event-ai-r0002-20240304-001", date: "2024-03-04", title: "The offensive opens", description: "x", impacts: {} }],
     frontOrders: [

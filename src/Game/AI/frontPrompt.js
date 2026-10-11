@@ -70,6 +70,7 @@ const ORDER_LINES = [
   "- weapon: silo missile | submarine missile | nuclear bomber (these three are nuclear) | missile strike | bombing run. from: where it is launched (`structure: X`, `unit: X`, `city: X`), or blank and the game picks. target: the place hit. count: how many missiles or aircraft. shot down: how many of them were intercepted on the way, as a number or all | most | half | some | none. An event that tells of an interception owes this field: those are seen to be met in the air and blown up there, and with all of them shot down nothing reaches the target.",
   "strike~A~bombing run~city: X~4~city: Y~3~24",
   "Every war on the map is fought this way, between countries nobody plays as much as any other: when the story has two of them go to war, open it (its warUpdates record, or an order to attack across their border) and give each side its orders every period.",
+  "A side nobody plays that you give no order is not idle. Its own staff decides for it, by how strong it stands against its enemy and whether it began the war: a general advance where it is much the stronger, an attack on one stretch of the line where it has the edge, holding at even odds, digging in where it is much the weaker. What it decided is among the standing orders shown. Your line for that side replaces it, and stands.",
 ];
 
 // The engine runs AFTER the answer: an order is carried out in this period.
@@ -206,6 +207,8 @@ const byWeight = (records, players) => {
 const NEWS_WORDS = {
   // A country that was in nobody's war until a side's troops were sent into it.
   invaded: (who, at) => `${who} sent its troops into ${at}, which was not in the war and is at war with it from that day`,
+  // A side nobody plays whose own staff sent it over to the attack (runtime/fronts/staff.js).
+  offensive: (who, at) => `${who} went over to the attack ${at === "the whole line" ? "along the whole line" : `in the ${at}`}, on its own staff's decision`,
   // A side whose last troops left the battlefield, and one that came back to it.
   withdrew: (who) => `${who} withdrew the last of its troops from the battlefield, leaving the ground it holds there unguarded`,
   returned: (who) => `${who} sent its troops back onto the battlefield`,

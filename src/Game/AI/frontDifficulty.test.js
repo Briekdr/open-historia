@@ -37,6 +37,8 @@ const turn = async ({ difficulty, players = ["Aland"] } = {}) => {
   };
   const run = await runTurnFronts({
     createFrontRun,
+    // (Every side is left to the orders this test gives it: a side's own staff is tested in frontStaff.test.js.)
+    staff: false,
     world,
     events: [{ id: "event-ai-r0002-20240302-001", date: "2024-03-02", title: "Borduria attacks", description: "x", impacts: {} }],
     frontOrders: [{ id: "front-0", battlefield: "The Border", side: "Borduria", order: "advance", sector: "all", eventIds: ["event-ai-r0002-20240302-001"] }],

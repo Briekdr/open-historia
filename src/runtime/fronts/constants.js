@@ -230,6 +230,26 @@ export const FALL_BACK_MAX_KM = 150;
 // or can go no further back, or after this many days at the most (troops with
 // the sea behind them are taken off where they stand).
 export const WITHDRAW_KM = 60;
+
+// The staff of a side nobody plays (staff.js). It looks at the side every
+// STAFF_REVIEW_DAYS, and leaves alone an order the story gave it until the
+// order has stood STAFF_STORY_ORDER_DAYS. What it decides goes by what the
+// side's troops are worth against the other side's: the side that BEGAN the
+// war advances along the whole line from the first figure and attacks on its
+// best stretch of line from the second (in that share of its reviews); the
+// side defending needs the larger figures to do either. Under the last figure
+// any side digs in. A stretch of line needs this many troops to be attacked from.
+export const STAFF_MARK = "staff";
+export const STAFF_REVIEW_DAYS = 10;
+export const STAFF_STORY_ORDER_DAYS = 45;
+export const STAFF_ATTACKER_ADVANCES = 1.25;
+export const STAFF_ATTACKER_PROBES = 0.9;
+export const STAFF_CHANCE_ATTACKER = 0.7;
+export const STAFF_DEFENDER_ADVANCES = 1.5;
+export const STAFF_DEFENDER_PROBES = 1.15;
+export const STAFF_CHANCE_DEFENDER = 0.5;
+export const STAFF_DIGS_IN_UNDER = 0.55;
+export const STAFF_SECTOR_TROOPS_LEAST = 3;
 export const WITHDRAW_DAYS_MOST = 12;
 export const ATTACK_LAPSE_DAYS = 120;
 // A sector named for a place is the line within this far of the point nearest it.
