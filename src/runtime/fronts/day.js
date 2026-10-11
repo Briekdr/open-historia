@@ -35,6 +35,7 @@ import {
   FLIP_AT,
   GROW_KM,
   GROW_WITHIN_CELLS,
+  OBJECTIVE_GROWS_MOST,
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
   MAX_CELLS,
@@ -414,6 +415,29 @@ export const growIfNeeded = (battle, run, day) => {
   const within = growWithin(battle, run);
   const grow = edgesToGrow(battle, within);
   if (!grow) return false;
+  return growFrame(battle, run, day, grow, within);
+};
+
+// Grows a battle's frame until it holds a place its troops are sent at: a
+// city beyond the edge is nowhere on the battlefield until it does. Towards
+// the place only, a step at a time, and not counted among the times a frame
+// may grow after its line. true when the place is on the frame at the end.
+export const growToHold = (battle, run, day, lng, lat) => {
+  const within = growWithin(battle, run);
+  for (let turn = 0; turn <= OBJECTIVE_GROWS_MOST; turn += 1) {
+    const [x, y] = battle.place.toCell(lng, lat);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const { cols, rows } = battle.frame;
+    const grow = [x < within, y < within, x > cols - within, y > rows - within];
+    if (!grow.some(Boolean)) return true;
+    if (turn === OBJECTIVE_GROWS_MOST || !growFrame(battle, run, day, grow, within, false)) return false;
+  }
+  return false;
+};
+
+// The growing itself: the field and the troops carried onto a frame larger at
+// the edges `grow` names ([west, south, east, north]).
+const growFrame = (battle, run, day, grow, within, counted = true) => {
   const frame = largerFrame(battle.frame, grow, run.input.map, within);
   if (!frame || (frame.cols === battle.frame.cols && frame.rows === battle.frame.rows && frame.cell === battle.frame.cell)) return false;
   const arena = arenaFor(run.input.arenas, run.input.map, frame, run.input.regionTypes);
@@ -422,7 +446,7 @@ export const growIfNeeded = (battle, run, day) => {
   const old = battle.field;
   const before = { arena: battle.arena, lastFlip: battle.lastFlip, startPhi: battle.startPhi, pockets: battle.pockets, cell: battle.frame.cell };
 
-  battle.grown = (battle.grown ?? 0) + 1;
+  if (counted) battle.grown = (battle.grown ?? 0) + 1;
   battle.frame = frame;
   battle.arena = arena;
   battle.place = projectorOf(frame);

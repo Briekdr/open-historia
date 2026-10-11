@@ -39,6 +39,7 @@ import {
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
   HAND_OVER_REACH_CELLS,
+  OBJECTIVE_BEYOND_KM,
   REINFORCED_LINE_MOST,
   REINFORCED_SIZE_MOST,
   REINFORCE_MOST,
@@ -62,7 +63,7 @@ import {
   WITHDRAW_KM,
 } from "./constants.js";
 import { contactAt, findContacts, frameForContact, middleOf } from "./contact.js";
-import { REGIONS_NEEDED, prepare, recordDay, settleRegions, simulateDay, startRecorder } from "./day.js";
+import { REGIONS_NEEDED, growToHold, prepare, recordDay, settleRegions, simulateDay, startRecorder } from "./day.js";
 import { redistance, takeCapsule, traceContour } from "./field.js";
 import { pointInFrame } from "./frame.js";
 import { landWithin, othersOnWay } from "./invade.js";
@@ -72,7 +73,7 @@ import { authoredName } from "./scenarioFronts.js";
 import { sideIsPlayed, staffDecision, staffMayOrder, staffStanding } from "./staff.js";
 import { findPockets } from "./supply.js";
 import { TRANSPORT_ENDED, boundFor, interceptionOf, loadOf, moveOn, normalizeTransports, setOut, struck, transportChance } from "./transports.js";
-import { inSector, resolveSector } from "./sectors.js";
+import { findPlace, inSector, resolveSector } from "./sectors.js";
 import { createTroop, isLive, kindsFor, liveCount, troopsCap, troopsFactor, troopsLeast, troopsWanted } from "./troops.js";
 import { buildWorldGrid, kmBetween, placeAlong, worldSheetKey } from "./worldGrid.js";
 
@@ -875,12 +876,35 @@ const reinforceOnFront = (run, battle, moment, day) => {
   battle.planKey = "";
 };
 
+// A CITY BEYOND THE BATTLEFIELD'S EDGE AS AN OBJECTIVE. "Why do they not see
+// Mexico City": a battlefield's places were the cities inside its frame, and
+// the frame is the box round its line. A city the map has, past the edge and
+// within OBJECTIVE_BEYOND_KM of it, is a place troops can be sent at: the
+// frame grows to hold it before the order is read, and the order then finds
+// it as it finds any other. (A region, a structure or a formation named is
+// looked for where it always was.)
+const holdObjective = (run, battle, objective, day) => {
+  const text = clean(objective);
+  if (!text || battle.status === "closed" || !battle.field || findPlace(battle.arena, text)) return false;
+  const colon = text.indexOf(":");
+  const kind = colon >= 0 ? fold(text.slice(0, colon)) : "";
+  const name = fold(colon >= 0 ? text.slice(colon + 1) : text);
+  if (!name || (kind && kind !== "city")) return false;
+  const city = (Array.isArray(run.input?.map?.cities) ? run.input.map.cities : []).find((entry) => fold(entry?.name) === name);
+  if (!city || !Number.isFinite(Number(city.lng)) || !Number.isFinite(Number(city.lat))) return false;
+  const [x, y] = battle.place.toCell(Number(city.lng), Number(city.lat));
+  const beyond = Math.max(0, -x, x - battle.frame.cols, -y, y - battle.frame.rows);
+  if (!(beyond * battle.frame.km <= OBJECTIVE_BEYOND_KM)) return false;
+  return growToHold(battle, run, day, Number(city.lng), Number(city.lat));
+};
+
 // An order on a battlefield that is fought over (or frozen): put to its side as it is.
 const orderOnFront = (run, battle, moment, day) => {
   if (moment.order === REINFORCE_ORDER) {
     reinforceOnFront(run, battle, moment, day);
     return;
   }
+  if (moment.objective) holdObjective(run, battle, moment.objective, day);
   // A side that had withdrawn and is told anything else comes back first, and the order is put to those who came.
   const ordered = sideOfName(battle, moment.side);
   if (battle.status === "active" && ordered >= 0 && battle.away[ordered] && FRONT_ORDERS.includes(moment.order) && moment.order !== "withdraw") {
@@ -1741,6 +1765,8 @@ const begin = (run) => {
     readSieges(battle);
     findPockets(battle);
     startRecorder(battle, run, 0);
+    // (An order written onto the record for a city beyond the frame's edge, by a general in the war room: the frame holds it first.)
+    if (battle.status === "active") for (const order of battle.orders.slice()) if (order.objective) holdObjective(run, battle, order.objective, 0);
     assignStanding(run, battle);
     markAttacks(run, battle);
   }

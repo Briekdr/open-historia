@@ -153,6 +153,13 @@ export const REPAINT_BELOW = 0.4;
 // The frame grows when the line comes this near its edge, by this much.
 export const GROW_WITHIN_CELLS = 6;
 export const GROW_KM = 250;
+// A PLACE BEYOND THE EDGE. A battlefield's frame is the box round its line,
+// and a city past it was no place of the battlefield's: an order aimed at it
+// found nothing ("Mexico City isn't on our operational maps, Commander").
+// The frame now grows to hold a city its troops are sent at, when the city is
+// within this far of its edge (day.js growToHold), in at most so many steps.
+export const OBJECTIVE_BEYOND_KM = 1500;
+export const OBJECTIVE_GROWS_MOST = 8;
 // The drawn line: how far a vertex may be left out of it, in cells.
 export const LINE_SIMPLIFY_CELLS = 0.04;
 
