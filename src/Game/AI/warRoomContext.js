@@ -12,8 +12,8 @@
 
 import { describeBattlefield } from "../../runtime/fronts/brief.js";
 import { chosenOrdersOf, commandTitle, generalsOf, talkOf } from "../../runtime/fronts/command.js";
-import { GENERAL_NAME_MAX, HOLDER_SIDE_A, HOLDER_SIDE_B, WAR_ROOM_ORDERS } from "../../runtime/fronts/constants.js";
-import { pointInFrame } from "../../runtime/fronts/frame.js";
+import { GENERAL_NAME_MAX, HOLDER_SIDE_A, HOLDER_SIDE_B, OBJECTIVE_BEYOND_KM, WAR_ROOM_ORDERS } from "../../runtime/fronts/constants.js";
+import { pointInFrame, projectorOf } from "../../runtime/fronts/frame.js";
 import { battlefieldSideOf, findBattlefield, holderAt, isOpenBattlefield } from "../../runtime/fronts/record.js";
 
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -90,7 +90,7 @@ const generalName = (value) => clean(value).replace(ARMY_BEHIND, "").replace(ARM
 
 // The places of the battlefield a general may be sent at: its cities, the
 // largest first, each with who holds it today.
-export const describePlaces = (record, cities, { most = 36 } = {}) => {
+export const describePlaces = (record, cities, { most = 36, side = -1 } = {}) => {
   const lead = [record.sides[HOLDER_SIDE_A]?.[0] ?? "", record.sides[HOLDER_SIDE_B]?.[0] ?? ""];
   const seen = new Set();
   const inside = [];
@@ -103,8 +103,62 @@ export const describePlaces = (record, cities, { most = 36 } = {}) => {
     inside.push({ name, holder, weight: (Number(city.population) || 0) + (city.capital ? 1e9 : 0) });
   }
   inside.sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name));
-  if (inside.length === 0) return "(no named place on this battlefield)";
-  return inside.slice(0, most).map((city) => `city: ${city.name} (held by ${lead[city.holder]})`).join("; ");
+  const here = inside.length === 0 ? "(no named place on this battlefield)" : inside.slice(0, most).map((city) => `city: ${city.name} (held by ${lead[city.holder]})`).join("; ");
+  // And the places past its edge: the battlefield is the box round the line,
+  // and a general asked to march on a capital beyond it has to know it is there.
+  const beyond = placesBeyond(record, cities, { side });
+  if (beyond.length === 0) return here;
+  const told = beyond.map((city) => `city: ${city.name} (${city.capital ? "a capital, " : ""}about ${city.km} km ${city.way} of the battlefield's edge, beyond the ground ${lead[city.holder]} holds)`).join("; ");
+  return `${here}\nBeyond its present edge, where the battlefield grows to when troops are sent there: ${told}`;
+};
+
+// The cities past a battlefield's edge that troops can be sent at (the engine
+// grows the frame to hold one: runtime/fronts/engine.js holdObjective), nearest
+// the ground the OTHER side holds first: those are what an advance is aimed
+// at. Each says how far past the edge it lies and which way, and whose ground
+// the edge is there.
+//   [{ name, capital, km, way, holder }]
+//   side   whose war room it is: the other side's ground first, and `own` of its own rear
+export const placesBeyond = (record, cities, { most = 14, own = 4, side = -1 } = {}) => {
+  const frame = record?.frame;
+  if (!frame || !record.field) return [];
+  const place = projectorOf(frame);
+  const seen = new Set();
+  const found = [];
+  for (const city of Array.isArray(cities) ? cities : []) {
+    const name = clean(city?.name);
+    const lng = Number(city?.lng);
+    const lat = Number(city?.lat);
+    if (!name || seen.has(fold(name)) || !Number.isFinite(lng) || !Number.isFinite(lat) || pointInFrame(frame, lng, lat)) continue;
+    const [x, y] = place.toCell(lng, lat);
+    const out = Math.max(0, -x, x - frame.cols, -y, y - frame.rows);
+    const km = out * frame.km;
+    if (!(km <= OBJECTIVE_BEYOND_KM)) continue;
+    // Whose ground the battlefield is where the city lies past it: the first
+    // ground of either side's on the way in from that point of the edge. (The
+    // edge itself is often sea, or the margin the frame keeps round its land.)
+    const fromX = Math.min(frame.cols - 0.5, Math.max(0.5, x));
+    const fromY = Math.min(frame.rows - 0.5, Math.max(0.5, y));
+    const inX = frame.cols / 2 - fromX;
+    const inY = frame.rows / 2 - fromY;
+    const reach = Math.sqrt(inX * inX + inY * inY) || 1;
+    let holder = -1;
+    for (let step = 0; step <= reach && holder < 0; step += 1.5) {
+      const [atLng, atLat] = place.toLngLat(fromX + (inX * step) / reach, fromY + (inY * step) / reach);
+      const held = holderAt(record, atLng, atLat);
+      if (held === HOLDER_SIDE_A || held === HOLDER_SIDE_B) holder = held;
+    }
+    if (holder < 0) continue;
+    seen.add(fold(name));
+    // (A frame's rows count from the south.)
+    const upDown = y < 0 ? "south" : y > frame.rows ? "north" : "";
+    const across = x < 0 ? "west" : x > frame.cols ? "east" : "";
+    found.push({ name, capital: city.capital === true, km: Math.max(10, Math.round(km / 10) * 10), way: `${upDown}${upDown && across ? "-" : ""}${across}`, holder, weight: (Number(city.population) || 0) + (city.capital ? 1e9 : 0) });
+  }
+  const ranked = (list) => list.sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name));
+  if (side !== HOLDER_SIDE_A && side !== HOLDER_SIDE_B) return ranked(found).slice(0, most);
+  const theirs = ranked(found.filter((city) => city.holder !== side)).slice(0, Math.max(0, most - own));
+  return [...theirs, ...ranked(found.filter((city) => city.holder === side)).slice(0, own)];
 };
 
 // What has been said so far, oldest first, as the model reads it.
@@ -130,7 +184,7 @@ export const warRoomVariables = ({ record, side, player, cities, intel = "" }) =
   warRoomGenerals: describeGenerals(record, side),
   warRoomNaming: namingText(record, side, player),
   warRoomBattlefieldBrief: describeBattlefield(record, { viewer: player }),
-  warRoomPlaces: describePlaces(record, cities),
+  warRoomPlaces: describePlaces(record, cities, { side }),
   warRoomIntel: clean(intel) || "Nothing beyond what the battlefield shows.",
   warRoomTranscript: describeTalk(record, side),
 });
@@ -188,6 +242,9 @@ export const readWarRoomAnswer = (payload, { record, side, cities = null }) => {
   const places = Array.isArray(cities)
     ? new Map(cities.filter((city) => clean(city?.name) && pointInFrame(record.frame, Number(city.lng), Number(city.lat))).map((city) => [fold(city.name), clean(city.name)]))
     : null;
+  // (A city past the battlefield's edge that troops can be sent at is a place an order may name.)
+  // (Any of them, whichever the list he was shown had room for: he may have been told of one by the commander.)
+  if (places) for (const city of placesBeyond(record, cities, { most: 800 })) if (!places.has(fold(city.name))) places.set(fold(city.name), city.name);
   const orders = [];
   const told = new Set();
   for (const raw of Array.isArray(payload?.orders) ? payload.orders : []) {
