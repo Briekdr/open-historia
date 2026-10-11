@@ -81,12 +81,17 @@ test("the battlefield layer uses the pair, and clears to grey only where the map
   const layers = read("./FrontLayers.jsx");
   assert.match(layers, /const \{ take, put \} = createFrontBasemapLayers\(\{/);
   assert.match(layers, /onState: \(working\) => setSeenThrough\(working === true\),/);
-  // The territory's colour is taken away only under a picture the map is really drawing: a player's
-  // screenshot showed bare map with no colour on it, where the map had refused the picture.
-  assert.match(layers, /pictures: \(\) => picturesRef\.current\.filter\(\(picture\) => \{\s*try \{\s*return Boolean\(mapInstance\.getLayer\(frontPaintLayerId\(picture\.slot\)\)\) && mapInstance\.isSourceLoaded\(frontPaintSourceId\(picture\.slot\)\);/);
+  // The bare map and the colour over it are ONE drawing, from the picture itself: a player's
+  // screenshots showed bare map with no colour on it where the map had refused its own copy of the
+  // picture, and then pale lines along every edge of the painted ground where the two drawings met.
+  assert.ok(layers.includes("pictures: () => picturesRef.current,"));
+  assert.ok(layers.includes("strength: politicalFillOpacityAtZoom,"));
+  // So the map's own two picture layers are drawn only where the map cannot be copied.
   assert.match(layers, /"raster-opacity": seenThrough \? 0 : PAINT_CLEAR_OPACITY,/);
-  // The paint itself is laid at the strength the map gives a country's own land.
+  assert.match(layers, /"raster-opacity": seenThrough \? 0 : PAINT_OPACITY,/);
   assert.match(layers, /const PAINT_OPACITY = \["interpolate", \["linear"\], \["zoom"\], \.\.\.POLITICAL_FILL_OPACITY_STOPS\.flat\(\)\];/);
   const shader = read("./frontBasemapLayer.js");
-  assert.match(shader, /vec3 base = texture\(u_base, gl_FragCoord\.xy \/ u_size\)\.rgb;\s*colour = vec4\(base \* painted, painted\);/);
+  // The taker's colour over the bare map at the strength of a country's fill, as solid as the picture is there.
+  assert.ok(shader.includes("colour = vec4(base * (1.0 - u_strength) * paint.a + paint.rgb * u_strength, paint.a);"));
+  assert.ok(shader.includes("gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);"));
 });
