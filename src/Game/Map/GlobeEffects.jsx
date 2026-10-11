@@ -17,6 +17,7 @@ import {
 } from "./globeCelestialCanvas.js";
 import { MAP_SETTING_KEYS, useMotionSetting } from "../../runtime/mapSettings.js";
 import { isConstrainedDevice } from "../../runtime/deviceProfile.js";
+import { useWarRoom } from "./warRoomStore.js";
 
 const ROTATION_DEG_PER_MS = 360 / (10 * 60 * 1000);
 const INTERACTION_GRACE_MS = 3000;
@@ -70,8 +71,11 @@ let sunWorldPosition = subsolarPoint();
 
 const GlobeEffects = ({ active }) => {
   const { current: map } = useMap();
-  // Off by the player's switch, or by the system's reduced-motion setting.
-  const autoRotateDisabled = useMotionSetting(MAP_SETTING_KEYS.disableIdleRotation);
+  // Off by the player's switch, or by the system's reduced-motion setting. And
+  // while the war room is open: there the map is being read and drawn on, and a
+  // planet that turns by itself under a route half drawn is in the way.
+  const warRoomOpen = useWarRoom((state) => state.open);
+  const autoRotateDisabled = useMotionSetting(MAP_SETTING_KEYS.disableIdleRotation) || warRoomOpen;
 
   useEffect(() => {
     if (!active || !map) return undefined;

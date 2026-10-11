@@ -681,6 +681,28 @@ export const extractTree = (root) => {
   return { exact, patterns, errors };
 };
 
+// The gameplay features a scenario's and a game's editors list (the Features
+// tab) are defined under server/ (server/gameFeatures.js FEATURE_DEFINITIONS:
+// both stores read them, and server code never imports src/), where
+// interfaceFiles does not look. What the tab renders of them is interface text
+// all the same: each feature's label and description, each setting's label,
+// unit and description, and each choice it offers. Handed the definitions
+// rather than reading them, so a tree that has none gives none.
+export const featureDefinitionStrings = (definitions) => {
+  const out = [];
+  const add = (...texts) => {
+    for (const text of texts) if (typeof text === "string" && text.trim()) out.push(text);
+  };
+  for (const definition of Array.isArray(definitions) ? definitions : []) {
+    add(definition?.label, definition?.description);
+    for (const setting of Array.isArray(definition?.settings) ? definition.settings : []) {
+      add(setting?.label, setting?.unit, setting?.description);
+      for (const option of Array.isArray(setting?.options) ? setting.options : []) add(option?.label, option?.description);
+    }
+  }
+  return [...new Set(out)];
+};
+
 // How an extracted string is written into public/lang/catalog-en.json, or null
 // when it is not worth a catalog entry (build-catalog.mjs, and the test that
 // keeps the committed catalog in step with the source).

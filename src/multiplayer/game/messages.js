@@ -21,7 +21,13 @@ import { SETTINGS_SCHEMA } from "../host/settings.js";
 // A host and its players must speak the same game: raised whenever these
 // messages or the views (host/projection.js) change in a way an older player's
 // screen would misread. The session refuses a player on another version.
-export const SHARED_GAME_VERSION = "3";
+// 4: the world a player is sent has battlefields in it (their troops, the
+// replay of the last run, the regions still drawn as their old holder's), and
+// a screen from before would draw land war as loose units that are not there.
+// 5: a battlefield's war room is its side's own (its generals, its talk, its
+// planned movements are no longer sent to the other side), and a player can ask
+// the host for what is done in one (the "warroom" request).
+export const SHARED_GAME_VERSION = "5";
 
 // Orders are free text in single player; in a shared game one is held to this.
 export const ORDER_MAX_CHARS = 1500;
@@ -56,6 +62,13 @@ export const PLAYER_REQUESTS = Object.freeze({
   // approximately (runtime/structurePlacement.js): kept where it stands, or,
   // with `move`, put at `lng`, `lat`.
   settle: obj({ t: literal("settle"), id: REQUEST_ID, marker: str(160, { min: 1 }), move: bool(), lng: num(-180, 180), lat: num(-90, 90) }),
+  // The war room (runtime/fronts/warRoomOps.js): one thing the player does on a
+  // battlefield its troops are on: an order for troops picked out, a route
+  // drawn for them, what was said to its generals and what they took from it,
+  // a diversion, a Board operation's arrow. The op is plain JSON; the host
+  // cuts it to an op's own fields and sizes (cleanWarRoomOp) before it reads
+  // a word of it, and the session holds the message to its own size limit.
+  warroom: obj({ t: literal("warroom"), id: REQUEST_ID, op: json(4) }),
   // The player's agents: place one in `target`, call `spy` home, send a
   // caught one home or turn it, and say what a turned one reports.
   agent: obj({

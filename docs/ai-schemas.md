@@ -46,6 +46,7 @@ Diplomatic speaker routing is deliberately absent from this table: one-on-one th
 | `idleDiplomacy` | `IDLE_DIPLOMACY_SCHEMA` | `submit_idle_diplomacy` | idle inbox drip |
 | `pregameHistory` | `PREGAME_HISTORY_SCHEMA` | `submit_pregame_history` | pre-game backstory |
 | `listenIn` | `LISTEN_IN_SCHEMA` | `submit_listen_in_feed` | `generateListenInFeed`: the Listen in phone's feed |
+| `warRoom` | `WAR_ROOM_SCHEMA` | `submit_war_room_reply` | `generateWarRoomReply`: what the player's generals answer in the war room. `{ lines[{ speaker, text, stance }], orders[{ command, order, objective }], generals[] }`; a general is named by his army ("1st Army"), never by an id. Read by `readWarRoomAnswer` (`warRoomContext.js`), which drops an order whose general's `stance` is `objects` and an objective that is not a city of the battlefield |
 
 `getGameplayTool` returns `null` for an unknown key; `validateGameplayPayload` returns `{ valid: false, error: "Unknown gameplay task key: …" }`.
 

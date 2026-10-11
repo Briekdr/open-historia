@@ -208,6 +208,12 @@ export const PROMPT_GUIDANCE = Object.freeze({
         "with nothing in them the age does not have.",
         "The people, what they talk about, the posts about nothing in particular, and how a post reads."),
     ]),
+    warRoom: Object.freeze([
+      segment("voices", "How the generals speak and when they object",
+        "[How They Speak]",
+        "and know nothing the battlefield and the record below do not show.",
+        "Their manner, how many answer, when one pushes back, and when he gives way."),
+    ]),
   }),
 });
 

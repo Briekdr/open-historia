@@ -267,6 +267,12 @@ export const PROMPT_SECTION_DEFINITIONS = [
     label: "Listen In",
     type: "task",
   },
+  {
+    description: "The generals in the war room: how they answer the player over a battlefield, when they push back, and how an order they accept is written down. The war room opens from the red button that appears while the player's troops are on a battlefield.",
+    key: "warRoom",
+    label: "War Room",
+    type: "task",
+  },
 ];
 
 export const PROMPT_TASK_KEYS = Object.keys(PROMPT_TASK_DEFAULTS);

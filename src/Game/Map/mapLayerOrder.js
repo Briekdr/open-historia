@@ -23,6 +23,34 @@ export const MAP_LAYER_ORDER = [
   "custom-regions-disputed-vnext",
   // A group's area tints the land it controls, over every fill and stripe.
   "group-areas-tint",
+  // The ground a battlefield's troops have taken, painted in their colour
+  // over the regions' own: one picture a battlefield, laid twice
+  // (FrontLayers.jsx): first to clear the ground of the colour under it,
+  // then in the taker's.
+  "fronts-paint-under-0",
+  "fronts-paint-under-1",
+  "fronts-paint-under-2",
+  "fronts-paint-under-3",
+  "fronts-paint-under-4",
+  "fronts-paint-under-5",
+  "fronts-paint-under-6",
+  "fronts-paint-under-7",
+  "fronts-paint-under-8",
+  "fronts-paint-under-9",
+  "fronts-paint-under-10",
+  "fronts-paint-under-11",
+  "fronts-paint-0",
+  "fronts-paint-1",
+  "fronts-paint-2",
+  "fronts-paint-3",
+  "fronts-paint-4",
+  "fronts-paint-5",
+  "fronts-paint-6",
+  "fronts-paint-7",
+  "fronts-paint-8",
+  "fronts-paint-9",
+  "fronts-paint-10",
+  "fronts-paint-11",
 
   // Sovereign frontiers are presentation, but must remain above every
   // political fill and below every semantic object/label layer.
@@ -31,6 +59,13 @@ export const MAP_LAYER_ORDER = [
   // ...and its outline sits above the sovereign borders it may run along.
   "group-areas-outline-casing",
   "group-areas-outline",
+  // The ways a battlefield's troops have come: a faint line along what they
+  // walked long ago, and arrows raised off the map (shadow, edge, face) along
+  // their last days, over the borders and under every label.
+  "fronts-arrows-past",
+  "fronts-arrows-shadow",
+  "fronts-arrows-edge",
+  "fronts-arrows",
 
   // Draped standing-order lines belong above map cartography but below symbols.
   "units-heading",
@@ -59,10 +94,39 @@ export const MAP_LAYER_ORDER = [
   "markers-shapes-local",
   "markers-labels-local",
 
+  // A battlefield's troops stand over the cities they fight for, and under the
+  // formations that have counters of their own.
+  // The war room's planned movements lie under the troops that are to make
+  // them (WarRoomLayers.jsx); its marks on the troops are among their layers.
+  "warroom-plans-casing",
+  "warroom-plans",
+  "warroom-plans-decoy",
+  "warroom-plans-head",
+  "warroom-plans-label",
+  "fronts-sides-lit",
+  "fronts-sides",
+  "fronts-sides-count",
+  "fronts-troops-lit",
+  "fronts-troops-dug",
+  "fronts-troops",
+  "fronts-troops-picked",
+  "fronts-troops-kind",
+  "fronts-troops-name",
+
+  // Transporters cross the map over the fronts they sail to (TransportLayers.jsx).
+  "transports-way-casing",
+  "transports-way",
+  "transports-icons",
+  "transports-lost",
+
   // Unit counters are interactive operational objects and remain topmost.
   "units-fill",
   "units-icons",
   "units-name",
+
+  // What flies over all of it: missiles, aircraft and what they do where they
+  // arrive (StrikeLayers.jsx). Nothing in it can be clicked.
+  "strikes-flight",
 ];
 
 const NATGEO_REFERENCE_TIER_METADATA_KEY = "openhistoria:natgeo-reference-tier";

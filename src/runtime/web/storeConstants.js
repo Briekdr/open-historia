@@ -103,6 +103,9 @@ export const TEMPLATE_WORLD_OVERRIDE_KEYS = [
   // The scenario's pre-history (src/runtime/scenarioPrehistory.js): applied by
   // the game the first time it is opened, then dropped from its world.
   "prehistory",
+  // The fronts the scenario begins with (src/runtime/fronts/scenarioFronts.js):
+  // built into battlefields the first time the game is opened, then dropped.
+  "scenarioFronts",
 ];
 
 export const SUPPORTED_IMAGE_CONTENT_TYPES = new Set([

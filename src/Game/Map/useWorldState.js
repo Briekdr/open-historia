@@ -4,6 +4,7 @@ import { recordMapTrace, recordMapWork } from "../../runtime/mapPerfTrace.js";
 import { buildOwnerAliasMap, createOwnerResolver } from "../../runtime/ownerNames.js";
 import { normalizeGroupAreas, normalizeGroups } from "../../runtime/groups.js";
 import { normalizeRegionTypes } from "../../runtime/regionTypes.js";
+import { battlefieldHeldClaimants } from "../../runtime/fronts/heldRegions.js";
 import { mapViewOf } from "../../../server/mapProjection.js";
 
 // Map-facing world store — R5.0 event-driven edition.
@@ -138,6 +139,25 @@ export const withSettledClaims = (claimants, settled) => {
   return next;
 };
 
+// Ground one side of a battlefield has taken from the other is drawn as the
+// taker's, not in a disputed region's stripes (runtime/fronts/heldRegions.js).
+// The world is cleaned of those claimants when a turn's land war is written;
+// this is the same rule laid over what the map draws, so that a game saved
+// before then is right as soon as it is opened. The list given comes back when
+// there is nothing to take off it.
+export const withoutHeldDisputes = (claimants, state, owners) => {
+  const changed = battlefieldHeldClaimants({
+    battlefields: state?.battlefields,
+    owners,
+    sovereigns: state?.regionSovereigntyOverrides,
+    claimants,
+  });
+  if (changed.size === 0) return claimants;
+  const next = { ...claimants };
+  for (const [regionId, kept] of changed) next[regionId] = kept.length > 0 ? kept : NO_CLAIMANTS;
+  return next;
+};
+
 const deriveMapState = (state) => ({
   worldState: state,
   worldKnown: Boolean(state && Object.keys(state).length > 0),
@@ -156,7 +176,7 @@ const deriveMapState = (state) => ({
     const folded = foldOwnerTokens(state);
     return {
       regionOwnershipOverrides: folded.overrides,
-      regionClaimants: withSettledClaims(folded.claimants, state?.settledRegionClaims),
+      regionClaimants: withoutHeldDisputes(withSettledClaims(folded.claimants, state?.settledRegionClaims), state, folded.overrides),
     };
   })(),
   polityOverrides: state?.polityOverrides ?? EMPTY_OBJECT,

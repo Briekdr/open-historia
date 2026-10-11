@@ -493,6 +493,7 @@ const FINGERPRINTS = [
   "1yezqx139eq",
   "1yfld26dhwb",
   "1yi1g4zbqyl",
+  "1yn0igihn8c",
   "1yn9pzy9a33",
   "1yps2uc66cx",
   "1yqjx29tqp6",

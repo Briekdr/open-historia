@@ -251,6 +251,8 @@ export const mergeSegmentPayloads = (payloads, { targetDate = "" } = {}) => {
   const relationUpdates = [];
   const agreementUpdates = [];
   const puppetUpdates = [];
+  // The battlefields' orders (nativeFrontLedger.js), carried the same way.
+  const frontOrders = [];
   const storylineUpdates = [];
   const summaries = [];
   let clearActions = true;
@@ -263,6 +265,7 @@ export const mergeSegmentPayloads = (payloads, { targetDate = "" } = {}) => {
     relationUpdates.push(...asLedgerRecords(payload.relationUpdates));
     agreementUpdates.push(...asLedgerRecords(payload.agreementUpdates));
     puppetUpdates.push(...asLedgerRecords(payload.puppetUpdates));
+    frontOrders.push(...asLedgerRecords(payload.frontOrders));
     storylineUpdates.push(...asLedgerRecords(payload.storylineUpdates));
     const summary = normalizeString(payload.summary);
     if (summary) summaries.push(summary);
@@ -276,6 +279,7 @@ export const mergeSegmentPayloads = (payloads, { targetDate = "" } = {}) => {
     agreementUpdates,
     diplomaticOutreach,
     events,
+    frontOrders,
     puppetUpdates,
     relationUpdates,
     stopDate: stopDate || normalizeString(targetDate),

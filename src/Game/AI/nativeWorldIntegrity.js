@@ -611,6 +611,9 @@ const eventHasLedgerTrigger = (candidate, zeroBasedEventIndex) => {
     candidate?.warUpdates,
     candidate?.relationUpdates,
     candidate?.agreementUpdates,
+    // An order to a battlefield rests on its events the same way, and carries
+    // their numbers in the same field (nativeFrontLedger.js).
+    candidate?.frontOrders,
   ].some((value) =>
     transportReferencesEventNumber(value, oneBased)
   );
@@ -3272,6 +3275,7 @@ const provenanceRecordCollections = (candidate) => [
   candidate?.institutionUpdates,
   candidate?.storylineUpdates,
   candidate?.countryStatPatches,
+  candidate?.frontOrders,
 ].filter(Array.isArray);
 
 const eventHasCanonicalProvenanceDependencies = (candidate, event, eventIndex) => {
@@ -3583,10 +3587,14 @@ const playerSovereignChoiceReason = (event, verdict, actions) => {
 // writing is marked by exactly the rule that will judge it when the turn lands.
 // The screen hands in its one identity index for the batch (`resolver`); the
 // preview, judging one card, builds its own.
-const singleEventScreenVerdict = (event, { world = {}, game = {}, resolver = null } = {}) => {
+// `ordered`: an order to a battlefield rests on this event (nativeFrontLedger.js).
+// It carries no operation of its own, because the front engine works out what
+// comes of the order, so it reads as military news with no consequence when it
+// is the one event the map is about to move on. It is not routine.
+const singleEventScreenVerdict = (event, { world = {}, game = {}, resolver = null, ordered = false } = {}) => {
   const wartimeReason = falseNonBelligerentWartimeReason(event, world, normalizeString(game?.country), resolver);
   if (wartimeReason) return { fate: "reject", route: "NON_BELLIGERENT_WARTIME_CAUSALITY", reason: wartimeReason };
-  const routineReason = routineMilitaryNoDeltaReason(event);
+  const routineReason = ordered ? "" : routineMilitaryNoDeltaReason(event);
   if (routineReason) return { fate: "hide", route: "ROUTINE_MILITARY_PRECURATION", reason: routineReason };
   const administrativeReason = routineAdministrativeNoDeltaReason(event);
   if (administrativeReason) return { fate: "hide", route: "ROUTINE_ADMINISTRATIVE_PROCESS", reason: administrativeReason };
@@ -3619,9 +3627,15 @@ export const screenGeneratedWorldEvents = ({
   // The segment's agreement records, bound to its events by id: the parties
   // of a treaty an event starts are who made that choice.
   agreementUpdates = [],
+  // The segment's orders to its battlefields, bound the same way: an event one
+  // rests on is not routine military news.
+  frontOrders = [],
 } = {}) => {
   const kept = [];
   const dropped = [];
+  const orderedEventIds = new Set(normalizeArray(frontOrders)
+    .flatMap((order) => normalizeArray(order?.eventIds).map(normalizeString))
+    .filter(Boolean));
   // Canonical events kept off the timeline by a VISIBILITY rule (routine,
   // low-value) are handed on whole: they still happened, and the Board reads
   // every Canonical event. `dropped` stays the audit of everything removed; a
@@ -3716,7 +3730,12 @@ export const screenGeneratedWorldEvents = ({
       });
       continue;
     }
-    const verdict = singleEventScreenVerdict(event, { world, game, resolver });
+    const verdict = singleEventScreenVerdict(event, {
+      world,
+      game,
+      resolver,
+      ordered: orderedEventIds.has(normalizeString(event?.id)),
+    });
 
     if (verdict?.fate === "reject") {
       dropped.push({

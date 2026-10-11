@@ -4405,6 +4405,9 @@ const ToolView = ({ tool, header, busy, status, game, polities, refresh, runBusy
                         HOW THINGS GO FOR YOU
                     </strong>
                     Difficulty decides how things tend to go for you. On the easy levels your orders usually succeed and luck breaks your way; on Medium the world is realistic; on the hard levels your orders fall short and luck breaks against you. At every level each outcome has a cause, and what you order is always attempted.
+                    <div style={{ marginTop: "0.32rem" }}>
+                        On battlefields the level is also a stated handicap. Medium is realistic and fair. Above it the armies fighting you fight harder, advance faster and are reinforced more, hugely so on Impossible. Below it they are the ones held back.
+                    </div>
                 </div>
 
                 <div style={{ display: "grid", gap: "0.42rem", gridTemplateColumns: "1fr 1fr" }}>
