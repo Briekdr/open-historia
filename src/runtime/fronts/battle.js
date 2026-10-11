@@ -35,7 +35,7 @@ import {
   MAX_TROOPS_PER_SIDE,
   NAMED_WITHIN_KM,
   POOL_PER_TROOP,
-  STAFF_MARK,
+  LINE_MARKS,
   REDISTANCE_REACH_CELLS,
   REPAINT_BELOW,
   TROOP_UNITS,
@@ -763,7 +763,7 @@ export const saveBattle = (battle, run, day, changes, brief) => {
       ...(by ? { by } : {}),
       ...(chosen ? { chosen: true } : {}),
       // (What wrote an order for troops picked out; and, of an order for a stretch of line, that the side's own staff did.)
-      ...((chosen || mark === STAFF_MARK) && mark ? { mark } : {}),
+      ...((chosen || LINE_MARKS.includes(mark)) && mark ? { mark } : {}),
       ...(Array.isArray(way) && way.length > 0 ? { way } : {}),
       ...(chosen && Array.isArray(attacks) && attacks.length > 0 ? { attacks: attacks.slice() } : {}),
     })),

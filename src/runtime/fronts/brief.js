@@ -10,7 +10,7 @@
 // Every name carries its kind ("city: Kyiv", "region: Donbas") and nothing in
 // it is an id: a model writes back the names it was shown.
 
-import { BRIEF_TEXT_MAX, HOLDER_SIDE_A, HOLDER_SIDE_B, RESERVES_AMPLE_PER_TROOP } from "./constants.js";
+import { BRIEF_TEXT_MAX, HOLDER_SIDE_A, HOLDER_SIDE_B, RESERVES_AMPLE_PER_TROOP, SCENARIO_MARK } from "./constants.js";
 import { traceContour } from "./field.js";
 import { measureLine } from "./line.js";
 import { describePoint, inSector, readSectors } from "./sectors.js";
@@ -175,7 +175,8 @@ const ordersOf = (record, side) => {
   // (On a side of several countries an order is its giver's troops' alone: it says whose, where it is not the first country's.)
   const lead = String(record.sides?.[side]?.[0] ?? "").toLowerCase();
   const whose = (order) => (record.sides?.[side]?.length > 1 && order.by && String(order.by).toLowerCase() !== lead ? ` (${order.by}'s troops)` : "");
-  const parts = line.map(({ order }) => `${order.sector} ${order.order}${order.objective ? ` toward ${order.objective}` : ""}${whose(order)}`);
+  // (What its scenario's author made the front is said to be that: it stands until an event changes it.)
+  const parts = line.map(({ order }) => `${order.sector} ${order.order}${order.objective ? ` toward ${order.objective}` : ""}${whose(order)}${order.mark === SCENARIO_MARK ? " (the scenario's)" : ""}`);
   for (const { order, index } of mine) {
     if (!order.chosen) continue;
     const into = Array.isArray(order.attacks) && order.attacks.length > 0 ? `, into ${order.attacks.join(" and ")}, which is not in the war` : "";

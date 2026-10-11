@@ -43,7 +43,7 @@ import {
   MAX_WAY_POINTS,
   LOG_TEXT_MAX,
   MARK_MAX,
-  STAFF_MARK,
+  LINE_MARKS,
   MAX_BATTLEFIELDS,
   MAX_CLOSED_BATTLEFIELDS,
   MAX_CONTESTED_REGIONS,
@@ -112,7 +112,8 @@ const normalizeOrder = (raw) => {
   // room: a Board operation's ("plan:" and its id) or a side's precaution
   // against a movement it has learnt of ("watch"). See plans.js.
   // (And an order for a stretch of line that the side's own staff decided, with nobody ordering it: "staff", staff.js.)
-  const mark = entry.chosen || raw.mark === STAFF_MARK ? clean(raw.mark, MARK_MAX) : "";
+  // (And what a scenario's author made the front: "scenario", scenarioFronts.js.)
+  const mark = entry.chosen || LINE_MARKS.includes(raw.mark) ? clean(raw.mark, MARK_MAX) : "";
   if (mark) entry.mark = mark;
   const way = [];
   for (const point of Array.isArray(raw.way) ? raw.way : []) {

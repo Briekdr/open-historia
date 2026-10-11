@@ -53,6 +53,7 @@ import {
   OVERRUN_CELLS,
   POOL_PER_TROOP,
   REPULSED_LOSS,
+  SCENARIO_MARK,
   SIEGE_SPARE_KM,
   THRUST_LEAST,
   THRUST_LINK_KM,
@@ -729,8 +730,17 @@ export const applyOrder = (battle, moment, today, notes) => {
   }
   const by = battle.sides[side][memberOf(battle, moment.side)[1]];
   const told = FLANK_WORDS.has(fold(moment.order)) ? "flank" : moment.order;
-  const word = FRONT_ORDERS.includes(told) ? told : "";
+  let word = FRONT_ORDERS.includes(told) ? told : "";
   const result = FRONT_RESULTS.includes(moment.result) ? moment.result : "";
+  // What its scenario's author made this side of the front (SCENARIO_MARK)
+  // stands until an event changes it: an order of the story's to attack that
+  // rests on no event of its answer is not carried out. (A person's own order
+  // is that person's, and one resting on an event is the story's reason.)
+  if (word && moment.unbound === true && (isAttack(word) || word === "assault" || word === "land")
+    && battle.orders.some((order) => order.s === side && !order.chosen && order.mark === SCENARIO_MARK)) {
+    notes.push({ ...note, kind: "posture-stands", detail: battle.orders.find((order) => order.s === side && !order.chosen && order.mark === SCENARIO_MARK).order });
+    word = "";
+  }
   if (!word && !result) return;
 
   let sector = resolveSector(arena, today.line, today.sectors, moment.sector);
@@ -772,6 +782,7 @@ export const applyOrder = (battle, moment, today, notes) => {
     }
   } else if (word) {
     const order = { sector: sectorText(sector), order: word, since: today.date, by, age: 0 };
+    if (moment.mark === SCENARIO_MARK) order.mark = SCENARIO_MARK;
     if (target) order.objective = placeText(target);
     if (FRONT_EFFORTS.includes(moment.effort)) order.effort = moment.effort;
     assignOrder(battle, today.run, setStandingOrder(battle, side, order), today);

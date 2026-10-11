@@ -43,6 +43,7 @@ import {
   STAFF_DEFENDER_ADVANCES,
   STAFF_DEFENDER_PROBES,
   STAFF_DIGS_IN_UNDER,
+  SCENARIO_MARK,
   STAFF_MARK,
   STAFF_SECTOR_TROOPS_LEAST,
   STAFF_STORY_ORDER_DAYS,
@@ -124,6 +125,8 @@ export const staffDecision = (battle, side, { began = false, today = null, key =
 // longer than a story's order is left alone.
 export const staffMayOrder = (battle, side) => {
   const standing = battle.orders.filter((order) => order.s === side && !order.chosen);
+  // What its scenario's author made the front stands until an event changes it, however long that is.
+  if (standing.some((order) => order.mark === SCENARIO_MARK)) return false;
   return standing.every((order) => order.mark === STAFF_MARK || (Number(order.age) || 0) > STAFF_STORY_ORDER_DAYS);
 };
 
