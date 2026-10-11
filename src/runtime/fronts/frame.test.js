@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CELL_STEPS_KM, MAX_CELLS, MAX_GRID_SPAN } from "./constants.js";
-import { KM_PER_DEGREE, cellIndexAt, createFrame, frameBounds, latToY, normalizeFrame, pointInFrame, projectorOf, unwrapLng, yToLat } from "./frame.js";
+import { KM_PER_DEGREE, cellIndexAt, createFrame, frameBounds, homeLng0, latToY, normalizeFrame, pointInFrame, projectorOf, unwrapLng, yToLat } from "./frame.js";
 
 const near = (actual, expected, tolerance, label) =>
   assert.ok(Math.abs(actual - expected) <= tolerance, `${label ?? "value"}: ${actual} is not within ${tolerance} of ${expected}`);
@@ -61,7 +61,8 @@ test("a cell measures what the frame says at its middle, less toward the pole, t
 
 test("points go into cell units and come back, across the date line too", () => {
   const frame = createFrame({ west: 170, south: 50, east: -165, north: 66 });
-  assert.ok(frame.lng0 <= 170 && frame.lng0 + frame.cols * frame.cell >= 195);
+  // (25 degrees wide over the date line, its middle in the map's own turn: so it is its WEST edge that is past it.)
+  assert.ok(frame.cols * frame.cell >= 25 && unwrapLng(frame.lng0, 170) <= 170);
   const { toCell, toLngLat } = projectorOf(frame);
   for (const [lng, lat] of [[172, 52], [-170, 60], [179.5, 65]]) {
     const [x, y] = toCell(lng, lat);
@@ -70,7 +71,7 @@ test("points go into cell units and come back, across the date line too", () => 
     near(unwrapLng(backLng, lng), lng, 1e-9, "longitude");
     near(backLat, lat, 1e-9, "latitude");
   }
-  assert.ok(toLngLat(frame.cols, 0)[0] > 180, "the far edge is past 180, not wrapped");
+  assert.ok(toLngLat(0, 0)[0] < -180 || toLngLat(frame.cols, 0)[0] > 180, "an edge is past the date line, not wrapped");
   assert.equal(pointInFrame(frame, -170, 60), true);
   assert.equal(pointInFrame(frame, 10, 60), false);
   assert.equal(cellIndexAt(frame, 0.5, 0.5), 0);
@@ -98,4 +99,43 @@ test("a saved frame is checked, and survives being written out and read back", (
   assert.equal(normalizeFrame({ ...frame, cell: "wide" }), null);
   assert.equal(normalizeFrame([frame]), null);
   assert.equal(normalizeFrame({ ...frame, flat: true }).scale, KM_PER_DEGREE);
+});
+
+// A player's game (the United States against Canada, then Mexico): the battlefield's frame was told
+// as 215 to 300 east. The map would not place its painted ground, the war room's selector looked for
+// its troops a world away, and a route drawn for them fell off it. A frame is made at home now.
+test("a frame's middle is within the map's own turn of the world, however the box it is made from was told", () => {
+  const home = createFrame({ west: -125, east: -95, south: 44, north: 52 }, { marginKm: 100 });
+  const off = createFrame({ west: 235, east: 265, south: 44, north: 52 }, { marginKm: 100 });
+  const far = createFrame({ west: -485, east: -455, south: 44, north: 52 }, { marginKm: 100 });
+  // The same frame, to the last cell.
+  assert.deepEqual(off, home);
+  assert.deepEqual(far, home);
+  const middle = home.lng0 + (home.cols * home.cell) / 2;
+  assert.ok(middle >= -180 && middle < 180);
+  // One across the date line still runs past 180, its middle at home.
+  const across = createFrame({ west: 170, east: -170, south: 50, north: 60 });
+  assert.ok(across.lng0 < 180 && across.lng0 + across.cols * across.cell > 180 || across.lng0 < -180);
+  const centre = across.lng0 + (across.cols * across.cell) / 2;
+  assert.ok(centre >= -180 && centre < 180, String(centre));
+  // And a place is in it whichever turn the place is told in.
+  for (const lng of [175, -175, 535, -185]) assert.ok(pointInFrame(across, lng, 55), String(lng));
+  assert.equal(homeLng0(20, 8), 20);
+  assert.equal(homeLng0(215, 85), -145);
+  assert.equal(homeLng0(-520, 20), -160);
+});
+
+test("a frame saved a turn off is brought home as it is read, and is the same ground", () => {
+  const home = createFrame({ west: -125, east: -95, south: 44, north: 52 });
+  const saved = { ...home, lng0: home.lng0 + 360 };
+  const read = normalizeFrame(saved);
+  assert.equal(read.lng0, home.lng0);
+  // The same cell for the same place: nothing kept by cell (the ground, the troops, a replay) moves.
+  const [x, y] = projectorOf(read).toCell(-110, 48);
+  const [x0, y0] = projectorOf(saved).toCell(-110, 48);
+  assert.ok(Math.abs(x - x0) < 1e-9 && Math.abs(y - y0) < 1e-9);
+  // What it says of where a troop stands is told in the map's own longitudes now.
+  const [lng] = projectorOf(read).toLngLat(x, y);
+  assert.ok(Math.abs(lng - -110) < 1e-9, String(lng));
+  assert.deepEqual(normalizeFrame(home), home);
 });

@@ -139,7 +139,9 @@ test("a map across the date line is drawn in one piece", () => {
   const { toLngLat } = projectorOf(frame);
   let east = 0;
   for (let index = 0; index < arena.size; index += 1) {
-    const [lng, lat] = toLngLat((index % arena.cols) + 0.5, Math.floor(index / arena.cols) + 0.5);
+    // (The frame's middle is in the map's own turn, so here it tells its cells as -185 to -175: the sheet is asked in its own, 175 to 185.)
+    const [told, lat] = toLngLat((index % arena.cols) + 0.5, Math.floor(index / arena.cols) + 0.5);
+    const lng = told < 0 ? told + 360 : told;
     assert.equal(arena.ids[arena.region[index]], world.regionAt(lng, lat), `cell ${index} at ${lng},${lat}`);
     if (lng > 180 && arena.region[index] !== 0) east += 1;
   }
