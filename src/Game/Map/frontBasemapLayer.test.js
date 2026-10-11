@@ -66,9 +66,24 @@ test("with nothing painted nothing is copied or drawn, and the pair says when it
   assert.deepEqual(states, [false]);
 });
 
+// The same player, on the same battlefield (its frame told a whole turn of longitude off the map's
+// own): "I can't select troops ... they just don't get selected if I use the selector tool."
+test("the war room's tools look for a troop where the map shows it, and tell a route in the battlefield's own longitudes", () => {
+  const tools = read("./WarRoomTools.jsx");
+  assert.ok(tools.includes("const onScreen = (place) => map.project([unwrapLng(place[0], map.getCenter().lng), place[1]]);"));
+  assert.ok(tools.includes("const inFrame = (place) => [unwrapLng(place.lng, frameLngRef.current), place.lat];"));
+  assert.equal(tools.split("const shown = onScreen(").length - 1, 2, "the click and the box both");
+  assert.equal(tools.includes("const shown = map.project("), false);
+  assert.ok(tools.includes("return inFrame(map.unproject([x, y]));"));
+});
+
 test("the battlefield layer uses the pair, and clears to grey only where the map cannot be copied", () => {
   const layers = read("./FrontLayers.jsx");
-  assert.match(layers, /const \{ take, put \} = createFrontBasemapLayers\(\{\s*pictures: \(\) => picturesRef\.current,\s*onState: \(working\) => setSeenThrough\(working === true\),/);
+  assert.match(layers, /const \{ take, put \} = createFrontBasemapLayers\(\{/);
+  assert.match(layers, /onState: \(working\) => setSeenThrough\(working === true\),/);
+  // The territory's colour is taken away only under a picture the map is really drawing: a player's
+  // screenshot showed bare map with no colour on it, where the map had refused the picture.
+  assert.match(layers, /pictures: \(\) => picturesRef\.current\.filter\(\(picture\) => \{\s*try \{\s*return Boolean\(mapInstance\.getLayer\(frontPaintLayerId\(picture\.slot\)\)\) && mapInstance\.isSourceLoaded\(frontPaintSourceId\(picture\.slot\)\);/);
   assert.match(layers, /"raster-opacity": seenThrough \? 0 : PAINT_CLEAR_OPACITY,/);
   // The paint itself is laid at the strength the map gives a country's own land.
   assert.match(layers, /const PAINT_OPACITY = \["interpolate", \["linear"\], \["zoom"\], \.\.\.POLITICAL_FILL_OPACITY_STOPS\.flat\(\)\];/);
