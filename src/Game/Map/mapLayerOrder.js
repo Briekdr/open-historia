@@ -8,6 +8,10 @@
 //
 // This list is the single current-renderer authority for bottom -> top order.
 export const MAP_LAYER_ORDER = [
+  // Under every political fill, and showing nothing: it keeps a copy of the
+  // bare map, for the ground a battlefield's troops have painted
+  // (frontBasemapLayer.js).
+  "fronts-basemap-take",
   // Political body / local geography.
   "custom-regions-fill-far",
   "custom-regions-repair-fill-far",
@@ -21,12 +25,16 @@ export const MAP_LAYER_ORDER = [
   "custom-regions-local-outline",
   "custom-regions-repair-local-outline",
   "custom-regions-disputed-vnext",
+  // Over every political fill: where a battlefield's ground is painted, the
+  // bare map is put back, so the territory's colour behind the paint is seen
+  // through (frontBasemapLayer.js).
+  "fronts-basemap-put",
   // A group's area tints the land it controls, over every fill and stripe.
   "group-areas-tint",
   // The ground a battlefield's troops have taken, painted in their colour
-  // over the regions' own: one picture a battlefield, laid twice
-  // (FrontLayers.jsx): first to clear the ground of the colour under it,
-  // then in the taker's.
+  // over the bare map put back under it: one picture a battlefield. (The
+  // "under" layers clear the ground to a pale grey instead, and are drawn only
+  // where the map cannot be copied: FrontLayers.jsx.)
   "fronts-paint-under-0",
   "fronts-paint-under-1",
   "fronts-paint-under-2",

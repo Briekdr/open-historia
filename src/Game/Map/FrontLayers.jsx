@@ -43,6 +43,7 @@ import { arrowDetailAt, frontArrowFeatures, frontArrowRgb, frontAt, frontShownOn
 import { PAINT_WALL } from "../../runtime/fronts/codec.js";
 import { createPaintPlayer, paintPixels, paintScaleFor, pictureFits } from "./frontPaint.js";
 import { createSkirmish, skirmishAt } from "./frontSkirmish.js";
+import { FRONT_BASEMAP_PUT_LAYER_ID, FRONT_BASEMAP_TAKE_LAYER_ID, createFrontBasemapLayers } from "./frontBasemapLayer.js";
 import { contestedOwnersOf, setFrontShownOwners } from "./frontOwnership.js";
 import { shownOwnersAt } from "../../runtime/fronts/replay.js";
 import { shortUnitLabel } from "./unitLabels.js";
@@ -81,12 +82,16 @@ const UNOWNED_COLOR = "rgb(120, 120, 120)";
 const UNOWNED_RGB = [120, 120, 120];
 const CASING_COLOR = "rgba(5, 8, 13, 0.92)";
 // Taken ground is to look like the taker's own land. A country's land is its
-// colour laid over the map at a strength that grows with the zoom; laid over
-// ground that is still the colour of the region's own country, the two would
-// mix into mud. So the picture is drawn twice. First nearly solid and drained
-// to the pale grey of the bare map, which takes the other country's colour
-// away; then in its own colours at the very strength the map gives a
-// country's land, so it matches that land at every zoom.
+// colour laid over the basemap at a strength that grows with the zoom; laid
+// over ground that is still the colour of the region's own country, the two
+// would mix into mud. So the territory's colour behind the paint is made to
+// be seen through: the bare map is put back under the painted ground
+// (frontBasemapLayer.js), and the paint is laid over it in its own colours at
+// the very strength the map gives a country's land. It then matches that land
+// at every zoom and on every basemap, dark ones included.
+// Where the map cannot be copied the picture is drawn twice instead, as it
+// used to be: first nearly solid and drained to the pale grey of the game's
+// own relief, which is right on that basemap and too light on a dark one.
 const PAINT_CLEAR_OPACITY = 0.94;
 const PAINT_CLEAR_TONE = [0.92, 0.96];
 const PAINT_OPACITY = ["interpolate", ["linear"], ["zoom"], ...POLITICAL_FILL_OPACITY_STOPS.flat()];
@@ -230,6 +235,10 @@ const FrontLayers = () => {
   // The pictures to declare, one a battlefield: [{ key, slot, canvas, coordinates }].
   // Most games have no battlefield, and then no source or layer is declared.
   const [pictures, setPictures] = useState([]);
+  // Whether the bare map is being put back under the paint (frontBasemapLayer.js).
+  const [seenThrough, setSeenThrough] = useState(false);
+  const picturesRef = useRef(pictures);
+  picturesRef.current = pictures;
   const { polityOverrides, groups, regionOwnershipOverrides } = useWorldState();
   // The war room's marks on the troops: the general whose troops are lit, and
   // the troops picked out (warRoomStore.js).
@@ -274,6 +283,36 @@ const FrontLayers = () => {
   const startedRef = useRef(0);
   const durationRef = useRef(0);
   const repaintRef = useRef(() => {});
+
+  // The two layers that put the bare map back under the paint, while there is a battlefield to paint.
+  const painted = pictures.length > 0;
+  useEffect(() => {
+    const mapInstance = map?.getMap?.() ?? map;
+    if (!mapInstance || !painted) return undefined;
+    const { take, put } = createFrontBasemapLayers({
+      pictures: () => picturesRef.current,
+      onState: (working) => setSeenThrough(working === true),
+      onError: (error) => console.warn("[fronts] the bare map could not be put back under the painted ground; it is cleared to grey instead.", error),
+    });
+    const add = () => {
+      try {
+        if (!mapInstance.style) return;
+        if (!mapInstance.getLayer(FRONT_BASEMAP_TAKE_LAYER_ID)) mapInstance.addLayer(take);
+        if (!mapInstance.getLayer(FRONT_BASEMAP_PUT_LAYER_ID)) mapInstance.addLayer(put);
+        enforceMapLayerOrder(mapInstance);
+      } catch { /* the map is between styles: asked again when the next has loaded */ }
+    };
+    add();
+    mapInstance.on("styledata", add);
+    return () => {
+      mapInstance.off("styledata", add);
+      try {
+        if (mapInstance.style && mapInstance.getLayer(FRONT_BASEMAP_PUT_LAYER_ID)) mapInstance.removeLayer(FRONT_BASEMAP_PUT_LAYER_ID);
+        if (mapInstance.style && mapInstance.getLayer(FRONT_BASEMAP_TAKE_LAYER_ID)) mapInstance.removeLayer(FRONT_BASEMAP_TAKE_LAYER_ID);
+      } catch { /* the map is gone */ }
+      setSeenThrough(false);
+    };
+  }, [map, painted]);
 
   useEffect(() => {
     let cancelled = false;
@@ -891,7 +930,7 @@ const FrontLayers = () => {
             type="raster"
             beforeId={paintBefore}
             paint={{
-              "raster-opacity": PAINT_CLEAR_OPACITY,
+              "raster-opacity": seenThrough ? 0 : PAINT_CLEAR_OPACITY,
               "raster-saturation": -1,
               "raster-brightness-min": PAINT_CLEAR_TONE[0],
               "raster-brightness-max": PAINT_CLEAR_TONE[1],
