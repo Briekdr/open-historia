@@ -1,0 +1,40 @@
+/*! Open Historia — whether this game fights its land wars on battlefields © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
+// Battlefields and fronts (runtime/fronts/) are a gameplay feature a scenario
+// can switch off (server/gameFeatures.js, key "fronts"). Off, nothing of them
+// runs: the skip's contract has no frontOrders, its prompt no [Fronts] block,
+// no battlefield opens, and land war is the formations and control operations
+// it was before.
+//
+// A feature a build does not list reads as ON everywhere else
+// (isFeatureEnabled answers true for a key it has never heard of), which is
+// right for a feature that was removed and wrong for one a build does not
+// have. So this asks first whether the build lists it at all: in a build
+// whose FEATURE_DEFINITIONS has no "fronts", fronts are off.
+
+import { FRONT_PACE_SHARE } from "../../runtime/fronts/constants.js";
+import { FEATURE_KEYS, getActiveFeatures, isActiveFeatureEnabled } from "../../runtime/gameFeatures.js";
+
+export const FRONTS_FEATURE = "fronts";
+
+export const frontsOn = () => FEATURE_KEYS.includes(FRONTS_FEATURE) && isActiveFeatureEnabled(FRONTS_FEATURE);
+
+// The pace the engine is told for its advances, as a factor of the game's own
+// paces for a formation on the move: the part of them that is the built-in
+// pace of a front (FRONT_PACE_SHARE says why it is a part), times the
+// scenario's setting, which is a percentage, 25 to 300, and 100 where it is
+// not set.
+export const frontsPace = () => {
+  const percent = Number(getActiveFeatures()?.[FRONTS_FEATURE]?.pace);
+  const setting = !Number.isFinite(percent) || percent <= 0 ? 1 : Math.max(0.25, Math.min(3, percent / 100));
+  return FRONT_PACE_SHARE * setting;
+};
+
+// The formations a model that moves units is shown. One fighting on a
+// battlefield is a troop of its side there: the engine moves it, the
+// battlefield's own lines in [Fronts] speak for it, and it leaves the list, so
+// that nothing is told to march it somewhere. With fronts off, or with nothing
+// on a battlefield, the list comes back as it is.
+export const unitsOffBattlefields = (units) => {
+  if (!Array.isArray(units) || !frontsOn() || !units.some((unit) => unit?.committedTo)) return units;
+  return units.filter((unit) => !unit?.committedTo);
+};

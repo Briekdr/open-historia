@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { createPropertyExpression, latest } from "@maplibre/maplibre-gl-style-spec";
 
 import {
+  isWaterType,
   normalizeRegionTypes,
   regionTypeFeatureState,
   regionTypeRenderStyle,
@@ -17,6 +18,7 @@ import {
   regionTypesHaveRules,
   regionTypeShownAt,
   regionTypeZoomKey,
+  waterTypeIds,
 } from "./regionTypes.js";
 import { TYPE_FILL_STATE, withTypeFillOpacity } from "../Game/Map/regionTypePaint.js";
 import { DEFAULT_TYPES } from "../Editor/useMapDocument.js";
@@ -126,13 +128,37 @@ test("the AI is told a type's movement and placement rules, naming its regions",
     { id: "r6", name: "Kent", typeId: "land" },
   ];
   assert.equal(regionTypeRules(types, regions), [
-    "- Sea (2 regions: North Sea, Irish Sea): impassable: no unit enters or crosses these regions, so route around them.",
+    "- Sea (2 regions: North Sea, Irish Sea): water: fleets and aircraft only; no land unit enters these regions and nothing is built in them.",
     "- Hills (1 region: Pennines): slow going: units cross these regions at 0.5 times their usual speed.",
     "- Roads (1 region: Via Appia): fast going: units cross these regions at 2 times their usual speed.",
     "- The Void (1 region: r5): out of play: place no unit and build no structure in these regions.",
   ].join("\n"), "a type no region uses says nothing");
 
   const many = Array.from({ length: 15 }, (_, index) => ({ id: `s${index}`, name: `Sea ${index}`, typeId: "sea" }));
-  assert.match(regionTypeRules([sea], many, { namesPerType: 3 }), /^- Sea \(15 regions: Sea 0, Sea 1, Sea 2, and 12 more\): impassable/);
-  assert.match(regionTypeRules([{ ...land, id: "sea", name: "Sea", pathfindingSpeed: 0 }], many.slice(0, 1)), /impassable/, "speed 0 is impassable");
+  assert.match(regionTypeRules([sea], many, { namesPerType: 3 }), /^- Sea \(15 regions: Sea 0, Sea 1, Sea 2, and 12 more\): water/);
+  assert.match(regionTypeRules([{ ...land, id: "sea", name: "Wastes", pathfindingSpeed: 0 }], many.slice(0, 1)), /impassable/, "speed 0 is impassable");
+  // A sea its maker switched off as water is ground like any other, by its other settings.
+  assert.match(regionTypeRules([{ ...sea, water: false }], many.slice(0, 1)), /impassable/);
+});
+
+test("a type is water by the Workshop's switch, or by its name where nobody has set one", () => {
+  // Ocean, sea, water, lake: one or many, alone or among other words, in any case.
+  for (const name of ["Ocean", "Sea", "Water", "Lake", "Oceans", "Seas", "Waters", "Lakes", "Deep Ocean", "Open Water", "sea zone", "THE GREAT LAKE", "Inland sea (shallow)"]) {
+    assert.equal(isWaterType({ ...land, id: "x", name }), true, name);
+  }
+  // A word that only has one of them inside it is not.
+  for (const name of ["Land", "Coastal", "Seaside", "Lakeland", "Waterfront", "Oceania", "Swamp", "Mountains", "Research", ""]) {
+    assert.equal(isWaterType({ ...land, id: "x", name }), false, name || "(no name)");
+  }
+  // The switch is the last word, either way.
+  assert.equal(isWaterType({ ...land, id: "x", name: "Mar Tenebroso", water: true }), true);
+  assert.equal(isWaterType({ ...land, id: "x", name: "Sea of Grass", water: false }), false);
+  assert.equal(isWaterType(null), false);
+  // The Workshop's own two types are land.
+  assert.deepEqual(DEFAULT_TYPES.map(isWaterType), [false, false]);
+  // The ids of a map's water types, and the switch kept through a clean-up of the types.
+  const types = [land, sea, { ...land, id: "lake", name: "Lake" }, { ...land, id: "mar", name: "Mar", water: true }, { ...land, id: "grass", name: "Sea of Grass", water: false }];
+  assert.deepEqual([...waterTypeIds(types)].sort(), ["lake", "mar", "sea"]);
+  assert.deepEqual([...waterTypeIds(normalizeRegionTypes(types))].sort(), ["lake", "mar", "sea"]);
+  assert.deepEqual([...waterTypeIds(null)], []);
 });

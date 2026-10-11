@@ -12,6 +12,10 @@ import assert from "node:assert/strict";
 
 import { createGameHost, MAX_ORDERS_PER_ROUND, MAX_SHEETS_PER_ROUND } from "./gameHost.js";
 import { normalizeSettings } from "./settings.js";
+import { chosenOrdersOf, generalsOf, talkOf } from "../../runtime/fronts/command.js";
+import { keptPlansOf } from "../../runtime/fronts/plans.js";
+import { syntheticMap } from "../../runtime/fronts/syntheticMap.js";
+import { battlefieldOn } from "../../runtime/fronts/testKit.js";
 
 const LATVIA = "Republic of Latvia";
 const RUSSIA = "Russian Federation";
@@ -520,4 +524,56 @@ test("the host can take a country back from a player, never its own", async () =
   assert.equal(s.host.control.kick(LATVIA), null);
   await s.clock.flush();
   assert.deepEqual(s.store.docs.game.humanCountries, [LATVIA]);
+});
+
+test("what a player does in the war room is written for its own side, and its war room is kept from the other side", async () => {
+  const s = setup();
+  // Russia in the west, Latvia in the east, and their troops along the line.
+  const sheet = syntheticMap({ layout: ["ABBBBB", "ABBBBB", "ABBBBB"], legend: { A: RUSSIA, B: LATVIA, "~": null }, west: 20, north: 51, step: 1, stepLat: 0.65, cities: [] });
+  const row = (lng, count) => Array.from({ length: count }, (_, index) => ({ lng, lat: 49.1 + ((index + 0.5) * 1.8) / count }));
+  s.store.docs.world.battlefields = [battlefieldOn(sheet, { name: "The Baltic Front", sides: [[RUSSIA], [LATVIA]], troops: [row(20.9, 20), row(21.1, 12)] })];
+  s.host.join(s.hostPlayer);
+  s.host.join(s.guest);
+  await s.request(s.guest, { t: "pick", id: id(1), country: RUSSIA });
+  await s.host.control.start();
+  const record = () => s.store.docs.world.battlefields[0];
+
+  // The guest plays Russia: three of Russia's troops are told to dig in.
+  await s.request(s.guest, { t: "warroom", id: id(2), op: { op: "order", battlefield: "The Baltic Front", troops: [0, 1, 2], order: "dig in", side: 1, player: LATVIA } });
+  assert.equal(s.ack(s.guest, id(2)).ok, true);
+  assert.deepEqual(chosenOrdersOf(record(), 0).map((order) => [order.order, order.troops, order.by]), [["dig in", [0, 1, 2], RUSSIA]], "whose troops they are is the seat's country, whatever the op says");
+  assert.deepEqual(chosenOrdersOf(record(), 1), []);
+  // The same numbers from the host are Latvia's troops.
+  await s.request(s.hostPlayer, { t: "warroom", id: id(3), op: { op: "route", battlefield: "The Baltic Front", troops: [0, 1], way: [[21.2, 50.5], [20.6, 50.2]] } });
+  assert.equal(s.ack(s.hostPlayer, id(3)).ok, true);
+  assert.deepEqual(chosenOrdersOf(record(), 1).map((order) => [order.order, order.troops, order.by]), [["advance", [0, 1], LATVIA]]);
+  // What is no op, or names a battlefield there is not, is refused in words.
+  await s.request(s.guest, { t: "warroom", id: id(4), op: { op: "conquer", battlefield: "The Baltic Front" } });
+  assert.match(s.ack(s.guest, id(4)).error, /Nothing was asked/);
+  await s.request(s.guest, { t: "warroom", id: id(5), op: { op: "order", battlefield: "Nowhere", troops: [0], order: "hold" } });
+  assert.match(s.ack(s.guest, id(5)).error, /no longer open/);
+
+  // A turn of talk: what was said, the general's name and the order he took
+  // (the 1st Army is the northern body; the three dug in are of the 2nd).
+  await s.request(s.guest, { t: "warroom", id: id(6), op: { op: "talk", battlefield: "The Baltic Front", said: "Hold the river.", lines: [{ who: 0, text: "We will." }], orders: [{ command: 0, order: "hold" }], names: ["Gen. Orlov"] } });
+  assert.equal(s.ack(s.guest, id(6)).ok, true);
+  await s.request(s.guest, { t: "warroom", id: id(7), op: { op: "diversion", battlefield: "The Baltic Front", way: [[20.9, 49.3], [22.5, 49.3]], troops: 12 } });
+  assert.equal(s.ack(s.guest, id(7)).ok, true);
+
+  // Each is shown its own war room and nothing of the other's.
+  const guestSees = s.shown(s.guest).world.battlefields[0];
+  const hostSees = s.shown(s.hostPlayer).world.battlefields[0];
+  assert.deepEqual(talkOf(guestSees, 0).map((line) => line.text), ["Hold the river.", "We will."]);
+  assert.equal(generalsOf(guestSees, 0)[0].name, "Gen. Orlov");
+  assert.deepEqual(chosenOrdersOf(guestSees, 0).map((order) => order.order).sort(), ["dig in", "hold"]);
+  assert.deepEqual(keptPlansOf(guestSees, 0).map((plan) => plan.kind), ["diversion"]);
+  assert.deepEqual(chosenOrdersOf(guestSees, 1), [], "the host's route is the host's");
+  assert.deepEqual(talkOf(hostSees, 0), []);
+  assert.deepEqual(generalsOf(hostSees, 0).map((general) => general.name).filter(Boolean), []);
+  assert.deepEqual(keptPlansOf(hostSees, 0), []);
+  assert.deepEqual(chosenOrdersOf(hostSees, 0), []);
+  assert.deepEqual(chosenOrdersOf(hostSees, 1).map((order) => [order.order, order.troops]), [["advance", [0, 1]]], "and it still finds its own order in the list it is sent");
+  assert.doesNotMatch(JSON.stringify(hostSees), /Hold the river|Gen\. Orlov/);
+  // The troops themselves are seen by both: there is no fog of war.
+  assert.equal(hostSees.troops[0], record().troops[0]);
 });

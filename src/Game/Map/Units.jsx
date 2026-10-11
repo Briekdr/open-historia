@@ -17,9 +17,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Layer, Source, useMap } from "react-map-gl/maplibre";
 import { getNationColors, getNationFlags } from "../../runtime/assets.js";
 import { subscribeUnits, getUnits, getPendingUnitOrders, startUnitsSync } from "./unitsController.js";
+import { isAtTheFront, startFrontsSync, subscribeFronts } from "./frontsController.js";
+import { shortUnitLabel } from "./unitLabels.js";
 import { resolveUnitFlagUrl, syncUnitFlagIcons } from "./unitFlagIcons.js";
 import { useWorldState } from "./useWorldState.js";
 import { createOwnerRgbResolver, ownerDisplayCss } from "./ownerColors.js";
+
+export { shortUnitLabel };
 
 const EMPTY_FEATURE_COLLECTION = { type: "FeatureCollection", features: [] };
 
@@ -65,41 +69,6 @@ const FLAG_ICON_SIZE = [
     ],
   ]),
 ];
-
-// Words that end a formation's name without identifying it. Every counter on the
-// map is a group of something, so the word is pure width on a label that has to
-// sit under a 30px disc.
-const FORMATION_SUFFIXES = new Set([
-  "group", "squadron", "flotilla", "fleet", "command", "battalion", "regiment",
-  "brigade", "division", "corps", "army", "detachment", "force", "battlegroup",
-  "wing", "strike", "task", "element", "unit", "formation", "flight", "team",
-]);
-
-// Words that cannot END a label, because they read as dangling. "Gulf of Guinea
-// Strike Group" has to shorten to "Gulf of Guinea", never "Gulf of".
-const CONNECTIVES = new Set(["of", "the", "de", "du", "da", "di", "la", "le", "van", "von", "al", "st", "st.", "and", "&"]);
-
-// Two words of a unit's name, which is all that fits under a counter. The full
-// name is one click away in the unit popup.
-export const shortUnitLabel = (name) => {
-  const words = String(name ?? "").trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return "";
-
-  // Shed trailing formation nouns, but never below two words — "USN Amphibious
-  // Squadron" should reach "USN Amphibious", not bottom out at "USN".
-  const trimmed = [...words];
-  while (trimmed.length > 2 && FORMATION_SUFFIXES.has(trimmed[trimmed.length - 1].toLowerCase())) {
-    trimmed.pop();
-  }
-
-  // Take two words, then keep going while the label would otherwise end on a
-  // connective — so "Gulf of Guinea" survives whole and "HMS St Albans" does too.
-  const taken = trimmed.slice(0, 2);
-  while (taken.length < trimmed.length && CONNECTIVES.has(taken[taken.length - 1].toLowerCase())) {
-    taken.push(trimmed[taken.length]);
-  }
-  return taken.join(" ");
-};
 
 // On-map glyph per unit type (rendered via the same font stack as the city
 // symbols, so they appear wherever those do).
@@ -389,7 +358,9 @@ const Units = () => {
     };
 
     const sync = () => {
-      const next = getUnits();
+      // A formation that has gone to a battlefield is drawn there, among its
+      // troops (FrontLayers.jsx).
+      const next = getUnits().filter((unit) => !isAtTheFront(unit));
       unitsRef.current = next;
       setOrders(getPendingUnitOrders());
       refreshFlagIcons();
@@ -449,6 +420,9 @@ const Units = () => {
 
     const stop = startUnitsSync();
     const unsubscribe = subscribeUnits(sync);
+    // A battlefield opening or closing changes which formations are counters.
+    const stopFronts = startFrontsSync();
+    const unsubscribeFronts = subscribeFronts(sync);
     sync();
     return () => {
       mapInstance?.off?.("styledata", onStyleData);
@@ -457,7 +431,9 @@ const Units = () => {
       if (retryHandle) cancelAnimationFrame(retryHandle);
       rafRef.current = 0;
       unsubscribe();
+      unsubscribeFronts();
       stop();
+      stopFronts();
     };
   }, [map]);
 

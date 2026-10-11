@@ -463,6 +463,17 @@ Its rules live in the template, with one exception injected at call time: `build
 
 ---
 
+### 7.19 `warRoom` — the player's generals
+
+- **Purpose:** The talk in the war room ([game-ui.md §10-quater](game-ui.md)). The model speaks for every general of the player's side on ONE battlefield; a general is the commander of a body of its troops (`runtime/fronts/command.js`).
+- **One request a message.** `generateWarRoomReply` calls `runJsonTask("warRoom")` once, with **no lookup functions**: the battlefield, its cities and what has been said are worked out in `warRoomContext.js` and handed over in the prompt. It writes nothing. The panel then writes one op (`talk`) through `runtime/warRoomWrites.js`.
+- **Template** (`defaultPrompts.json` → `tasks.warRoom`): `[The Generals]` (one line an army: its title, its general's name, formations, strength, where, what it is at, what it has been told and not yet done), `[How They Speak]` (the one editable guidance passage, `voices`), `[Orders]`, `[The Battlefield]` (the engine's own brief with the other side's standing orders left out, the battlefield's cities with who holds each, and what the player's agents and Board have of the other side's planned movements), `[What Has Been Said]`, `[The Answer]`, `[The World]`.
+- **Who is who.** A general is always named by his ARMY ("1st Army"), in the prompt and in the answer; his name is the model's to give the first time (`generals`), and is kept on the battlefield from then on. Nothing the model reads or writes carries an id.
+- **Pushing back.** Every line carries a `stance`: `accepts`, `objects` or `speaks`. A general who objects has taken no order: the prompt says so, and `readWarRoomAnswer` drops any order written for his army in the same answer. He objects once: when the commander repeats the order, he obeys.
+- **Orders.** `{ command, order, objective }`, `order` one of `WAR_ROOM_ORDERS` (advance, blitz, spearhead, flank, encircle, hold, dig in, fall back). An objective must be a city of the battlefield as the prompt lists it; one that is not is left off (nothing is put in its stead), and a thrust left with no place is an advance. An order is written onto the battlefield for the troops under that general and is carried out when time next passes.
+- **Language.** As for Listen in: `${warRoomLanguage}` is the interface language once the player has chosen one, else the save's.
+- **Measured live** (gemini-3.5-flash-lite, the built-in map, Russia against Ukraine): one request a message, about 2,500 tokens in and 70 to 250 out, five to eight seconds. Two faults were found and are guarded against: a name given as an example in the schema came back as a general's name (the schema gives none now), and an order was recorded for a general who was still arguing (hence `stance`).
+
 ## 8. Impacts / output-shape reference
 
 Shared `impacts` object (`impactsSchema` `gameplaySchemas.js`) carried by jump/auto/gameMaster events. All entries are optional arrays; omit empties.

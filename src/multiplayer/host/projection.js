@@ -38,6 +38,7 @@ import { normalizeWorldState } from "../../runtime/gameState.js";
 import { normalizeReports } from "../../runtime/reports.js";
 import { visiblePuppetsFor } from "../../runtime/puppets.js";
 import { buildPublicPoliticalView } from "../../runtime/politicalKnowledge.js";
+import { battlefieldsForViewer } from "../../runtime/fronts/view.js";
 import { polityMatches, spyAsSeenBy, viewerAudience } from "../../Game/AI/audience.js";
 
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -59,6 +60,10 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
   "ownerCodes", "ownerSchema", "polityOverrides", "powerStatus", "regionClaimants",
   "regionOwnershipOverrides", "regionSovereigntyOverrides", "settledRegionClaims",
   "simulationRules", "startingTimelineText", "unitSystem", "wars", "agreements",
+  // Transporters are seen as fleets are: what crosses the sea is not hidden.
+  "transports",
+  // And what an event's strike looked like: every map plays it.
+  "strikes",
   // The stat sheets, and how each has moved: public figures (see the limits above).
   "countryStats", "countryStatsHistory",
 ]);
@@ -107,6 +112,11 @@ const FILTERED_WORLD_KEYS = Object.freeze({
     ? unit
     : { ...unit, orderId: "" })),
   pendingUnitOrders: (world, viewer) => list(world.pendingUnitOrders).filter((order) => ownsUnit(world, order?.unitId, viewer)),
+
+  // A battlefield is seen whole, as units are: the line, both sides' troops,
+  // what has been taken. A side's standing orders and its reserves are its own
+  // (runtime/fronts/view.js), and the engine's bookkeeping stays with the host.
+  battlefields: (world, viewer) => battlefieldsForViewer(world.battlefields, viewer),
 
   // An agent is known to its owner (who never learns it was turned) and to the
   // country that caught it; to nobody else.

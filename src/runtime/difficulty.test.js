@@ -125,6 +125,8 @@ test("the tasks that decide nothing for the player are told nothing of the diffi
   assert.deepEqual([...TASKS_WITHOUT_DIFFICULTY].sort(), [
     "demandCheck", "descriptionToAction", "eventConsolidator", "geographyResolver", "listenIn",
     "pregameHistory", "politicalWorldGeneration", "politicalWorldVerification", "timelineCurator", "translation",
+    // The player's own generals in the war room: they advise and take orders, and what comes of one is the front engine's.
+    "warRoom",
   ].sort());
   for (const taskKey of TASKS_WITHOUT_DIFFICULTY) {
     const led = withDifficultyPriority({ systemPrompt: "The template.", taskKey, difficulty: "impossible", staticPrefixEnd: 5 });

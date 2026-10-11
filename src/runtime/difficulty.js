@@ -24,6 +24,15 @@
 //   always made and always gets an outcome;
 // - it is never named to the player.
 //
+// ON THE BATTLEFIELDS the level is also in the engine itself, and not only in
+// what a model is told (runtime/fronts/). Medium is the fight as it is, the
+// same for both sides. Above it the armies fighting a country a person plays
+// fight harder, advance faster and are reinforced more, hugely so on
+// Impossible; below it they are the ones held back. The figures are
+// runtime/fronts/constants.js DIFFICULTY_EDGES, who they apply to is
+// runtime/fronts/handicap.js, and each level's `effects` says them to the
+// player, so that handicap is a stated one.
+//
 // Every level says it three ways, which must agree:
 //   priority    two or three sentences that open every system prompt the game
 //               sends about the player's world (difficultyPriorityBlock);
@@ -63,6 +72,7 @@ export const DIFFICULTY_LEVELS = [
       "Ambiguous but reasonable player intent is interpreted generously.",
       "NPCs still pursue their interests, but react less quickly to marginal openings.",
       "When several outcomes are equally plausible, the less punishing one is preferred.",
+      "On battlefields, armies fighting you fight at 85% of their strength and advance at 90% of their pace, with 70% of the usual reserves.",
     ],
     priority:
       "Almost everything goes well for the player. Their orders succeed, usually in full; luck, timing and other governments' choices break their way; and a setback is rare, small and soon mended.",
@@ -92,6 +102,7 @@ export const DIFFICULTY_LEVELS = [
       "Reasonable player plans receive some benefit of the doubt.",
       "NPCs protect obvious interests but are less aggressive about marginal advantages.",
       "Setbacks matter, but uncertain failures tend not to cascade immediately.",
+      "On battlefields, armies fighting you fight at 93% of their strength and advance at 95% of their pace, with 85% of the usual reserves.",
     ],
     priority:
       "Things usually go well for the player. Sound orders succeed and doubtful ones mostly come off; luck and other governments' choices lean their way; setbacks happen, stay modest and can be recovered from.",
@@ -120,6 +131,7 @@ export const DIFFICULTY_LEVELS = [
       "Player plans succeed or fail on their merits.",
       "NPCs act with normal competence and pursue their own interests.",
       "Consequences persist when causally warranted, with no hidden difficulty bias.",
+      "On battlefields, both sides fight on equal terms: numbers, ground, supply and orders decide it.",
     ],
     priority:
       "Things happen realistically. The player is neither helped nor hindered: each order succeeds or fails on its means, its timing and the opposition it meets, and luck favours nobody.",
@@ -149,6 +161,7 @@ export const DIFFICULTY_LEVELS = [
       "Vague or under-resourced plans receive little benefit of the doubt.",
       "NPCs react promptly to threats and exploit clear opportunities they can actually perceive.",
       "Political, military, diplomatic, and economic mistakes have durable consequences.",
+      "On battlefields, armies fighting you fight at 115% of their strength and advance at 110% of their pace, with 130% of the usual reserves.",
     ],
     priority:
       "Things often go poorly for the player. Their orders meet friction, delay and extra cost; rivals are firm and quick to use an opening; a full success takes a well-founded order, and a weak one fails.",
@@ -178,6 +191,7 @@ export const DIFFICULTY_LEVELS = [
       "Plans need clear means, sequencing, and political or diplomatic support.",
       "NPCs use available intelligence and existing relationships efficiently.",
       "Serious mistakes can trigger second-order consequences when the causal chain supports them.",
+      "On battlefields, armies fighting you fight at 135% of their strength and advance at 120% of their pace, with 175% of the usual reserves.",
     ],
     priority:
       "Things usually go poorly for the player. Most of their orders fall short, stall or cost much more than planned; luck and other governments' choices lean against them; rivals act ably and friends are cautious; a success is partial more often than whole.",
@@ -207,6 +221,7 @@ export const DIFFICULTY_LEVELS = [
       "Ambiguity is resolved conservatively; success needs explicit capability and leverage.",
       "NPCs act near the top of plausible competence without omniscience.",
       "Failures can cascade fully when each step is causally supported.",
+      "On battlefields, armies fighting you have a huge advantage: they fight at 175% of their strength and advance at 140% of their pace, with 300% of the usual reserves.",
     ],
     priority:
       "Almost everything goes poorly for the player. Their orders fail, stall, cost far more than planned or succeed only in part and at a price; luck, timing and other governments' choices break against them; rivals act at their best and friends waver; a clean success is rare.",
@@ -318,6 +333,8 @@ export const difficultyPriorityBlock = (value) => {
 //   descriptionToAction          words the player's own order; its outcome is the skip's
 //   demandCheck                  reads whether a reply made or answered a demand
 //   listenIn                     writes what people are saying in a place
+//   warRoom                      the player's own generals speaking: they advise and take
+//                                orders, and what comes of an order is the front engine's
 //   pregameHistory               the history before the game starts, with no player in it
 //   politicalWorldGeneration     a scenario's political world, made in the Workshop
 //   politicalWorldVerification   and its check
@@ -329,6 +346,7 @@ export const TASKS_WITHOUT_DIFFICULTY = Object.freeze(new Set([
   "descriptionToAction",
   "demandCheck",
   "listenIn",
+  "warRoom",
   "pregameHistory",
   "politicalWorldGeneration",
   "politicalWorldVerification",

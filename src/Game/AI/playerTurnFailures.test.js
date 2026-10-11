@@ -213,8 +213,8 @@ test("a targeted retry keeps only the puppet and ledger changes of its own event
     assert.equal(keepRetryBoundRecords("raw~line", ["x"]), "raw~line");
 });
 
-test("the retry's segment is filtered to its own puppet, war, relation and agreement records", () => {
+test("the retry's segment is filtered to its own puppet, war, relation, agreement and front records", () => {
     const segments = section("const runJumpSegments = async", "\nexport const ");
-    assert.match(segments, /for \(const key of \["warUpdates", "relationUpdates", "agreementUpdates", "puppetUpdates"\]\) \{\s+payload\[key\] = keepRetryBoundRecords\(payload\[key\], retryEventIds\);/);
+    assert.match(segments, /for \(const key of \["warUpdates", "relationUpdates", "agreementUpdates", "puppetUpdates", "frontOrders"\]\) \{\s+payload\[key\] = keepRetryBoundRecords\(payload\[key\], retryEventIds\);/);
     assert.ok(segments.indexOf("keepRetryBoundRecords(payload[key]") < segments.indexOf("state.segmentPayloads.push(payload)"), "before the segment is added to the turn");
 });

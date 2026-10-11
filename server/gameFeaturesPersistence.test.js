@@ -22,6 +22,7 @@ import { OWNER_SCHEMA } from "./ownerMigration.js";
 const WORLD_DIRECTION_DEFAULTS = { enabled: true, eventPace: 100, worldShare: 35, priorityRules: "", scriptedEvents: [], territoryTempo: 0 };
 const PLAYER_FOCUS_DEFAULTS = { enabled: true, level: "balanced" };
 const GROUPS_DEFAULTS = { enabled: true };
+const FRONTS_DEFAULTS = { enabled: true, pace: 100 };
 const LISTEN_IN_DEFAULTS = { enabled: true };
 const PREGAME_HISTORY_DEFAULTS = { enabled: true };
 
@@ -87,7 +88,7 @@ test("a scenario stores a complete configuration and a game only its overrides",
       untouchedName: scenario.name,
     }`)}
   `);
-  assert.deepEqual(result.scenario, { espionage: { enabled: false }, idleDiplomacy: { enabled: true, averageMinutes: 30 }, groups: GROUPS_DEFAULTS, listenIn: LISTEN_IN_DEFAULTS, pregameHistory: { enabled: false }, worldDirection: WORLD_DIRECTION_DEFAULTS, playerFocus: PLAYER_FOCUS_DEFAULTS });
+  assert.deepEqual(result.scenario, { espionage: { enabled: false }, idleDiplomacy: { enabled: true, averageMinutes: 30 }, groups: GROUPS_DEFAULTS, fronts: FRONTS_DEFAULTS, listenIn: LISTEN_IN_DEFAULTS, pregameHistory: { enabled: false }, worldDirection: WORLD_DIRECTION_DEFAULTS, playerFocus: PLAYER_FOCUS_DEFAULTS });
   assert.deepEqual(result.game, { idleDiplomacy: { enabled: false } });
   assert.deepEqual(result.gameScenario, result.scenario);
   assert.deepEqual(result.catalog, result.game);
@@ -108,7 +109,7 @@ test("a save that does not mention features keeps them, and a fresh install read
       game: store.getGameDetails("campaign").game.features,
     }`)}
   `);
-  assert.deepEqual(result.before, { espionage: { enabled: true }, idleDiplomacy: { enabled: true, averageMinutes: 8 }, groups: GROUPS_DEFAULTS, listenIn: LISTEN_IN_DEFAULTS, pregameHistory: PREGAME_HISTORY_DEFAULTS, worldDirection: WORLD_DIRECTION_DEFAULTS, playerFocus: PLAYER_FOCUS_DEFAULTS });
+  assert.deepEqual(result.before, { espionage: { enabled: true }, idleDiplomacy: { enabled: true, averageMinutes: 8 }, groups: GROUPS_DEFAULTS, fronts: FRONTS_DEFAULTS, listenIn: LISTEN_IN_DEFAULTS, pregameHistory: PREGAME_HISTORY_DEFAULTS, worldDirection: WORLD_DIRECTION_DEFAULTS, playerFocus: PLAYER_FOCUS_DEFAULTS });
   assert.equal(result.scenario.espionage.enabled, false);
   assert.deepEqual(result.game, { espionage: { enabled: true } });
 });

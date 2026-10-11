@@ -22,6 +22,28 @@ export const FEATURE_DEFINITIONS = Object.freeze([
     description: "Actors that are not countries, such as insurgencies, cartels, militias, cults or an outbreak, each controlling an area of regions that stay their countries'. Off: the simulator is not given the groups or their areas, anything it writes about groups is left out, and no group's area is shown on the map or on a region's card. A game switched back on finds its groups as it left them.",
     settings: Object.freeze([]),
   }),
+  // Battlefields and fronts (src/runtime/fronts/): land war the game fights
+  // itself, from orders the simulator gives. It costs no request: the orders
+  // ride in the one answer a time skip already gives, and the engine that moves
+  // the troops asks nobody (src/Game/AI/frontsGate.js reads this; frontTurn.js
+  // runs it).
+  Object.freeze({
+    key: "fronts",
+    label: "Fronts",
+    description: "Land war fought on battlefields. Where the two sides of a war hold land that touches, a battlefield opens by itself: each side is given troops by its size, the simulator gives them orders, and the game moves them and decides who holds the ground, a region changing hands as it is taken. Off: no battlefield opens, the simulator is asked for no front orders, and a land war is the formations it moves and the regions it hands over itself. A game switched back on finds its battlefields as it left them.",
+    settings: Object.freeze([
+      Object.freeze({
+        key: "pace",
+        label: "Pace of an advance",
+        unit: "% of the usual ground gained in a day",
+        min: 25,
+        max: 300,
+        step: 5,
+        defaultValue: 100,
+        description: "How fast troops gain ground when they have the strength to. 100 is the built-in pace: on foot at two to one, about five kilometres a day in the modern era. Lower for a war of position, higher for a war of movement. It changes how far an attack gets, never who wins it.",
+      }),
+    ]),
+  }),
   // Listen in (src/runtime/listenIn.js): the phone a region's card and a
   // country's panel open. It asks the model only when the player opens a feed
   // that is not already kept for that place and day, so it costs nothing while
