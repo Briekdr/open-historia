@@ -408,7 +408,7 @@ import {
   normalizeCustomStatValues,
   statSheetKeys,
 } from "../../runtime/statsSheet.js";
-import { difficultyDirective, difficultyScopeForTask } from "../../runtime/difficulty.js";
+import { difficultyDirective, difficultyScopeForTask, taskReadsDifficultyDirective } from "../../runtime/difficulty.js";
 import { MAP_SETTING_KEYS, getMapSetting, getMapSettingDefaultOn } from "../../runtime/mapSettings.js";
 import { AI_FIRST_BYTE_TIMEOUT_MS, AI_IDLE_TIMEOUT_MS, createIdleDeadline, runWithIdleDeadline } from "./idleDeadline.js";
 import { REPAIR_STOP_TIME_BUDGET, runBoundedRepairCall } from "./repairCall.js";
@@ -1571,7 +1571,7 @@ const callAIWithTaskLimit = (systemPrompt, history, options = {}) => {
   );
 };
 
-// Difficulty 2.0 carries one directive per scope; which one a task reads is
+// A difficulty carries one longer directive per scope; which one a task reads is
 // runtime/difficulty.js difficultyScopeForTask.
 
 // Telemetry: how much in-game time this task's prompt covers, from the round
@@ -2636,7 +2636,8 @@ const buildJumpLiveState = async ({ variables = {}, lookups = null, reminders = 
     // The template's own [Real History Is the Default] still stands.
   }
   // The chosen difficulty is in the template, under its [Difficulty] heading
-  // (${DIFFICULTY_DESCRIPTION_JUMP_FORWARD}, the simulation directive).
+  // (${DIFFICULTY_DESCRIPTION_JUMP_FORWARD}, the simulation directive), and its
+  // priority line opens the system prompt (main.jsx callAI).
 
   blocks.push(`[Occupied and Contested Regions]\n${normalizeString(variables.territorialControlContext) || "None."}`);
   if (isActiveFeatureEnabled("groups")) blocks.push(buildJumpGroupsBlock(variables.groupsContext));
@@ -2779,11 +2780,6 @@ ${brief}`);
   return blocks.filter(Boolean).join("\n\n");
 };
 
-// The tasks that simulate nothing, so no difficulty applies to them: Listen in
-// writes what people are saying, and a harder game does not make them say it
-// differently.
-const TASKS_WITHOUT_DIFFICULTY = new Set(["listenIn"]);
-
 // The tasks that speak for, to or about the player's side.
 const PLAYER_GROUP_TASKS = new Set([
   "actions", "chatActions", "descriptionToAction", "interactiveCreation", "interactiveExecutor",
@@ -2850,9 +2846,14 @@ const buildTaskSystemPrompt = async (taskKey, { variables, lookups = null, remin
   let systemPrompt = rendered.text;
   const staticPromptPrefix = rendered.text.slice(0, rendered.staticPrefixEnd);
 
-  // The chosen difficulty steers every simulation task (see runtime/difficulty.js);
-  // a time skip has it in its live records.
-  if (!jumpTask && !TASKS_WITHOUT_DIFFICULTY.has(taskKey)) {
+  // The chosen difficulty decides how things go for the player
+  // (runtime/difficulty.js). Its priority line opens EVERY task's system prompt:
+  // callAI puts it there (main.jsx), in front of what is built here, so it is
+  // not this function's to add. What is added here is the longer reading for
+  // the task's scope, for the tasks that decide an outcome; a time skip has
+  // that passage in its template, and a task that only carries out what an
+  // event already decided (a director, a stat sheet) is given none.
+  if (!jumpTask && taskReadsDifficultyDirective(taskKey)) {
     try {
       const game = await readGameData();
       systemPrompt = `${systemPrompt}\n\n${difficultyDirective(game.difficulty, difficultyScopeForTask(taskKey))}`;

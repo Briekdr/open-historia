@@ -16,7 +16,7 @@ Every LLM call the game makes is a template in `src/Game/AI/defaultPrompts.json`
 | JSON Schemas + tools + payload validator | `src/Game/AI/gameplaySchemas.js` | `GAMEPLAY_SCHEMAS`, `GAMEPLAY_TOOLS`, `validateGameplayPayload` |
 | Provider dispatch, `callAI`, advisor/leader assembly | `src/Game/AI/main.jsx` | `callAI`, `buildAdvisorSystemPrompt`, `buildDiplomaticSystemPrompt` |
 | Language directive (appended to *every* call) | `src/runtime/i18n.js` | `languageDirective` |
-| Difficulty directive (appended to non-jump tasks; in the leader and jump templates as a passage) | `src/runtime/difficulty.js` | `difficultyDirective`, `difficultyPassage` |
+| Difficulty: the priority block that opens every system prompt, and the longer directive (appended to non-jump tasks; in the leader and jump templates as a passage) | `src/runtime/difficulty.js` | `difficultyPriorityBlock`, `withDifficultyPriority`, `TASKS_WITHOUT_DIFFICULTY`, `difficultyDirective`, `difficultyPassage` |
 | Where the active game's prompt overrides are read from | `src/runtime/assets.js` | `JSON_URLS.prompts = /api/runtime/json/prompts` |
 | Per-scenario / per-game prompt editor UI ("Prompts" tab) | `src/Game/GameUI/libraryBar.jsx` | `PromptSectionEditor`, `handlePromptChange`, `serializePromptPack` on save |
 
@@ -62,7 +62,7 @@ Order of concatenation onto the system prompt:
 1. **Load pack** — `loadPromptCatalog` → `normalizePromptPack(readJson(JSON_URLS.prompts))` (the current defaults with the pack's guidance edits composed in, §2).
 2. **Resolve helpers** — `helperValues = resolveHelperValues(prompts.helpers, variables)` (`promptContext.js`). Two passes so a helper that references another helper resolves.
 3. **Render task text** — `systemPrompt = renderTemplate(prompts.tasks[taskKey], {...variables,...helperValues })` (`gameplay.js`). `renderTemplate` (`promptContext.js`) replaces `${key}` with `variables[key]` (missing/`null` → empty string). Both uppercase `${PLACEHOLDER}` keys (from `helperValues`) and lowercase `${var}` keys (from `variables`) are in scope.
-4. **+ Difficulty directive** — `\n\n${difficultyDirective(game.difficulty, scope)}` for every task but a time skip (`gameplay.js`; scope by `difficultyScopeForTask`, `difficulty.js`: `diplomacy` for `idleDiplomacy` and the group-chat batch `chatActions`, `interactive` for the interactive tasks, else `simulation`). A time skip reads the simulation directive in its template instead (`${DIFFICULTY_DESCRIPTION_JUMP_FORWARD}`, §5), once.
+4. **+ Difficulty directive** — `\n\n${difficultyDirective(game.difficulty, scope)}` for every task that decides an outcome (`taskReadsDifficultyDirective`, `difficulty.js`: not a time skip, not a task in `TASKS_WITHOUT_DIFFICULTY`, and not one that carries out what an event already decided, `TASKS_CARRYING_OUT_THE_RECORD`: the unit, structure and territory directors and the stat sheet); scope by `difficultyScopeForTask`: `diplomacy` for `idleDiplomacy` and the group-chat batch `chatActions`, `interactive` for the interactive tasks, else `simulation`. A time skip reads the simulation directive in its template instead (`${DIFFICULTY_DESCRIPTION_JUMP_FORWARD}`, §5), once. The difficulty's **priority block** is not added here: `callAI` puts it in FRONT of whatever was built (below).
 5. **Time skips** render their live records into the template (`${JUMP_LIVE_STATE}`, §6a) instead of steps 4 and 6: nothing is appended after a jump's template.
 6. **+ International Reputation** — only `actions`, `interactiveCreation`, `interactiveExecutor` (`gameplay.js`).
 7. **Call `callAI(systemPrompt, [{role:"user", parts:[{text: userMessage}]}], { tool, maxTokens: 8192,... })`.** Inside `callAI` (`main.jsx`): **+ Language directive** `\n\n${languageDirective}` when the UI language ≠ English.
@@ -71,7 +71,8 @@ Order of concatenation onto the system prompt:
 So the final task system prompt is:
 
 ```
-<rendered task text>
+[PRIORITY — Difficulty: <level>] + the level's line + what holds at every level   (added by callAI; see "Difficulty leads every prompt")
+\n\n<rendered task text>
 \n\n<difficulty directive>
 (a time skip: its template, with the live records inside it at ${JUMP_LIVE_STATE}, and nothing after it)
 [\n\n[International Reputation]…] (5 tasks only)
@@ -87,8 +88,8 @@ Retry (`gameplay.js`): each task gets **two output attempts**. On attempt-1 fail
 
 These do **not** go through `runJsonTask` or `buildTemplateVariables`; they build variables directly from `buildPromptContext` (`buildPromptVariables`, `main.jsx`, with `eventLimit: 16`), demand-gated like the tasks (`chatPromptDemand` → `promptVariableDemand`, §5.1).
 
-- **Advisor** (`buildAdvisorSystemPrompt`, `main.jsx`): `renderTemplate(promptPack.advisor, {...variables,...helperValues })` → `callAI` (language directive only). No difficulty, no schema (free-form text reply). Called by `sendMessage` (`main.jsx`) with a rolling `advisorHistory`.
-- **Leader** (`buildDiplomaticSystemPrompt`, `main.jsx`): `renderTemplate(promptPack.leader, …)`; the difficulty's **diplomacy** directive is in the template (`${DIFFICULTY_DESCRIPTION_CHATS}`), once, and nothing is appended for it. Then `sendDiplomaticMessage` (`main.jsx`) appends a per-turn user instruction telling the model to speak as one specific polity and optionally emit a trailing `REACTION:<emoji>` line (`main.jsx`), which `parseReaction` strips. `callAI` adds the language directive.
+- **Advisor** (`buildAdvisorSystemPrompt`, `main.jsx`): `renderTemplate(promptPack.advisor, {...variables,...helperValues })` → `callAI`, which opens it with the difficulty's priority block (task `advisor`) and adds the language directive. No longer difficulty directive, no schema (free-form text reply). Called by `sendMessage` (`main.jsx`) with a rolling `advisorHistory`.
+- **Leader** (`buildDiplomaticSystemPrompt`, `main.jsx`): `renderTemplate(promptPack.leader, …)`; the difficulty's **diplomacy** directive is in the template (`${DIFFICULTY_DESCRIPTION_CHATS}`), once, and nothing is appended for it; `callAI` opens the prompt with the priority block (task `diplomacy`). Then `sendDiplomaticMessage` (`main.jsx`) appends a per-turn user instruction telling the model to speak as one specific polity and optionally emit a trailing `REACTION:<emoji>` line (`main.jsx`), which `parseReaction` strips. `callAI` adds the language directive.
 
 Because the advisor/leader path skips `buildTemplateVariables`, the military-feasibility doctrine (§5) is **not** appended to their unit text. Reputation, the intelligence rating and the Stats sheet reach them through `standingContext.js` instead, built from the world as the player has seen it (`viewAsSeen`):
 
@@ -153,8 +154,8 @@ Because the advisor/leader path skips `buildTemplateVariables`, the military-fea
 | `TARGET_ROUND_GRAMMATICAL_DATE` | `targetDateReadable` | Target date formatted readable | jumpForward |
 | `CURRENT_ROUND_NUMBER` | `round` | Current round number | jumpForward, autoJumpForward |
 | `JUMP_LIVE_STATE` | `jumpLiveState` | The time skip's live records, one block (`buildJumpLiveState`, §6a), the native world director's analysis among them (`worldInitiativeContext`: focused and deferred storylines, the exploration slate, the era's conflict posture, economic and diplomatic attention, the storyline record contract; built per segment by `runJumpSegments`) | jumpForward, autoJumpForward |
-| `DIFFICULTY_DESCRIPTION_CHATS` | `difficultyGuidanceChats` | The difficulty's Difficulty 2.0 **diplomacy** directive | leader |
-| `DIFFICULTY_DESCRIPTION_JUMP_FORWARD` | `difficultyGuidanceJumpForward` | The difficulty's Difficulty 2.0 **simulation** directive | jumpForward, autoJumpForward |
+| `DIFFICULTY_DESCRIPTION_CHATS` | `difficultyGuidanceChats` | The difficulty's **diplomacy** directive | leader |
+| `DIFFICULTY_DESCRIPTION_JUMP_FORWARD` | `difficultyGuidanceJumpForward` | The difficulty's **simulation** directive | jumpForward, autoJumpForward |
 | `DESCRIPTION_ACTION_TEXT` | `actionInput` | Raw player freeform text to convert | descriptionToAction |
 | `EVENTS_TO_CONSOLIDATE` | `eventsToConsolidate` | Event batch to compress | eventConsolidator |
 | `CHATS_TO_CONSOLIDATE` | `chatsToConsolidate` | Chat batch to compress | eventConsolidator |
@@ -245,7 +246,8 @@ Concatenated onto the system prompt in `runJsonTask` / `callAI` **after** the te
 
 | Directive | Applies to | Source |
 |---|---|---|
-| **Difficulty** — the level's Difficulty 2.0 directive for the task's scope | every task but a time skip (via `readGameData`); the leader and a time skip read it in their templates instead (§4) | `gameplay.js`; text in `difficulty.js` |
+| **Difficulty priority block** — `[PRIORITY — Difficulty: <level>]`, the level's line and what holds at every level, at the very START of the system prompt | every call but the tasks in `TASKS_WITHOUT_DIFFICULTY` and a call with no task key | `callAI` and `submitAIBatch` in `main.jsx` (`withDifficultyPriority`); text in `difficulty.js` |
+| **Difficulty** — the level's longer directive for the task's scope | every task that decides an outcome, but a time skip (via `readGameData`); the leader and a time skip read it in their templates instead (§4) | `gameplay.js`; text in `difficulty.js` |
 | **[The World's Share — counted by the engine]** and **[PRIORITY RULES — set by this scenario's author]** — the scenario author's world direction (`worldDirection.js` `buildWorldDirectionDirective`). A time skip carries it in its live records (§6a), before its output note and writing brief. Every other task that writes the world or speaks for a polity (`GM_REMINDER_TASKS` but the Game Master, which carries out the player's explicit command) gets the priority rules alone (`buildPriorityRulesBlock`), just before the GM's reminders; the turn review carries them once for the whole request. Nothing while the author set no rules. | `jumpForward`, `autoJumpForward`; the rules alone: the review and its directors, the repairs, `projects`, `actions`, `idleDiplomacy`, the interactive event tasks, `spyIntercept`, `chatActions` |
 | **[The Player's Standing Goal]** — what the player's government is steering toward (`describeGoalForSimulation`, `runtime/playerGoal.js`), as a guiding philosophy, not an order: the player's own ministers conduct the business the orders did not address in its spirit; it never creates an action the player did not order, never decides what Player Agency reserves for the player, never makes success likelier. Nothing while no goal is set | `worldMotionRepair`, `worldBreadthRepair`; a time skip has it in its live records | `playerGoalBlock` (`gameplay.js`) |
 | **[REMINDERS FROM THE GAME MASTER]** — the GM's standing facts (`runtime/gmChanges.js` `renderReminders`), after the priority rules: a fact declared mid-game is newer than any rule written before it. Every task that writes the world or speaks for a polity (`GM_REMINDER_TASKS`); the turn review carries it once for the whole request, not once per job (`buildTaskSystemPrompt(…, { reminders: false })` per job). Nothing while there are none. | the skip, the review and its directors, `projects`, `gameMaster`, `actions`, `idleDiplomacy`, the interactive event tasks, `spyIntercept`, `chatActions` |
@@ -256,7 +258,28 @@ Concatenated onto the system prompt in `runJsonTask` / `callAI` **after** the te
 | **Military feasibility** — era-reach/unit-type/distance doctrine; folded into `${CURRENT_UNITS}` not appended separately | conditional: only when units exist or the player has a planned order (not a chat); no keyword test, so an order in any language gets it | `buildMilitaryFeasibilityText` `militaryFeasibility.js`, injected by `buildTemplateVariables` `gameplay.js` |
 | **Leader turn instruction** — "speak only as `<polity>`… optionally append `REACTION:<emoji>`" (a user-role turn, not system) | leader only | `main.jsx` |
 
-Difficulty text (`difficulty.js`): `very-easy`, `easy`, `medium` (default; `"standard"`/empty normalize to medium), `hard`, `very-hard`, `impossible`. Each level carries one directive per scope (simulation, diplomacy, interactive). `buildDifficultyGuidance` (`promptContext.js`) renders the same directive as a passage (`difficultyPassage`) for the templates that carry it under their own heading, `DIFFICULTY_DESCRIPTION_*`: the leader reads the diplomacy directive and a time skip the simulation one, each once. Until 2026-09-28 those placeholders held an older, softer paragraph that disagreed with 2.0 (its Impossible said outcomes should almost never go the player's way), and the leader and the skip got a second, simulation-scoped directive appended beside it.
+**Difficulty leads every prompt** (`difficulty.js`, since 2026-10-11). Difficulty decides how things go for the player: almost always well on Very Easy, usually well on Easy, realistically on Medium, often poorly on Hard, usually poorly on Very Hard, almost always poorly on Impossible. This reverses the earlier doctrine ("Difficulty 2.0"), under which a level changed only how much benefit of the doubt a plan got and how able the opposition was, and promised a world that never leaned for or against the human. Each level now has a `priority` line of two or three sentences, and `difficultyPriorityBlock` writes it as `[PRIORITY — Difficulty: <label>]`, the line, and one paragraph that is the same at every level: this comes before every other instruction on how things turn out (a later passage on how difficulty applies included); each outcome has a cause the text gives; what the player orders is always attempted and always gets an outcome; established facts, figures and the Game Master's instructions are never rewritten; where an event or the record already says how something turned out, that stands and no tilt is added; and nothing the player reads says the word difficulty.
+
+`withDifficultyPriority` puts the block in front of a system prompt, and `callAI` (`main.jsx`) calls it for every request the game sends, as `submitAIBatch` does for a batched one, so no task can be built without it. **The provider's prompt cache**: the block is the same for every call of a campaign, so it belongs to the game-lifetime prefix; `withDifficultyPriority` moves `staticPrefixEnd` forward by the block's length, the prefix that was byte-identical from call to call still is, and Anthropic's `cache_control` split (`splitSystemPromptForCache`) and the implicit prefix caches of OpenAI and Gemini cover it. Changing the difficulty mid-game changes the first bytes once and the cache refills.
+
+| Told nothing of the difficulty (`TASKS_WITHOUT_DIFFICULTY`) | Why |
+|---|---|
+| `translation` | puts finished text into another language |
+| `geographyResolver` | matches a place name to a region of the map |
+| `eventConsolidator` | folds finished history into the history document |
+| `timelineCurator` | takes repeats and filler off a finished timeline, and writes nothing |
+| `descriptionToAction` | words the player's own order; its outcome is the skip's to decide |
+| `demandCheck` | reads whether a reply made or answered a demand |
+| `listenIn` | writes what people are saying in a place |
+| `pregameHistory` | the history before the game starts, with no player in it |
+| `politicalWorldGeneration`, `politicalWorldVerification` | a scenario's political world, made in the Workshop |
+| a call with no task key | a connection test |
+
+Every other task opens with the block, and one the game gains later does without being listed: `jumpForward`, `autoJumpForward`, `worldMotionRepair`, `worldBreadthRepair`, `turnReview`, `diplomacy` (a leader), `advisor`, `chatActions`, `idleDiplomacy`, `interactiveCreation`, `interactiveExecutor`, `interactiveSummary`, `gameMaster`, `actions`, `projects`, `spyIntercept`, `intelligenceAssessment`, `countryBriefing`, `politicalClaimRepair`, and the four that carry out what an event already decided (`unitDirector`, `structureDirector`, `territoryDirector`, `countryStatSheet`), which get the block, whose own words tell them the record stands, and no longer directive.
+
+The jump templates' editable `[Difficulty]` guidance passage ("Difficulty is expressed in the difficulty of the player's LONG-TERM goals…", translated in `public/lang/prompts/`) was left as it is, so no shipped or translated passage changed; where it and the level disagree (it has the player prepare "with realistic ease" at any level) the priority block says in so many words that it decides.
+
+Difficulty text: `very-easy`, `easy`, `medium` (default; `"standard"`/empty normalize to medium), `hard`, `very-hard`, `impossible`. Each level carries its `priority` line and one longer directive per scope (simulation, diplomacy, interactive), which say the same thing at greater length (on Impossible a counterpart refuses, stalls or demands far more; on Very Easy it is ready to agree); `difficulty.test.js` holds the two to agreement. `buildDifficultyGuidance` (`promptContext.js`) renders the same directive as a passage (`difficultyPassage`) for the templates that carry it under their own heading, `DIFFICULTY_DESCRIPTION_*`: the leader reads the diplomacy directive and a time skip the simulation one, each once. 
 
 ---
 
