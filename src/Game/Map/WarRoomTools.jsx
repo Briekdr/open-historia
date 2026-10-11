@@ -21,7 +21,7 @@ import { createPortal } from "react-dom";
 import { useMap } from "react-map-gl/maplibre";
 import { decodeTroops } from "../../runtime/fronts/codec.js";
 import { ownTroopsOf } from "../../runtime/fronts/command.js";
-import { frameBounds, projectorOf } from "../../runtime/fronts/frame.js";
+import { frameBounds, projectorOf, unwrapLng } from "../../runtime/fronts/frame.js";
 import { foldBattlefieldName, normalizeBattlefield } from "../../runtime/fronts/record.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
 import { getWarRoom, reportWarRoomWay, setWarRoom, takeTool, useWarRoom } from "./warRoomStore.js";
@@ -98,6 +98,18 @@ const WarRoomTools = () => {
   // (For the pointer's handlers, which are attached once a tool and must see
   // the troops where they stand now.)
   const standingRef = useRef(standing);
+  // The longitude of the middle of the battlefield, as ITS frame tells it. A
+  // frame may be told a whole turn off the map's own longitudes (North America
+  // as 215 to 300 east): a troop is then looked for on the screen at the copy
+  // of its place nearest the map's middle, and a route drawn on the screen is
+  // told in the frame's turn. Without either, no troop was ever inside a box
+  // drawn round it there, and a route fell a world away from its battlefield.
+  const frameLng = useMemo(() => {
+    if (!record?.frame) return 0;
+    return projectorOf(record.frame).toLngLat(record.frame.cols / 2, record.frame.rows / 2)[0];
+  }, [record]);
+  const frameLngRef = useRef(frameLng);
+  frameLngRef.current = frameLng;
   // The troops the player may pick: its own. On a side of several countries each commands its own.
   const country = useRuntimeState("game", selectCountry);
   const own = useMemo(() => new Set(record && (side === 0 || side === 1) ? ownTroopsOf(record, side, country) : []), [record, side, country]);
@@ -162,12 +174,14 @@ const WarRoomTools = () => {
       return [event.clientX - box.left, event.clientY - box.top];
     };
     const mine = () => (standingRef.current[side] ?? []).map((point, index) => (ownRef.current.has(index) ? point : null));
+    const onScreen = (place) => map.project([unwrapLng(place[0], map.getCenter().lng), place[1]]);
+    const inFrame = (place) => [unwrapLng(place.lng, frameLngRef.current), place.lat];
     const pickAt = ([x, y]) => {
       let best = -1;
       let bestPx = PICK_PX * PICK_PX;
       mine().forEach((point, index) => {
         if (!point) return;
-        const shown = map.project(point);
+        const shown = onScreen(point);
         const off = (shown.x - x) * (shown.x - x) + (shown.y - y) * (shown.y - y);
         if (off <= bestPx) {
           bestPx = off;
@@ -227,7 +241,7 @@ const WarRoomTools = () => {
           const [top, bottom] = [Math.min(done.from[1], point[1]), Math.max(done.from[1], point[1])];
           mine().forEach((place, index) => {
             if (!place) return;
-            const shown = map.project(place);
+            const shown = onScreen(place);
             if (shown.x >= left && shown.x <= right && shown.y >= top && shown.y <= bottom) before.add(index);
           });
         }
@@ -249,8 +263,7 @@ const WarRoomTools = () => {
       }
       if (length < WAY_LEAST_PX) return;
       const way = done.way.map(([x, y]) => {
-        const place = map.unproject([x, y]);
-        return [place.lng, place.lat];
+        return inFrame(map.unproject([x, y]));
       });
       const drawn = tool;
       takeTool("pan");

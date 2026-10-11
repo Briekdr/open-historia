@@ -293,7 +293,15 @@ const FrontLayers = () => {
     const mapInstance = map?.getMap?.() ?? map;
     if (!mapInstance || !painted) return undefined;
     const { take, put } = createFrontBasemapLayers({
-      pictures: () => picturesRef.current,
+      // Only a picture the map has taken and is drawing: the territory's colour is
+      // never taken away from under paint that is not there to stand in its place.
+      pictures: () => picturesRef.current.filter((picture) => {
+        try {
+          return Boolean(mapInstance.getLayer(frontPaintLayerId(picture.slot))) && mapInstance.isSourceLoaded(frontPaintSourceId(picture.slot));
+        } catch {
+          return false;
+        }
+      }),
       onState: (working) => setSeenThrough(working === true),
       onError: (error) => console.warn("[fronts] the bare map could not be put back under the painted ground; it is cleared to grey instead.", error),
     });
