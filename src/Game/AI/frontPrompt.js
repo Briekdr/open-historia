@@ -40,7 +40,7 @@ import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts
 import { loadOf, normalizeTransports } from "../../runtime/fronts/transports.js";
 import { FRONT_ORDERS_FIELD } from "./nativeFrontLedger.js";
 
-export const FRONTS_BLOCK_MAX = 8300;
+export const FRONTS_BLOCK_MAX = 8900;
 // The most that is told of transporters in it.
 export const TRANSPORTS_TEXT_MAX = 640;
 export const FRONTS_BLOCK_HEADING = "[Fronts]";
@@ -63,6 +63,9 @@ const ORDER_LINES = [
   "- sector: all, a sector word listed for that battlefield, or a place on its line.",
   "- ship | rail | airlift send a TRANSPORTER: troops carried to a place their side has no border with, to fight there. objective says where (`city: X`, `region: X` or `country: X`); battlefield names the front they open. After effort may come what carries them (any name), how many formations (1 to 40) and its speed in km a day. The game finds the way (ships by sea, rail through land its side holds, aircraft by air); it sets out as the next period begins and can be intercepted.",
   "NAME~A~ship~~3~city: X~~~troop convoy~12~600",
+  "A missile launch or a bombing run that an event tells of is DRAWN on the map from a line of its own. It changes nothing by itself: what the strike did is what the event's own operations say. strike~side~weapon~from~eventNumbers~target~shot down~count",
+  "- weapon: silo missile | submarine missile | nuclear bomber (these three are nuclear) | missile strike | bombing run. from: where it is launched (`structure: X`, `unit: X`, `city: X`), or blank and the game picks. target: the place hit. count: how many missiles or aircraft. shot down: how many of them were intercepted on the way.",
+  "strike~A~bombing run~city: X~4~city: Y~3~24",
 ];
 
 // The engine runs AFTER the answer: an order is carried out in this period.

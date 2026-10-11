@@ -226,11 +226,63 @@ test("an aircraft flies the short way, and round its enemies' land where that co
   assert.deepEqual(into.landing, [26.5, 53]);
 });
 
+test("an invented world is sailed like any other: its own land is what is gone round, on a globe or on a flat sheet", () => {
+  // No country of the Earth and no coast of it: two realms on one sea, a
+  // mountainous isle between them, and an inland sea nobody can sail out of.
+  const realm = { K: "Karhold", V: "Valdris", I: "The Isle", "~": null };
+  const layout = [
+    "~~~~~~~~~~~~~~",
+    "~KKK~~~~~~VVV~",
+    "~KKK~~II~~VVV~",
+    "~KKK~~II~~VVV~",
+    "~KKK~~II~~V~V~",
+    "~KKK~~~~~~VVV~",
+    "~~~~~~~~~~~~~~",
+  ];
+  const holders = (world) => ({ holderOf: world.controllerOf, friendly: (name) => name === "Karhold", hostile: (name) => name === "Valdris", year: 1203 });
+  for (const flat of [false, true]) {
+    // (On a flat sheet a degree is as many kilometres as the scenario says; here, the world's.)
+    const world = syntheticMap({ layout, legend: realm, west: -40, north: 12, step: 2, flat });
+    const grid = buildWorldGrid(world.regions, { step: 0.2, flat });
+    assert.equal(grid.flat, flat);
+    const found = findWay(grid, { medium: "sea", from: [-32.4, 5], to: [-19.6, 5], ...holders(world) });
+    assert.equal(found.error, undefined, `a ship of Karhold's sails to Valdris on a ${flat ? "flat sheet" : "globe"}`);
+    let ashore = 0;
+    let rounded = false;
+    const total = wayKm(found.way, { flat });
+    for (let km = 0; km <= total; km += 6) {
+      const at = placeAlong(found.way, km, { flat });
+      const cell = grid.cellOf(at.lng, at.lat);
+      if (cell < 0 || grid.land[cell] >= grid.full) ashore += 1;
+      if ((at.lat > 8 || at.lat < 2) && at.lng > -28 && at.lng < -24) rounded = true;
+    }
+    assert.equal(ashore, 0, "it never crosses dry land");
+    assert.equal(rounded, true, "it goes round the Isle, which lies straight across its way");
+    assert.ok(found.km > kmBetween(-32.4, 5, -19.6, 5, { flat }) * 1.03);
+    assert.deepEqual(findWay(grid, { medium: "sea", from: [-32.4, 5], to: [-19.6, 5], ...holders(world) }), found, "and the same way every time");
+    // The water shut inside Valdris is no way out of it and no way in.
+    assert.equal(seasOf(grid)[grid.cellOf(-17, 3)] > 0, true, "there is water inside Valdris");
+    assert.notEqual(seasOf(grid)[grid.cellOf(-17, 3)], seasOf(grid)[grid.cellOf(-30, 11)], "and it is not the sea outside");
+    const lakeside = findWay(grid, { medium: "sea", from: [-32.4, 5], to: [-17, 3.9], ...holders(world) });
+    assert.equal(seasOf(grid)[grid.cellOf(lakeside.end[0], lakeside.end[1])], seasOf(grid)[grid.cellOf(-30, 11)], "a ship sent to its shore comes to the coast outside, not onto the lake");
+    assert.ok(grid.land[grid.cellOf(lakeside.landing[0], lakeside.landing[1])] > 0, "and its troops go ashore on Valdris");
+    // A train of Karhold's keeps to Karhold, and an aircraft goes straight there.
+    assert.equal(findWay(grid, { medium: "land", from: [-37, 9], to: [-33, 2.5], ...holders(world) }).arrived, true);
+    assert.equal(findWay(grid, { medium: "land", from: [-37, 9], to: [-19.6, 5], ...holders(world) }).arrived, false);
+    const flown = findWay(grid, { medium: "air", from: [-35, 5], to: [-19.6, 5], ...holders(world) });
+    assert.ok(Math.abs(flown.km - kmBetween(-35, 5, -19.6, 5, { flat })) < 25, `${flown.km} km flown`);
+  }
+});
+
 test("a canal is gone through once it has been dug, on the world's own map", () => {
   const suez = CANALS.find((canal) => canal.name === "Suez");
   assert.deepEqual([suez.since, CANALS.find((canal) => canal.name === "Panama").since], [1869, 1914]);
-  // The land between two seas, where Suez is.
-  const world = syntheticMap({ layout: ["~~~~~", "~~~~~", "LLLLL", "LL~LL", "LL~LL", "~~~~~"], legend, west: 30, north: 33, step: 1 });
+  // The land between two seas, where Suez is, drawn as it lies there: the
+  // Mediterranean to the north, the gulf running down from the neck and the
+  // Red Sea opening south-east of it, with Egypt on one hand and Sinai on the other.
+  // (Anatolia across the top, so that the sheet reaches as far north as the sea does.)
+  const EGYPT = ["LLLLLL", "~~~~~~", "~~~~~~", "~~~~~~", "LLLLLL", "LL~LLL", "LL~LLL", "LLL~LL", "LLLL~~", "LLLL~~"];
+  const world = syntheticMap({ layout: EGYPT, legend, west: 30, north: 35, step: 1 });
   const grid = gridOf(world);
   const ask = (year) => findWay(grid, { medium: "sea", from: [32.5, 31.7], to: [31.5, 28.2], ...asked(world, { year }) });
   const before = ask(1850);
@@ -255,4 +307,18 @@ test("a canal is gone through once it has been dug, on the world's own map", () 
   let over = false;
   for (const [lng, lat] of sailed.way) if (lat > 30.05 && lat < 30.95 && lng > 30 && lng < 35) over = true;
   assert.equal(over, false);
+
+  // An invented world, on a globe of its own, that happens to have sea at both
+  // ends of the canal and land between them: it is not Egypt, and nothing is
+  // dug there. (Here the land is one bar from sea to sea, with no gulf, no Sinai and no Red Sea.)
+  const invented = syntheticMap({ layout: ["~~~~~~", "~~~~~~", "LLLLLL", "~~~~~~", "~~~~~~", "~~~~~~"], legend, west: 30, north: 33, step: 1 });
+  const elsewhere = gridOf(invented);
+  const round = findWay(elsewhere, { medium: "sea", from: [32.5, 31.7], to: [32.5, 30.2], ...asked(invented, { year: 2024 }) });
+  assert.equal(round.error, undefined);
+  let across = false;
+  along(elsewhere, round.way, (at) => {
+    if (at.lat > 30.1 && at.lat < 30.9 && at.lng > 30.05 && at.lng < 35.95) across = true;
+  });
+  assert.equal(across, false, "its ship goes round the bar of land, whatever the year");
+  assert.ok(round.km > 400, `${round.km} km round it, not 160 across`);
 });

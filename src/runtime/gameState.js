@@ -55,6 +55,7 @@ import {
 import { compareGameDates, normalizeGameDate } from "./gameDates.js";
 import { normalizeBattlefields } from "./fronts/record.js";
 import { normalizeTransports } from "./fronts/transports.js";
+import { normalizeStrikes } from "./strikes.js";
 import { battlefieldHeldClaimants } from "./fronts/heldRegions.js";
 
 export const GAME_DEFAULTS = {
@@ -252,6 +253,9 @@ export const WORLD_DEFAULTS = {
   // The transporters carrying troops to where their side holds no land
   // (fronts/transports.js): ordered, under way, and those that ended last turn.
   transports: [],
+  // The missiles and bombing runs the last turns' events told of, for the map
+  // to play (strikes.js). They change nothing by themselves.
+  strikes: [],
   // Subordinations: who directs whom. Directional, partly secret, and written
   // only through the diplomatic director's compact puppetUpdates lines — see
   // docs/adr/0004-puppet-ledger-and-secrecy.md.
@@ -4386,6 +4390,7 @@ export const normalizeWorldState = (world) => {
     // every read of the world.
     battlefields: normalizeBattlefields(nextWorld.battlefields),
     transports: normalizeTransports(nextWorld.transports),
+    strikes: normalizeStrikes(nextWorld.strikes),
     puppets: normalizeWorldPuppets(nextWorld.puppets, diplomaticIdentityWorld),
     storylines: normalizeWorldStorylines(nextWorld.storylines),
     simulationRules: normalizeOptionalString(nextWorld.simulationRules),

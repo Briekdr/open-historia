@@ -197,16 +197,18 @@ import {
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
 import { applyTurnFronts, forecastTurnFronts, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { withTurnStrikes } from "../../runtime/strikes.js";
+import { kmBetween } from "../../runtime/fronts/worldGrid.js";
 import { readWarRoomAnswer, warRoomRequest, warRoomStanding, warRoomVariables } from "./warRoomContext.js";
 import { bindFrontOrdersToEvents, describeDroppedFrontOrders, frontOrderProseLines, screenFrontOrders } from "./nativeFrontLedger.js";
 import { buildOwnerAliasMap, canonicalOwnerName, toCountryName } from "../../runtime/ownerNames.js";
 import { countryGidFromIdentity } from "../../runtime/countryFlags.js";
 import { editDistance, foldRegionKey, matchRegionName, stripRegionAffixes } from "./regionMatch.js";
 import { describeUndeployedPost, isMilitaryPost, postWantsFormation } from "./militaryPosts.js";
-import { findUnitByRef, readNameRef } from "./nameRefs.js";
+import { findUnitByRef, readNameRef, stripKindTags } from "./nameRefs.js";
 import { areaRegionsFor, buildAreaIndex, findArea, readAreaName } from "./namedAreas.js";
 import { CAPTURE_REACH_KM, findNarratedCaptures, mayNarrateCapture } from "./narratedCapture.js";
-import { EVENT_PLACES_RULE, findEventPlaces } from "./eventPlaces.js";
+import { EVENT_PLACES_RULE, findEventPlace, findEventPlaces, readEventPlace } from "./eventPlaces.js";
 import { normalizeEventPlaces } from "../../runtime/eventPlaces.js";
 import { describeTravelPace, seaShareOf } from "../../runtime/unitMotion.js";
 import { PLACEMENT_DIRECTIVE, describeApproximatePlacement, distanceKm as placementDistanceKm, hashText as placementHash, homeWaters, nearestInteriorPoint, nearestSea, pointInGeometry, regionWithinContainer, resolvePlacement, resolveRegionPlacement, seasForMap } from "./placement.js";
@@ -7313,6 +7315,87 @@ const completeNarratedCaptures = async (containers, world, { receipt = null, ren
   return added;
 };
 
+// Where the places a turn's strikes name are (runtime/strikes.js), found on the
+// map as an event's own places are (a country at its capital, a region at its
+// middle), and then as any phrase that places a thing is read, with the world's
+// towns to hand for a city this map spells another way: Kyiv, on a map that
+// writes Kyyiv (placement.js resolvePlacement). And where a strike sets off
+// from when its owner has nothing on the map to launch it: a city of its own
+// (its capital for a missile from a silo; for the rest the nearest it holds to
+// what it strikes, though never so near that there is no flight to see).
+// The map is read only when a strike asks; a map that cannot be read finds
+// nothing, and the strike is then placed by name when the map plays it.
+const STRIKE_LAUNCH_KM_LEAST = 250;
+const createStrikePlaceReader = (world) => {
+  let reading = null;
+  const read = () => {
+    reading ??= (async () => {
+      const context = await lazyLookupContext({ world })();
+      return { context, gazetteer: buildPlacementGazetteer(context, world) };
+    })().catch((error) => {
+      console.warn("[strikes] the map could not be read; the strikes are placed by name when the map plays them.", error);
+      return null;
+    });
+    return reading;
+  };
+  const at = (point) => (Array.isArray(point) && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1])) ? { lng: Number(point[0]), lat: Number(point[1]) } : null);
+  const seatOf = (map, owner) => {
+    const seat = map.gazetteer.capitalOf(owner);
+    const point = at(seat?.point);
+    return point ? { name: `city: ${seat.name}`, ...point } : null;
+  };
+  return {
+    find: async (written) => {
+      const map = await read();
+      const ref = map ? readEventPlace(written) ?? readEventPlace(`city: ${normalizeString(written)}`) : null;
+      if (!ref) return null;
+      if (ref.kind === "country") {
+        const seat = seatOf(map, ref.name);
+        if (seat) return { lng: seat.lng, lat: seat.lat };
+      }
+      const found = findEventPlace(ref, map.gazetteer, { units: normalizeArray(world?.units) });
+      if (found && Number.isFinite(found.lng) && Number.isFinite(found.lat)) return { lng: found.lng, lat: found.lat };
+      const row = found?.regionId ? map.context.byId.get(found.regionId) : null;
+      if (row?.bbox) return { lng: (row.bbox[0] + row.bbox[2]) / 2, lat: (row.bbox[1] + row.bbox[3]) / 2 };
+      // Only a city: a structure, a formation or a region the map does not have is nowhere.
+      // And as a bare phrase: said with its kind, a name is a city of this map or nothing.
+      if (ref.kind !== "city") return null;
+      const phrase = stripKindTags(written).text;
+      const readPhrase = () => resolvePlacement(phrase, map.gazetteer, { seedText: "strike" });
+      let placed = readPhrase();
+      // (The world's towns are fetched the first time a name wants them, as for any placing.)
+      if (placed && await map.gazetteer.worldCitiesArrived()) placed = readPhrase();
+      return placed && !placed.error && Number.isFinite(Number(placed.lng)) && Number.isFinite(Number(placed.lat))
+        ? { lng: Number(placed.lng), lat: Number(placed.lat) }
+        : null;
+    },
+    // { name, lng, lat } or null.
+    seat: async (owner) => {
+      const map = await read();
+      return map ? seatOf(map, owner) : null;
+    },
+    origin: async ({ owner, weapon, to = null } = {}) => {
+      const map = await read();
+      if (!map) return null;
+      const seat = seatOf(map, owner);
+      if (!to || !Number.isFinite(to.lng) || !Number.isFinite(to.lat)) return seat;
+      const far = (place) => kmBetween(place.lng, place.lat, to.lng, to.lat);
+      if (weapon === "silo missile" && seat && far(seat) >= STRIKE_LAUNCH_KM_LEAST) return seat;
+      const key = foldRegionKey(map.context.resolveOwner(owner) || owner);
+      const mine = map.context.cityRows
+        .filter((city) => foldRegionKey(map.context.regionOfCity(city)?.owner) === key)
+        .map((city) => ({ name: `city: ${city.name}`, ...at(city.coordinates), population: city.population }))
+        .filter((city) => Number.isFinite(city.lng) && far(city) >= STRIKE_LAUNCH_KM_LEAST);
+      if (mine.length === 0) return seat;
+      // A silo is where its owner's people are thickest away from the border; the rest fly from the nearest.
+      const [best] = weapon === "silo missile"
+        ? mine.sort((a, b) => b.population - a.population || a.name.localeCompare(b.name))
+        : mine.sort((a, b) => far(a) - far(b) || a.name.localeCompare(b.name));
+      return { name: best.name, lng: best.lng, lat: best.lat };
+    },
+  };
+};
+
 // An event's `places`, as the model wrote them ("city: Kharkiv, country:
 // Ukraine"), become the places the map has (runtime/eventPlaces.js). Each is
 // looked up as the kind it was given and nothing else; one with no kind, or
@@ -8779,6 +8862,8 @@ const applySimulationResult = async ({
     receipt,
     requestedDays: result.requestedDays,
     signal: projects?.signal,
+    // Where the places a strike names are, and where one sets off from (asked only by a turn that tells of one).
+    strikePlaces: createStrikePlaceReader(baseWorld),
     warUpdates,
   });
   if (turnFronts) freshEvents.splice(0, freshEvents.length, ...turnFronts.events);
@@ -8800,6 +8885,8 @@ const applySimulationResult = async ({
       ...(turnFronts?.battlefields ? { battlefields: turnFronts.battlefields } : null),
       // And the transporters as the run left them, with those the answer ordered.
       ...(turnFronts?.transports ? { transports: turnFronts.transports } : null),
+      // The missiles and bombing runs this answer told of, for the map to play; those of older turns are let go.
+      ...(turnFronts ? { strikes: withTurnStrikes(baseWorld?.strikes, turnFronts.strikes, nextGame.round) } : null),
       // Whatever comes through here ends a scene: a skip is refused while one is
       // in progress and clears a leftover one, and a scene resolving is this.
       activeInteractive: null,

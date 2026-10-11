@@ -29,6 +29,8 @@ import { arenaFor } from "../../runtime/fronts/arena.js";
 import { pointInFrame } from "../../runtime/fronts/frame.js";
 import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts/record.js";
 import { TRANSPORT_LOAD_USUAL, TRANSPORT_ORDERS, isUnderWay, normalizeTransports, orderTransport } from "../../runtime/fronts/transports.js";
+import { buildWorldGrid, distanceTo, seasOf } from "../../runtime/fronts/worldGrid.js";
+import { STRIKES_PER_TURN_MOST, findStrikePlace, pickStrikeOrigin, seaLaunchPlace } from "../../runtime/strikes.js";
 
 export const FRONT_MARK = "front";
 // The mark on an order the turn itself drew from an event's own operations
@@ -716,6 +718,9 @@ const listed = (names, most = 3) => `${names.slice(0, most).join("; ")}${names.l
 //                    answer ordered added (those set out when the next period
 //                    begins); null to leave it as it is
 //   voyages          what became of each transporter during the run
+//   strikes          the missiles and bombing runs the answer wrote, with the
+//                    places of each found where the turn can find them
+//                    (runtime/strikes.js): for the map to play
 // The same arguments give the same result: a turn applied twice is one turn.
 export const runTurnFronts = async ({
   createFrontRun,
@@ -745,6 +750,10 @@ export const runTurnFronts = async ({
   // each side has. No other run is given any.
   authored = null,
   foretold = false,
+  // The game's own reader of places, for a strike (gameplay.js
+  // createStrikePlaceReader): { find(text), origin({ owner, weapon, to }), seat(owner) },
+  // each async and each answering null for what it cannot say.
+  strikePlaces = null,
 } = {}) => {
   const cleared = withoutCommittedMoves(stripFrontOps(events), world?.units);
   const list = cleared.events;
@@ -756,14 +765,17 @@ export const runTurnFronts = async ({
         + "Troops on a battlefield are moved by front orders, under [Fronts].",
     });
   }
-  const nothing = (battlefields) => ({ events: list, battlefields, unitChanges: [], notes, flips: [], stats: null, news: [], joins: [], transports: null, voyages: [] });
+  let strikes = [];
+  const nothing = (battlefields) => ({ events: list, battlefields, unitChanges: [], notes, flips: [], stats: null, news: [], joins: [], transports: null, voyages: [], strikes });
 
   const saved = normalizeBattlefields(world?.battlefields);
   const stages = asArray(warStages).length ? asArray(warStages).map(asArray) : [asArray(world?.wars)];
   const written = asArray(frontOrders).filter((order) => isRecord(order) && !order.problem);
   // A line that sends a transporter is not an order for a battlefield: it is
   // set apart here and becomes a transporter of the world, below.
-  const orders = written.filter((order) => !Object.hasOwn(TRANSPORT_ORDERS, order.order));
+  // And a strike is no order at all: it is something to show (runtime/strikes.js).
+  const struck = written.filter((order) => order.order === "strike").slice(0, STRIKES_PER_TURN_MOST);
+  const orders = written.filter((order) => order.order !== "strike" && !Object.hasOwn(TRANSPORT_ORDERS, order.order));
   const dispatches = written.filter((order) => Object.hasOwn(TRANSPORT_ORDERS, order.order));
   const atWar = stages.some((wars) => wars.some((war) => clean(war?.status) !== "ended"));
   const committed = asArray(world?.units).some((unit) => clean(unit?.committedTo));
@@ -778,6 +790,47 @@ export const runTurnFronts = async ({
   const arenas = read?.arenas ?? givenArenas;
   const { days, dayOf } = frontRunSpan({ fromDate, toDate, requestedDays, events: list });
   const readers = frontWorldReaders(world, { baseOwners, regionIds, groups });
+  // The strikes the answer wrote, each with its places where they can be
+  // found: among the places of the event that tells of it, the map's cities,
+  // the world's structures and its formations, and then as the game finds any
+  // place a model names (a city by another of its names, a country, a region).
+  // One launched from nowhere that is named sets off from what its owner has
+  // on the map for it, and failing that from a city of its own.
+  const lookedFor = async (ask) => {
+    try {
+      return (await ask()) ?? null;
+    } catch (error) {
+      console.warn("[fronts] a strike's place could not be looked for; the map finds it by name when it plays the strike.", error);
+      return null;
+    }
+  };
+  if (struck.length > 0) {
+    const told = new Map(list.map((event) => [clean(event?.id), event]));
+    const found = async (text, known) => findStrikePlace(text, known) ?? (typeof strikePlaces?.find === "function" ? lookedFor(() => strikePlaces.find(text)) : null);
+    for (const [at, order] of struck.entries()) {
+      const event = asArray(order.eventIds).map((id) => told.get(id)).find(Boolean) ?? null;
+      const owner = clean(withoutKind(order.side));
+      const known = { places: asArray(event?.places), cities: asArray(map?.cities), markers: asArray(world?.markers), units: asArray(world?.units) };
+      const target = await found(order.objective, known);
+      const launch = clean(order.from) ? await found(order.from, known) : null;
+      const picked = launch
+        ? null
+        : pickStrikeOrigin({ weapon: order.weapon, owner, to: target, markers: known.markers, units: known.units })
+          // (A submarine with no fleet to stand for it is put to sea, below.)
+          ?? (order.weapon !== "submarine missile" && typeof strikePlaces?.origin === "function" ? await lookedFor(() => strikePlaces.origin({ owner, weapon: order.weapon, to: target })) : null);
+      strikes.push({
+        id: `strike:${clean(toDate) || clean(fromDate)}:${at}`,
+        eventId: clean(event?.id),
+        date: clean(event?.date) || clean(toDate),
+        owner,
+        weapon: order.weapon,
+        count: order.count,
+        down: order.down,
+        from: launch ? { name: clean(order.from), ...launch } : picked ?? (clean(order.from) ? { name: clean(order.from) } : null),
+        to: { name: clean(order.objective), ...(target ?? {}) },
+      });
+    }
+  }
   const nameOf = engineNamer(turnRenames(list), [
     ...stages[0].flatMap((war) => [...asArray(war?.sideA), ...asArray(war?.sideB)]),
     ...saved.flatMap((record) => record.sides.flat()),
@@ -796,6 +849,31 @@ export const runTurnFronts = async ({
     }
     return regions;
   };
+
+  // A submarine's missile that no fleet on the map fires is fired from the sea
+  // all the same: from open water within reach of what it is fired at, found
+  // on the map's own sheet of land and sea (the one the transporters sail on).
+  const adrift = strikes.filter((strike) => strike.weapon === "submarine missile" && !Number.isFinite(strike.from?.lng) && Number.isFinite(strike.to?.lng));
+  if (adrift.length > 0) {
+    try {
+      const key = `world|${clean(map?.key)}`;
+      let sheet = clean(map?.key) && arenas ? arenas.get(key) ?? null : null;
+      if (!sheet) {
+        const shapes = await readRegions();
+        sheet = shapes ? buildWorldGrid(shapes, { flat: map?.flat === true, scale: map?.scale }) : null;
+        if (sheet && clean(map?.key) && arenas) arenas.set(key, sheet);
+      }
+      for (const strike of adrift) {
+        // (Nearest a place of its owner's: something it has on the map, else its capital.)
+        const own = [...asArray(world?.markers), ...asArray(world?.units)].find((entry) => fold(entry?.ownerCode) === fold(strike.owner) && Number.isFinite(Number(entry?.lng)) && Number.isFinite(Number(entry?.lat)))
+          ?? (typeof strikePlaces?.seat === "function" ? await lookedFor(() => strikePlaces.seat(strike.owner)) : null);
+        const at = sheet ? seaLaunchPlace(sheet, { to: strike.to, near: own ? { lng: Number(own.lng), lat: Number(own.lat) } : null, seasOf, distanceTo }) : null;
+        if (at) strike.from = { name: clean(strike.from?.name), ...at };
+      }
+    } catch (error) {
+      console.warn("[fronts] no place at sea could be found for a submarine's missile; the map draws it from its owner's country.", error);
+    }
+  }
 
   // What the events themselves state of the battlefields being fought over.
   // It needs the ground under each: kept from an earlier turn, or drawn now
@@ -930,6 +1008,7 @@ export const runTurnFronts = async ({
   notes.push(...describeFrontNotes(refused));
 
   return {
+    strikes: strikes.map((strike) => ({ ...strike, owner: nameOf(strike.owner) })),
     transports,
     voyages: asArray(result.voyages),
     underWay: transports.filter(isUnderWay).length,

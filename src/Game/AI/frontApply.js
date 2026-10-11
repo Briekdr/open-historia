@@ -279,6 +279,7 @@ export const applyTurnFronts = async ({
   receipt = null,
   requestedDays = 0,
   signal = null,
+  strikePlaces = null,
   warUpdates = [],
 } = {}) => {
   if (!frontsOn()) return null;
@@ -302,6 +303,7 @@ export const applyTurnFronts = async ({
       requestedDays,
       narratesCombat: eventNarratesHardCombat,
       foretold: foretold === true,
+      strikePlaces,
     });
     for (const note of run.notes) noteReceipt(receipt, note.kind, note.text);
     if (run.stats) {
@@ -322,7 +324,7 @@ export const applyTurnFronts = async ({
     if (signal?.aborted || error?.name === "AbortError") throw error;
     console.warn("[fronts] the front engine could not be run for this turn; the turn goes on without it and the battlefields stand as they were.", error);
     logDebugEvent("turn", "Fronts: the engine could not be run for this turn; the battlefields stand as they were.", error, { problem: true });
-    return { events: stripFrontOps(events), battlefields: null, unitChanges: [], notes: [], flips: [], stats: null, news: [], joins: [], transports: null, voyages: [] };
+    return { events: stripFrontOps(events), battlefields: null, unitChanges: [], notes: [], flips: [], stats: null, news: [], joins: [], transports: null, voyages: [], strikes: [] };
   }
 };
 

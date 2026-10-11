@@ -62,6 +62,8 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
   "simulationRules", "startingTimelineText", "unitSystem", "wars", "agreements",
   // Transporters are seen as fleets are: what crosses the sea is not hidden.
   "transports",
+  // And what an event's strike looked like: every map plays it.
+  "strikes",
   // The stat sheets, and how each has moved: public figures (see the limits above).
   "countryStats", "countryStatsHistory",
 ]);

@@ -43,11 +43,31 @@ const ICE_COST = 14;
 const WAY_LEG_KM = 450;
 
 // The cuts men have dug between seas, on the world's own map: the two waters
-// each joins, and the year it opened. Used only where both ends are water on
-// the sheet and the land between them is land.
+// each joins, and the year it opened. A scenario's map need not be the Earth
+// (it may be an invented world, on a globe of its own), so a canal is gone
+// through only where the map IS that part of the Earth: `sea` and `land` are
+// places round it that are sea and land there, and every one of them has to be
+// so on the sheet, besides the two ends being water and the neck between them
+// land. An invented world that passes all of that by chance does not exist.
 export const CANALS = Object.freeze([
-  { name: "Suez", since: 1869, a: [32.35, 31.55], b: [32.6, 29.6] },
-  { name: "Panama", since: 1914, a: [-79.95, 9.55], b: [-79.5, 8.75] },
+  {
+    name: "Suez",
+    since: 1869,
+    a: [32.35, 31.55],
+    b: [32.6, 29.6],
+    // The Mediterranean off the delta and off the Levant, and the Red Sea; the delta, Sinai, the Negev and the Eastern Desert.
+    sea: [[32.3, 32.2], [33.5, 32.6], [35.0, 26.5]],
+    land: [[31.2, 30.1], [33.9, 29.6], [34.9, 30.9], [32.5, 27.5]],
+  },
+  {
+    name: "Panama",
+    since: 1914,
+    a: [-79.95, 9.55],
+    b: [-79.5, 8.75],
+    // The Caribbean and the Pacific on either hand; Veraguas, the Darien, Costa Rica and Colombia.
+    sea: [[-80.0, 10.2], [-78.0, 11.0], [-79.3, 8.0], [-82.0, 6.5]],
+    land: [[-81.0, 8.5], [-78.0, 8.5], [-84.0, 10.0], [-76.5, 7.0]],
+  },
 ]);
 
 const heapPush = (heap, cost, cell) => {
@@ -211,6 +231,9 @@ export const findWay = (grid, { medium = "sea", from, to, holderOf = () => "", f
       const ends = [canal.a, canal.b].map(([lng, lat]) => nearestCell(grid, grid.cellOf(lng, lat), 2, (next) => land[next] < full));
       const middle = grid.cellOf((canal.a[0] + canal.b[0]) / 2, (canal.a[1] + canal.b[1]) / 2);
       if (ends[0] < 0 || ends[1] < 0 || middle < 0 || land[middle] === 0) continue;
+      // Is this the Earth, here? Every place that is sea there is sea, and every place that is land is land.
+      const here = ([lng, lat], wanted) => nearestCell(grid, grid.cellOf(lng, lat), 1, (next) => (wanted ? land[next] > 0 : land[next] < full)) >= 0;
+      if (!canal.sea.every((point) => here(point, false)) || !canal.land.every((point) => here(point, true))) continue;
       cuts.set(ends[0], ends[1]);
       cuts.set(ends[1], ends[0]);
     }

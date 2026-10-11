@@ -57,6 +57,8 @@ import { setWorldStateOverride } from "../Map/useWorldState.js";
 import { getUnitById, setUnitsOverride } from "../Map/unitsController.js";
 import { getBattlefields, setFrontsOverride } from "../Map/frontsController.js";
 import { battlefieldsAsSeen } from "../../runtime/fronts/record.js";
+import { strikeBounds, strikesOfEvent } from "../../runtime/strikes.js";
+import { replayStrikes, showStrikesOfEvent } from "../Map/strikeStore.js";
 import { useIsMobile } from "../../runtime/useIsMobile.js";
 import { primeRuntimeValue } from "../../runtime/runtimeStore.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
@@ -463,6 +465,34 @@ const focusMapOnBounds = (mapRef, bounds) => {
     );
 };
 
+// An event that tells of missiles or a bombing run (runtime/strikes.js): the
+// map plays them again from here, the camera turned to where they fly.
+const StrikePill = ({ onWatch }) => (
+    <button
+    type="button"
+    className="oh-tap-row"
+    title="Play this on the map again"
+    onClick={onWatch}
+    style={{
+        alignItems: "center",
+        background: "rgba(251,146,60,0.09)",
+        border: "1px solid rgba(251,146,60,0.28)",
+        borderRadius: "999px",
+        color: "rgba(254,215,170,0.92)",
+        cursor: "pointer",
+        display: "inline-flex",
+        font: "inherit",
+        fontSize: "0.68rem",
+        fontWeight: 600,
+        gap: "0.3rem",
+        padding: "0.24rem 0.55rem",
+    }}
+    >
+    <span aria-hidden="true" style={{ opacity: 0.75 }}>➶</span>
+    Watch it on the map
+    </button>
+);
+
 const filterPlannedActions = (actions) =>
 normalizeActions(actions).filter((action) => action.status === "planned");
 
@@ -755,6 +785,7 @@ const EventCard = ({ event, footer = null, lookups, openMapChanges = null, onTog
         () => (typeof lookups?.eventDocuments === "function" ? lookups.eventDocuments(event) : []),
         [event, lookups],
     );
+    const struck = typeof lookups?.eventStrikes === "function" ? lookups.eventStrikes(event).length > 0 : false;
     const mapChanges = describeEventMapChanges(event, lookups);
     const mapChangeCount = mapChanges.length;
     const [ownMapChanges, setOwnMapChanges] = useState(false);
@@ -808,8 +839,9 @@ const EventCard = ({ event, footer = null, lookups, openMapChanges = null, onTog
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem", padding: "0.95rem 1rem 1rem" }}>
-        {(tags.length > 0 || links?.length > 0) && (
+        {(tags.length > 0 || links?.length > 0 || struck) && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+            {struck && <StrikePill onWatch={() => lookups?.watchStrikes?.(event)} />}
             {tags.map((tag) => (
                 <TagPill key={`${event.id}-${tag}`}>{tag}</TagPill>
             ))}
@@ -3538,6 +3570,9 @@ const DateWidget = ({
     // copy through an agent; the card shows neither.
     const documentReports = worldState?.reports;
     const documentPlayer = gameData?.country;
+    // The missiles and bombing runs the world still holds (runtime/strikes.js):
+    // a card whose event tells of one can have the map play it again.
+    const worldStrikes = worldState?.strikes;
     const cardLookups = useMemo(() => ({
         ...lookups,
         unitName: unitNameById,
@@ -3546,7 +3581,22 @@ const DateWidget = ({
         }),
         focusLink: (bounds) => focusMapOnBounds(mapRef, bounds),
         eventDocuments: (event) => documentsForEvent(documentReports, event?.id, documentPlayer),
-    }), [lookups, currentFocusContext, mapRef, documentReports, documentPlayer]);
+        eventStrikes: (event) => strikesOfEvent(worldStrikes, event?.id),
+        watchStrikes: (event) => {
+            const bounds = strikeBounds(strikesOfEvent(worldStrikes, event?.id));
+            if (bounds) focusMapOnBounds(mapRef, bounds);
+            // (Once the camera is on its way there: a launch is over in a moment.)
+            window.setTimeout(() => replayStrikes({ eventId: event?.id }), bounds ? 900 : 0);
+        },
+    }), [lookups, currentFocusContext, mapRef, documentReports, documentPlayer, worldStrikes]);
+
+    // What an event tells of flying is flown as the event is read: its
+    // missiles, its bombing runs (Map/StrikeLayers.jsx). One the map has only
+    // just played is not played over again.
+    const activeVisibleEventId = activeVisibleEvent?.id ?? "";
+    useEffect(() => {
+        if (activeVisibleEventId) showStrikesOfEvent(activeVisibleEventId);
+    }, [activeVisibleEventId]);
 
     // The camera follows a revealed event to where it happened: its impacts
     // pin the exact spot, then the places it names with their kind, then the

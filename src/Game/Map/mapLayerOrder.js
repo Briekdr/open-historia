@@ -123,6 +123,10 @@ export const MAP_LAYER_ORDER = [
   "units-fill",
   "units-icons",
   "units-name",
+
+  // What flies over all of it: missiles, aircraft and what they do where they
+  // arrive (StrikeLayers.jsx). Nothing in it can be clicked.
+  "strikes-flight",
 ];
 
 const NATGEO_REFERENCE_TIER_METADATA_KEY = "openhistoria:natgeo-reference-tier";

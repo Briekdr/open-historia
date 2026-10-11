@@ -32,6 +32,7 @@
 
 import { FRONT_EFFORTS, FRONT_ORDERS, FRONT_RESULTS } from "../../runtime/fronts/constants.js";
 import { TRANSPORT_ORDERS } from "../../runtime/fronts/transports.js";
+import { STRIKE_COUNT_MOST, STRIKE_WEAPONS } from "../../runtime/strikes.js";
 
 export const FRONT_ORDERS_FIELD = "frontOrders";
 export const FRONT_ORDER_SEPARATOR = "~";
@@ -68,6 +69,17 @@ const ORDER_WORDS = wordTable([...FRONT_ORDERS, ...Object.keys(TRANSPORT_ORDERS)
   "dig in": ["dig-in", "digin", "entrench", "fortify", "entrenched"],
   "fall back": ["fall-back", "fallback", "retreat", "withdraw", "pull back", "withdrawal"],
   land: ["landing", "amphibious landing", "amphibious", "landings"],
+});
+// A strike is a line of its own on the same field (runtime/strikes.js): it
+// begins with this word where an order's line has its battlefield.
+export const STRIKE_WORD = "strike";
+export const isStrikeOrder = (word) => String(word ?? "") === STRIKE_WORD;
+const WEAPON_WORDS = wordTable(STRIKE_WEAPONS, {
+  "silo missile": ["icbm", "missile", "nuclear missile", "ballistic missile", "silo", "silo-launched missile", "land-based missile", "nuclear strike"],
+  "submarine missile": ["slbm", "submarine", "submarine-launched missile", "sub-launched missile", "sub missile", "submarine launch"],
+  "missile strike": ["cruise missile", "cruise missiles", "missiles", "missile barrage", "missile attack", "rocket strike", "rockets", "conventional missile"],
+  "nuclear bomber": ["nuclear bomb", "atomic bomb", "atom bomb", "bomber", "air-dropped bomb", "gravity bomb", "nuclear bombing", "atomic bombing"],
+  "bombing run": ["bombing", "bombing raid", "air raid", "air strike", "airstrike", "air strikes", "airstrikes", "bombers", "strategic bombing", "raid", "carpet bombing"],
 });
 const RESULT_WORDS = wordTable(FRONT_RESULTS, {
   breakthrough: ["broke through", "break through", "breaks through"],
@@ -135,12 +147,45 @@ const transportFields = ({ carrier, strength, speed }) => {
   return fields;
 };
 
+// A strike, as it is kept among the records: what it is made with, where
+// from, at what, how many, and how many of those were shot down on the way.
+const strikeRecord = ({ id, side, weapon, from, eventIndexes, eventIds, objective, count, down, problem }) => {
+  const made = WEAPON_WORDS.get(fold(weapon)) ?? "";
+  const many = Math.min(STRIKE_COUNT_MOST, wholeNumber(count) || 1);
+  const record = {
+    id,
+    battlefield: "",
+    side: clean(side),
+    order: STRIKE_WORD,
+    sector: "all",
+    eventIndexes,
+    eventIds,
+    objective: clean(objective),
+    result: "",
+    effort: "",
+    weapon: made,
+    from: clean(from),
+    count: many,
+    down: Math.min(many, wholeNumber(down)),
+  };
+  if (clean(problem)) record.problem = clean(problem);
+  else if (!record.side) record.problem = "no side is named";
+  else if (!made) record.problem = clean(weapon) ? `"${clean(weapon).slice(0, 40)}" is not a weapon a strike is made with` : "a strike has to say what it is made with";
+  else if (!record.objective) record.problem = "a strike has to say what it hits";
+  return record;
+};
+
 // One line read. A record that cannot be acted on comes back with `problem`
 // saying why, so the caller can say it once in the turn's receipt.
 const parseFrontOrderLine = (line, index) => {
   const text = clean(line);
   if (!text || !isRecordLine(text)) return null;
   const fields = text.split(FRONT_ORDER_SEPARATOR).map(clean);
+  // strike~side~weapon~from~eventNumbers~target~shot down~count
+  if (fold(fields[0]) === STRIKE_WORD) {
+    const [, striker = "", weapon = "", from = "", told = "", target = "", down = "", count = ""] = fields;
+    return strikeRecord({ id: `front-${index}`, side: striker, weapon, from, eventIndexes: parseEventNumbers(told), eventIds: [], objective: target, count, down });
+  }
   const [battlefield = "", side = "", orderRaw = "", sectorRaw = "", eventsRaw = "", objective = "", resultRaw = "", effortRaw = "", carrierRaw = "", strengthRaw = "", speedRaw = ""] = fields;
   const order = ORDER_WORDS.get(fold(orderRaw)) ?? "";
   const result = RESULT_WORDS.get(fold(resultRaw)) ?? "";
@@ -171,6 +216,14 @@ const parseFrontOrderLine = (line, index) => {
 // An order that already crossed a pass keeps what it was bound to.
 const normalizeFrontOrderRecord = (entry, index) => {
   if (!entry || typeof entry !== "object") return null;
+  if (isStrikeOrder(entry.order)) {
+    return strikeRecord({
+      ...entry,
+      id: clean(entry.id) || `front-${index}`,
+      eventIndexes: asArray(entry.eventIndexes).map(Number).filter((item) => Number.isInteger(item) && item >= 0).slice(0, 16),
+      eventIds: [...new Set(asArray(entry.eventIds).map(clean).filter(Boolean))].slice(0, 24),
+    });
+  }
   const order = ORDER_WORDS.get(fold(entry.order)) ?? "";
   const result = RESULT_WORDS.get(fold(entry.result)) ?? "";
   const record = {
@@ -231,7 +284,8 @@ export const screenFrontOrders = (orders, { events = [], humanSides = [], citesO
       dropped.push({ order, reason: order.problem });
       continue;
     }
-    if (order.order && humans.has(fold(order.side))) {
+    // (A strike orders nobody: it draws what its event already says happened, whoever's it is.)
+    if (order.order && !isStrikeOrder(order.order) && humans.has(fold(order.side))) {
       const cited = order.eventIds.map((id) => byId.get(id)).filter(Boolean).some((event) => citesOrderOf(order.side, event));
       if (!cited) {
         dropped.push({ order, reason: `${order.side} is played by a person, and no order of theirs asks for this`, player: true });
@@ -251,7 +305,7 @@ export const describeDroppedFrontOrders = (dropped) => {
   if (list.length === 0) return "";
   const reasons = [];
   for (const { order, reason } of list) {
-    const what = `${order.side || "?"} on ${order.battlefield || "?"}`;
+    const what = isStrikeOrder(order.order) ? `a strike by ${order.side || "?"}` : `${order.side || "?"} on ${order.battlefield || "?"}`;
     const line = `${what}: ${reason}`;
     if (!reasons.includes(line)) reasons.push(line);
   }
