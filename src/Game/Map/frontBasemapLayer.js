@@ -347,6 +347,9 @@ export const createFrontBasemapLayers = ({ pictures, strength, onState, onError 
           this._masks.delete(key);
           this._meshes.delete(key);
         }
+        // The copy is this drawing's alone: the next has to take its own, or goes without
+        // (a copy of the map as it was at another moment is not the map under the paint).
+        shared.taken = false;
         tell(true);
       } catch (error) {
         onError?.(error);
