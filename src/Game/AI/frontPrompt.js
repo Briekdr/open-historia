@@ -43,7 +43,7 @@ import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts
 import { loadOf, normalizeTransports } from "../../runtime/fronts/transports.js";
 import { FRONT_ORDERS_FIELD } from "./nativeFrontLedger.js";
 
-export const FRONTS_BLOCK_MAX = 11800;
+export const FRONTS_BLOCK_MAX = 12500;
 // The most that is told of transporters in it.
 export const TRANSPORTS_TEXT_MAX = 640;
 export const FRONTS_BLOCK_HEADING = "[Fronts]";
@@ -62,9 +62,11 @@ const ORDER_LINES = [
   "- battlefield: a name from the list below. A war begun in this answer has none yet: name its battlefield yourself in its first order. A border with no war is `border: A / B`, the two countries by their exact names: with dig in or hold, troops are sent to fortify it and attack nothing; with an order to attack from one of the two at effort major or total, that country invades the other and the war between them begins that day (the game enters it in the war ledger; its own warUpdates record, if you write one, is the same war). Any country may strike first so, at one a person plays as at any other, when the story has it do so.",
   "Battlefields are for wars: an invasion, a general offensive, a civil war fought along a line. A border clash, a skirmish, a raid, an incident, an exchange of fire or a single strike is not a war: write no frontOrders line and no warUpdates start for it, and tell it as before, with the formations that fought it (unitOps). An attack across a border at peace that is given no effort, or token or limited, opens no war and no battlefield.",
   "- side: the country or group being ordered, by its exact name. On a side of several countries each commands its own troops: a line orders the troops of the country it names, and a line for a side's first country also orders any ally there that nobody plays and that has no line of its own.",
-  "- order: advance | blitz | spearhead | flank | encircle | assault | hold | dig in | fall back | withdraw | land. An assault sends the troops it takes straight at its objective, which it must have: `city: X`, `structure: X` or `unit: X`. A landing's objective says where.",
+  "- order: advance | blitz | spearhead | flank | encircle | assault | hold | dig in | fall back | withdraw | land | reinforce. An assault sends the troops it takes straight at its objective, which it must have: `city: X`, `structure: X` or `unit: X`. A landing's objective says where.",
   "  An advance moves the whole stretch forward as a line, and a blitz the same, faster, after some days of massing. A spearhead (a wedge), a flank (a column round one side) and an encirclement (two columns that shut a place in and besiege it) are made by the troops nearest their objective, and the rest of the stretch stays as it was. Troops told to hold give ground rather than be cut off; troops told to dig in stand where they are, stronger, and can be shut in for it. Troops told to withdraw leave the battlefield and go home: the ground stays whose it is, with nobody of theirs on it, until their side is given another order there and comes back.",
   "- sector: all, a sector word listed for that battlefield, or a place on its line.",
+  "- reinforce brings FRESH formations to a side's line: a draft, a mobilisation, divisions sent from elsewhere. Its objective field is how many formations (1 to 60), judged against how many that side has there now (Strength): a few divisions sent are a tenth of it, a general mobilisation as many again. sector says where they go. A person's action that drafts troops or sends reinforcements to a front is such a line for their country; a country nobody plays gets one only with the number of the event in which it mobilises. The troops there are ordered by their own lines as before.",
+  "NAME~A~reinforce~south~4~30",
   "- ship | rail | airlift send a TRANSPORTER: troops carried to a place their side has no border with, to fight there. objective says where (`city: X`, `region: X` or `country: X`); battlefield names the front they open. After effort may come what carries them (any name), how many formations (1 to 40) and its speed in km a day. The game finds the way (ships by sea, rail through land its side holds, aircraft by air); it sets out as the next period begins and can be intercepted. Sent in peace to another country's land it is an attack on it: the war begins the day its troops are put down.",
   "NAME~A~ship~~3~city: X~~~troop convoy~12~600",
   "A missile launch or a bombing run that an event tells of is DRAWN on the map from a line of its own. It changes nothing by itself: what the strike did is what the event's own operations say. strike~side~weapon~from~eventNumbers~target~shot down~count",
@@ -112,13 +114,13 @@ const playerRule = (players, fought, orderFunction = false) => {
   if (fought && orderFunction) {
     return `${who} ${one ? "is" : "are each"} played by a person: write no order for ${one ? "it" : "them"} of your own. `
       + `The battlefields below are the period as it goes if ${one ? "that person gives its" : "those people give their"} troops NO new order. `
-      + `If an action of this turn does give ${one ? "its" : "their"} troops one (to attack, push for a place, dig in, hold, fall back, withdraw, or anything of the kind), call ${FRONT_ORDER_FUNCTION} FIRST, before you write any event, with a line for each stretch of line the action speaks of (north-west troops to dig trenches and the southern ones to push for a city are two lines, \`NAME~X~dig in~northwest~~\` and \`NAME~X~advance~south~~city: Y\`; to pull out is \`NAME~X~withdraw~all~~\`). `
+      + `If an action of this turn does give ${one ? "its" : "their"} troops one (to attack, push for a place, dig in, hold, fall back, withdraw, to draft more troops or send reinforcements to a front, or anything of the kind), call ${FRONT_ORDER_FUNCTION} FIRST, before you write any event, with a line for each stretch of line the action speaks of (north-west troops to dig trenches and the southern ones to push for a city are two lines, \`NAME~X~dig in~northwest~~\` and \`NAME~X~advance~south~~city: Y\`; to pull out is \`NAME~X~withdraw~all~~\`; a draft of thirty formations for the south is \`NAME~X~reinforce~south~~30\`). `
       + "The period is fought again with it and you are given the war as it then went: that is what your events tell, and the event that carries the action tells what came of the order. Do not write such an order again in frontOrders. "
       + "With no such action, call nothing. What came of a battle they are in may always be stated as a result, with the order field left empty.";
   }
   return `${who} ${one ? "is" : "are each"} played by a person: write no order for ${one ? "it" : "them"} of your own. `
     // What a person types as an action is how they command: it becomes lines here.
-    + `But what that person tells ${one ? "its" : "their"} troops to do in an action of this turn IS ${one ? "its" : "their"} order, and you write it for them: a line for each stretch of line the action speaks of, with the sector and the objective it names, resting on the event that carries the action out (north-west troops to dig trenches and the southern ones to push for a city are two lines, \`NAME~X~dig in~northwest~4\` and \`NAME~X~advance~south~4~city: Y\`; to pull out is \`NAME~X~withdraw~all~4\`). `
+    + `But what that person tells ${one ? "its" : "their"} troops to do in an action of this turn IS ${one ? "its" : "their"} order, and you write it for them: a line for each stretch of line the action speaks of, with the sector and the objective it names, resting on the event that carries the action out (north-west troops to dig trenches and the southern ones to push for a city are two lines, \`NAME~X~dig in~northwest~4\` and \`NAME~X~advance~south~4~city: Y\`; to pull out is \`NAME~X~withdraw~all~4\`; a draft of thirty formations for the south is \`NAME~X~reinforce~south~4~30\`). `
     + (fought
       ? "Such an order is carried out next period, so its event tells of the order being given and not of what came of it. "
       : "It is carried out from that event's date. ")
@@ -219,6 +221,8 @@ const NEWS_WORDS = {
   // Troops a transporter put down.
   landed: (who, at) => `troops of ${who} came ashore at ${at}`,
   reinforced: (who, at) => `${who} was reinforced at ${at}`,
+  // More troops brought to a side's line by an order (a draft, reinforcements sent): `at` says how many and where.
+  drafted: (who, at) => `${who} brought up ${at}`,
   city: (who, at) => `${who} took ${at}`,
   taken: (who, at) => `${who} took ${at}`,
   destroyed: (who, at) => `${who} destroyed ${at}`,
@@ -237,7 +241,7 @@ const newsWeight = (entry) => {
   if (entry.k === "invaded" || entry.k === "attacked") return 7e9;
   if (entry.k === "withdrew" || entry.k === "returned") return 5.5e9;
   if (entry.k === "landed") return 6.5e9;
-  if (entry.k === "reinforced") return 2.2e9;
+  if (entry.k === "reinforced" || entry.k === "drafted") return 2.2e9;
   const size = Math.min(9e8, Math.max(0, Number(entry.size) || 0));
   if (entry.k === "city") return entry.capital ? 6e9 : size >= LARGE_TOWN ? 4e9 + size : 2e9 + size;
   if (entry.k === "pocket" || entry.k === "siege") return 3e9;

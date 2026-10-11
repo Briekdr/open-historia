@@ -47,6 +47,7 @@ export const FRONT_ORDER_TOOL = Object.freeze({
           `One order a line, fields separated by ${FRONT_ORDER_SEPARATOR}: battlefield, side, order, sector, date, objective. `
           + "battlefield and sector as the battlefields list gives them; side is the player's country by its exact name; order is one of the order words of the rules; "
           + "date is the day the order is given as YYYY-MM-DD, or blank for the period's first day; objective is a place, where the order has one. "
+          + "A draft or reinforcements sent to a front is the order reinforce, with how many formations (1 to 60) as its objective. "
           + "An action that orders different stretches of the line differently is a line for each.",
       },
     },

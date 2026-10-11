@@ -39,6 +39,11 @@ import {
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
   HAND_OVER_REACH_CELLS,
+  REINFORCED_LINE_MOST,
+  REINFORCED_SIZE_MOST,
+  REINFORCE_MOST,
+  REINFORCE_ORDER,
+  REINFORCE_USUAL_SHARE,
   SCENARIO_MARK,
   WAR_EFFORTS,
   INVADE_REACH_KM,
@@ -67,7 +72,8 @@ import { authoredName } from "./scenarioFronts.js";
 import { sideIsPlayed, staffDecision, staffMayOrder, staffStanding } from "./staff.js";
 import { findPockets } from "./supply.js";
 import { TRANSPORT_ENDED, boundFor, interceptionOf, loadOf, moveOn, normalizeTransports, setOut, struck, transportChance } from "./transports.js";
-import { createTroop, isLive, kindsFor, liveCount, troopsCap } from "./troops.js";
+import { inSector, resolveSector } from "./sectors.js";
+import { createTroop, isLive, kindsFor, liveCount, troopsCap, troopsFactor, troopsLeast, troopsWanted } from "./troops.js";
 import { buildWorldGrid, kmBetween, placeAlong, worldSheetKey } from "./worldGrid.js";
 
 const clean = (value, max = 120) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max).trim();
@@ -99,6 +105,8 @@ const createRun = (input) => {
     steps: 0,
     era,
     seed: String(input?.seed ?? ""),
+    // How many troops are raised, of the usual (troops.js troopsFactor).
+    troops: troopsFactor(input?.troops),
     pace: Math.min(3, Math.max(0.1, Number(input?.pace) || 1)),
     // The weights that bend a troop's step, for a test or the rig to set aside.
     steer: input?.steering && typeof input.steering === "object" ? input.steering : {},
@@ -345,8 +353,8 @@ const examineWar = (run, war, day) => {
 // along the line: as many as its own strength brings, while the line has room
 // for them.
 const raiseFor = (battle, run, side, owner) => {
-  const wanted = Math.round(TROOPS_PER_STRENGTH * memberWeights(battle, run, side)[owner] * EFFORT_FACTORS[battle.effort[side]]);
-  const room = Math.min(MAX_TROOPS_PER_SIDE - battle.troops[side].length, troopsCap(battle.lineKm) - liveCount(battle.troops[side]));
+  const wanted = Math.round(TROOPS_PER_STRENGTH * run.troops * memberWeights(battle, run, side)[owner] * EFFORT_FACTORS[battle.effort[side]]);
+  const room = Math.min(MAX_TROOPS_PER_SIDE - battle.troops[side].length, troopsCap(battle.lineKm, run.troops) - liveCount(battle.troops[side]));
   const count = Math.max(0, Math.min(room, Math.max(2, wanted)));
   const contour = traceContour(battle.field);
   const own = side === HOLDER_SIDE_A ? contour.cellA : contour.cellB;
@@ -774,8 +782,105 @@ const comeBack = (run, battle, day) => {
   }
 };
 
+// MORE TROOPS FOR A FRONT (REINFORCE_ORDER). "Make it so actions can deploy
+// more troops to fronts: this allows the user to do a draft for more troops or
+// send reinforcements." Fresh formations for one side of a battlefield, as
+// many as the order says: raised on that side's own ground along the stretch
+// of line the order names, with the reserves that keep them up to strength,
+// and put under whatever that stretch is told to do. A person's own order
+// always brings them; the story's, for a country nobody plays, when it rests
+// on an event of its answer (a mobilisation is something that happens). How
+// many a side can be brought to is held (REINFORCED_SIZE_MOST, REINFORCED_LINE_MOST).
+const reinforceOnFront = (run, battle, moment, day) => {
+  const note = { kind: "", battlefield: battle.name, side: clean(moment.side), ...(moment.ref !== undefined ? { ref: moment.ref } : {}) };
+  const side = sideOfName(battle, moment.side);
+  if (side < 0) {
+    run.notes.push({ ...note, kind: "side-not-fighting" });
+    return;
+  }
+  const played = (Array.isArray(run.input?.players) ? run.input.players : []).some((name) => fold(name) === fold(moment.side));
+  if (moment.unbound === true && moment.given !== true && !played) {
+    run.notes.push({ ...note, kind: "reinforce-needs-event" });
+    return;
+  }
+  if (battle.status !== "active" && battle.status !== "standing") {
+    run.notes.push({ ...note, kind: "reinforce-halted" });
+    return;
+  }
+  const owner = Math.max(0, memberIndex(battle, side, moment.side));
+  const strength = memberWeights(battle, run, side).reduce((sum, weight) => sum + weight, 0);
+  // What its own strength raises here: the number a draft is judged against.
+  const usual = Math.max(troopsLeast(run.troops), Math.round(troopsWanted(strength, battle.effort[side], run.troops)));
+  const live = liveCount(battle.troops[side]);
+  const room = Math.min(
+    MAX_TROOPS_PER_SIDE - battle.troops[side].length,
+    REINFORCED_SIZE_MOST * usual - live,
+    REINFORCED_LINE_MOST * troopsCap(battle.lineKm, run.troops) - live,
+  );
+  const said = Number(moment.count);
+  const asked = Number.isFinite(said) && said >= 1 ? Math.min(REINFORCE_MOST, Math.round(said)) : Math.max(2, Math.round(usual * REINFORCE_USUAL_SHARE));
+  const count = Math.max(0, Math.min(asked, room));
+  if (count === 0) {
+    run.notes.push({ ...note, kind: "reinforce-full" });
+    return;
+  }
+  // Where: its side's own ground along the line, on the stretch the order names, and its own country's where it has some.
+  const today = prepare(battle, day);
+  const sector = resolveSector(battle.arena, today.line, today.sectors, moment.sector);
+  const whole = !sector || sector.kind === "all";
+  const { cols } = battle.field;
+  const contour = traceContour(battle.field);
+  const own = side === HOLDER_SIDE_A ? contour.cellA : contour.cellB;
+  let cells = [];
+  for (let vertex = 0; vertex < own.length; vertex += 1) if (own[vertex] >= 0) cells.push(own[vertex]);
+  if (!whole) {
+    const inside = cells.filter((cell) => inSector(sector, (cell % cols) + 0.5, Math.floor(cell / cols) + 0.5, battle.place.kmAt));
+    if (inside.length > 0) cells = inside;
+  }
+  const wantedName = fold(battle.sides[side][owner]);
+  const home = cells.filter((cell) => {
+    const region = battle.arena.region[cell];
+    return region > 0 && fold(holderOf(battle, run, battle.arena.ids[region])) === wantedName;
+  });
+  if (home.length > 0) cells = home;
+  if (cells.length === 0 && battle.field.holders.indexOf(side) >= 0) cells = [battle.field.holders.indexOf(side)];
+  if (cells.length === 0) {
+    run.notes.push({ ...note, kind: "reinforce-no-ground" });
+    return;
+  }
+  const first = battle.troops[side].length;
+  kindsFor(count, run.era).forEach((kind, index) => {
+    const cell = cells[Math.min(cells.length - 1, Math.floor(((index + 0.5) * cells.length) / count))];
+    battle.troops[side].push(createTroop({ x: (cell % cols) + 0.5, y: Math.floor(cell / cols) + 0.5, kind, owner }));
+  });
+  battle.pool[side] += count * POOL_PER_TROOP * battle.edge[side].reserves;
+  // They come under what their stretch of the line is told: an order for that stretch before one for the whole line.
+  const standing = battle.orders.filter((order) => order.s === side && !order.chosen && order.order !== "assault" && order.order !== "withdraw");
+  const under = new Map();
+  for (let at = first; at < battle.troops[side].length; at += 1) {
+    const troop = battle.troops[side][at];
+    const fits = (order) => {
+      const stretch = resolveSector(battle.arena, today.line, today.sectors, order.sector);
+      return stretch && stretch.kind !== "all" && inSector(stretch, troop.x, troop.y, battle.place.kmAt);
+    };
+    const order = standing.find(fits) ?? standing.find((entry) => fold(entry.sector) === "all") ?? null;
+    if (order) under.set(order, [...(under.get(order) ?? []), at]);
+  }
+  for (const [order, picked] of under) assignOrder(battle, run, order, { ...today, date: run.dateOf(day), run }, { picked, lagless: true });
+  // (Troops come back to a battlefield their side had left.)
+  if (battle.away[side]) comeBack(run, battle, day);
+  battle.log.push({ d: run.dateOf(day), k: "drafted", s: side, at: `${count} fresh formations ${whole ? "along its whole line" : `in the ${sector.word ?? clean(moment.sector)}`}`, n: count });
+  battle.quiet = 0;
+  battle.touched = true;
+  battle.planKey = "";
+};
+
 // An order on a battlefield that is fought over (or frozen): put to its side as it is.
 const orderOnFront = (run, battle, moment, day) => {
+  if (moment.order === REINFORCE_ORDER) {
+    reinforceOnFront(run, battle, moment, day);
+    return;
+  }
   // A side that had withdrawn and is told anything else comes back first, and the order is put to those who came.
   const ordered = sideOfName(battle, moment.side);
   if (battle.status === "active" && ordered >= 0 && battle.away[ordered] && FRONT_ORDERS.includes(moment.order) && moment.order !== "withdraw") {

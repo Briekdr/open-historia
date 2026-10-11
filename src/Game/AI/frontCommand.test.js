@@ -151,7 +151,7 @@ test("a player's typed order reaches their troops through the function the skip'
   const quiet = await runTurnFronts(turn(map, fighting, { players: ["Aland"], foretold: true }));
   const period = { fromDate: "2024-03-01", toDate: "2024-03-11", days: 10, battlefields: quiet.battlefields, news: quiet.news, voyages: [], transports: [] };
   const block = buildFrontsBlock({ battlefields: fighting.battlefields, players: ["Aland"], period, orderFunction: true });
-  assert.match(block, /The battlefields below are the period as it goes if that person gives its troops NO new order\. If an action of this turn does give its troops one \(to attack, push for a place, dig in, hold, fall back, withdraw, or anything of the kind\), call order_troops FIRST, before you write any event/);
+  assert.match(block, /The battlefields below are the period as it goes if that person gives its troops NO new order\. If an action of this turn does give its troops one \(to attack, push for a place, dig in, hold, fall back, withdraw, to draft more troops or send reinforcements to a front, or anything of the kind\), call order_troops FIRST, before you write any event/);
   assert.match(block, /`NAME~X~dig in~northwest~~` and `NAME~X~advance~south~~city: Y`; to pull out is `NAME~X~withdraw~all~~`/);
   assert.match(block, /Do not write such an order again in frontOrders\. With no such action, call nothing\./);
   // Without the function the rule is the one it was: the order waits for the next period.
@@ -184,7 +184,7 @@ test("what a person types is written as their own order lines, which stand becau
   assert.match(block, /Aland is played by a person: write no order for it of your own\. But what that person tells its troops to do in an action of this turn IS its order, and you write it for them: a line for each stretch of line the action speaks of, with the sector and the objective it names, resting on the event that carries the action out/);
   assert.match(block, /`NAME~X~dig in~northwest~4` and `NAME~X~advance~south~4~city: Y`; to pull out is `NAME~X~withdraw~all~4`/);
   assert.match(block, /It is carried out from that event's date\./);
-  assert.match(block, /\| fall back \| withdraw \| land\./);
+  assert.match(block, /\| fall back \| withdraw \| land \| reinforce\./);
   assert.match(block, /Troops told to withdraw leave the battlefield and go home: the ground stays whose it is/);
 
   const map = sheet();

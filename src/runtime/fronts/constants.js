@@ -206,9 +206,32 @@ export const FLANK_OPPOSITE_COS = -0.7;
 // it is making. Never under TROOPS_MIN, and never more than one for every
 // TROOPS_LINE_KM_EACH of line, which is what keeps a short front from being
 // stacked. What the count cannot carry of a side's strength its quality does.
-export const TROOPS_PER_STRENGTH = 12;
-export const TROOPS_LINE_KM_EACH = 1.5;
-export const TROOPS_MIN = 6;
+//
+// "By default have half as many troops as right now": these three were 12, 1.5
+// and 6. A side now begins with half the counters it did, on a line that has
+// room for half as many, and what it had before is what a draft brings it back
+// to (REINFORCE_ORDER below).
+export const TROOPS_PER_STRENGTH = 6;
+export const TROOPS_LINE_KM_EACH = 3;
+export const TROOPS_MIN = 3;
+// A run may be told to raise more or fewer than that (its input's `troops`,
+// a factor: 2 is the numbers of before the halving, which the engine's own
+// tests of other things are run at, their figures having been worked out there).
+export const TROOPS_FACTOR_LEAST = 0.25;
+export const TROOPS_FACTOR_MOST = 4;
+// MORE TROOPS FOR A FRONT. "Make it so actions can deploy more troops to
+// fronts: this allows the user to do a draft for more troops or send
+// reinforcements." An order of this word is no order for the troops that are
+// there: it brings fresh formations to its side's line, as many as it says
+// (REINFORCE_MOST at a time; REINFORCE_USUAL_SHARE of the side's usual number
+// when it says none). A side is never brought past REINFORCED_SIZE_MOST times
+// the number its own strength raises, nor past REINFORCED_LINE_MOST times what
+// its line has room for: a draft doubles an army, it does not stack a short front.
+export const REINFORCE_ORDER = "reinforce";
+export const REINFORCE_MOST = 60;
+export const REINFORCE_USUAL_SHARE = 0.25;
+export const REINFORCED_SIZE_MOST = 3;
+export const REINFORCED_LINE_MOST = 2;
 export const POOL_PER_TROOP = 30;
 export const EFFORT_FACTORS = Object.freeze({ token: 0.3, limited: 0.6, major: 1, total: 1.4 });
 // The share of a side that is armour (cavalry before the tank) and artillery,
