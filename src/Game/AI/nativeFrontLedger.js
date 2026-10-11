@@ -30,7 +30,7 @@
 // objective exists is the engine's to find when it runs, and it says so in its
 // notes. Loads in plain Node.
 
-import { FRONT_EFFORTS, FRONT_ORDERS, FRONT_RESULTS } from "../../runtime/fronts/constants.js";
+import { FRONT_EFFORTS, FRONT_ORDERS, FRONT_RESULTS, REINFORCE_MOST, REINFORCE_ORDER } from "../../runtime/fronts/constants.js";
 import { TRANSPORT_ORDERS } from "../../runtime/fronts/transports.js";
 import { STRIKE_COUNT_MOST, STRIKE_WEAPONS } from "../../runtime/strikes.js";
 
@@ -55,7 +55,9 @@ const wordTable = (canonical, synonyms) => {
 // A transporter's words are orders too: they are written on the same lines
 // (frontTurn.js sets them apart from the orders a battlefield is given).
 export const isTransportOrder = (word) => Object.hasOwn(TRANSPORT_ORDERS, String(word ?? ""));
-const ORDER_WORDS = wordTable([...FRONT_ORDERS, ...Object.keys(TRANSPORT_ORDERS)], {
+const ORDER_WORDS = wordTable([...FRONT_ORDERS, REINFORCE_ORDER, ...Object.keys(TRANSPORT_ORDERS)], {
+  // More troops for a side of a battlefield (runtime/fronts/constants.js REINFORCE_ORDER): its objective is how many.
+  reinforce: ["reinforces", "reinforced", "reinforcement", "reinforcements", "send reinforcements", "draft", "drafts", "conscript", "conscription", "mobilise", "mobilize", "mobilisation", "mobilization", "call up", "call-up", "deploy", "deploys", "deployment", "raise troops", "more troops"],
   ship: ["sail", "sealift", "sea lift", "by sea", "convoy", "troopship", "troopships", "ferry", "shipped", "ships", "send by sea"],
   rail: ["train", "trains", "by rail", "by train", "railway", "entrain", "overland", "by road", "by land", "send by rail"],
   airlift: ["air lift", "airdrop", "air drop", "paradrop", "airborne", "by air", "fly", "flown", "send by air"],
@@ -71,6 +73,15 @@ const ORDER_WORDS = wordTable([...FRONT_ORDERS, ...Object.keys(TRANSPORT_ORDERS)
   withdraw: ["withdrawal", "withdraws", "pull out", "pull out of", "evacuate", "evacuation", "go home", "leave"],
   land: ["landing", "amphibious landing", "amphibious", "landings"],
 });
+// How many formations an order for more troops brings: the first number in
+// what was written ("30", "30 divisions", "about 12"), held to what one order
+// may bring; nothing where no number is written, and the game then judges it.
+const reinforceFields = (value) => {
+  const found = /\d+/.exec(String(value ?? ""));
+  const count = found ? Math.max(1, Math.min(REINFORCE_MOST, Number(found[0]))) : 0;
+  return { objective: "", ...(count > 0 ? { count } : {}) };
+};
+
 // A strike is a line of its own on the same field (runtime/strikes.js): it
 // begins with this word where an order's line has its battlefield.
 export const STRIKE_WORD = "strike";
@@ -220,6 +231,8 @@ const parseFrontOrderLine = (line, index) => {
   };
   // What a transporter is, how many formations it carries and how fast it goes: said only for one.
   if (isTransportOrder(order)) Object.assign(record, transportFields({ carrier: carrierRaw, strength: strengthRaw, speed: speedRaw }));
+  // More troops: the field an order's objective goes in says how many (blank leaves it to the game).
+  if (order === REINFORCE_ORDER) Object.assign(record, reinforceFields(objective));
   if (!battlefield) record.problem = "no battlefield is named";
   else if (!side) record.problem = "no side is named";
   else if (isTransportOrder(order) && !objective) record.problem = "a transporter has to be sent somewhere";
@@ -255,6 +268,7 @@ const normalizeFrontOrderRecord = (entry, index) => {
     effort: EFFORT_WORDS.get(fold(entry.effort)) ?? "",
   };
   if (isTransportOrder(order)) Object.assign(record, transportFields(entry));
+  if (order === REINFORCE_ORDER) Object.assign(record, reinforceFields(entry.count ?? entry.objective));
   if (clean(entry.problem)) record.problem = clean(entry.problem);
   else if (!record.battlefield || !record.side || (!order && !result)) record.problem = "the order is incomplete";
   return record;

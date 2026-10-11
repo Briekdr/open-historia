@@ -65,9 +65,14 @@ test("a battlefield opens by itself where two sides at war touch, each side size
   assert.deepEqual(uneven.quality, [0.5, 1]);
   // On a line long enough for them: a great power fields hundreds, more or
   // fewer as its effort is, a middling one half as many, a small state a dozen or two.
-  assert.deepEqual(sizeSides(1500, [24, 13], ["major", "major"]), { counts: [288, 156], quality: [1, 1] });
-  assert.deepEqual(sizeSides(1500, [24, 13], ["total", "token"]).counts, [400, 47]);
-  assert.deepEqual(sizeSides(1500, [1.5, 1], ["major", "limited"]).counts, [18, 7]);
+  // ("By default have half as many troops as right now": these are half what they were, and a run
+  // told to raise twice the usual, as this file's own runs are, raises the numbers of before.)
+  assert.deepEqual(sizeSides(1500, [24, 13], ["major", "major"]), { counts: [144, 78], quality: [1, 1] });
+  assert.deepEqual(sizeSides(1500, [24, 13], ["total", "token"]).counts, [202, 23]);
+  assert.deepEqual(sizeSides(1500, [1.5, 1], ["major", "limited"]).counts, [9, 4]);
+  assert.deepEqual(sizeSides(1500, [24, 13], ["major", "major"], 2), { counts: [288, 156], quality: [1, 1] });
+  assert.deepEqual(sizeSides(1500, [24, 13], ["total", "token"], 2).counts, [400, 47]);
+  assert.deepEqual(sizeSides(1500, [1.5, 1], ["major", "limited"], 2).counts, [18, 7]);
   // How wide a strip a troop takes follows from how close its side stands: nine
   // tenths of the line each has, never under 6 km nor over 16.
   assert.equal(sideRadiusKm(1500, 288), 6);

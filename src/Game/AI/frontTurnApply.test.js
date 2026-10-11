@@ -144,7 +144,8 @@ test("a war between two countries that touch opens a battlefield, and the region
   assert.equal(record.status, "active");
   assert.deepEqual(record.sides, [["Aland"], ["Borduria"]]);
   assert.deepEqual(record.orders.map(({ s, order }) => [s, order]), [[0, "advance"]]);
-  assert.ok(record.brief.strength[0].n >= 30, `Aland fields ${record.brief.strength[0].n} formations`);
+  // (Half of what it fielded before troops were halved by default: a draft brings the rest, frontDraft.test.js.)
+  assert.ok(record.brief.strength[0].n >= 15, `Aland fields ${record.brief.strength[0].n} formations`);
   assert.deepEqual(run.notes, []);
   assert.equal(run.stats.days, 30);
 

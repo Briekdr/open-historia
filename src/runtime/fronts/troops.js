@@ -35,6 +35,8 @@ import {
   TRAIT_DRIVE,
   TRAIT_LAG_DAYS,
   TRAIT_LANE,
+  TROOPS_FACTOR_LEAST,
+  TROOPS_FACTOR_MOST,
   TROOPS_LINE_KM_EACH,
   TROOPS_MIN,
   TROOPS_PER_STRENGTH,
@@ -177,7 +179,17 @@ export const drawTraits = (troop, seed, name, side, index, even = false) => {
 
 // The most counters a side may have on a line of `lineKm`: one for every
 // stretch of it, so that a short front is not stacked.
-export const troopsCap = (lineKm) => Math.max(TROOPS_MIN, Math.min(MAX_TROOPS_PER_SIDE, Math.floor(lineKm / TROOPS_LINE_KM_EACH)));
+//   factor   what a run is told to raise of the usual (troopsFactor): 1 unless it says
+export const troopsCap = (lineKm, factor = 1) => Math.max(troopsLeast(factor), Math.min(MAX_TROOPS_PER_SIDE, Math.floor((lineKm * factor) / TROOPS_LINE_KM_EACH)));
+// The fewest counters a side has on any line.
+export const troopsLeast = (factor = 1) => Math.max(2, Math.round(TROOPS_MIN * factor));
+// What a run's input says of how many to raise, as a factor it can be held to.
+export const troopsFactor = (value) => {
+  const factor = Number(value);
+  return Number.isFinite(factor) && factor > 0 ? Math.max(TROOPS_FACTOR_LEAST, Math.min(TROOPS_FACTOR_MOST, factor)) : 1;
+};
+// How many counters a side's own strength raises at an effort, before the line's room is looked at.
+export const troopsWanted = (strength, effort, factor = 1) => TROOPS_PER_STRENGTH * factor * Math.max(0, strength) * (EFFORT_FACTORS[effort] ?? 1);
 
 // How many counters each side has on a line of `lineKm`. Each is sized by
 // its own strength (what its members bring here) and the effort it is making,
@@ -186,10 +198,10 @@ export const troopsCap = (lineKm) => Math.max(TROOPS_MIN, Math.min(MAX_TROOPS_PE
 // because the line is too short for it or the least is more than it has, its
 // quality carries as far as quality goes; where both sides are over, only what
 // one has over the other.
-export const sizeSides = (lineKm, strengths, efforts = ["major", "major"]) => {
-  const cap = troopsCap(lineKm);
-  const wanted = strengths.map((strength, side) => TROOPS_PER_STRENGTH * Math.max(0, strength) * (EFFORT_FACTORS[efforts[side]] ?? 1));
-  const counts = wanted.map((count) => Math.max(TROOPS_MIN, Math.min(cap, Math.round(count))));
+export const sizeSides = (lineKm, strengths, efforts = ["major", "major"], factor = 1) => {
+  const cap = troopsCap(lineKm, factor);
+  const wanted = strengths.map((strength, side) => troopsWanted(strength, efforts[side], factor));
+  const counts = wanted.map((count) => Math.max(troopsLeast(factor), Math.min(cap, Math.round(count))));
   const over = wanted.map((count, side) => count / counts[side]);
   const both = Math.max(1, Math.min(over[0], over[1]));
   const quality = over.map((share) => Math.min(QUALITY_MAX, Math.max(QUALITY_MIN, share / both)));

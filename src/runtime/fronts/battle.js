@@ -378,7 +378,7 @@ export const raiseTroops = (battle, run, only = -1) => {
   battle.lineKm = line.total;
   const members = [memberWeights(battle, run, 0), memberWeights(battle, run, 1)];
   const strengths = members.map((list) => list.reduce((sum, weight) => sum + weight, 0));
-  const { counts, quality } = sizeSides(line.total, strengths, battle.effort);
+  const { counts, quality } = sizeSides(line.total, strengths, battle.effort, run.troops);
   // A scenario may say how many each side of a front begins with
   // (scenarioFronts.js): only while a new game's fronts are being built.
   const said = authoredTroops(run.input?.authored, battle.sides);
