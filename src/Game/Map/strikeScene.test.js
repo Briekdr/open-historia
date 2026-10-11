@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { MAP_LAYER_ORDER } from "./mapLayerOrder.js";
 import { STRIKE_LAYER_ID, WORLD_COPIES_MOST, buildStrikeVertices, worldCopies } from "./strikeCustomLayer.js";
 import { findPlaceEntry, strikeEnds } from "./strikePlaces.js";
-import { AIRCRAFT_HEIGHT_KM, AIRCRAFT_SHOWN_MOST, APOGEE_SHARE, MISSILES_SHOWN_MOST, placeFrom, planStrike, rangeKm, ringOf, strikeItemsAt, strikeLasts } from "./strikeScene.js";
+import { AIRCRAFT_HEIGHT_KM, AIRCRAFT_SHOWN_MOST, APOGEE_SHARE, INTERCEPTOR_HEAD_PX, MISSILES_SHOWN_MOST, placeFrom, planStrike, rangeKm, ringOf, strikeItemsAt, strikeLasts } from "./strikeScene.js";
 import { forgetStrikeRequests, getStrikeRequest, replayStrikes, showStrikesOfEvent, subscribeStrikeRequests } from "./strikeStore.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -210,6 +210,85 @@ test("what is shot down bursts in the air where it was, and never reaches the gr
   const fell = seen(raid, lostOne.start + lostOne.down * lostOne.flight + 0.05);
   assert.ok(fell.flashes.some((point) => point.at[2] === AIRCRAFT_HEIGHT_KM));
   for (let seconds = 0; seconds <= raid.lasts; seconds += 0.2) assert.equal(strikeItemsAt(raid, seconds).discs.length, 0);
+});
+
+// "There should also be missile and bomber interception (the missile or plane
+// blows up in the air during the animation if it's meant to be intercepted)."
+test("one that is intercepted is met in the air by what was sent up at it, blows up there, and falls in pieces", () => {
+  const laid = plan({ count: 3, down: 3 });
+  const tagged = (items, what) => [...items.points, ...items.ribbons].filter((item) => item.what === what);
+  for (const unit of laid.units) {
+    const met = [...unit.way(unit.down), unit.height(unit.down)];
+    const when = unit.start + unit.down * unit.flight;
+    // What brings it down leaves the ground on the defenders' side of it: nearer the target than the place they meet.
+    assert.ok(unit.interceptor.seconds >= 0.8 && unit.interceptor.seconds <= 1.5);
+    assert.ok(rangeKm(unit.interceptor.from, LONDON) < rangeKm(met, LONDON), "from the target's side");
+    assert.ok(rangeKm(unit.interceptor.from, met) <= 1400 + 40, `${Math.round(rangeKm(unit.interceptor.from, met))} km to climb`);
+    // It climbs, and it is where the missile is as they meet.
+    const [fromLng, fromLat] = unit.interceptor.from;
+    const heights = [0.9, 0.6, 0.3, 0.02].map((left) => {
+      const gone = 1 - left;
+      const heads = strikeItemsAt(laid, when - unit.interceptor.seconds * left).points.filter((point) => point.what === "interceptor" && point.size === INTERCEPTOR_HEAD_PX);
+      // (Others of the salvo are in the air too: this one's is on the straight way from where it left to where they meet.)
+      const own = heads.find((point) => Math.abs(point.at[0] - (fromLng + (met[0] - fromLng) * gone)) < 1e-6 && Math.abs(point.at[1] - (fromLat + (met[1] - fromLat) * gone)) < 1e-6);
+      assert.ok(own, `its head, ${Math.round(gone * 100)}% of the way up`);
+      return own.at[2];
+    });
+    assert.ok(heights[0] > 0 && heights[0] < heights[1] && heights[1] < heights[2] && heights[2] < heights[3], `it climbs: ${heights.map(Math.round)}`);
+    assert.ok(Math.abs(heights[3] - met[2]) < met[2] * 0.03, "to the height the missile is at");
+    // The missile is still flying a moment before they meet, and gone a moment after: nothing of it goes on.
+    const head = (seconds) => strikeItemsAt(laid, seconds).points.filter((point) => point.shape === 0 && point.size === 9 && !point.what);
+    assert.ok(head(when - 0.05).some((point) => Math.abs(point.at[2] - unit.height(unit.down - 0.05 / unit.flight)) < 1));
+    // It blows up where they met: a flash and a ring there, larger than a bomb's, and the smoke of it afterwards.
+    const blast = seen(laid, when + 0.3);
+    const flash = blast.flashes.find((point) => Math.abs(point.at[0] - met[0]) < 1e-9 && Math.abs(point.at[2] - met[2]) < 1e-9);
+    assert.ok(flash && flash.size >= 60, `a flash of ${flash?.size} px`);
+    assert.ok(blast.rings.some((point) => Math.abs(point.at[2] - met[2]) < 1e-9 && point.size > 30));
+    assert.ok(tagged(strikeItemsAt(laid, when + 1.6), "smoke").some((point) => Math.abs(point.at[2] - met[2]) < 1e-9));
+    // And what is left of it falls: five pieces, each lower than the last time it was looked at, down to the ground.
+    const pieces = (seconds) => strikeItemsAt(laid, seconds).points.filter((point) => point.what === "debris").map((point) => ({ point, far: Math.hypot(point.at[0] - met[0], point.at[1] - met[1]) })).sort((a, b) => a.far - b.far).slice(0, 5).map((entry) => entry.point);
+    const early = pieces(when + 0.4);
+    const late = pieces(when + 1.7);
+    assert.equal(early.length, 5);
+    assert.ok(early.every((point) => point.at[2] < met[2] && point.at[2] > met[2] * 0.9), "they have only begun to fall");
+    assert.ok(late.every((point) => point.at[2] < met[2] * 0.25), "and are nearly down");
+    assert.ok(strikeItemsAt(laid, when + 0.8).ribbons.some((ribbon) => ribbon.what === "debris"), "each trailing smoke");
+  }
+  // Before what is sent up has left the ground nothing of it is seen, and once it has, it is.
+  const solo = plan({ count: 1, down: 1 });
+  const [only] = solo.units;
+  const meets = only.start + only.down * only.flight;
+  assert.equal(tagged(strikeItemsAt(solo, meets - only.interceptor.seconds - 0.2), "interceptor").length, 0);
+  assert.ok(tagged(strikeItemsAt(solo, meets - only.interceptor.seconds * 0.5), "interceptor").length >= 2, "its head and its trail");
+  // Nothing of a strike that was all shot down reaches the ground, and it is played until the last piece is down.
+  for (let seconds = 0; seconds <= laid.lasts; seconds += 0.1) assert.equal(strikeItemsAt(laid, seconds).discs.length, 0);
+  const lastMet = Math.max(...laid.units.map((unit) => unit.start + unit.down * unit.flight));
+  assert.ok(strikeLasts(laid) >= lastMet + 1.9, `played ${strikeLasts(laid)} s, the last met at ${lastMet}`);
+  // A strike nothing of which was shot down has no interceptor in it at all.
+  const clean = plan({ count: 3 });
+  assert.ok(clean.units.every((unit) => unit.interceptor === null && unit.down === null));
+  for (let seconds = 0; seconds <= clean.lasts; seconds += 0.25) assert.equal(strikeItemsAt(clean, seconds).points.filter((point) => point.what).length, 0);
+  // Some shot down: an interceptor for each of those, and the others arrive and burst as ever.
+  const some = plan({ weapon: "missile strike", count: 6, down: 2 }, { from: MOSCOW, to: KYIV });
+  assert.equal(some.units.filter((unit) => unit.interceptor).length, 2);
+  assert.equal(some.hits, true);
+  // The same strike is the same interception every time it is played.
+  assert.deepEqual(strikeItemsAt(plan({ count: 3, down: 3 }), 2.4), strikeItemsAt(laid, 2.4));
+
+  // An aircraft too: it is met, blows up, and its wreck goes down turning with the pieces, dropping no bomb.
+  const raid = plan({ weapon: "bombing run", count: 4, down: 4 }, { from: MOSCOW, to: KYIV });
+  const lost = raid.units[0];
+  const fell = lost.start + lost.down * lost.flight;
+  assert.ok(lost.interceptor && rangeKm(lost.interceptor.from, KYIV) < 40, "sent up from round what it came to bomb");
+  assert.ok(strikeItemsAt(raid, fell - lost.interceptor.seconds * 0.5).points.some((point) => point.what === "interceptor"));
+  const wreck = (seconds) => strikeItemsAt(raid, seconds).points.filter((point) => point.what === "wreck").sort((a, b) => Math.hypot(a.at[0] - lost.way(lost.down)[0], a.at[1] - lost.way(lost.down)[1]) - Math.hypot(b.at[0] - lost.way(lost.down)[0], b.at[1] - lost.way(lost.down)[1]))[0];
+  const [first, second] = [wreck(fell + 0.3), wreck(fell + 1.5)];
+  assert.ok(first && second && first.shape === 1 && second.at[2] < first.at[2] && first.at[2] < AIRCRAFT_HEIGHT_KM, "the wreck falls");
+  assert.notDeepEqual([first.toward[0] - first.at[0], first.toward[1] - first.at[1]].map((value) => Math.sign(value)), [second.toward[0] - second.at[0], second.toward[1] - second.at[1]].map((value) => Math.sign(value)), "turning as it goes");
+  for (let seconds = 0; seconds <= raid.lasts; seconds += 0.2) assert.equal(strikeItemsAt(raid, seconds).discs.length, 0);
+  // The layer draws it all as it draws anything else of a strike.
+  const { ribbons, points } = buildStrikeVertices(strikeItemsAt(raid, fell + 0.4));
+  assert.ok(ribbons.length % 12 === 0 && points.length % 12 === 0 && points.length > 0 && ![...ribbons, ...points].some((value) => !Number.isFinite(value)));
 });
 
 test("aircraft fly above the ground in formation, cast their shadows, drop their bombs and fly on", () => {

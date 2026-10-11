@@ -3,9 +3,14 @@
 // what, how many, how many shot down. This turns one into what is SEEN, moment
 // by moment: each missile on its own arc from where it is launched to where it
 // comes down, each aircraft in its place in a formation, the bombs it lets go;
-// a burst in the air where one is intercepted; and where one arrives, the
-// blast: for a nuclear weapon a flash, a fireball, a shock wave that spreads
-// over the ground and a glow that lingers, for bombs a scatter of bursts.
+// and where one arrives, the blast: for a nuclear weapon a flash, a fireball, a
+// shock wave that spreads over the ground and a glow that lingers, for bombs a
+// scatter of bursts.
+//
+// ONE THAT IS INTERCEPTED NEVER ARRIVES. What brings it down is seen leaving
+// the ground on the defenders' side and climbing to meet it; where they meet
+// the missile or the aircraft blows up in the air, and what is left of it
+// falls, trailing smoke. A strike of which all were shot down hits nothing.
 //
 // planStrike() lays a strike out once (its units, their timings, where each
 // comes down). strikeItemsAt() says what is drawn of a plan at a time: ribbons
@@ -64,7 +69,26 @@ const NUCLEAR_BOMB_FALLS = 0.9;
 // the least each is drawn on the screen (px), and for how long each is seen (s).
 const NUCLEAR = { fire: 62, wave: 190, second: 270, glow: 30, fireFor: 3.4, waveFor: 3.0, secondFor: 3.9, glowFor: 7.5, firePx: 9, wavePx: 30, secondPx: 44, glowPx: 6 };
 const BURST = { fire: 9, wave: 26, fireFor: 0.95, waveFor: 1.1, firePx: 3, wavePx: 8 };
-const AIR_BURST_FOR = 0.85;
+// One that is intercepted. What brings it down rises from the ground on the
+// defenders' side of it (from where its own way would have ended, or no farther
+// off than INTERCEPTOR_KM_MOST along it) and takes this long to meet it, for
+// the nearest and the farthest (s). Then the blast in the air, the smoke it
+// leaves, and what is left of it falling, still going the way it went: each is
+// seen this long (s), and the pieces fall at least this far over the ground
+// (km, and px of the screen).
+const INTERCEPTOR_SECONDS = [0.8, 1.5];
+const INTERCEPTOR_KM_MOST = 1400;
+const AIR_BURST_FOR = 1.3;
+const AIR_FLASH_FOR = 0.8;
+// (How large the head of what is sent up is drawn, px.)
+export const INTERCEPTOR_HEAD_PX = 8;
+const AIR_SMOKE_FOR = 2.4;
+const DEBRIS = 5;
+const DEBRIS_FALLS = 1.9;
+const DEBRIS_KM = { missile: 40, aircraft: 14 };
+const DEBRIS_PX = 46;
+// How long a strike is played after its last unit is done, when any was shot down.
+const AFTER_INTERCEPTION = 2.6;
 // An aircraft's shadow lies this much of its height away, and no farther than this on the screen (px).
 const SHADOW_OF_HEIGHT = 0.6;
 const SHADOW_PX_MOST = 14;
@@ -83,6 +107,9 @@ const COLOURS = {
   bomb: [1, 0.86, 0.5],
   splash: [0.78, 0.9, 1],
   shadow: [0.02, 0.03, 0.05],
+  // What is sent up to bring a missile or an aircraft down: cold, where the attack is fire-coloured.
+  interceptor: [0.86, 0.98, 1],
+  interceptorGlow: [0.08, 0.5, 0.98],
 };
 
 const clamp = (value, least, most) => Math.min(most, Math.max(least, value));
@@ -241,12 +268,23 @@ export const planStrike = (strike, { from, to, flat = false, kmPerPixel = 0 } = 
       height = (at) => apogee * 4 * clamp(at, 0, 1) * (1 - clamp(at, 0, 1));
       start = index * SALVO_GAP;
     }
+    // Where along its way it is shot down, or null.
+    const shotAt = lost.has(index) ? (aircraft ? 0.34 : 0.48) + (aircraft ? 0.5 : 0.4) * chance(strike.id, index, "down") : null;
+    // And what shoots it down: from the ground on the defenders' side of where it is met.
+    let interceptor = null;
+    if (shotAt !== null) {
+      const met = way(shotAt);
+      const under = way(Math.min(1, shotAt + Math.min(1 - shotAt, INTERCEPTOR_KM_MOST / km)));
+      const base = placeFrom(under, chance(strike.id, index, "interceptor bearing") * 360, 6 + 26 * chance(strike.id, index, "interceptor off"));
+      interceptor = { from: [base[0], base[1]], seconds: clamp(INTERCEPTOR_SECONDS[0] + rangeKm(base, met) / 1600, INTERCEPTOR_SECONDS[0], INTERCEPTOR_SECONDS[1]) };
+    }
     units.push({
       index,
       start,
       flight,
-      // Where along its way it is shot down, or null.
-      down: lost.has(index) ? (aircraft ? 0.34 : 0.48) + (aircraft ? 0.5 : 0.4) * chance(strike.id, index, "down") : null,
+      down: shotAt,
+      // { from: [lng, lat], seconds }: where what brings it down leaves the ground, and how long it takes to meet it.
+      interceptor,
       way,
       height,
       lands,
@@ -272,7 +310,8 @@ export const planStrike = (strike, { from, to, flat = false, kmPerPixel = 0 } = 
     units,
     bomber,
     hits: through.length > 0,
-    lasts: last + (through.length > 0 ? (nuclear ? NUCLEAR.glowFor : 1.8) : 1.2),
+    // (Long enough for the last blast to be seen out, and for what was shot down to have fallen.)
+    lasts: last + Math.max(through.length > 0 ? (nuclear ? NUCLEAR.glowFor : 1.8) : 1.2, down > 0 ? AFTER_INTERCEPTION : 0),
   };
 };
 
@@ -331,12 +370,75 @@ const burst = (items, at, since, kmPerPixel, scale = 1) => {
     waveRing(items, at, Math.max(0.5, atLeast(BURST.wave, BURST.wavePx) * easeOut(gone)), 1.6, 0.7 * (1 - gone), 1);
   }
 };
-// One shot down: a flash in the air where it was, and a ring that opens round it.
-const airBurst = (items, at, since) => {
-  if (since < 0 || since > AIR_BURST_FOR) return;
-  const left = 1 - since / AIR_BURST_FOR;
-  items.points.push({ at, size: 12 + 30 * easeOut(since / 0.3), shape: 2, colour: COLOURS.flash, alpha: left });
-  items.points.push({ at, size: 18 + 46 * easeOut(since / AIR_BURST_FOR), shape: 3, colour: COLOURS.fire, alpha: 0.85 * left });
+// What is sent up at one that is intercepted: it leaves the ground `seconds`
+// before the two meet and climbs to where they do, a cold streak against the
+// fire of the attack. `since` is the time since they met (under nothing before).
+const interceptorOf = (items, meets, met, since) => {
+  if (!meets) return;
+  const gone = 1 + since / meets.seconds;
+  if (gone < 0) return;
+  const from = [unwrap(meets.from[0], met[0]), meets.from[1]];
+  const at = (part) => {
+    const share = clamp(part, 0, 1);
+    return [from[0] + (met[0] - from[0]) * share, from[1] + (met[1] - from[1]) * share, met[2] * share];
+  };
+  const trail = (first, last, alpha) => {
+    const points = [];
+    for (let step = 0; step <= 8; step += 1) points.push(at(first + ((last - first) * step) / 8));
+    // (A pale streak with a blue one under it, so that it is seen over pale ground as over dark.)
+    items.ribbons.push({ points, width: 5.5, colour: COLOURS.interceptorGlow, from: 0, to: alpha * 0.55, what: "interceptor" });
+    items.ribbons.push({ points, width: 2.2, colour: COLOURS.interceptor, from: 0, to: alpha, what: "interceptor" });
+  };
+  if (gone <= 1) {
+    trail(Math.max(0, gone - 0.5), gone, 0.95);
+    items.points.push({ at: at(gone), size: 15, shape: 0, colour: COLOURS.interceptorGlow, alpha: 0.6, what: "interceptor" });
+    items.points.push({ at: at(gone), size: INTERCEPTOR_HEAD_PX, shape: 0, colour: COLOURS.interceptor, alpha: 1, what: "interceptor" });
+    // The fire of its own launch, on the ground.
+    if (gone < 0.3) items.points.push({ at: at(0), size: 7 + 13 * (1 - gone / 0.3), shape: 2, colour: COLOURS.interceptor, alpha: 0.9 * (1 - gone / 0.3), what: "interceptor" });
+    return;
+  }
+  // Its trail hangs a moment where the two met.
+  if (since < 0.7) trail(0.5, 1, 0.8 * (1 - since / 0.7));
+};
+
+// One shot down: a flash in the air where it was and a ring that opens round
+// it; then the smoke of it, and what is left of it falling to the ground, on
+// the way it was going (`ahead` is a place farther along that way). An
+// aircraft's wreck goes down with them, turning (`plane` is how large it was drawn).
+const airBurst = (items, at, since, { kmPerPixel = 0, ahead = at, id = "", index = 0, plane = 0 } = {}) => {
+  if (since < 0) return;
+  if (since <= AIR_BURST_FOR) {
+    const left = 1 - since / AIR_BURST_FOR;
+    // (The flash is gone before the ring is: what is left is the ring opening, and the smoke.)
+    if (since < AIR_FLASH_FOR) items.points.push({ at, size: 16 + 54 * easeOut(since / 0.3), shape: 2, colour: since < 0.22 ? COLOURS.flash : COLOURS.fire, alpha: 1 - since / AIR_FLASH_FOR });
+    items.points.push({ at, size: 22 + 74 * easeOut(since / AIR_BURST_FOR), shape: 3, colour: COLOURS.fire, alpha: 0.85 * left });
+  }
+  if (since > 0.12 && since <= AIR_SMOKE_FOR) {
+    items.points.push({ at, size: 12 + 28 * easeOut(since / AIR_SMOKE_FOR), shape: 0, colour: COLOURS.smoke, alpha: 0.5 * (1 - since / AIR_SMOKE_FOR), what: "smoke" });
+  }
+  if (since > DEBRIS_FALLS) return;
+  const fallen = since / DEBRIS_FALLS;
+  const course = bearingOf(at, ahead);
+  const reach = Math.max(plane > 0 ? DEBRIS_KM.aircraft : DEBRIS_KM.missile, DEBRIS_PX * kmPerPixel);
+  // (A piece keeps the height it had less the square of its fall: slowly at first, then fast.)
+  const fall = (bearing, far) => (part) => {
+    const [lng, lat] = placeFrom(at, bearing, far * part);
+    return [lng, lat, at[2] * (1 - part * part)];
+  };
+  for (let piece = 0; piece < DEBRIS; piece += 1) {
+    const where = fall(course + (chance(id, index, `piece way ${piece}`) - 0.5) * 150, reach * (0.35 + 0.65 * chance(id, index, `piece far ${piece}`)));
+    const tail = Math.max(0, fallen - 0.22);
+    const points = [];
+    for (let step = 0; step <= 5; step += 1) points.push(where(tail + ((fallen - tail) * step) / 5));
+    items.ribbons.push({ points, width: 1.9, colour: COLOURS.smoke, from: 0, to: 0.8 * (1 - fallen), what: "debris" });
+    items.points.push({ at: where(fallen), size: 7.5 - 3.5 * fallen, shape: 0, colour: fallen < 0.55 ? COLOURS.fire : COLOURS.glow, alpha: 1 - fallen * fallen, what: "debris" });
+  }
+  if (plane > 0) {
+    const where = fall(course, reach * 0.9);
+    const now = where(fallen);
+    const turned = placeFrom(now, course + 70 + 520 * fallen, 1);
+    items.points.push({ at: now, toward: [turned[0], turned[1], now[2]], size: plane * (1 - 0.35 * fallen), shape: 1, colour: COLOURS.smoke, alpha: 1 - fallen, what: "wreck" });
+  }
 };
 // A bomb on its way down: from where it was let go to where it bursts.
 const falling = (items, from, to, share, size) => {
@@ -356,6 +458,8 @@ export const strikeItemsAt = (plan, seconds, { kmPerPixel = 0 } = {}) => {
   const items = { ribbons: [], points: [], discs: [] };
   if (!plan || !(seconds >= 0) || seconds > plan.lasts) return items;
   const scale = Number.isFinite(kmPerPixel) && kmPerPixel > 0 ? kmPerPixel : 0;
+  // How large an aircraft is drawn: smaller where they have had to be drawn close together.
+  const planeSize = scale > 0 ? clamp((plan.gapKm / scale) * 0.85, AIRCRAFT_PX[0], AIRCRAFT_PX[1]) : AIRCRAFT_PX[1];
   for (const entry of plan.units) {
     const share = (seconds - entry.start) / entry.flight;
     if (share < 0) continue;
@@ -385,8 +489,7 @@ export const strikeItemsAt = (plan, seconds, { kmPerPixel = 0 } = {}) => {
         const seen = share > 1.04 ? 1 - clamp((share - 1.04) / (FLIES_ON - 1.04), 0, 1) : 1;
         const at = place(head);
         const toward = place(head + 0.012);
-        // (Smaller where they have had to be drawn close together.)
-        const size = scale > 0 ? clamp((plan.gapKm / scale) * 0.85, AIRCRAFT_PX[0], AIRCRAFT_PX[1]) : AIRCRAFT_PX[1];
+        const size = planeSize;
         // Its shadow, on the ground a little way off.
         const off = Math.min(at[2] * SHADOW_OF_HEIGHT, scale > 0 ? SHADOW_PX_MOST * scale : Infinity);
         if (off > 0) {
@@ -403,7 +506,12 @@ export const strikeItemsAt = (plan, seconds, { kmPerPixel = 0 } = {}) => {
       }
     }
     if (entry.down !== null) {
-      airBurst(items, place(entry.down), (share - entry.down) * entry.flight);
+      // It is intercepted: what brings it down climbs to meet it, and it blows
+      // up in the air where they meet. Nothing of it arrives.
+      const met = place(entry.down);
+      const sinceMet = (share - entry.down) * entry.flight;
+      interceptorOf(items, entry.interceptor, met, sinceMet);
+      airBurst(items, met, sinceMet, { kmPerPixel: scale, ahead: place(entry.down + 0.03), id: plan.id, index: entry.index, plane: plan.aircraft ? planeSize : 0 });
       continue;
     }
     // It arrives.

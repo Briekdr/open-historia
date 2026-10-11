@@ -148,6 +148,21 @@ const transportFields = ({ carrier, strength, speed }) => {
   return fields;
 };
 
+// How many of a strike were shot down, as it is written: a number, or a word
+// for a share of them (a model that will not count says "all" or "most"; one
+// that writes the fact in the field, "intercepted", means all of them). A
+// share of a strike that was shot down at all is never none of it.
+const DOWN_WORDS = new Map([
+  ["all", 1], ["all of them", 1], ["every", 1], ["everything", 1], ["yes", 1], ["intercepted", 1], ["shot down", 1], ["destroyed", 1],
+  ["most", 0.75], ["most of them", 0.75], ["half", 0.5], ["some", 0.3], ["some of them", 0.3], ["several", 0.3], ["few", 0.2], ["a few", 0.2],
+  ["none", 0], ["no", 0], ["nothing", 0],
+]);
+const shotDown = (value, many) => {
+  const share = DOWN_WORDS.get(fold(value));
+  if (share === undefined) return Math.min(many, wholeNumber(value));
+  return share > 0 ? Math.min(many, Math.max(1, Math.round(many * share))) : 0;
+};
+
 // A strike, as it is kept among the records: what it is made with, where
 // from, at what, how many, and how many of those were shot down on the way.
 const strikeRecord = ({ id, side, weapon, from, eventIndexes, eventIds, objective, count, down, problem }) => {
@@ -167,7 +182,7 @@ const strikeRecord = ({ id, side, weapon, from, eventIndexes, eventIds, objectiv
     weapon: made,
     from: clean(from),
     count: many,
-    down: Math.min(many, wholeNumber(down)),
+    down: shotDown(down, many),
   };
   if (clean(problem)) record.problem = clean(problem);
   else if (!record.side) record.problem = "no side is named";

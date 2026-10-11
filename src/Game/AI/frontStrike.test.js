@@ -100,6 +100,11 @@ test("a strike is a line of its own: who, with what, from where, at what, how ma
   assert.match(vague.problem, /"death ray" is not a weapon/);
   assert.match(unarmed.problem, /has to say what it is made with/);
   assert.match(aimless.problem, /has to say what it hits/);
+  // How many were shot down may be said in a word, by a model that will not count.
+  const said = (word, count = 12) => decodeFrontOrders([`strike~Aland~missile strike~~1~city: Brod~${word}~${count}`])[0].down;
+  assert.deepEqual(["all", "All of them.", "intercepted", "most", "half", "some", "a few", "none", "", "7"].map((word) => said(word)), [12, 12, 12, 9, 6, 4, 2, 0, 0, 7]);
+  // A share of a strike that was shot down at all is never none of it: one missile, "some" of it, is that one.
+  assert.deepEqual([said("some", 1), said("most", 2), said("none", 1)], [1, 2, 0]);
   // No more shot down than there were, and no more than a strike is ever said to be of.
   const [over, huge] = decodeFrontOrders(["strike~Aland~bombing run~~1~city: Brod~50~12", "strike~Aland~missile strike~~1~city: Brod~~99999"]);
   assert.deepEqual([over.count, over.down], [12, 12]);
