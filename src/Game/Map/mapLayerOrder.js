@@ -113,6 +113,12 @@ export const MAP_LAYER_ORDER = [
   "fronts-troops-kind",
   "fronts-troops-name",
 
+  // Transporters cross the map over the fronts they sail to (TransportLayers.jsx).
+  "transports-way-casing",
+  "transports-way",
+  "transports-icons",
+  "transports-lost",
+
   // Unit counters are interactive operational objects and remain topmost.
   "units-fill",
   "units-icons",

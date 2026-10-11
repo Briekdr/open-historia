@@ -31,6 +31,7 @@
 // notes. Loads in plain Node.
 
 import { FRONT_EFFORTS, FRONT_ORDERS, FRONT_RESULTS } from "../../runtime/fronts/constants.js";
+import { TRANSPORT_ORDERS } from "../../runtime/fronts/transports.js";
 
 export const FRONT_ORDERS_FIELD = "frontOrders";
 export const FRONT_ORDER_SEPARATOR = "~";
@@ -50,7 +51,13 @@ const wordTable = (canonical, synonyms) => {
   }
   return table;
 };
-const ORDER_WORDS = wordTable(FRONT_ORDERS, {
+// A transporter's words are orders too: they are written on the same lines
+// (frontTurn.js sets them apart from the orders a battlefield is given).
+export const isTransportOrder = (word) => Object.hasOwn(TRANSPORT_ORDERS, String(word ?? ""));
+const ORDER_WORDS = wordTable([...FRONT_ORDERS, ...Object.keys(TRANSPORT_ORDERS)], {
+  ship: ["sail", "sealift", "sea lift", "by sea", "convoy", "troopship", "troopships", "ferry", "shipped", "ships", "send by sea"],
+  rail: ["train", "trains", "by rail", "by train", "railway", "entrain", "overland", "by road", "by land", "send by rail"],
+  airlift: ["air lift", "airdrop", "air drop", "paradrop", "airborne", "by air", "fly", "flown", "send by air"],
   advance: ["attack", "attacks", "push", "offensive", "advances", "press", "pursue"],
   flank: ["outflank", "flanking", "flanks", "outflanks", "turn the flank"],
   assault: ["storm", "storms", "take", "takes", "seize", "seizes", "assaults", "assault on", "attack on", "strike at"],
@@ -114,13 +121,27 @@ export const frontOrderProseLines = (value) => {
   return String(value ?? "").split(/\r?\n/).map(clean).filter((line) => line && !isRecordLine(line));
 };
 
+// A transporter's own fields, as they are kept on its record: a number that
+// is not one is left out, and the engine then takes the year's usual.
+const wholeNumber = (value) => {
+  const number = Number.parseInt(String(value ?? "").replace(/[^0-9-]/g, ""), 10);
+  return Number.isInteger(number) && number > 0 ? number : 0;
+};
+const transportFields = ({ carrier, strength, speed }) => {
+  const fields = {};
+  if (clean(carrier)) fields.carrier = clean(carrier).slice(0, 40).trim();
+  if (wholeNumber(strength) > 0) fields.strength = Math.min(999, wholeNumber(strength));
+  if (wholeNumber(speed) > 0) fields.speed = Math.min(99999, wholeNumber(speed));
+  return fields;
+};
+
 // One line read. A record that cannot be acted on comes back with `problem`
 // saying why, so the caller can say it once in the turn's receipt.
 const parseFrontOrderLine = (line, index) => {
   const text = clean(line);
   if (!text || !isRecordLine(text)) return null;
   const fields = text.split(FRONT_ORDER_SEPARATOR).map(clean);
-  const [battlefield = "", side = "", orderRaw = "", sectorRaw = "", eventsRaw = "", objective = "", resultRaw = "", effortRaw = ""] = fields;
+  const [battlefield = "", side = "", orderRaw = "", sectorRaw = "", eventsRaw = "", objective = "", resultRaw = "", effortRaw = "", carrierRaw = "", strengthRaw = "", speedRaw = ""] = fields;
   const order = ORDER_WORDS.get(fold(orderRaw)) ?? "";
   const result = RESULT_WORDS.get(fold(resultRaw)) ?? "";
   const effort = EFFORT_WORDS.get(fold(effortRaw)) ?? "";
@@ -136,8 +157,11 @@ const parseFrontOrderLine = (line, index) => {
     result,
     effort,
   };
+  // What a transporter is, how many formations it carries and how fast it goes: said only for one.
+  if (isTransportOrder(order)) Object.assign(record, transportFields({ carrier: carrierRaw, strength: strengthRaw, speed: speedRaw }));
   if (!battlefield) record.problem = "no battlefield is named";
   else if (!side) record.problem = "no side is named";
+  else if (isTransportOrder(order) && !objective) record.problem = "a transporter has to be sent somewhere";
   else if (!order && !result) record.problem = orderRaw ? `"${orderRaw.slice(0, 40)}" is not an order` : "no order is given";
   else if (order === "land" && !objective) record.problem = "a landing has to name where";
   else if (order === "assault" && !objective) record.problem = "an assault has to name what is attacked";
@@ -161,6 +185,7 @@ const normalizeFrontOrderRecord = (entry, index) => {
     result,
     effort: EFFORT_WORDS.get(fold(entry.effort)) ?? "",
   };
+  if (isTransportOrder(order)) Object.assign(record, transportFields(entry));
   if (clean(entry.problem)) record.problem = clean(entry.problem);
   else if (!record.battlefield || !record.side || (!order && !result)) record.problem = "the order is incomplete";
   return record;

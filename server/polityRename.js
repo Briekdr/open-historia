@@ -12,7 +12,7 @@
 // what the world state does not carry — the game's own polity, queued orders,
 // chats, flags and the stock map's baked regions. Shared with the server, so no
 // src/ imports, like ownerMigration.js.
-import { renameInBattlefields } from "./battlefieldNames.js";
+import { renameInBattlefields, renameInTransports } from "./battlefieldNames.js";
 
 const str = (value) => String(value ?? "").trim();
 // The same identity as ownerNames.js ownerIdentityKey: case, diacritics and
@@ -249,6 +249,8 @@ export const renamePolityInWorld = (world, fromName, toName) => {
   // The sides of the battlefields those wars are fought on, and who gave each
   // standing order there.
   put("battlefields", renameInBattlefields(world?.battlefields, fromKey, to, samePolityName));
+  // And the transporters on their way to them.
+  put("transports", renameInTransports(world?.transports, fromKey, to, samePolityName));
   put("relations", mapRows(world?.relations, (relation) => ({ ...relation, a: one(relation.a), b: one(relation.b) })));
   put("agreements", mapRows(world?.agreements, (agreement) => ({
     ...agreement,

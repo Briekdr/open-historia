@@ -156,3 +156,6 @@ export const generateWarRoomReply = async (...args) => (await gameplay()).genera
 // The war room: which routes drawn on a battlefield go into a country outside
 // its war. Read from the map, with no request made and nothing written.
 export const warRoomRouteAttacks = async (...args) => (await gameplay()).warRoomRouteAttacks(...args);
+// The war room: the way each transporter deployed there would take. Read from
+// the map, with no request made and nothing written.
+export const warRoomTransportWays = async (...args) => (await gameplay()).warRoomTransportWays(...args);

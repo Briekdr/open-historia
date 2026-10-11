@@ -29,6 +29,11 @@ import { arenaFor } from "../../runtime/fronts/arena.js";
 import { decodeTroops } from "../../runtime/fronts/codec.js";
 import { projectorOf } from "../../runtime/fronts/frame.js";
 import { othersOnWay } from "../../runtime/fronts/invade.js";
+import { gameDateYear } from "../../runtime/gameDates.js";
+import { normalizeBattlefields } from "../../runtime/fronts/record.js";
+import { isUnderWay, normalizeTransports } from "../../runtime/fronts/transports.js";
+import { findWay } from "../../runtime/fronts/wayfinder.js";
+import { buildWorldGrid } from "../../runtime/fronts/worldGrid.js";
 import { logDebugEvent } from "../../runtime/debugLog.js";
 import { createFrontRun } from "../../runtime/fronts/engine.js";
 import { getActiveWorldDirection, isActiveFeatureEnabled } from "../../runtime/gameFeatures.js";
@@ -141,9 +146,11 @@ const warStagesOf = ({ wars, updates, events, stopDate, round }) => {
 // The world a turn's run is to find: as it stands, with the plans of the turn
 // written onto its battlefields where a war is being fought. A world with no
 // such battlefield is handed back untouched and the map's cities are not read.
-const fighting = (world) => asArray(world?.battlefields).some((row) => row?.status === "active");
+// (A transporter under way is fighting to come: where it lands a battlefield opens.)
+const onBattlefields = (world) => asArray(world?.battlefields).some((row) => row?.status === "active");
+const fighting = (world) => onBattlefields(world) || asArray(world?.transports).some(isUnderWay);
 const plannedWorld = async (world, game) => {
-  if (!fighting(world)) return world;
+  if (!onBattlefields(world)) return world;
   try {
     return turnPlanned({ world, game, cities: await readFrontCities(world, game), espionage: isActiveFeatureEnabled("espionage") });
   } catch (error) {
@@ -213,6 +220,7 @@ export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "
       clean(campaignId), round, fromDate, target, Number(requestedDays) || 0, frontsPace(),
       hashOf(JSON.stringify(asArray(planned?.battlefields))),
       hashOf(JSON.stringify(asArray(world?.wars))),
+      hashOf(JSON.stringify(asArray(world?.transports))),
       hashOf(JSON.stringify(asArray(world?.units).map((unit) => [unit?.id, unit?.committedTo, unit?.lng, unit?.lat, unit?.strength]))),
     ].join("|");
     if (foreseen.key === key) return foreseen.value;
@@ -229,7 +237,7 @@ export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "
     });
     const days = Number(run?.stats?.days) || 0;
     const value = run?.battlefields && days > 0
-      ? { fromDate, toDate: target, days, battlefields: run.battlefields, news: asArray(run.news), flips: asArray(run.flips) }
+      ? { fromDate, toDate: target, days, battlefields: run.battlefields, news: asArray(run.news), flips: asArray(run.flips), transports: asArray(run.transports), voyages: asArray(run.voyages) }
       : null;
     foreseen = { key, value };
     if (value) {
@@ -314,7 +322,7 @@ export const applyTurnFronts = async ({
     if (signal?.aborted || error?.name === "AbortError") throw error;
     console.warn("[fronts] the front engine could not be run for this turn; the turn goes on without it and the battlefields stand as they were.", error);
     logDebugEvent("turn", "Fronts: the engine could not be run for this turn; the battlefields stand as they were.", error, { problem: true });
-    return { events: stripFrontOps(events), battlefields: null, unitChanges: [], notes: [], flips: [], stats: null, news: [], joins: [] };
+    return { events: stripFrontOps(events), battlefields: null, unitChanges: [], notes: [], flips: [], stats: null, news: [], joins: [], transports: null, voyages: [] };
   }
 };
 
@@ -395,6 +403,77 @@ export const routesIntoOthers = async ({ world = {}, game = {}, campaignId = "",
   return found;
 };
 
+// The way each of the world's transporters that has not set out would take,
+// found on the same sheet and by the same search the engine uses when it does
+// set out (runtime/fronts/wayfinder.js), so that the war room can show it
+// before time passes. Only those whose troops are on a battlefield: the ones
+// deployed there. No request is made, and the map's shapes are read only when
+// the sheet has not been drawn in this sitting.
+// Returns { [id]: { way, km, days, landing, from } | { error, from } }.
+export const transportWaysFor = async ({ world = {}, game = {}, campaignId = "", loadRegions = null } = {}) => {
+  const found = {};
+  const ordered = normalizeTransports(world?.transports).filter((entry) => entry.status === "ordered" && entry.embark && Number.isFinite(entry.to.lng));
+  if (!frontsOn() || ordered.length === 0) return found;
+  try {
+    const front = await readFrontMap(world, game, campaignId);
+    const kept = arenasFor(front.map.key);
+    const sheet = `world|${front.map.key}`;
+    let grid = kept.get(sheet) ?? null;
+    if (!grid) {
+      const shapes = typeof loadRegions === "function" ? await loadRegions() : null;
+      const regions = shapes ? engineRegionsOf(shapes, { nameOf: (id) => front.names.get(id) }) : null;
+      if (asArray(regions).length === 0) return found;
+      grid = buildWorldGrid(regions, { flat: front.map.flat === true, scale: front.map.scale });
+      if (grid) kept.set(sheet, grid);
+    }
+    if (!grid) return found;
+    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, regionIds: front.regionIds, groups: isActiveFeatureEnabled("groups") });
+    const records = normalizeBattlefields(world?.battlefields);
+    const year = gameDateYear(clean(game?.gameDate));
+    for (const transport of ordered) {
+      const record = records.find((entry) => fold(entry.name) === fold(transport.embark.battlefield));
+      if (!record?.frame) continue;
+      // Its war's two sides as the ledger has them, or failing that the battlefield's.
+      const war = asArray(world?.wars).find((entry) => clean(entry?.id) === record.warId);
+      const sides = (war ? [asArray(war.sideA), asArray(war.sideB)] : record.sides).map((members) => members.map(fold));
+      const mine = sides[0].includes(fold(transport.owner)) ? 0 : sides[1].includes(fold(transport.owner)) ? 1 : -1;
+      if (mine < 0) continue;
+      const holderOf = (id) => {
+        const group = clean(readers.groupAreas?.[id]);
+        return group && sides.some((members) => members.includes(fold(group))) ? group : clean(readers.controllerOf(id));
+      };
+      const troops = decodeTroops(record.troops?.[transport.embark.side]);
+      let x = 0;
+      let y = 0;
+      let count = 0;
+      for (const index of transport.embark.troops) {
+        if (!(troops[index]?.strength > 0)) continue;
+        x += troops[index].x;
+        y += troops[index].y;
+        count += 1;
+      }
+      if (count === 0) continue;
+      const [lng, lat] = projectorOf(record.frame).toLngLat(x / count, y / count);
+      const from = [Math.round(lng * 1000) / 1000, Math.round(lat * 1000) / 1000];
+      const way = findWay(grid, {
+        medium: transport.medium,
+        from,
+        to: [transport.to.lng, transport.to.lat],
+        holderOf,
+        friendly: (name) => sides[mine].includes(fold(name)),
+        hostile: (name) => sides[1 - mine].includes(fold(name)),
+        year,
+      });
+      found[transport.id] = way.error
+        ? { error: way.error, from }
+        : { way: way.way, km: way.km, days: Math.max(1, Math.ceil(way.km / Math.max(1, transport.speed))), landing: way.landing, arrived: way.arrived, from };
+    }
+  } catch (error) {
+    console.warn("[fronts] the ways of the transporters that have not set out could not be found; each is found when it sets out.", error);
+  }
+  return found;
+};
+
 // Builds a new game's battlefields from the fronts its scenario begins with
 // (frontScenario.js), on the game's own map. No model is asked anything.
 // Null with fronts off or none to build; otherwise what buildScenarioFronts
@@ -444,7 +523,7 @@ export const withFrontUnits = (world, fronts) => {
 // gave for the turn, when it gave anything: the block then tells the
 // battlefields as the period leaves them and what happened on them.
 export const frontsLiveBlock = (world, game, foreseen = null) => (frontsOn()
-  ? buildFrontsBlock({ battlefields: world?.battlefields, players: humanCountriesOf(game), period: foreseen })
+  ? buildFrontsBlock({ battlefields: world?.battlefields, players: humanCountriesOf(game), period: foreseen, transports: world?.transports })
   : "");
 
 // What the simulator is told of the plans agents have carried off from the

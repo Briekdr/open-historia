@@ -16,7 +16,8 @@ import { useSyncExternalStore } from "react";
 //   route      draw the way the troops picked out are to take
 //   diversion  draw a movement to be stolen and never made
 //   replan     draw a Board operation's arrow anew (`replan` holds which)
-export const WAR_ROOM_TOOLS = Object.freeze(["pan", "select", "route", "diversion", "replan"]);
+//   transport  click where the troops picked out are to be carried (`medium` holds by what)
+export const WAR_ROOM_TOOLS = Object.freeze(["pan", "select", "route", "diversion", "replan", "transport"]);
 
 const CLOSED = Object.freeze({
   open: false,
@@ -30,6 +31,11 @@ const CLOSED = Object.freeze({
   highlight: -1,
   // The Board operation whose arrow is being redrawn, by its id.
   replan: "",
+  // What the troops picked out are to be carried by ("sea", "land" or "air"), while that tool is in hand.
+  medium: "",
+  // The ways found for the player's transporters that have not set out, by
+  // their ids: { way, km, days, from } or { error, from } (AI/frontApply.js transportWaysFor).
+  transportWays: null,
   // The plan the panel points at, by its id, so the map can show which it is.
   pointed: "",
   // What the map draws: the player's own planned movements and what is known
@@ -89,10 +95,10 @@ export const showBattlefield = (battlefield, side) => {
 };
 
 // The tool in hand. Taking up the one already in hand puts it down.
-export const takeTool = (tool, { replan = "" } = {}) => {
+export const takeTool = (tool, { replan = "", medium = "" } = {}) => {
   if (!WAR_ROOM_TOOLS.includes(tool)) return;
-  const same = state.tool === tool && (tool !== "replan" || state.replan === replan);
-  setWarRoom({ tool: same ? "pan" : tool, replan: !same && tool === "replan" ? replan : "" });
+  const same = state.tool === tool && (tool !== "replan" || state.replan === replan) && (tool !== "transport" || state.medium === medium);
+  setWarRoom({ tool: same ? "pan" : tool, replan: !same && tool === "replan" ? replan : "", medium: !same && tool === "transport" ? medium : "" });
 };
 
 export const useWarRoom = (select = (value) => value) => useSyncExternalStore(subscribeWarRoom, () => select(state), () => select(CLOSED));

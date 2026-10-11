@@ -60,6 +60,8 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
   "ownerCodes", "ownerSchema", "polityOverrides", "powerStatus", "regionClaimants",
   "regionOwnershipOverrides", "regionSovereigntyOverrides", "settledRegionClaims",
   "simulationRules", "startingTimelineText", "unitSystem", "wars", "agreements",
+  // Transporters are seen as fleets are: what crosses the sea is not hidden.
+  "transports",
   // The stat sheets, and how each has moved: public figures (see the limits above).
   "countryStats", "countryStatsHistory",
 ]);

@@ -196,7 +196,7 @@ import {
   withoutGroupOps,
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
-import { applyTurnFronts, forecastTurnFronts, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontsLiveBlock, openScenarioFronts, routesIntoOthers, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { applyTurnFronts, forecastTurnFronts, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { readWarRoomAnswer, warRoomRequest, warRoomStanding, warRoomVariables } from "./warRoomContext.js";
 import { bindFrontOrdersToEvents, describeDroppedFrontOrders, frontOrderProseLines, screenFrontOrders } from "./nativeFrontLedger.js";
 import { buildOwnerAliasMap, canonicalOwnerName, toCountryName } from "../../runtime/ownerNames.js";
@@ -8798,6 +8798,8 @@ const applySimulationResult = async ({
       // events are applied, so that a country or a group an event renames is
       // renamed on its battlefields with everything else.
       ...(turnFronts?.battlefields ? { battlefields: turnFronts.battlefields } : null),
+      // And the transporters as the run left them, with those the answer ordered.
+      ...(turnFronts?.transports ? { transports: turnFronts.transports } : null),
       // Whatever comes through here ends a scene: a skip is refused while one is
       // in progress and clears a leftover one, and a scene resolving is this.
       activeInteractive: null,
@@ -12755,6 +12757,11 @@ export const maybeOpenScenarioFronts = async () => {
 // passes. It reads the map and asks nobody: no request is made.
 export const warRoomRouteAttacks = ({ world, game, record } = {}) =>
   routesIntoOthers({ world, game, record, campaignId: activeCampaignId(), loadRegions: createRenderedRegionsReader() });
+
+// The way each transporter deployed in the war room would take, before it has
+// set out (frontApply.js transportWaysFor): found from the map, with no request.
+export const warRoomTransportWays = ({ world, game } = {}) =>
+  transportWaysFor({ world, game, campaignId: activeCampaignId(), loadRegions: createRenderedRegionsReader() });
 
 // What the player's generals answer when he speaks to them over one battlefield
 // (GameUI/warRoom.jsx). One request a message and no lookup functions: the

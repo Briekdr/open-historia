@@ -20,6 +20,27 @@ const isRecord = (value) => Boolean(value) && typeof value === "object" && !Arra
 const fold = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 const exact = (left, right) => Boolean(fold(left)) && fold(left) === fold(right);
 
+// The same for the world's transporters (src/runtime/fronts/transports.js):
+// whose each is, who ordered it, who hunts it and whom it is bound to attack.
+export const renameInTransports = (transports, from, to, sameName = exact) => {
+  if (!Array.isArray(transports) || !fold(from) || !fold(to)) return transports;
+  let changed = false;
+  const renamed = (value) => {
+    if (typeof value !== "string" || !sameName(value, from)) return value;
+    changed = true;
+    return to;
+  };
+  const rows = transports.map((row) => {
+    if (!isRecord(row)) return row;
+    const next = { ...row, owner: renamed(row.owner) };
+    if (typeof row.by === "string") next.by = renamed(row.by);
+    if (Array.isArray(row.hunters)) next.hunters = row.hunters.map(renamed);
+    if (Array.isArray(row.attacks)) next.attacks = row.attacks.map(renamed);
+    return next;
+  });
+  return changed ? rows : transports;
+};
+
 // `sameName(a, b)` is how the caller tells two names apart; polityRename.js
 // passes its own. The list comes back as it was when nothing in it changed. A
 // side's members keep their order: a troop names its owner by its place in it.

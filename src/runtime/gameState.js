@@ -6,7 +6,7 @@ import { enqueueEventStrings } from "./translator.js";
 import { normalizeTagList } from "./countryTags.js";
 import { MAX_PUPPETS as MAX_WORLD_PUPPETS, PUPPET_KINDS, PUPPET_SECRECY_LEVELS, PUPPET_STATUSES } from "./puppets.js";
 import { displayNameMigrations, renamePolityInColors, renamePolityInWorld, samePolityName } from "../../server/polityRename.js";
-import { renameInBattlefields } from "../../server/battlefieldNames.js";
+import { renameInBattlefields, renameInTransports } from "../../server/battlefieldNames.js";
 import { advanceRecurringDate, canPlayerDirect, isMilestoneOutstanding, normalizeMilestoneRepeat } from "./projects.js";
 import { dedupeEventLog, eventCanonicalKey } from "./eventDedup.js";
 import { normalizeEventTags } from "./eventTags.js";
@@ -54,6 +54,7 @@ import {
 } from "./unitMotion.js";
 import { compareGameDates, normalizeGameDate } from "./gameDates.js";
 import { normalizeBattlefields } from "./fronts/record.js";
+import { normalizeTransports } from "./fronts/transports.js";
 import { battlefieldHeldClaimants } from "./fronts/heldRegions.js";
 
 export const GAME_DEFAULTS = {
@@ -248,6 +249,9 @@ export const WORLD_DEFAULTS = {
   // front line between what each holds (runtime/fronts/record.js). Written by
   // the front engine and by nothing else.
   battlefields: [],
+  // The transporters carrying troops to where their side holds no land
+  // (fronts/transports.js): ordered, under way, and those that ended last turn.
+  transports: [],
   // Subordinations: who directs whom. Directional, partly secret, and written
   // only through the diplomatic director's compact puppetUpdates lines — see
   // docs/adr/0004-puppet-ledger-and-secrecy.md.
@@ -4381,6 +4385,7 @@ export const normalizeWorldState = (world) => {
     // Shape and length only: the engine wrote every record, and this runs on
     // every read of the world.
     battlefields: normalizeBattlefields(nextWorld.battlefields),
+    transports: normalizeTransports(nextWorld.transports),
     puppets: normalizeWorldPuppets(nextWorld.puppets, diplomaticIdentityWorld),
     storylines: normalizeWorldStorylines(nextWorld.storylines),
     simulationRules: normalizeOptionalString(nextWorld.simulationRules),
@@ -5724,7 +5729,10 @@ export const applyEventImpactsToWorld = ({
       nextWorld.groupAreas = applied.groupAreas;
       for (const change of applied.changes) {
         // A group that fights on a battlefield is named there as a side's member.
-        if (change.op === "rename") nextWorld.battlefields = renameInBattlefields(nextWorld.battlefields, change.from, change.name);
+        if (change.op === "rename") {
+          nextWorld.battlefields = renameInBattlefields(nextWorld.battlefields, change.from, change.name);
+          nextWorld.transports = renameInTransports(nextWorld.transports, change.from, change.name);
+        }
         if (change.op === "refused") console.warn(`[groups] "${change.name}" was not created on event "${event.title}": the ${MAX_GROUPS}-group limit is reached.`);
       }
     }

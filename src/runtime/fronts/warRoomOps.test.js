@@ -131,3 +131,44 @@ test("an op is cut to its own fields before it is sent anywhere", () => {
   assert.deepEqual(cleanWarRoomOp({ op: "talk", battlefield: "F", said: "Go.", lines: [{ who: 0, text: " Yes. ", extra: 1 }], orders: [{ command: 0, order: "HOLD" }], names: ["  Gen.  A "] }),
     { op: "talk", battlefield: "F", said: "Go.", lines: [{ who: 0, text: "Yes." }], orders: [{ command: 0, order: "hold", objective: "" }], names: ["Gen. A"] });
 });
+
+test("troops picked out are sent by a transporter, one not yet out is called off, and the other side's is gone after", () => {
+  const battlefields = field();
+  const name = battlefields[1].name;
+  const ask = (op, who = "Aland", transports = []) => applyWarRoomOp(battlefields, { battlefield: name, ...op }, { ...as(who), transports });
+  const sent = ask({ op: "transport", troops: [3, 4, 5, 5, 900], medium: "sea", to: [24.6, 50.2], name: "city: Brod" });
+  assert.equal(sent.error, undefined);
+  assert.equal(sent.battlefields, battlefields, "no battlefield is changed by it: the troops board when time next passes");
+  assert.deepEqual(sent.transports.map((entry) => [entry.id, entry.status, entry.medium, entry.kind, entry.owner, entry.by, entry.warId, entry.to, entry.embark, entry.ordered]), [
+    ["t1", "ordered", "sea", "troop convoy", "Aland", "Aland", "war-1", { lng: 24.6, lat: 50.2, name: "city: Brod" }, { battlefield: name, side: 0, troops: [3, 4, 5] }, "2024-03-01"],
+  ]);
+  // The same troops are not sent twice: those already told to board are left out of a second dispatch.
+  const more = ask({ op: "transport", troops: [5, 6], medium: "air", to: [24, 50] }, "Aland", sent.transports);
+  assert.deepEqual(more.transports.map((entry) => [entry.id, entry.medium, entry.embark.troops]), [["t1", "sea", [3, 4, 5]], ["t2", "air", [6]]]);
+  assert.match(ask({ op: "transport", troops: [3, 4], medium: "land", to: [24, 50] }, "Aland", sent.transports).error, /already told to board/);
+  // The other side's troops are the other side's: the same numbers asked by Borduria are its own.
+  assert.deepEqual(ask({ op: "transport", troops: [3], medium: "sea", to: [20.2, 50] }, "Borduria").transports[0].embark, { battlefield: name, side: 1, troops: [3] });
+  assert.match(ask({ op: "transport", troops: [900], medium: "sea", to: [24, 50] }).error, /None of those troops/);
+  assert.match(ask({ op: "transport", troops: [3], medium: "balloon", to: [24, 50] }).error, /Nothing of that kind carries troops yet/);
+  assert.match(ask({ op: "transport", troops: [3], medium: "sea" }).error, /Say where/);
+  assert.match(ask({ op: "transport", troops: [3], medium: "sea", to: ["x", 2] }).error, /Say where/);
+  assert.match(ask({ op: "transport", troops: [3], medium: "sea", to: [24, 50] }, "Syldavia").error, /not on that battlefield/);
+  // Before anything flew troops, nothing does.
+  assert.match(applyWarRoomOp(battlefields, { op: "transport", battlefield: name, troops: [3], medium: "air", to: [24, 50] }, { player: "Aland", date: "1890-03-01" }).error, /Nothing of that kind carries troops yet/);
+
+  // Called off while it has not set out, by whoever sent it; not once it is out, and not by anybody else.
+  assert.deepEqual(ask({ op: "untransport", id: "t1" }, "Aland", sent.transports).transports, []);
+  assert.match(ask({ op: "untransport", id: "t1" }, "Borduria", sent.transports).error, /set out already, or is not yours/);
+  const out = sent.transports.map((entry) => ({ ...entry, status: "moving", way: [[21, 50], [24.6, 50.2]], km: 250 }));
+  assert.match(ask({ op: "untransport", id: "t1" }, "Aland", out).error, /set out already/);
+  // The other side goes after it, and stops; a side does not hunt its own, and nobody hunts what is not there.
+  const hunted = ask({ op: "hunt", id: "t1" }, "Borduria", out);
+  assert.deepEqual(hunted.transports[0].hunters, ["Borduria"]);
+  assert.deepEqual(ask({ op: "hunt", id: "t1", off: true }, "Borduria", hunted.transports).transports[0].hunters, []);
+  assert.match(ask({ op: "hunt", id: "t1" }, "Aland", out).error, /not a transporter of a side you are fighting/);
+  assert.match(ask({ op: "hunt", id: "t9" }, "Borduria", out).error, /not a transporter of a side you are fighting/);
+  // What is sent to a host is the op's own fields, each held to what it is.
+  assert.deepEqual(cleanWarRoomOp({ op: "transport", battlefield: name, troops: [3, "4"], medium: "sea", to: [24.60004, "50.2"], name: "  city:  Brod ", speed: 9000 }), { op: "transport", battlefield: name, troops: [3, 4], to: [24.6, 50.2], medium: "sea", name: "city: Brod" });
+  assert.equal(cleanWarRoomOp({ op: "transport", battlefield: name, medium: "balloon" }).medium, "");
+  assert.deepEqual(cleanWarRoomOp({ op: "hunt", battlefield: name, id: "t1", off: true }), { op: "hunt", battlefield: name, off: true, id: "t1" });
+});

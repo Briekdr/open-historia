@@ -23,10 +23,10 @@
 // arena not kept) it answers { needsRegions: true } having changed nothing,
 // and is run again in full with them.
 
-import { addGameDays } from "../gameDates.js";
+import { addGameDays, compareGameDates, gameDateYear } from "../gameDates.js";
 import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf } from "../unitMotion.js";
 import { arenaFor } from "./arena.js";
-import { absorbUnit, holderOf, keepStart, lineLength, loadBattle, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setRadii, sideOfName } from "./battle.js";
+import { absorbUnit, holderOf, keepStart, lineLength, loadBattle, memberIndex, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
 import { assignCommands } from "./command.js";
 import { hashKey } from "./codec.js";
@@ -52,11 +52,13 @@ import { REGIONS_NEEDED, prepare, recordDay, settleRegions, simulateDay, startRe
 import { redistance, takeCapsule, traceContour } from "./field.js";
 import { pointInFrame } from "./frame.js";
 import { landWithin, othersOnWay } from "./invade.js";
-import { applyOrder, assignOrder, readSieges } from "./orders.js";
+import { applyOrder, assignOrder, landCarried, putAshore, readSieges } from "./orders.js";
 import { foldBattlefieldName, normalizeBattlefields } from "./record.js";
 import { authoredName } from "./scenarioFronts.js";
 import { findPockets } from "./supply.js";
-import { createTroop, isLive, liveCount, troopsCap } from "./troops.js";
+import { TRANSPORT_ENDED, boundFor, interceptionOf, loadOf, moveOn, normalizeTransports, setOut, struck, transportChance } from "./transports.js";
+import { createTroop, isLive, kindsFor, liveCount, troopsCap } from "./troops.js";
+import { buildWorldGrid, kmBetween, placeAlong } from "./worldGrid.js";
 
 const clean = (value, max = 120) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max).trim();
 const fold = (value) => clean(value).toLowerCase();
@@ -98,6 +100,10 @@ const createRun = (input) => {
     // The countries troops were sent into during the run, each brought into
     // its war (invadeWhereSent): the caller writes them into the war ledger.
     joins: [],
+    // The transporters of the world (transports.js), and what became of each
+    // during the run, in the order it happened.
+    transports: [],
+    voyages: [],
     unitChanges: [],
     notes: [],
     taken: new Set(),
@@ -216,9 +222,15 @@ const absorbUnits = (battle, run) => {
 
 // A battle that has just opened: troops are raised, formations taken in, and
 // its first day goes to the recorder.
-const startBattle = (run, battle, day) => {
+//   landed   troops a transporter brought there: { side, x, y, load, owner }.
+//            They are its side's force, so only the side landed on raises any.
+const startBattle = (run, battle, day, landed = null) => {
   run.battles.push(battle);
-  raiseTroops(battle, run);
+  raiseTroops(battle, run, landed ? 1 - landed.side : -1);
+  if (landed) {
+    battle.base[landed.side] = Math.round(memberWeights(battle, run, landed.side).reduce((sum, weight) => sum + weight, 0) * 1000) / 1000;
+    putAshore(battle, landed.side, landed.x, landed.y, landed.load, landed.owner);
+  }
   absorbUnits(battle, run);
   setRadii(battle);
   paintGround(battle, run);
@@ -452,22 +464,66 @@ const openLanding = (run, moment, day) => {
   const region = city || kind === "city" ? null : regions.find((entry) => fold(entry?.name) === wanted);
   if (!city && !region) return null;
   const [lng, lat] = city ? [Number(city.lng), Number(city.lat)] : middleOf(region);
+  return openLandingAt(run, { war, sideName: moment.side, lng, lat, name: moment.battlefield, day });
+};
+
+// The battlefield a landing at a point opens, begun: the attacker holds a disc
+// of ground there. null when it cannot be (no room for another battlefield,
+// neither side's land near, or the place is not the other side's).
+//   carried   the troops a transporter brought ([[strength, kind]...]): they
+//             are the attacker's force there. Without it both sides raise theirs.
+const openLandingAt = (run, { war, sideName, lng, lat, name = "", day, carried = null }) => {
+  const regions = regionsOf(run);
+  if (!war || openBattles(run).length >= MAX_BATTLEFIELDS) return null;
+  if (!regions) throw REGIONS_NEEDED;
+  const map = run.input.map;
   // The frame a contact there would have: the box round both sides' land within reach of the place.
   const contact = contactAt(regions, (id) => warSideOf(run, war, id), map, lng, lat);
   const frame = contact ? frameForContact(contact, map) : null;
   const arena = frame ? arenaFor(run.cache, map, frame, run.input.regionTypes) : null;
   if (!arena) return null;
-  const opening = { name: clean(moment.battlefield, BATTLEFIELD_NAME_MAX), warId: war.id, sides: war.sides, frame, arena, day };
+  const opening = { name: clean(name, BATTLEFIELD_NAME_MAX), warId: war.id, sides: war.sides, frame, arena, day };
   const battle = openBattle(run, opening) ?? landingGround(run, opening);
-  const side = sideOfName(battle, moment.side);
-  const [x, y] = battle.place.toCell(lng, lat);
-  const cell = x >= 0 && y >= 0 && x < arena.cols && y < arena.rows ? Math.floor(y) * arena.cols + Math.floor(x) : -1;
+  const side = sideOfName(battle, sideName);
+  let [x, y] = battle.place.toCell(lng, lat);
+  let cell = x >= 0 && y >= 0 && x < arena.cols && y < arena.rows ? Math.floor(y) * arena.cols + Math.floor(x) : -1;
+  // (Troops set down on a coast are put on the other side's nearest ground: the point may fall in the water beside it.)
+  if (carried && side >= 0 && cell >= 0 && battle.field.holders[cell] !== 1 - side) {
+    cell = nearestHeldCell(battle.field, 1 - side, x, y, 4);
+    if (cell >= 0) {
+      x = (cell % arena.cols) + 0.5;
+      y = Math.floor(cell / arena.cols) + 0.5;
+    }
+  }
   if (side < 0 || cell < 0 || battle.field.holders[cell] !== 1 - side) return null;
   takeCapsule(battle.field, side, x, y, x, y, LANDING_CELLS, LANDING_CELLS);
   redistance(battle.field);
   battle.anchors.push({ s: side, x, y });
-  startBattle(run, battle, day);
+  if (!opening.name) {
+    battle.name = nameFor(run, battle);
+    battle.autoNamed = true;
+  }
+  startBattle(run, battle, day, carried ? { side, x, y, load: carried, owner: Math.max(0, memberIndex(battle, side, sideName)) } : null);
   return battle;
+};
+const nearestHeldCell = (field, side, x, y, reach) => {
+  const { cols, rows, holders } = field;
+  let best = -1;
+  let least = Infinity;
+  for (let dy = -reach; dy <= reach; dy += 1) {
+    const row = Math.floor(y) + dy;
+    if (row < 0 || row >= rows) continue;
+    for (let dx = -reach; dx <= reach; dx += 1) {
+      const col = Math.floor(x) + dx;
+      if (col < 0 || col >= cols || holders[row * cols + col] !== side) continue;
+      const far = dx * dx + dy * dy;
+      if (far < least) {
+        least = far;
+        best = row * cols + col;
+      }
+    }
+  }
+  return best;
 };
 
 // The ground of a battlefield whose sides do not touch yet: every cell held by
@@ -634,7 +690,10 @@ const applyWarMoment = (run, moment, day) => {
     // the story names: the run that was made before the story was written did
     // it that way, and this one has to be that run again.
     if (moment.sent !== true) {
-      const awaited = (name) => run.battles.some((battle) => battle.warId === id && battle.status === "active" && sideOfName(battle, name) < 0
+      // (The same for a country a transporter is bound for: it is in the war on the day the troops are put down there.)
+      const shipped = (name) => run.transports.some((transport) => transport.status === "moving" && transport.warId === id && warSide(war, transport.owner) === 1 - side
+        && asArrayOf(transport.attacks).some((entry) => fold(entry) === fold(name)));
+      const awaited = (name) => shipped(name) || run.battles.some((battle) => battle.warId === id && battle.status === "active" && sideOfName(battle, name) < 0
         && battle.orders.some((order) => order.chosen && battleSide(battle, side) !== order.s && asArrayOf(order.attacks).some((entry) => fold(entry) === fold(name))));
       for (let index = names.length - 1; index >= 0; index -= 1) if (awaited(names[index])) names.splice(index, 1);
       if (names.length === 0) return;
@@ -810,6 +869,297 @@ const invadeWhereSent = (run, battle, day) => {
   }
 };
 
+// ---- transporters ----------------------------------------------------------------
+
+// The sheet of the whole map (worldGrid.js), drawn once and kept with the arenas.
+const worldGridOf = (run) => {
+  const map = run.input.map ?? {};
+  const key = `world|${clean(map.key)}`;
+  const kept = clean(map.key) && run.cache ? run.cache.get(key) : null;
+  if (kept) return kept;
+  if (run.worldGrid) return run.worldGrid;
+  const regions = regionsOf(run);
+  if (!regions) throw REGIONS_NEEDED;
+  const grid = buildWorldGrid(regions, { flat: map.flat === true, scale: map.scale });
+  if (grid && clean(map.key) && run.cache) run.cache.set(key, grid);
+  run.worldGrid = grid;
+  return grid;
+};
+
+// The war a transporter serves: the one it was sent for while that is being
+// fought with its owner in it, else the first such war of its owner's.
+const transportWar = (run, transport) => {
+  const fought = (war) => Boolean(war) && war.status === "active" && warSide(war, transport.owner) >= 0;
+  const named = run.wars.get(transport.warId);
+  return fought(named) ? named : [...run.wars.values()].find(fought) ?? null;
+};
+// Who holds a region in name, to a war: the group whose area it is if that group is in it.
+const holderIn = (run, war, id) => {
+  const group = run.groupOf(id);
+  return group && warSide(war, group) >= 0 ? group : run.controllerOf(id);
+};
+const holderAtPoint = (run, grid, war, lng, lat) => {
+  const cell = grid.cellOf(lng, lat);
+  const mark = cell >= 0 ? grid.region[cell] : 0;
+  return mark ? clean(holderIn(run, war, grid.ids[mark])) : "";
+};
+const cityNear = (run, lng, lat, withinKm) => {
+  const flat = run.input.map?.flat === true;
+  let best = null;
+  for (const city of Array.isArray(run.input.map?.cities) ? run.input.map.cities : []) {
+    const far = kmBetween(lng, lat, Number(city.lng), Number(city.lat), { flat, scale: run.input.map?.scale });
+    if (far <= withinKm && (!best || far < best.far)) best = { far, name: clean(city.name) };
+  }
+  return best ? `city: ${best.name}` : "";
+};
+const tellVoyage = (run, day, k, transport, extra = {}) => {
+  run.voyages.push({ d: run.dateOf(day), day, k, id: transport.id, owner: transport.owner, kind: transport.kind, medium: transport.medium, to: boundFor(transport), n: loadOf(transport), ...extra });
+};
+
+// Where a place named by the story is: a city of the map, a region, or a
+// country (its capital, or its largest city). null when nothing is called that.
+const placeNamed = (run, grid, war, text) => {
+  const named = /^\s*(city|region|country|group)\s*:\s*(.*)$/i.exec(String(text ?? ""));
+  const wanted = fold(named ? named[2] : text);
+  const kind = named ? named[1].toLowerCase() : "";
+  if (!wanted) return null;
+  const cities = Array.isArray(run.input.map?.cities) ? run.input.map.cities : [];
+  if (kind !== "region" && kind !== "country" && kind !== "group") {
+    const city = cities.find((entry) => fold(entry?.name) === wanted);
+    if (city) return { lng: Number(city.lng), lat: Number(city.lat), name: `city: ${clean(city.name)}` };
+    if (kind === "city") return null;
+  }
+  if (kind !== "region") {
+    const seat = seatOf(run, grid, war, wanted);
+    if (seat) return { lng: seat.lng, lat: seat.lat, name: seat.name };
+    if (kind === "country" || kind === "group") return null;
+  }
+  const regions = regionsOf(run);
+  if (!regions) throw REGIONS_NEEDED;
+  const region = regions.find((entry) => fold(entry?.name) === wanted);
+  if (!region) return null;
+  const [lng, lat] = middleOf(region);
+  return { lng, lat, name: `region: ${clean(region.name)}` };
+};
+// A country's seat: its capital among the map's cities, else the largest city on its land.
+const seatOf = (run, grid, war, wanted) => {
+  let best = null;
+  for (const city of Array.isArray(run.input.map?.cities) ? run.input.map.cities : []) {
+    const lng = Number(city.lng);
+    const lat = Number(city.lat);
+    if (fold(holderAtPoint(run, grid, war, lng, lat)) !== wanted) continue;
+    const weight = (city.capital ? 1e12 : 0) + Math.max(0, Number(city.population) || 0);
+    if (!best || weight > best.weight) best = { weight, lng, lat, name: `city: ${clean(city.name)}` };
+  }
+  return best;
+};
+// Where a dispatch nobody gave a starting place sets out from: its owner's
+// cities, the nearest to where it is sent first (a ship from a country whose
+// capital is far inland sails from its nearest port).
+const originsOf = (run, grid, war, transport) => {
+  const flat = run.input.map?.flat === true;
+  const mine = [];
+  for (const city of Array.isArray(run.input.map?.cities) ? run.input.map.cities : []) {
+    const lng = Number(city.lng);
+    const lat = Number(city.lat);
+    if (!Number.isFinite(lng + lat) || fold(holderAtPoint(run, grid, war, lng, lat)) !== fold(transport.owner)) continue;
+    mine.push({ lng, lat, name: `city: ${clean(city.name)}`, far: kmBetween(lng, lat, transport.to.lng, transport.to.lat, { flat, scale: run.input.map?.scale }) });
+  }
+  mine.sort((a, b) => a.far - b.far || a.name.localeCompare(b.name));
+  return mine.slice(0, 8);
+};
+
+// A transporter that was ordered sets out: its war is found, its troops go
+// aboard, and its way is found. One that cannot is refused, and says why.
+const departTransport = (run, index, day) => {
+  let transport = run.transports[index];
+  const date = run.dateOf(day);
+  const refuse = (note) => {
+    run.transports[index] = { ...transport, status: "refused", note, ended: date };
+    tellVoyage(run, day, "refused", transport, { why: note });
+  };
+  const war = transportWar(run, transport);
+  if (!war) return refuse("no-war");
+  const grid = worldGridOf(run);
+  if (!grid) return refuse("off-map");
+  const mine = warSide(war, transport.owner);
+  const friendly = (name) => warSide(war, name) === mine;
+  const hostile = (name) => warSide(war, name) === 1 - mine;
+  if (!Number.isFinite(transport.to.lng) || !Number.isFinite(transport.to.lat)) {
+    const place = placeNamed(run, grid, war, transport.to.name);
+    if (!place) return refuse("no-place");
+    transport = { ...transport, to: place };
+  }
+  // What goes aboard, and from where.
+  let load = transport.load;
+  let origins = transport.from ? [transport.from] : [];
+  let boarding = null;
+  if (transport.embark) {
+    const battle = run.battles.find((entry) => entry.status !== "closed" && foldBattlefieldName(entry.name) === foldBattlefieldName(transport.embark.battlefield));
+    const side = transport.embark.side;
+    const picked = battle ? transport.embark.troops.filter((at) => battle.troops[side][at] && isLive(battle.troops[side][at]) && !battle.named.some((entry) => entry.s === side && entry.i === at)) : [];
+    if (picked.length === 0) return refuse("no-troops");
+    let x = 0;
+    let y = 0;
+    for (const at of picked) {
+      x += battle.troops[side][at].x;
+      y += battle.troops[side][at].y;
+    }
+    const [lng, lat] = battle.place.toLngLat(x / picked.length, y / picked.length);
+    origins = [{ lng, lat, name: cityNear(run, lng, lat, 150) }];
+    load = picked.map((at) => [Math.round(battle.troops[side][at].strength), battle.troops[side][at].kind]);
+    boarding = { battle, side, picked };
+  } else if (load.length === 0) {
+    load = kindsFor(Math.max(1, transport.raise || 1), run.era).map((kind) => [100, kind]);
+    if (origins.length === 0) origins = originsOf(run, grid, war, transport);
+  }
+  if (origins.length === 0) return refuse("no-origin");
+  const { embark: _embark, raise: _raise, ...bare } = transport;
+  const loaded = { ...bare, load, warId: war.id };
+  let out = null;
+  for (const origin of origins) {
+    out = setOut({ ...loaded, from: { lng: origin.lng, lat: origin.lat, name: clean(origin.name) } }, {
+      grid,
+      from: [origin.lng, origin.lat],
+      holderOf: (id) => holderIn(run, war, id),
+      friendly,
+      hostile,
+      year: gameDateYear(run.dateOf(0)),
+      date,
+      dateOf: (days) => run.dateOf(day + days),
+    });
+    if (out.status === "moving") break;
+  }
+  if (out.status !== "moving") return refuse(out.note || "no-way");
+  // Where it is to put them down is somebody's land: a country outside the war is attacked by it.
+  const holder = holderAtPoint(run, grid, war, out.landing[0], out.landing[1]);
+  if (holder && warSide(war, holder) < 0) out = { ...out, attacks: [holder] };
+  if (boarding) {
+    for (const at of boarding.picked) {
+      boarding.battle.troops[boarding.side][at].strength = 0;
+      boarding.battle.troops[boarding.side][at].station = null;
+    }
+    boarding.battle.touched = true;
+    boarding.battle.planKey = "";
+  }
+  run.transports[index] = out;
+  tellVoyage(run, day, "sailed", out, { from: out.from.name, due: out.due, km: out.km });
+};
+
+// A transporter that has come to the end of its way puts its troops down.
+const landTransport = (run, index, day) => {
+  const transport = run.transports[index];
+  const date = run.dateOf(day);
+  const end = (status, k, extra = {}) => {
+    run.transports[index] = { ...transport, status, ended: date, at: transport.landing ?? transport.at };
+    tellVoyage(run, day, k, transport, extra);
+  };
+  const war = transportWar(run, transport);
+  // The war it was sent for is over, or frozen: it turns back with its troops.
+  if (!war) return end("returned", "returned");
+  const grid = worldGridOf(run);
+  const [lng, lat] = transport.landing ?? [transport.to.lng, transport.to.lat];
+  const mine = warSide(war, transport.owner);
+  const holder = grid ? holderAtPoint(run, grid, war, lng, lat) : "";
+  let joined = null;
+  // Troops put down in a country that was in no war with their sender: it is
+  // at war with them from today, on the other side of theirs.
+  if (holder && warSide(war, holder) < 0) {
+    applyWarMoment(run, { type: "war", op: mine === 0 ? "join-b" : "join-a", warId: war.id, names: [holder], sent: true }, day);
+    if (warSide(war, holder) < 0) return end("returned", "returned", { why: "no-room" });
+    joined = holder;
+  }
+  let battle = run.battles.find((entry) => entry.warId === war.id && entry.status === "active" && sideOfName(entry, transport.owner) >= 0 && pointInFrame(entry.frame, lng, lat)) ?? null;
+  let hostile = true;
+  let landed = 0;
+  if (battle) {
+    const side = sideOfName(battle, transport.owner);
+    const [x, y] = battle.place.toCell(lng, lat);
+    const put = landCarried(battle, side, x, y, transport.load, Math.max(0, memberIndex(battle, side, transport.owner)), date);
+    landed = put.landed;
+    hostile = put.hostile;
+    if (landed === 0) battle = null;
+    else {
+      battle.touched = true;
+      if (hostile && battle.cityHolder) settleRegions(battle, run, day);
+    }
+  } else {
+    const before = run.battles.length;
+    // (The name it was given for the front it opens, unless a battlefield is called that already.)
+    const named = run.battles.some((entry) => entry.status !== "closed" && foldBattlefieldName(entry.name) === foldBattlefieldName(transport.battlefield)) ? "" : transport.battlefield;
+    battle = openLandingAt(run, { war, sideName: transport.owner, lng, lat, name: named, day, carried: transport.load });
+    if (battle) {
+      landed = Math.min(transport.load.length, battle.troops[sideOfName(battle, transport.owner)].length);
+      // Troops put ashore to open a front go inland unless they are told otherwise: nobody has ordered anything there yet.
+      orderOnFront(run, battle, { type: "order", battlefield: battle.name, side: transport.owner, order: "advance", sector: "all" }, day);
+    } else if (run.battles.length > before) run.battles.length = before;
+  }
+  if (joined) {
+    run.joins.push({ day, date, battlefield: battle ?? { name: "" }, warId: war.id, name: joined, side: 1 - mine, by: transport.owner });
+    tellVoyage(run, day, "invaded", transport, { at: `${run.isGroup(joined) ? "group" : "country"}: ${joined}` });
+  }
+  // Nowhere to fight there (its own side's ground with no battle on it, or no room for another battlefield): they go home.
+  if (!battle || landed === 0) return end("returned", "returned", { why: "no-landing" });
+  const at = cityNear(run, lng, lat, 120) || transport.to.name || `region: ${battle.arena.names[battle.arena.region[Math.max(0, Math.floor(battle.place.toCell(lng, lat)[1]) * battle.arena.cols + Math.floor(battle.place.toCell(lng, lat)[0]))]] ?? ""}`;
+  const side = sideOfName(battle, transport.owner);
+  battle.log.push({ d: date, k: hostile ? "landed" : "reinforced", s: side, at });
+  battle.planKey = "";
+  run.transports[index] = { ...transport, status: "landed", ended: date, at: [lng, lat], battlefield: battle.name };
+  tellVoyage(run, day, hostile ? "landed" : "reinforced", transport, { at, battlefield: battle, landed });
+};
+
+// The transporters at the run's beginning: one that ended before it has been
+// told and shown, and is let go; one that was ordered sets out today.
+const beginTransports = (run) => {
+  const first = run.dateOf(0);
+  run.transports = normalizeTransports(run.input.transports).filter((transport) => !TRANSPORT_ENDED.includes(transport.status) || (transport.ended && compareGameDates(transport.ended, first) > 0));
+  // (Nothing sets out in a run no day passes in: such a run only reads the world.)
+  if (run.days <= 0) return;
+  for (let index = 0; index < run.transports.length; index += 1) if (run.transports[index].status === "ordered") departTransport(run, index, 0);
+};
+
+// A day of every transporter under way: it goes on along its way, whoever can
+// reach it may catch it, and at the end of its way it puts its troops down.
+const moveTransports = (run, day) => {
+  const map = run.input.map ?? {};
+  const options = { flat: map.flat === true, scale: map.scale };
+  const date = run.dateOf(day);
+  for (let index = 0; index < run.transports.length; index += 1) {
+    const before = run.transports[index];
+    if (before.status !== "moving") continue;
+    // (One that set out today has its first day's sailing tomorrow.)
+    if (before.departed === date) continue;
+    const war = transportWar(run, before);
+    if (!war) {
+      run.transports[index] = { ...before, status: "returned", ended: date };
+      tellVoyage(run, day, "returned", before);
+      continue;
+    }
+    const { transport: moved, arrived } = moveOn(before, options);
+    run.transports[index] = moved;
+    // Caught on the day's stretch, at the middle of it.
+    const mine = warSide(war, moved.owner);
+    const middle = placeAlong(moved.way, (before.gone + moved.gone) / 2, options);
+    const grid = worldGridOf(run);
+    const risk = interceptionOf(moved, middle ? [middle.lng, middle.lat] : moved.at, {
+      units: run.input.units,
+      enemy: (name) => warSide(war, name) === 1 - mine,
+      ally: (name) => warSide(war, name) === mine,
+      grid,
+      holderOf: (id) => holderIn(run, war, id),
+      ...options,
+    });
+    if (risk.chance > 0 && transportChance(run.seed, moved.id, day, "caught") < risk.chance) {
+      const hit = struck(moved, transportChance(run.seed, moved.id, day, "hurt"), date);
+      run.transports[index] = hit.transport;
+      const near = middle ? cityNear(run, middle.lng, middle.lat, 250) : "";
+      tellVoyage(run, day, hit.transport.status === "lost" ? "lost" : "intercepted", moved, { by: risk.by, with: risk.with, lost: hit.lost, at: near, where: middle ? [Math.round(middle.lng * 1000) / 1000, Math.round(middle.lat * 1000) / 1000] : null });
+      if (hit.transport.status === "lost") continue;
+    }
+    if (arrived) landTransport(run, index, day);
+  }
+};
+
 // ---- the run -------------------------------------------------------------------
 
 // Whether a run that was given no shapes can do without them: no war moment
@@ -881,6 +1231,10 @@ const begin = (run) => {
   }
   for (const war of run.wars.values()) examineWar(run, war, 0);
   if (run.braked) run.notes.push({ kind: "tempo" });
+  // Transporters that were ordered set out: their troops leave the battlefields
+  // they stood on. (Before the first day's moments: whoever a transporter is
+  // bound for is known before the story names the day it is brought in.)
+  beginTransports(run);
 
   for (const battle of run.battles) battle.touched = false;
   applyMoments(run, 0);
@@ -924,6 +1278,8 @@ const stepDay = (run) => {
     } else if (battle.status === "standing") standDay(battle);
     if (battle.closing && battle.status !== "closed") closeBattle(run, battle, day);
   }
+  // The day's sailing: whoever arrives is on the ground from this evening.
+  moveTransports(run, day);
   applyMoments(run, day);
   for (const battle of run.battles) {
     if (battle.status !== "closed" && battle.recorded !== day) recordDay(battle, day, day >= run.days);
@@ -947,6 +1303,9 @@ const snapshot = (run) => {
     // that day and the side of it (0 for its first, 1 for its second).
     joins: run.joins.map(({ day: on, date, battlefield, warId, name, side, by }) => ({ day: on, date, battlefield: battlefield.name, warId, name, side, by })),
     unitChanges: changes,
+    // The transporters as the days leave them, and what became of each on the way.
+    transports: run.transports.map((transport) => ({ ...transport })),
+    voyages: run.voyages.map(({ battlefield, ...voyage }) => (battlefield ? { ...voyage, battlefield: battlefield.name } : voyage)),
     notes: run.notes.map((note) => (note.battlefield && typeof note.battlefield === "object" ? { ...note, battlefield: note.battlefield.name } : { ...note })),
     // What the days of this run added to each battlefield's log, all of it and
     // in the order it happened: a record keeps only the last few entries.

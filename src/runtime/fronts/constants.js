@@ -464,6 +464,11 @@ export const WAY_LEAST = 0.2;
 export const SUPPORT_KM = 100;
 export const SUPPORT_FULL = 0.3;
 export const SUPPORT_NONE = 0.1;
+// A force put ashore (a landing, or troops a transporter set down) has no
+// ground behind it to wait for: within this far of the place that feeds it
+// (its anchor) a rank goes as the fight allows. Past that it holds enough
+// ground of its own for the rule above to let it go on.
+export const ANCHOR_FREE_KM = 75;
 // And in a general advance (every troop straight out from where it stands) a
 // troop keeps its place in the LINE: it looks to those of its side advancing
 // within RANK_KM of it, the nearer the more, and where it has got further

@@ -24,10 +24,11 @@
 // engine and the map's regions are handed in (frontApply.js, for gameplay.js
 // applySimulationResult).
 
-import { diffGameDays } from "../../runtime/gameDates.js";
+import { diffGameDays, gameDateYear } from "../../runtime/gameDates.js";
 import { arenaFor } from "../../runtime/fronts/arena.js";
 import { pointInFrame } from "../../runtime/fronts/frame.js";
 import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts/record.js";
+import { TRANSPORT_LOAD_USUAL, TRANSPORT_ORDERS, isUnderWay, normalizeTransports, orderTransport } from "../../runtime/fronts/transports.js";
 
 export const FRONT_MARK = "front";
 // The mark on an order the turn itself drew from an event's own operations
@@ -626,8 +627,28 @@ const NOTE_TEXT = {
   // The war it was for is not named: a war has a title only sometimes, and never an id a model is shown.
   "too-many-battlefields": () => "No more battlefields can be open at once, so a front that should have opened did not. It opens when another closes.",
   tempo: () => "The fronts stopped moving for the rest of the period: this scenario's ceiling on how fast the map may change was reached.",
+  "transport-refused": (notes) => `${one(notes, "detail") ? "A transporter was" : "Transporters were"} not sent (${quoted(notes, "detail")}). One is sent by a side at war, to a place on the map that its kind can reach: a ship to a coast, rail through land its side holds.`,
   closed: (notes) => `${one(notes, "battlefield") ? "A battlefield" : "Battlefields"} closed (${quoted(notes, "battlefield")}): the fighting there is over. Land a side still holds there that is not its own stays occupied until an event settles it.`,
 };
+
+// Why a transporter did not set out, in words.
+const TRANSPORT_REFUSALS = {
+  "no-war": "its sender is fighting no war",
+  "no-place": "the place it was sent to is not on the map",
+  "no-origin": "its sender has no city to send it from",
+  "no-coast": "no sea is near where it would set out",
+  "no-shore": "no shore is near where it was sent",
+  "no-sea-way": "no sea leads there",
+  "no-ground": "it has no land of its own side's to start on",
+  "no-troops": "the troops it was to take are gone",
+  "too-far": "no way there was found",
+  "off-map": "the place is off the map",
+  "not-yet": "nothing of that kind exists yet",
+  "too-many": "too many transporters are out already",
+  "nothing-aboard": "it was given nothing to carry",
+  incomplete: "its order is incomplete",
+};
+export const transportRefusal = (code) => TRANSPORT_REFUSALS[clean(code)] ?? "it could not set out";
 
 export const describeFrontNotes = (notes) => {
   const byKind = new Map();
@@ -691,6 +712,10 @@ const listed = (names, most = 3) => `${names.slice(0, most).join("; ")}${names.l
 //   joins            the countries troops were sent into, each now in its war:
 //                    [{ day, date, battlefield, warId, name, side, by }], for
 //                    the war ledger (frontApply.js frontWarJoins)
+//   transports       world.transports as the run leaves it, with what the
+//                    answer ordered added (those set out when the next period
+//                    begins); null to leave it as it is
+//   voyages          what became of each transporter during the run
 // The same arguments give the same result: a turn applied twice is one turn.
 export const runTurnFronts = async ({
   createFrontRun,
@@ -731,16 +756,20 @@ export const runTurnFronts = async ({
         + "Troops on a battlefield are moved by front orders, under [Fronts].",
     });
   }
-  const nothing = (battlefields) => ({ events: list, battlefields, unitChanges: [], notes, flips: [], stats: null, news: [], joins: [] });
+  const nothing = (battlefields) => ({ events: list, battlefields, unitChanges: [], notes, flips: [], stats: null, news: [], joins: [], transports: null, voyages: [] });
 
   const saved = normalizeBattlefields(world?.battlefields);
   const stages = asArray(warStages).length ? asArray(warStages).map(asArray) : [asArray(world?.wars)];
-  const orders = asArray(frontOrders).filter((order) => isRecord(order) && !order.problem);
+  const written = asArray(frontOrders).filter((order) => isRecord(order) && !order.problem);
+  // A line that sends a transporter is not an order for a battlefield: it is
+  // set apart here and becomes a transporter of the world, below.
+  const orders = written.filter((order) => !Object.hasOwn(TRANSPORT_ORDERS, order.order));
+  const dispatches = written.filter((order) => Object.hasOwn(TRANSPORT_ORDERS, order.order));
   const atWar = stages.some((wars) => wars.some((war) => clean(war?.status) !== "ended"));
   const committed = asArray(world?.units).some((unit) => clean(unit?.committedTo));
   // No battlefield, no war and no order: there is nothing for the engine to do.
   // A battlefield that closed last turn has had its one more turn on the map.
-  if (!saved.some(isOpen) && !atWar && orders.length === 0 && !committed) return nothing(saved.length ? [] : null);
+  if (!saved.some(isOpen) && !atWar && written.length === 0 && !committed) return nothing(saved.length ? [] : null);
 
   const read = typeof readMap === "function" ? await readMap() : null;
   const map = read?.map ?? givenMap;
@@ -810,6 +839,7 @@ export const runTurnFronts = async ({
       groupAreas: readers.groupAreas,
       isGroup: readers.isGroup,
       units: asArray(world?.units),
+      transports: normalizeTransports(world?.transports),
       map: { ...map, regions },
       regionTypes: asArray(regionTypes),
       strengthOf: readers.strengthOf,
@@ -870,7 +900,39 @@ export const runTurnFronts = async ({
     }
   }
 
+  // The transporters the answer ordered: each is the world's from now, and
+  // sets out when the next period begins, so that its voyage is fought before
+  // the story of that period is written and told in it.
+  let transports = normalizeTransports(result.transports);
+  const refused = [];
+  // One the run refused when it was to set out, when it was the story that ordered it.
+  for (const voyage of asArray(result.voyages)) {
+    const mine = transports.find((entry) => entry.id === voyage?.id);
+    if (voyage?.k === "refused" && mine && !mine.by) refused.push({ kind: "transport-refused", detail: `${clean(voyage.owner)} to ${clean(voyage.to) || "?"}: ${transportRefusal(voyage.why)}` });
+  }
+  const year = gameDateYear(fromDate);
+  for (const order of dispatches) {
+    const owner = nameOf(withoutKind(order.side));
+    // The battlefield it names is the one its landing opens: not one that is open already.
+    const taken = asArray(result.battlefields).some((record) => record.status !== "closed" && foldBattlefieldName(record.name) === foldBattlefieldName(order.battlefield));
+    const sent = orderTransport(transports, {
+      medium: TRANSPORT_ORDERS[order.order],
+      owner,
+      to: { name: clean(order.objective) },
+      battlefield: taken ? "" : clean(order.battlefield),
+      kind: clean(order.carrier),
+      speed: Number(order.speed) || 0,
+      raise: Number(order.strength) > 0 ? Number(order.strength) : TRANSPORT_LOAD_USUAL,
+    }, { date: toDate, year });
+    if (sent.error) refused.push({ kind: "transport-refused", detail: `${owner} to ${clean(order.objective) || "?"}: ${transportRefusal(sent.error)}` });
+    else transports = sent.transports;
+  }
+  notes.push(...describeFrontNotes(refused));
+
   return {
+    transports,
+    voyages: asArray(result.voyages),
+    underWay: transports.filter(isUnderWay).length,
     events: attachFrontFlips(list, result.flips, { dayOf, aboutOf }).events,
     // A battlefield whose period the story was told before it was written says
     // so (brief.told): the next turn has nothing of this one left to tell. One

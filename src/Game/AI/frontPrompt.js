@@ -37,9 +37,12 @@
 
 import { describeBattlefield, describeSince } from "../../runtime/fronts/brief.js";
 import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts/record.js";
+import { loadOf, normalizeTransports } from "../../runtime/fronts/transports.js";
 import { FRONT_ORDERS_FIELD } from "./nativeFrontLedger.js";
 
-export const FRONTS_BLOCK_MAX = 7600;
+export const FRONTS_BLOCK_MAX = 8300;
+// The most that is told of transporters in it.
+export const TRANSPORTS_TEXT_MAX = 640;
 export const FRONTS_BLOCK_HEADING = "[Fronts]";
 // The most of what happened on one battlefield in a period that is told by date.
 export const PERIOD_NEWS_MOST = 9;
@@ -58,6 +61,8 @@ const ORDER_LINES = [
   "- order: advance | blitz | spearhead | flank | encircle | assault | hold | dig in | fall back | land. An assault sends the troops it takes straight at its objective, which it must have: `city: X`, `structure: X` or `unit: X`. A landing's objective says where.",
   "  An advance moves the whole stretch forward as a line, and a blitz the same, faster, after some days of massing. A spearhead (a wedge), a flank (a column round one side) and an encirclement (two columns that shut a place in and besiege it) are made by the troops nearest their objective, and the rest of the stretch stays as it was. Troops told to hold give ground rather than be cut off; troops told to dig in stand where they are, stronger, and can be shut in for it.",
   "- sector: all, a sector word listed for that battlefield, or a place on its line.",
+  "- ship | rail | airlift send a TRANSPORTER: troops carried to a place their side has no border with, to fight there. objective says where (`city: X`, `region: X` or `country: X`); battlefield names the front they open. After effort may come what carries them (any name), how many formations (1 to 40) and its speed in km a day. The game finds the way (ships by sea, rail through land its side holds, aircraft by air); it sets out as the next period begins and can be intercepted.",
+  "NAME~A~ship~~3~city: X~~~troop convoy~12~600",
 ];
 
 // The engine runs AFTER the answer: an order is carried out in this period.
@@ -138,6 +143,9 @@ const byWeight = (records, players) => {
 const NEWS_WORDS = {
   // A country that was in nobody's war until a side's troops were sent into it.
   invaded: (who, at) => `${who} sent its troops into ${at}, which was not in the war and is at war with it from that day`,
+  // Troops a transporter put down.
+  landed: (who, at) => `troops of ${who} came ashore at ${at}`,
+  reinforced: (who, at) => `${who} was reinforced at ${at}`,
   city: (who, at) => `${who} took ${at}`,
   taken: (who, at) => `${who} took ${at}`,
   destroyed: (who, at) => `${who} destroyed ${at}`,
@@ -154,6 +162,8 @@ const NEWS_WORDS = {
 const LARGE_TOWN = 100000;
 const newsWeight = (entry) => {
   if (entry.k === "invaded") return 7e9;
+  if (entry.k === "landed") return 6.5e9;
+  if (entry.k === "reinforced") return 2.2e9;
   const size = Math.min(9e8, Math.max(0, Number(entry.size) || 0));
   if (entry.k === "city") return entry.capital ? 6e9 : size >= LARGE_TOWN ? 4e9 + size : 2e9 + size;
   if (entry.k === "pocket" || entry.k === "siege") return 3e9;
@@ -232,9 +242,37 @@ export const describeUntold = (before) => {
 //                  { fromDate, toDate, battlefields, news } — the battlefields
 //                  as the period leaves them, and what it added to their logs.
 //                  The list is then told as it stands at the period's END.
-export const buildFrontsBlock = ({ battlefields = [], players = [], max = FRONTS_BLOCK_MAX, period = null } = {}) => {
+// What is told of the transporters: what became of each during a period that
+// was fought (`voyages`), and those still to arrive. "" when there are none.
+const VOYAGE_WORDS = {
+  sailed: (voyage, what) => `${what} with ${voyage.n} formations set out${voyage.from ? ` from ${voyage.from}` : ""} for ${voyage.to}${voyage.due ? `, due ${voyage.due}` : ""}`,
+  intercepted: (voyage, what) => `${what} bound for ${voyage.to} was caught${voyage.by ? ` by ${voyage.by}${voyage.with ? ` (${voyage.with})` : ""}` : ""}${voyage.at ? ` near ${voyage.at}` : ""} and lost ${voyage.lost} of its formations`,
+  lost: (voyage, what) => `${what} bound for ${voyage.to} was caught${voyage.by ? ` by ${voyage.by}${voyage.with ? ` (${voyage.with})` : ""}` : ""}${voyage.at ? ` near ${voyage.at}` : ""} and lost with all aboard`,
+  landed: (voyage, what) => `${what} put ${voyage.landed} formations ashore at ${voyage.at}${voyage.battlefield ? `, on ${voyage.battlefield}` : ""}`,
+  reinforced: (voyage, what) => `${what} brought ${voyage.landed} formations to ${voyage.at}${voyage.battlefield ? `, on ${voyage.battlefield}` : ""}`,
+  invaded: (voyage) => `${voyage.owner} put troops into ${voyage.at}, which was not in the war and is at war with it from that day`,
+  returned: (voyage, what) => `${what} bound for ${voyage.to} turned back`,
+};
+export const describeTransports = ({ transports = [], voyages = [], fought = false, max = TRANSPORTS_TEXT_MAX } = {}) => {
+  const what = (entry) => `the ${clean(entry.kind) || "transporter"} of ${clean(entry.owner)}`;
+  const told = fought ? asArray(voyages).filter((voyage) => VOYAGE_WORDS[voyage?.k]).map((voyage) => `${clean(voyage.d)} ${VOYAGE_WORDS[voyage.k](voyage, what(voyage))}`) : [];
+  const out = normalizeTransports(transports);
+  const moving = out.filter((entry) => entry.status === "moving").map((entry) => `${what(entry)} with ${loadOf(entry)} formations bound for ${clean(entry.to.name) || "its landing"}${entry.due ? `, due ${entry.due}` : ""}`);
+  const waiting = out.filter((entry) => entry.status === "ordered").map((entry) => `${what(entry)} with ${loadOf(entry)} formations for ${clean(entry.to.name) || "its landing"}`);
+  const parts = [];
+  if (told.length) parts.push(`Transporters this period, by date: ${told.join("; ")}.`);
+  if (moving.length) parts.push(`Still on the way: ${moving.join("; ")}.`);
+  if (waiting.length) parts.push(`Ordered, setting out as the next period begins: ${waiting.join("; ")}.`);
+  if (parts.length === 0) return "";
+  const text = parts.join(" ");
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+};
+
+export const buildFrontsBlock = ({ battlefields = [], players = [], max = FRONTS_BLOCK_MAX, period = null, transports = [] } = {}) => {
   const began = normalizeBattlefields(battlefields);
-  const fought = Boolean(period) && asArray(period.battlefields).length > 0;
+  // A period that was fought: its battlefields, or a transporter that sailed in it.
+  const fought = Boolean(period) && (asArray(period.battlefields).length > 0 || asArray(period.voyages).length > 0);
+  const carried = describeTransports({ transports: fought ? period.transports : transports, voyages: fought ? period.voyages : [], fought });
   const rule = playerRule(players, fought);
   const head = [fought ? FOUGHT_RULES : FRONT_RULES, rule].filter(Boolean).join("\n");
   const records = fought ? normalizeBattlefields(period.battlefields) : began;
@@ -243,13 +281,13 @@ export const buildFrontsBlock = ({ battlefields = [], players = [], max = FRONTS
   const wasOpen = new Map(began.filter(isOpen).map((record) => [foldBattlefieldName(record.name), record]));
   const closed = fought ? records.filter((record) => !isOpen(record) && wasOpen.has(foldBattlefieldName(record.name))) : [];
   if (open.length === 0 && closed.length === 0) {
-    return `${head}\nNo battlefield is open now.`.slice(0, max);
+    return [head, "No battlefield is open now.", carried].filter(Boolean).join("\n").slice(0, max);
   }
 
   const title = fought
     ? `Battlefields, as the period from ${clean(period.fromDate)} to ${clean(period.toDate)} leaves them:`
     : "Battlefields open now:";
-  let room = max - head.length - title.length - 2;
+  let room = max - head.length - title.length - 2 - (carried ? carried.length + 1 : 0);
   // Every battlefield that fits is named, in the least it can be; what does
   // not fit even so is counted. Then, in the same order, as many as there is
   // room for are told in full, and the room that leaves gives the others the
@@ -295,7 +333,7 @@ export const buildFrontsBlock = ({ battlefields = [], players = [], max = FRONTS
     ended.push(line);
     room -= line.length + 1;
   }
-  const block = [head, title, ...lines, ...ended, ...(unlisted > 0 ? [more(unlisted)] : [])].join("\n");
+  const block = [head, title, ...lines, ...ended, ...(unlisted > 0 ? [more(unlisted)] : []), ...(carried ? [carried] : [])].join("\n");
   return block.length > max ? block.slice(0, max) : block;
 };
 

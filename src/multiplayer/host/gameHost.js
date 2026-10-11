@@ -344,12 +344,12 @@ export const createGameHost = ({
       if (!sent) return "Nothing was asked.";
       let refusal = "";
       await store.updateForces(({ world, game }) => {
-        const result = applyWarRoomOp(world?.battlefields, sent, { player: seat.country, date: clean(game?.gameDate) });
+        const result = applyWarRoomOp(world?.battlefields, sent, { player: seat.country, date: clean(game?.gameDate), transports: world?.transports });
         if (result.error) {
           refusal = result.error;
           return null;
         }
-        return { world: { ...world, battlefields: result.battlefields } };
+        return { world: { ...world, battlefields: result.battlefields, ...(result.transports ? { transports: result.transports } : null) } };
       });
       round.touch(seat.country);
       return refusal;

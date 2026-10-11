@@ -25,13 +25,18 @@
 //
 // Pure, and runs in bare node.
 
+import { gameDateYear } from "../gameDates.js";
+import { decodeTroops } from "./codec.js";
 import { generalsOf, nameGenerals, orderTroops, readTalk, releaseTroops, withTalk } from "./command.js";
 import { HOLDER_SIDE_A, HOLDER_SIDE_B, MAX_COMMANDS, MAX_TROOPS_PER_SIDE, MAX_WAY_POINTS, TALK_TEXT_MAX, WAR_ROOM_ORDERS } from "./constants.js";
 import { pointInFrame, projectorOf } from "./frame.js";
 import { withDiversion, withProjectPlan, withoutPlan } from "./plans.js";
 import { battlefieldSideOf, foldBattlefieldName, isOpenBattlefield, normalizeBattlefield } from "./record.js";
+import { TRANSPORT_LOAD_MOST, TRANSPORT_MEDIA, cancelTransport, huntTransport, isUnderWay, normalizeTransports, orderTransport } from "./transports.js";
 
-export const WAR_ROOM_OPS = Object.freeze(["order", "route", "release", "talk", "forget", "diversion", "plan", "unplan"]);
+export const WAR_ROOM_OPS = Object.freeze(["order", "route", "release", "talk", "forget", "diversion", "plan", "unplan", "transport", "untransport", "hunt"]);
+// The ops that change the world's transporters and not a battlefield.
+const TRANSPORT_OPS = Object.freeze(["transport", "untransport", "hunt"]);
 // The most a drawn way may hold as it is sent: it is thinned to what a route keeps.
 export const WAR_ROOM_WAY_MOST = 400;
 
@@ -76,7 +81,54 @@ const REFUSED = Object.freeze({
   way: "That way does not cross the battlefield.",
   room: "There is no room for another order there: release some troops first.",
   plans: "There is no room for another plan there: take one off first.",
+  carrier: "Nothing of that kind carries troops yet.",
+  place: "Say where they are to be taken.",
+  aboard: "Those troops are already told to board a transporter.",
+  transports: "Too many transporters are out already: wait for one to arrive.",
+  gone: "That transporter has set out already, or is not yours to call off.",
+  quarry: "That is not a transporter of a side you are fighting here.",
 });
+
+// One of the transporter ops, for a side of a battlefield. Returns
+// { transports } or { error }.
+//   transport     the troops picked out are to board a carrier of `medium`
+//                 and be taken to `to` ([lng, lat]); they board when time next passes
+//   untransport   one that has not set out is called off
+//   hunt          one of the other side's is gone after (`off` stops it)
+const applyTransportOp = (record, side, op, { player, date, transports }) => {
+  const kept = normalizeTransports(transports);
+  if (op.op === "untransport") {
+    const mine = kept.find((entry) => entry.id === clean(op.id, 24) && entry.status === "ordered" && [entry.by, entry.owner].some((name) => foldName(name) === foldName(player)));
+    return mine ? { transports: cancelTransport(kept, mine.id) } : { error: REFUSED.gone };
+  }
+  if (op.op === "hunt") {
+    const theirs = kept.find((entry) => entry.id === clean(op.id, 24) && isUnderWay(entry) && list(record.sides[1 - side]).some((member) => foldName(member) === foldName(entry.owner)));
+    return theirs ? { transports: huntTransport(kept, theirs.id, player, op.off !== true) } : { error: REFUSED.quarry };
+  }
+  const medium = TRANSPORT_MEDIA.includes(op.medium) ? op.medium : "";
+  const lng = Number(op.to?.[0]);
+  const lat = Number(op.to?.[1]);
+  if (!medium) return { error: REFUSED.carrier };
+  if (!Array.isArray(op.to) || !Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lat) > 90) return { error: REFUSED.place };
+  // The asker's own troops that stand there, and are not told to board already.
+  const standing = decodeTroops(record.troops?.[side]);
+  const boarding = new Set(kept.filter((entry) => entry.status === "ordered" && entry.embark && entry.embark.side === side && foldBattlefieldName(entry.embark.battlefield) === foldBattlefieldName(record.name)).flatMap((entry) => entry.embark.troops));
+  const asked = troopIndexes(op.troops).filter((index) => standing[index]?.strength > 0);
+  if (asked.length === 0) return { error: REFUSED.troops };
+  const troops = asked.filter((index) => !boarding.has(index)).slice(0, TRANSPORT_LOAD_MOST);
+  if (troops.length === 0) return { error: REFUSED.aboard };
+  const sent = orderTransport(kept, {
+    medium,
+    owner: player,
+    warId: record.warId,
+    to: { lng, lat, name: clean(op.name, 120) },
+    embark: { battlefield: record.name, side, troops },
+    by: player,
+  }, { date: clean(date, 40), year: gameDateYear(date) });
+  if (sent.error) return { error: sent.error === "not-yet" ? REFUSED.carrier : sent.error === "too-many" ? REFUSED.transports : REFUSED.nothing };
+  return { transports: sent.transports, transport: sent.transport };
+};
+const foldName = (value) => clean(value).toLowerCase();
 
 // One record with an op applied to it for one of its sides.
 // Returns { record } or { error }.
@@ -162,7 +214,9 @@ const applyTo = (record, side, op, { player, date }) => {
 // The world's battlefields with one op applied, for the country or group that
 // asked. Returns { battlefields } with the one record changed, or { error } in
 // words a person can read. `date` is the game's date, written on what is kept.
-export const applyWarRoomOp = (battlefields, op, { player = "", date = "" } = {}) => {
+// An op for a transporter leaves the battlefields as they are and returns
+// `transports` as well: the world's (`transports`, handed in) with the op applied.
+export const applyWarRoomOp = (battlefields, op, { player = "", date = "", transports = [] } = {}) => {
   if (!op || !WAR_ROOM_OPS.includes(op.op)) return { error: REFUSED.nothing };
   const wanted = foldBattlefieldName(op.battlefield);
   const rows = list(battlefields);
@@ -171,6 +225,10 @@ export const applyWarRoomOp = (battlefields, op, { player = "", date = "" } = {}
   if (!record || !isOpenBattlefield(record)) return { error: REFUSED.closed };
   const side = battlefieldSideOf(record, player);
   if (side !== HOLDER_SIDE_A && side !== HOLDER_SIDE_B) return { error: REFUSED.side };
+  if (TRANSPORT_OPS.includes(op.op)) {
+    const carried = applyTransportOp(record, side, op, { player: clean(player, 120), date, transports });
+    return carried.error ? carried : { battlefields: rows, record, side, transports: carried.transports };
+  }
   const result = applyTo(record, side, op, { player: clean(player, 120), date });
   if (result.error) return result;
   const next = rows.slice();
@@ -203,5 +261,9 @@ export const cleanWarRoomOp = (op) => {
   if (typeof op.off === "boolean") sent.off = op.off;
   if (op.again === true) sent.again = true;
   if (op.id !== undefined) sent.id = clean(op.id, 180);
+  // A transporter: what it goes by, and where to (and what the place is called, if anything is near).
+  if (op.medium !== undefined) sent.medium = TRANSPORT_MEDIA.includes(op.medium) ? op.medium : "";
+  if (op.to !== undefined) sent.to = [Math.round(Number(op.to?.[0]) * 10000) / 10000, Math.round(Number(op.to?.[1]) * 10000) / 10000];
+  if (op.name !== undefined) sent.name = clean(op.name, 120);
   return sent;
 };

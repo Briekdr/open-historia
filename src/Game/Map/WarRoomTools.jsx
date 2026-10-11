@@ -87,6 +87,7 @@ const WarRoomTools = () => {
   const side = useWarRoom((state) => state.side);
   const tool = useWarRoom((state) => state.tool);
   const replan = useWarRoom((state) => state.replan);
+  const medium = useWarRoom((state) => state.medium);
   const cover = useWarRoom((state) => state.cover);
   const rail = useWarRoom((state) => state.rail);
   const fit = useWarRoom((state) => state.fit);
@@ -174,11 +175,21 @@ const WarRoomTools = () => {
       try { sheet.setPointerCapture(event.pointerId); } catch { /* optional */ }
       const point = at(event);
       held = { id: event.pointerId, from: point, way: [point], add: event.shiftKey };
-      setDraft(tool === "select" ? { x0: point[0], y0: point[1], x1: point[0], y1: point[1] } : [point]);
+      setDraft(tool === "select" ? { x0: point[0], y0: point[1], x1: point[0], y1: point[1] } : tool === "transport" ? null : [point]);
     };
     const move = (event) => {
       if (!held || event.pointerId !== held.id) return;
       const point = at(event);
+      if (tool === "transport") {
+        // The place may be far off: dragging moves the map under the pointer, and only a click names it.
+        const last = held.way[held.way.length - 1];
+        held.moved = (held.moved ?? 0) + Math.abs(point[0] - last[0]) + Math.abs(point[1] - last[1]);
+        held.way.push(point);
+        try {
+          map.panBy([last[0] - point[0], last[1] - point[1]], { duration: 0 });
+        } catch { /* the map is between styles */ }
+        return;
+      }
       if (tool === "select") {
         setDraft({ x0: held.from[0], y0: held.from[1], x1: point[0], y1: point[1] });
         return;
@@ -214,6 +225,13 @@ const WarRoomTools = () => {
           });
         }
         setWarRoom({ selected: [...before].sort((a, b) => a - b) });
+        return;
+      }
+      if (tool === "transport") {
+        if ((done.moved ?? 0) >= CLICK_PX) return;
+        const place = map.unproject(point);
+        takeTool("pan");
+        reportWarRoomWay("transport", [[place.lng, place.lat]], { medium });
         return;
       }
       let length = 0;
@@ -258,7 +276,7 @@ const WarRoomTools = () => {
       // A tool put down in the middle of a drag leaves nothing half drawn.
       setDraft(null);
     };
-  }, [drawing, map, tool, side, replan]);
+  }, [drawing, map, tool, side, replan, medium]);
 
   const container = map?.getContainer?.() ?? null;
   if (!drawing || !container) return null;

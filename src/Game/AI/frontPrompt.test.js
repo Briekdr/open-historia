@@ -154,7 +154,9 @@ test("the block never outgrows its length: the battlefields a turn is most about
     assert.ok(tight.length <= max, `${tight.length} of ${max}`);
     assert.ok(tight.startsWith(FRONTS_BLOCK_HEADING));
   }
-  const tight = buildFrontsBlock({ battlefields: many, players: ["Neutralia"], max: 3500 });
+  // (Room for a few lines past the rules themselves, however long those are.)
+  const rules = buildFrontsBlock({ battlefields: [], players: ["Neutralia"] }).length;
+  const tight = buildFrontsBlock({ battlefields: many, players: ["Neutralia"], max: rules + 560 });
   const shown = tight.split("\n").filter((line) => line.startsWith("- The Great Northern")).length;
   assert.ok(shown > 0 && shown < MAX_BATTLEFIELDS);
   assert.ok(tight.endsWith(`(${MAX_BATTLEFIELDS - shown} more battlefields are open and not listed.)`));

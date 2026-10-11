@@ -596,6 +596,64 @@ const land = (battle, side, target, today, notes, note) => {
   redistance(field);
 };
 
+// Troops a transporter has brought (transports.js), stood round a place on
+// their own side's ground: a loose body, not a rank. Returns how many there
+// was room for.
+//   load    [[strength, kind]...]
+//   owner   which member of the side they are
+// (The eight ways round a place: no sine is taken in the engine.)
+const ROUND = [[1, 0], [0.7071, 0.7071], [0, 1], [-0.7071, 0.7071], [-1, 0], [-0.7071, -0.7071], [0, -1], [0.7071, -0.7071]];
+export const putAshore = (battle, side, x, y, load, owner) => {
+  const room = Math.max(0, MAX_TROOPS_PER_SIDE - battle.troops[side].length);
+  const count = Math.min(room, Array.isArray(load) ? load.length : 0);
+  for (let index = 0; index < count; index += 1) {
+    const [strength, kind] = load[index];
+    // Round the place in widening turns, each where its side stands.
+    const [across, down] = ROUND[(index * 3) % ROUND.length];
+    const out = 0.22 + 0.11 * Math.floor(index / 5);
+    let px = x + across * out;
+    let py = y + down * out;
+    if (!stands(battle.field, side, px, py)) {
+      px = x;
+      py = y;
+    }
+    battle.troops[side].push(createTroop({ x: px, y: py, strength: Math.min(100, Math.max(1, Number(strength) || 100)), kind: kind === 1 || kind === 2 ? kind : KIND_INFANTRY, owner: Math.max(0, owner) }));
+  }
+  // What comes with them to keep them up to strength: half of what troops raised on the spot have.
+  battle.pool[side] += count * POOL_PER_TROOP * 0.5;
+  battle.planKey = "";
+  return count;
+};
+
+// Troops a transporter brings to a battle that is being fought. On ground
+// their own side holds they simply arrive there. On the other side's they take
+// a disc of it with an anchor that feeds it, as a landing does. Returns
+// { landed, x, y, hostile }: `landed` is 0 when the place is nobody's ground
+// here (the sea, or a country outside the war) or there is no room.
+export const landCarried = (battle, side, x, y, load, owner, date) => {
+  const { field } = battle;
+  let cell = cellAt(field, x, y);
+  if (cell < 0 || field.holders[cell] > 1) {
+    // Beside it, then: the nearest ground of the other side's within a few cells, else of its own.
+    cell = nearestHeld(field, 1 - side, x, y, 3);
+    if (cell < 0) cell = nearestHeld(field, side, x, y, 3);
+  }
+  if (cell < 0 || field.holders[cell] > 1 || battle.troops[side].length >= MAX_TROOPS_PER_SIDE) return { landed: 0, x, y, hostile: false };
+  const px = (cell % field.cols) + 0.5;
+  const py = Math.floor(cell / field.cols) + 0.5;
+  const hostile = field.holders[cell] === 1 - side;
+  if (hostile) {
+    takeCapsule(field, side, px, py, px, py, LANDING_CELLS, LANDING_CELLS, { painter: Math.max(0, owner) });
+    battle.anchors.push({ s: side, x: px, y: py });
+  }
+  const landed = putAshore(battle, side, px, py, load, owner);
+  if (hostile) {
+    giveWay(battle, 1 - side, 0, date);
+    redistance(field);
+  }
+  return { landed, x: px, y: py, hostile };
+};
+
 // ---- an order, and a result ---------------------------------------------------------
 
 // Applies one order moment to a battlefield as it stands on its day.

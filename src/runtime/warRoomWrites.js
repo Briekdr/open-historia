@@ -38,12 +38,13 @@ export const sendWarRoomOp = async (op, { turnRunning = () => false } = {}) => {
   const game = await readGameData();
   let refusal = "";
   await mutateWorldState((world) => {
-    const result = applyWarRoomOp(world?.battlefields, sent, { player: game?.country, date: game?.gameDate || game?.startDate });
+    const result = applyWarRoomOp(world?.battlefields, sent, { player: game?.country, date: game?.gameDate || game?.startDate, transports: world?.transports });
     if (result.error) {
       refusal = result.error;
       return null;
     }
-    return { ...world, battlefields: result.battlefields };
+    // (An op for a transporter changes the world's transporters, and no battlefield.)
+    return { ...world, battlefields: result.battlefields, ...(result.transports ? { transports: result.transports } : null) };
   });
   if (refusal) throw new Error(refusal);
 };

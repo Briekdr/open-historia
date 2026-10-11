@@ -112,6 +112,7 @@ import {
   SLIDE_NEAR_KM,
   SLOT_SLIDE_KM,
   SLOT_SLIDE_MOST,
+  ANCHOR_FREE_KM,
   SUPPORT_FULL,
   SUPPORT_KM,
   SUPPORT_NONE,
@@ -556,8 +557,13 @@ const steer = (battle, run, side, index, troop, order, day, date, squares, weigh
   // (Not a thrust, which is narrow because it means to be; nor one sent
   // straight at a place, closing on a pocket or breaking out.)
   if (ranked && (weights.rank ?? 1) > 0) {
-    const held = heldRound(field, side, troop.x, troop.y, SUPPORT_KM / km);
-    troop.paceFactor *= Math.max(0, Math.min(1, (held - SUPPORT_NONE) / (SUPPORT_FULL - SUPPORT_NONE)));
+    // (Not a force put ashore, near the place that feeds it: it has no ground behind it to wait for.)
+    const free = ANCHOR_FREE_KM / km;
+    const ashore = battle.anchors.some((anchor) => anchor.s === side && (anchor.x - troop.x) * (anchor.x - troop.x) + (anchor.y - troop.y) * (anchor.y - troop.y) <= free * free);
+    if (!ashore) {
+      const held = heldRound(field, side, troop.x, troop.y, SUPPORT_KM / km);
+      troop.paceFactor *= Math.max(0, Math.min(1, (held - SUPPORT_NONE) / (SUPPORT_FULL - SUPPORT_NONE)));
+    }
   }
   // And one going straight out in a general advance keeps its place in the
   // line: further forward than those advancing beside it, it slows for them.

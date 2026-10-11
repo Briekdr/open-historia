@@ -28,7 +28,7 @@
 // goes through runtime/warRoomWrites.js.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { generateWarRoomReply, warRoomRouteAttacks } from "../AI/gameplayLazy.js";
+import { generateWarRoomReply, warRoomRouteAttacks, warRoomTransportWays } from "../AI/gameplayLazy.js";
 import { warRoomIntel, warRoomPlans } from "../AI/frontPlans.js";
 import { isSimulationBusy } from "../AI/simulationStatus.js";
 import { closeWarRoom, getWarRoom, onWarRoomWay, openWarRoom, setWarRoom, showBattlefield, takeTool, useWarRoom } from "../Map/warRoomStore.js";
@@ -37,7 +37,8 @@ import { readFrontCities } from "../../runtime/frontCities.js";
 import { chosenOrdersOf, commandTitle, generalsOf, talkOf } from "../../runtime/fronts/command.js";
 import { THRUST_TROOPS } from "../../runtime/fronts/constants.js";
 import { foldBattlefieldName, normalizeBattlefield } from "../../runtime/fronts/record.js";
-import { formatGameDateReadable } from "../../runtime/gameDates.js";
+import { TRANSPORT_MEDIA, carrierFor, isUnderWay, loadOf, normalizeTransports } from "../../runtime/fronts/transports.js";
+import { formatGameDateReadable, gameDateYear } from "../../runtime/gameDates.js";
 import { isActiveFeatureEnabled, useActiveFeatures } from "../../runtime/gameFeatures.js";
 import { useLibraryState } from "../../runtime/library.js";
 import { SAFE_BOTTOM, SAFE_LEFT, SAFE_RIGHT, SAFE_TOP } from "../../runtime/mobileUi.js";
@@ -111,6 +112,25 @@ const DoingWord = ({ doing }) => {
   if (doing === "flank") return <>turning a flank</>;
   if (doing === "blitz") return <>massing to attack</>;
   return <>holding the line</>;
+};
+
+// Why a transporter did not set out, or no way was found for it.
+const WayRefusal = ({ code }) => {
+  if (code === "no-coast") return <>no sea is near where it would set out</>;
+  if (code === "no-shore") return <>no shore is near that place</>;
+  if (code === "no-sea-way") return <>no sea leads there</>;
+  if (code === "no-ground") return <>it has no land of your side's to start on</>;
+  if (code === "no-troops") return <>its troops were gone</>;
+  if (code === "no-war") return <>you are fighting no war</>;
+  if (code === "railhead") return <>its line ends before that place</>;
+  if (code === "too-far" || code === "off-map") return <>that place cannot be reached</>;
+  return <>no way was found</>;
+};
+// What a carrier goes by.
+const MediumWord = ({ medium }) => {
+  if (medium === "sea") return <>by sea</>;
+  if (medium === "land") return <>by rail</>;
+  return <>by air</>;
 };
 
 const ProjectStatus = ({ status }) => {
@@ -247,6 +267,51 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
     return intoOthers?.get(Number(String(plan.id).replace("order:", ""))) ?? [];
   };
 
+  // ---- transporters ------------------------------------------------------------------------
+  // The world's transporters that are this side's or the other's on the battlefield shown.
+  const transports = useMemo(() => normalizeTransports(world?.transports), [world?.transports]);
+  const sameName = (a, b) => String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+  const ownTransports = transports.filter((entry) => sameName(entry.owner, game.country));
+  const theirTransports = record ? transports.filter((entry) => entry.status === "moving" && (record.sides[1 - side] ?? []).some((member) => sameName(member, entry.owner))) : [];
+  // What carries troops this year.
+  const carriers = useMemo(() => {
+    const year = gameDateYear(game.gameDate);
+    return TRANSPORT_MEDIA.map((medium) => ({ medium, ...carrierFor(medium, year) })).filter((carrier) => carrier.kind);
+  }, [game.gameDate]);
+  // The way found for each of the player's own that has not set out, so that it
+  // is seen on the map before time passes (no request: read from the map).
+  const waiting = ownTransports.filter((entry) => entry.status === "ordered").map((entry) => `${entry.id}:${entry.medium}:${entry.to.lng},${entry.to.lat}:${entry.embark?.troops.join(".") ?? ""}`).join("|");
+  const [transportWays, setTransportWays] = useState(null);
+  useEffect(() => {
+    if (!open || !waiting) {
+      setTransportWays(null);
+      return undefined;
+    }
+    let live = true;
+    warRoomTransportWays({ world, game })
+      .then((found) => { if (live) setTransportWays(found); })
+      .catch(() => { if (live) setTransportWays(null); });
+    return () => { live = false; };
+    // Found again only when what is waiting changes, or the game does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, waiting, activeGame?.id]);
+  useEffect(() => {
+    if (open) setWarRoom({ transportWays });
+  }, [open, transportWays]);
+  // What the nearest town to a place on the map is called, if one is near: a
+  // transporter is told where it is bound in words as well.
+  const placeNear = (lng, lat) => {
+    let best = null;
+    for (const city of cities) {
+      const across = (Number(city.lng) - lng) * Math.cos((lat * Math.PI) / 180) * 111;
+      const down = (Number(city.lat) - lat) * 111;
+      const far = Math.sqrt(across * across + down * down);
+      if (far <= 70 && (!best || far < best.far)) best = { far, name: city.name };
+    }
+    // (The place with its kind, as the engine names places: put together here, it is no words of the interface.)
+    return best ? ["city", best.name].join(": ") : "";
+  };
+
   // ---- doing things --------------------------------------------------------------------
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -270,6 +335,10 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   useEffect(() => {
     selectedRef.current = selected;
   }, [selected]);
+  const placeNearRef = useRef(placeNear);
+  useEffect(() => {
+    placeNearRef.current = placeNear;
+  });
   useEffect(() => {
     if (!open || !name) return undefined;
     return onWarRoomWay(async (drawn, way, extra) => {
@@ -279,6 +348,10 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
         await act({ op: "diversion", battlefield: name, way, troops: selectedRef.current.length || THRUST_TROOPS.spearhead });
       } else if (drawn === "replan" && extra?.replan) {
         await act({ op: "plan", battlefield: name, project: extra.replan, way });
+      } else if (drawn === "transport" && extra?.medium && way[0]) {
+        // The place that was clicked: the troops picked out are carried there, by what was chosen.
+        const [lng, lat] = way[0];
+        if (await act({ op: "transport", battlefield: name, troops: selectedRef.current, medium: extra.medium, to: [lng, lat], name: placeNearRef.current(lng, lat) })) setWarRoom({ selected: [] });
       }
     });
   }, [open, name, act]);
@@ -464,6 +537,8 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
         onOrder={orderPicked}
         onRelease={releasePicked}
         onClear={() => setWarRoom({ selected: [] })}
+        carriers={carriers}
+        onCarrier={(medium) => takeTool("transport", { medium })}
       />
 
       {/* The frame of plate round the map: its bar says which battlefield this
@@ -662,6 +737,57 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
                       <Heading style={{ marginTop: "0.8rem" }}>Under way</Heading>
                       <div style={{ ...softText, marginTop: "0.3rem" }}>Time has passed over these, so their arrows are off the map. Point at one to see what is left of it.</div>
                       {underWay.map(planRow)}
+                    </>
+                  )}
+
+                  {/* The transporters: this side's, and the other side's that are on their way. */}
+                  {(ownTransports.length > 0 || theirTransports.length > 0) && (
+                    <>
+                      <Heading style={{ marginTop: "0.8rem" }}>Transporters</Heading>
+                      {ownTransports.map((entry) => {
+                        const found = transportWays?.[entry.id] ?? null;
+                        return (
+                          <div key={entry.id} data-oh-war-room-transport={entry.status} style={{ ...trayStyle(false), marginTop: "0.3rem", padding: "0.4rem 0.5rem" }}>
+                            <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>
+                              <span data-no-translate>{entry.kind}</span>{entry.to.name ? <> bound for <span data-no-translate>{placeName(entry.to.name)}</span></> : <> bound for a place on the map</>}
+                            </div>
+                            <div style={softText}>
+                              {loadOf(entry)} formations <MediumWord medium={entry.medium} />
+                              {entry.status === "ordered" && <> · sets out when time next passes</>}
+                              {entry.status === "moving" && <> · on its way, due {formatGameDateReadable(entry.due) || entry.due}</>}
+                              {entry.status === "landed" && <> · put its troops down on {formatGameDateReadable(entry.ended) || entry.ended}</>}
+                              {entry.status === "lost" && <> · lost on the way on {formatGameDateReadable(entry.ended) || entry.ended}</>}
+                              {entry.status === "returned" && <> · turned back: <WayRefusal code={entry.note} /></>}
+                              {entry.status === "refused" && <> · did not set out: <WayRefusal code={entry.note} /></>}
+                              {entry.sunk > 0 && entry.status !== "lost" && <> · {entry.sunk} lost on the way</>}
+                            </div>
+                            {entry.status === "ordered" && found && !found.error && (
+                              <div style={softText}>{found.days === 1 ? <>About a day</> : <>About {found.days} days</>} {found.arrived === false ? <>to where its line ends</> : <>on the way found for it</>} ({found.km} km).</div>
+                            )}
+                            {entry.status === "ordered" && found?.error && (
+                              <div style={{ color: AMBER, fontSize: "0.72rem", lineHeight: 1.4 }}>It cannot set out as things stand: <WayRefusal code={found.error} />.</div>
+                            )}
+                            {entry.status === "ordered" && (
+                              <button type="button" disabled={locked} onClick={() => act({ op: "untransport", battlefield: name, id: entry.id })} style={linkStyle}>Call it off</button>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {theirTransports.map((entry) => {
+                        const hunted = entry.hunters.some((hunter) => sameName(hunter, game.country));
+                        return (
+                          <div key={entry.id} data-oh-war-room-transport="theirs" style={{ ...trayStyle(false), marginTop: "0.3rem", padding: "0.4rem 0.5rem" }}>
+                            <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>
+                              <span data-no-translate>{entry.owner}</span>: <span data-no-translate>{entry.kind}</span>{entry.to.name && <> bound for <span data-no-translate>{placeName(entry.to.name)}</span></>}
+                            </div>
+                            <div style={softText}>
+                              About {loadOf(entry)} formations <MediumWord medium={entry.medium} /> · due {formatGameDateReadable(entry.due) || entry.due}
+                              {hunted && <> · your forces are after it</>}
+                            </div>
+                            <button type="button" disabled={locked || !isUnderWay(entry)} onClick={() => act({ op: "hunt", battlefield: name, id: entry.id, off: hunted })} style={linkStyle}>{hunted ? <>Call off the hunt</> : <>Go after it</>}</button>
+                          </div>
+                        );
+                      })}
                     </>
                   )}
 

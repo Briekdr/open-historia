@@ -16,6 +16,8 @@ import { SAFE_BOTTOM, SAFE_LEFT, SAFE_TOP } from "../../runtime/mobileUi.js";
 import { ADVISOR_SLIDE } from "./advisorSlide.js";
 import { BONE, BONE_FAINT, BONE_SOFT, BRASS, RED, RED_BRIGHT, STEEL, STENCIL, linkStyle, plateStyle, rivetStyle, stencilStyle } from "./warRoomTheme.js";
 
+// The most formations one dispatch of a transporter carries (runtime/fronts/transports.js TRANSPORT_LOAD_MOST).
+const LOAD_MOST = 40;
 // The rail is as wide as one key and its lip.
 export const RAIL_WIDTH = "3.75rem";
 const KEY_SIZE = "3.05rem";
@@ -42,6 +44,17 @@ const HoldIcon = () => <Icon><path d="M12 3l7 2.6v5.6c0 4.4-2.9 7.6-7 9.3-4.1-1.
 const FallBackIcon = () => <Icon><path d="M19 7v4a4 4 0 0 1-4 4H5" /><path d="M9.5 10.5L5 15l4.5 4.5" /></Icon>;
 // Back into the line.
 const ReleaseIcon = () => <Icon><path d="M3.5 19.5h17" /><path d="M12 4v10.5M7.8 10.6L12 14.8l4.2-4.2" /></Icon>;
+// What carries troops: a hull, two carriages, an aircraft, each seen from above.
+const ShipIcon = () => <Icon><path d="M12 2.5l4.5 6v10L14 21.5h-4l-2.5-3v-10z" /><path d="M12 7v10" /></Icon>;
+const TrainIcon = () => <Icon><rect x="8" y="2.5" width="8" height="8" rx="1.6" /><rect x="8" y="13" width="8" height="8.5" rx="1" /><path d="M12 10.5V13" /></Icon>;
+const PlaneIcon = () => <Icon><path d="M12 2l1.4 7 8.1 5v2l-8.1-2.2-.5 5 2.6 2v1.2L12 21l-3.5 1v-1.2l2.6-2-.5-5L2.5 16v-2l8.1-5z" /></Icon>;
+const CARRIER_ICONS = { sea: ShipIcon, land: TrainIcon, air: PlaneIcon };
+// How each is asked for.
+const CarrierWord = ({ medium }) => {
+  if (medium === "sea") return <>By sea</>;
+  if (medium === "land") return <>By rail</>;
+  return <>By air</>;
+};
 // A movement that is not meant.
 const DiversionIcon = () => <Icon dashed><path d="M4 18c2-7 6-9 14-10" /><path d="M14.5 4.6L18.4 8l-3.2 3.9" strokeDasharray="0" /></Icon>;
 
@@ -91,9 +104,14 @@ const Rule = () => <div aria-hidden="true" style={{ background: STEEL.seam, boxS
 //   locked       nothing can be ordered now (a turn is running, or a write is on its way)
 //   turnRunning  it is a turn that is running
 //   notice       what the last order was refused for
-const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning, notice, onTool, onOrder, onRelease, onClear }) => {
+//   carriers     what carries troops this year: [{ medium, kind, speed, capacity }]
+//   onCarrier    (medium) => the troops picked out are to go by it: the map then asks where
+const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning, notice, carriers = [], onTool, onOrder, onRelease, onClear, onCarrier }) => {
   const none = selected.length === 0;
   const drawing = tool !== "pan";
+  // The choice of carrier, open beside the rail.
+  const [choosing, setChoosing] = useState(false);
+  const choice = choosing && shown && !none && !locked;
   // Tucked away against the edge, should the player want the map under it.
   // It comes out again each time the room is opened.
   const [tucked, setTucked] = useState(false);
@@ -185,6 +203,8 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
         <RailKey label="Fall back" title="Fall back: these troops give ground toward their own rear" disabled={locked || none} onClick={() => onOrder("fall back")}><FallBackIcon /></RailKey>
         <RailKey label="Release" title="Give these troops back to their stretch of the line" disabled={locked || none} onClick={onRelease}><ReleaseIcon /></RailKey>
         <Rule />
+        {/* Carried to where their side holds no land: by ship, rail or air, then a click on the map for where. */}
+        <RailKey label="Transport" title="Transport: carry these troops by ship, rail or air to a place your side has no border with" on={tool === "transport" || choice} disabled={locked || none} onClick={() => (tool === "transport" ? onTool("pan") : setChoosing((value) => !value))}><ShipIcon /></RailKey>
         <RailKey label="Diversion" title="Draw a diversion: a movement you want the other side to believe" on={tool === "diversion"} disabled={locked} onClick={() => onTool("diversion")}><DiversionIcon /></RailKey>
         <span aria-hidden="true" style={rivetStyle({ left: `calc(0.16rem + ${SAFE_LEFT})`, top: "0.16rem" }, "0.34rem")} />
         <span aria-hidden="true" style={rivetStyle({ right: "0.16rem", top: "0.16rem" }, "0.34rem")} />
@@ -226,6 +246,62 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
         </svg>
       </button>
 
+      {/* What is to carry them: a key a carrier there is this year. */}
+      {choice && (
+        <div
+          role="menu"
+          aria-label="Carry them"
+          data-oh-war-room-carriers=""
+          style={{
+            ...plate,
+            border: `2px solid ${STEEL.seam}`,
+            borderRadius: "4px",
+            boxShadow: `inset 0 1px 0 ${STEEL.lip}, 0 3px 12px rgba(0,0,0,0.5)`,
+            boxSizing: "border-box",
+            color: BONE,
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.3rem",
+            left: `calc(${RAIL_WIDTH} + ${SAFE_LEFT} + 1.5rem)`,
+            maxWidth: "min(19rem, calc(100vw - 7.5rem))",
+            padding: "0.5rem 0.55rem",
+            position: "fixed",
+            top: `calc(${top} + 9rem)`,
+            zIndex: isMobile ? 10031 : 9998,
+          }}
+        >
+          <div style={{ ...stencilStyle, fontSize: "0.66rem" }}>Carry the {selected.length} picked out</div>
+          {carriers.length === 0 && <div style={{ color: BONE_SOFT, fontSize: "0.74rem" }}>Nothing carries troops yet.</div>}
+          {selected.length > LOAD_MOST && <div style={{ color: BONE_SOFT, fontSize: "0.7rem", lineHeight: 1.35 }}>One dispatch carries {LOAD_MOST} formations at most: the rest stay where they are.</div>}
+          {carriers.map((carrier) => {
+            const Picture = CARRIER_ICONS[carrier.medium] ?? ShipIcon;
+            return (
+              <button
+                key={carrier.medium}
+                type="button"
+                role="menuitem"
+                className="oh-tap"
+                data-oh-war-room-carrier={carrier.medium}
+                onClick={() => {
+                  setChoosing(false);
+                  onCarrier(carrier.medium);
+                }}
+                style={{ ...keyLook(false, false), alignItems: "center", flexDirection: "row", fontSize: "0.76rem", gap: "0.55rem", height: "auto", justifyContent: "flex-start", padding: "0.4rem 0.55rem", textAlign: "left", width: "100%" }}
+              >
+                <Picture />
+                <span style={{ display: "flex", flexDirection: "column", gap: "0.14rem", minWidth: 0 }}>
+                  <span><CarrierWord medium={carrier.medium} /></span>
+                  <span style={{ color: BONE_SOFT, fontFamily: "sans-serif", fontSize: "0.68rem", fontWeight: 400, letterSpacing: 0, textTransform: "none" }}>
+                    <span data-no-translate>{carrier.kind}</span> · {carrier.capacity} formations each · {carrier.speed} km a day
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+          <button type="button" onClick={() => setChoosing(false)} style={{ ...linkStyle, alignSelf: "flex-start" }}>Cancel</button>
+        </div>
+      )}
+
       {/* What the tool in hand wants done, beside the rail. */}
       {says && (
         <div
@@ -255,6 +331,7 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
           {!turnRunning && tool === "route" && <>Draw the way for the {selected.length} picked out. They follow it as the ground and the enemy allow.</>}
           {!turnRunning && tool === "diversion" && <>Draw the movement you want the other side to believe.</>}
           {!turnRunning && tool === "replan" && <>Draw the operation’s way anew.</>}
+          {!turnRunning && tool === "transport" && <>Click the place the {selected.length} picked out are to be carried to. Drag to move the map. They board when time next passes.</>}
           {!turnRunning && !drawing && selected.length > 0 && (
             <>{selected.length} picked out. <button type="button" onClick={onClear} style={linkStyle}>Clear</button></>
           )}
