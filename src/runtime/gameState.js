@@ -54,6 +54,7 @@ import {
 } from "./unitMotion.js";
 import { compareGameDates, normalizeGameDate } from "./gameDates.js";
 import { normalizeBattlefields } from "./fronts/record.js";
+import { battlefieldHeldClaimants } from "./fronts/heldRegions.js";
 
 export const GAME_DEFAULTS = {
   country: "",
@@ -5196,6 +5197,28 @@ const settleRegionClaims = (world, regionId) => {
   if (!world.settledRegionClaims.includes(regionId)) world.settledRegionClaims.push(regionId);
 };
 
+// A world in which no region is disputed for being held on a battlefield
+// (fronts/heldRegions.js): the claimants a battlefield accounts for are taken
+// off the regions its sides have taken from each other. The world itself when
+// there is nothing to take off. For a game saved while such ground was still
+// drawn in stripes, when its next turn's land war is written.
+export const withoutBattlefieldDisputes = (world) => {
+  const changed = battlefieldHeldClaimants({
+    battlefields: world?.battlefields,
+    owners: world?.regionOwnershipOverrides,
+    sovereigns: world?.regionSovereigntyOverrides,
+    claimants: world?.regionClaimants,
+  });
+  if (changed.size === 0) return world;
+  const next = {
+    ...world,
+    regionClaimants: { ...world.regionClaimants },
+    settledRegionClaims: Array.isArray(world.settledRegionClaims) ? [...world.settledRegionClaims] : [],
+  };
+  for (const [regionId, kept] of changed) writeRegionClaimants(next, regionId, kept);
+  return next;
+};
+
 // Legal sovereignty is stored SPARSELY: an entry exists only while the lawful
 // sovereign differs from the polity administering the region (an occupation, a
 // displaced government's homeland). Normal territory has no row.
@@ -5349,9 +5372,21 @@ const applyPolityAndTerritoryImpacts = ({
       foundPolityIfUnknown(world, colors, toCode);
       world.regionOwnershipOverrides[regionId] = toCode;
       writeRegionSovereign(world, regionId, legalSovereign);
-      const claimants = existing.filter((name) => !samePolity(name, toCode));
-      if (currentController && !samePolity(currentController, toCode)) claimants.push(currentController);
-      if (legalSovereign && !samePolity(legalSovereign, toCode)) claimants.push(legalSovereign);
+      // Ground taken on a battlefield (the front engine's own operation, marked
+      // by: "front") is simply controlled by whoever took it. The lawful
+      // sovereign is recorded as for any occupation, so the region reads as
+      // held by one country and belonging to another; but it is not made a
+      // disputed region, which the map draws in stripes. Whoever just lost it,
+      // and whose it lawfully is, come OFF its claimants; a dispute it has with
+      // anybody else stands.
+      const fought = op.by === "front";
+      const claimants = existing.filter((name) => !samePolity(name, toCode)
+        && !(fought && (samePolity(name, currentController) || samePolity(name, legalSovereign))));
+      if (!fought) {
+        if (currentController && !samePolity(currentController, toCode)) claimants.push(currentController);
+        if (legalSovereign && !samePolity(legalSovereign, toCode)) claimants.push(legalSovereign);
+      }
+      if (fought && claimants.length === 0 && existing.length === 0) continue;
       writeRegionClaimants(world, regionId, claimants);
       continue;
     }

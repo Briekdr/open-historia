@@ -312,6 +312,7 @@ import {
   chargeRefusals,
   normalizeChats,
   normalizeEvents,
+  withoutBattlefieldDisputes,
   normalizeGameData,
   normalizeWorldState,
   readActionsState,
@@ -8869,6 +8870,10 @@ const applySimulationResult = async ({
   // one (frontApply.js): before the standing orders advance, since a formation
   // on a battlefield keeps none, and before the unit caps, which leave it out.
   impactedWorld = withFrontUnits(impactedWorld, turnFronts);
+  // Ground a side has taken on a battlefield is controlled by it, not disputed:
+  // the claimants an earlier turn wrote for such a region come off it
+  // (runtime/fronts/heldRegions.js). Nothing is touched with fronts off.
+  if (turnFronts) impactedWorld = withoutBattlefieldDisputes(impactedWorld);
 
   // Live institution lifecycle effects ride the SAME events that narrate them.
   // Geography/unit/report reducers remain in gameState; membership needs chats

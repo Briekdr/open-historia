@@ -41,7 +41,7 @@ import { POLITICAL_FILL_OPACITY_STOPS } from "./vnext/presentationPolicy.js";
 import { getFrontTargets, settleFront, startFrontsSync, subscribeFronts } from "./frontsController.js";
 import { arrowDetailAt, frontArrowFeatures, frontArrowRgb, frontAt, frontShownOn, frontTroopFeatures, stageOf } from "./frontGeometry.js";
 import { PAINT_WALL } from "../../runtime/fronts/codec.js";
-import { createPaintPlayer, paintPixels, paintScaleFor } from "./frontPaint.js";
+import { createPaintPlayer, paintPixels, paintScaleFor, pictureFits } from "./frontPaint.js";
 import { createSkirmish, skirmishAt } from "./frontSkirmish.js";
 import { contestedOwnersOf, setFrontShownOwners } from "./frontOwnership.js";
 import { shownOwnersAt } from "../../runtime/fronts/replay.js";
@@ -173,14 +173,24 @@ const isFrontProbeEnabled = () => {
 // corners as IT measures the world, which is how a battlefield's cells are
 // laid out too, except on a flat sheet: there each row of pixels is told
 // which row of cells it shows.
-const makePicture = (view) => {
+// The picture a battlefield's painted ground is played on. `onto` is the
+// picture the map already has for the same frame (the same size, laid on the
+// same ground), when there is one: its canvas is the one the map was given and
+// goes on reading, so a new run is played on THAT canvas. A canvas made anew
+// for every run was never shown: the map kept the last turn's picture, and the
+// ground the troops took in a turn that landed while the game was open stayed
+// unpainted until the page was loaded again.
+const makePicture = (view, onto = null) => {
   const { frame } = view;
   const { toLngLat, toCell } = projectorOf(frame);
   const scale = paintScaleFor(frame.cols, frame.rows);
-  const canvas = document.createElement("canvas");
-  canvas.width = frame.cols * scale;
-  canvas.height = frame.rows * scale;
-  const context = canvas.getContext("2d");
+  const canvas = onto?.canvas ?? document.createElement("canvas");
+  if (!onto) {
+    canvas.width = frame.cols * scale;
+    canvas.height = frame.rows * scale;
+  }
+  const context = onto?.context ?? canvas.getContext("2d");
+  if (onto) context.clearRect(0, 0, canvas.width, canvas.height);
   const [west, north] = toLngLat(0, frame.rows);
   const [east, south] = toLngLat(frame.cols, 0);
   let rowOf = null;
@@ -195,11 +205,22 @@ const makePicture = (view) => {
   return {
     canvas,
     context,
-    target: { data: null, pixels: context.createImageData(canvas.width, canvas.height), width: canvas.width, height: canvas.height, scale, rowOf },
-    coordinates: [[west, north], [east, north], [east, south], [west, south]],
+    // The land's own edge is the frame's, not the run's: a mask made for the
+    // picture before is kept until the map makes it again (remask).
+    target: {
+      data: null,
+      pixels: context.createImageData(canvas.width, canvas.height),
+      width: canvas.width,
+      height: canvas.height,
+      scale,
+      rowOf,
+      ...(onto?.target.mask ? { mask: onto.target.mask } : {}),
+    },
+    coordinates: onto?.coordinates ?? [[west, north], [east, north], [east, south], [west, south]],
     player: createPaintPlayer(view),
     palette: new Uint8Array(32 * 4),
     blank: true,
+    ...(onto?.maskCanvas ? { maskCanvas: onto.maskCanvas } : {}),
   };
 };
 
@@ -684,10 +705,12 @@ const FrontLayers = () => {
         if (start > target.until) start = target.until;
         // The picture is the run's and the frame's: the same run shown for
         // another of its days (a turn being revealed) keeps the one it has.
-        const same = was && was.stage.view.replay === stage.view.replay
-          && was.picture.canvas.width === target.view.frame.cols * was.picture.target.scale
-          && was.picture.canvas.height === target.view.frame.rows * was.picture.target.scale;
-        const picture = same ? was.picture : makePicture(target.view);
+        // Another run on the same frame is played on the canvas the map
+        // already has (makePicture): the map is told of a canvas once, by its
+        // size and place, and would go on showing the old one.
+        const fits = Boolean(was) && pictureFits(was.picture, target.view.frame);
+        const same = fits && was.stage.view.replay === stage.view.replay;
+        const picture = same ? was.picture : makePicture(target.view, fits ? was.picture : null);
         picture.stale = true;
         next.set(target.name, { target, run: target.run, stage, picture, slot, start, until: target.until, day: start });
         longest = Math.max(longest, target.until - start);

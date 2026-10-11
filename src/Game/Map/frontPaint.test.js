@@ -5,7 +5,8 @@ import { PAINT_OWN_A, PAINT_OWN_B, PAINT_WALL } from "../../runtime/fronts/codec
 import { HOLDER_SIDE_A, HOLDER_SIDE_B, HOLDER_WALL } from "../../runtime/fronts/constants.js";
 import { frontViewOf, normalizeBattlefield } from "../../runtime/fronts/record.js";
 import { createReplayRecorder } from "../../runtime/fronts/replay.js";
-import { FILL_DAYS, createPaintPlayer, paintPixels, paintScaleFor } from "./frontPaint.js";
+import { projectorOf } from "../../runtime/fronts/frame.js";
+import { FILL_DAYS, createPaintPlayer, paintPixels, paintScaleFor, pictureFits } from "./frontPaint.js";
 
 const COLS = 24;
 const ROWS = 12;
@@ -203,6 +204,26 @@ test("a picture has enough pixels to a cell for a smooth edge, and never more th
   assert.equal(paintScaleFor(202, 226), 4);
   assert.equal(paintScaleFor(255, 255), 4);
   assert.equal(paintScaleFor(600, 100), 2);
+});
+
+test("a picture the map already has takes another run of the same frame, and no other", () => {
+  // As FrontLayers.jsx makes one: so many pixels to a cell, laid corner to corner on the frame.
+  const pictureOf = (given) => {
+    const scale = paintScaleFor(given.cols, given.rows);
+    const { toLngLat } = projectorOf(given);
+    const [west, north] = toLngLat(0, given.rows);
+    const [east, south] = toLngLat(given.cols, 0);
+    return { canvas: { width: given.cols * scale, height: given.rows * scale }, coordinates: [[west, north], [east, north], [east, south], [west, south]] };
+  };
+  const picture = pictureOf(frame);
+  // The next turn's run of the same battlefield: the same frame, another replay. It is played on the same canvas.
+  assert.equal(pictureFits(picture, { ...frame }), true);
+  // A frame that grew, or was laid somewhere else, needs a picture of its own.
+  assert.equal(pictureFits(picture, { ...frame, cols: COLS + 4 }), false);
+  assert.equal(pictureFits(picture, { ...frame, rows: ROWS + 1 }), false);
+  assert.equal(pictureFits(picture, { ...frame, lng0: frame.lng0 + 0.5 }), false);
+  assert.equal(pictureFits(picture, { ...frame, lat0: frame.lat0 - 0.5 }), false);
+  for (const nothing of [[null, frame], [picture, null], [{}, frame], [{ canvas: picture.canvas }, frame]]) assert.equal(pictureFits(...nothing), false);
 });
 
 test("ground that is for the moment changing hands is laid over the ground as it stands, and comes off again", () => {

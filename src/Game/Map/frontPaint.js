@@ -21,6 +21,7 @@
 // count as sea to reach it. With no mask the colour ends on the squares.
 
 import { PAINT_OWN_A, PAINT_OWN_B, PAINT_TICKS_PER_DAY, PAINT_WALL } from "../../runtime/fronts/codec.js";
+import { projectorOf } from "../../runtime/fronts/frame.js";
 
 // How long, in days, a cell takes to fill once it is taken.
 export const FILL_DAYS = 0.75;
@@ -208,6 +209,22 @@ export const createPaintPlayer = (view) => {
 // How many pixels to a cell: enough for a smooth edge, and no more than a
 // picture about a thousand pixels across.
 export const paintScaleFor = (cols, rows) => Math.max(2, Math.min(6, Math.floor(1024 / Math.max(cols, rows, 1))));
+
+// Whether a picture the map already has can take another run of the same
+// battlefield: it is the size the frame asks for and lies on the same ground.
+// The map is given a picture's canvas once, by its size and place, and goes on
+// reading that canvas: a new run has to be played on it (FrontLayers.jsx).
+//   picture   { canvas: { width, height }, coordinates: [[west, north], [east, north], [east, south], [west, south]] }
+export const pictureFits = (picture, frame) => {
+  if (!picture?.canvas || !Array.isArray(picture.coordinates) || !frame) return false;
+  const scale = paintScaleFor(frame.cols, frame.rows);
+  if (picture.canvas.width !== frame.cols * scale || picture.canvas.height !== frame.rows * scale) return false;
+  const { toLngLat } = projectorOf(frame);
+  const [west, north] = toLngLat(0, frame.rows);
+  const [east, south] = toLngLat(frame.cols, 0);
+  const [[haveWest, haveNorth], , [haveEast, haveSouth]] = picture.coordinates;
+  return haveWest === west && haveNorth === north && haveEast === east && haveSouth === south;
+};
 
 // The painted ground at the player's day, written into `target.data` (RGBA,
 // `target.width` by `target.height`, north up, `target.scale` pixels a cell).

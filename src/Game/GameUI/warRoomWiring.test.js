@@ -104,6 +104,13 @@ test("on the map at large a troop has its counter only from close in; in the war
   for (const id of ["fronts-troops", "fronts-troops-dug"]) {
     assert.match(layers, new RegExp(`id="${id}"\\s+type="circle"\\s+beforeId=\\{troopBefore\\}\\s+minzoom=\\{troopMinZoom\\}`), `${id} follows the room`);
   }
+  // A turn that lands while the game is open is another run of a battlefield
+  // the map already has a picture for: it is played on THAT picture's canvas,
+  // which is the one the map was given. (A canvas made anew was never shown:
+  // the ground the troops took stayed unpainted until the page was loaded again.)
+  assert.match(layers, /const makePicture = \(view, onto = null\) => \{/);
+  assert.match(layers, /const canvas = onto\?\.canvas \?\? document\.createElement\("canvas"\);/);
+  assert.match(layers, /const fits = Boolean\(was\) && pictureFits\(was\.picture, target\.view\.frame\);\s*const same = fits && was\.stage\.view\.replay === stage\.view\.replay;\s*const picture = same \? was\.picture : makePicture\(target\.view, fits \? was\.picture : null\);/);
   // The room's marks on the troops: the general pointed at, and those picked out.
   assert.match(layers, /const litFilter = warRoomOpen && warRoomLit >= 0 \?/);
   assert.match(layers, /\["in", \["get", "index"\], \["literal", \[\.\.\.warRoomPicked\]\]\]/);
