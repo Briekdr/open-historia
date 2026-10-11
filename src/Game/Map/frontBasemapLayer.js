@@ -13,15 +13,23 @@
 //   take   sits under every political fill. When the map draws, what is in
 //          its picture at that moment is the basemap alone, and this keeps a
 //          copy of it.
-//   put    sits over every political fill and under the paint. Wherever a
-//          battlefield's picture is painted (by how solid the picture is
-//          there, soft edges and all) it puts the copy back, pixel for pixel
-//          where it was.
+//   put    sits over every political fill. Wherever a battlefield's picture
+//          is painted (by how solid the picture is there, soft edges and
+//          all) it draws what that ground is to look like: the copy, pixel
+//          for pixel where it was, with the picture's own colour laid over
+//          it at the strength the map gives a country's fill.
 //
-// The paint is then laid over the true basemap at the strength the map gives
-// a country's fill, which is exactly how that country's own land is drawn:
-// the same on any basemap, a scenario's own background included, with the
-// hills and rivers showing through it as they do everywhere else.
+// That is exactly how the taker's own land is drawn: the same on any basemap,
+// a scenario's own background included, with the hills and rivers showing
+// through it as they do everywhere else.
+//
+// The bare map and the paint are ONE drawing, from one reading of the picture.
+// They were two at first (this layer put the map back, and the map's own
+// picture layer laid the colour over it), and the two did not agree along the
+// picture's edges: where the picture is half solid the bare map showed through
+// more than on either side of the edge, a pale line along every border of the
+// painted ground, and the map's copy of the picture could be a moment older
+// than this layer's.
 //
 // The pure parts (the mesh, the copies of the world) load in plain Node.
 
@@ -116,25 +124,31 @@ void main() {
   v_uv = a_uv;
   gl_Position = projectTileWithElevation(a_pos + vec2(u_world, 0.0), 0.0);
 }`;
-// The basemap as it was at this very pixel, as solid as the picture is painted there.
+// The basemap as it was at this very pixel with the picture's colour over it
+// at the strength of a country's fill, as solid as the picture is painted
+// there. (The picture is read with its colour already weighed by how solid it
+// is, so a soft edge takes no dark from the empty picture beside it.)
 const FRAGMENT = `#version 300 es
 precision mediump float;
 in vec2 v_uv;
 uniform sampler2D u_base;
 uniform sampler2D u_mask;
 uniform vec2 u_size;
+uniform float u_strength;
 out vec4 colour;
 void main() {
-  float painted = texture(u_mask, v_uv).a;
-  if (painted < 0.004) discard;
+  vec4 paint = texture(u_mask, v_uv);
+  if (paint.a < 0.004) discard;
   vec3 base = texture(u_base, gl_FragCoord.xy / u_size).rgb;
-  colour = vec4(base * painted, painted);
+  colour = vec4(base * (1.0 - u_strength) * paint.a + paint.rgb * u_strength, paint.a);
 }`;
 
 // The two layers, which share the copy. `pictures()` gives what is painted:
-// [{ canvas, coordinates }]. `onState(working)` is told when the pair starts
-// or stops being able to do its work, so the caller can fall back.
-export const createFrontBasemapLayers = ({ pictures, onState, onError } = {}) => {
+// [{ canvas, coordinates }]. `strength(zoom)` is how strongly the map lays a
+// country's colour over the basemap at a zoom. `onState(working)` is told
+// when the pair starts or stops being able to do its work, so the caller can
+// fall back.
+export const createFrontBasemapLayers = ({ pictures, strength, onState, onError } = {}) => {
   const shared = { texture: null, width: 0, height: 0, taken: false, working: null };
   const tell = (working) => {
     if (shared.working === working) return;
@@ -239,6 +253,7 @@ export const createFrontBasemapLayers = ({ pictures, onState, onError } = {}) =>
           base: uniform("u_base"),
           mask: uniform("u_mask"),
           size: uniform("u_size"),
+          strength: uniform("u_strength"),
         };
         this._variant = data.variantName;
         return true;
@@ -280,12 +295,14 @@ export const createFrontBasemapLayers = ({ pictures, onState, onError } = {}) =>
         if (program.clip) gl.uniform4fv(program.clip, projection.clippingPlane ?? [0, 0, 0, 0]);
         if (program.transition) gl.uniform1f(program.transition, Number(projection.projectionTransition ?? 0));
         gl.uniform2f(program.size, shared.width, shared.height);
+        const laid = typeof strength === "function" ? Number(strength(this._map?.getZoom?.() ?? 0)) : 0.62;
+        gl.uniform1f(program.strength, Number.isFinite(laid) ? Math.max(0, Math.min(1, laid)) : 0.62);
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, shared.texture);
         gl.uniform1i(program.base, 0);
         gl.uniform1i(program.mask, 1);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
         gl.bindBuffer(gl.ARRAY_BUFFER, this._buffer);
         gl.enableVertexAttribArray(program.pos);
         gl.enableVertexAttribArray(program.uv);

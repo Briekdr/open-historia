@@ -37,7 +37,7 @@ import { latToY, projectorOf, yToLat } from "../../runtime/fronts/frame.js";
 import { useWorldState } from "./useWorldState.js";
 import { createOwnerRgbResolver, ownerDisplayCss, parseColorToRgb } from "./ownerColors.js";
 import { enforceMapLayerOrder } from "./mapLayerOrder.js";
-import { POLITICAL_FILL_OPACITY_STOPS } from "./vnext/presentationPolicy.js";
+import { POLITICAL_FILL_OPACITY_STOPS, politicalFillOpacityAtZoom } from "./vnext/presentationPolicy.js";
 import { getFrontTargets, settleFront, startFrontsSync, subscribeFronts } from "./frontsController.js";
 import { arrowDetailAt, frontArrowFeatures, frontArrowRgb, frontAt, frontShownOn, frontTroopFeatures, stageOf } from "./frontGeometry.js";
 import { PAINT_WALL } from "../../runtime/fronts/codec.js";
@@ -293,15 +293,10 @@ const FrontLayers = () => {
     const mapInstance = map?.getMap?.() ?? map;
     if (!mapInstance || !painted) return undefined;
     const { take, put } = createFrontBasemapLayers({
-      // Only a picture the map has taken and is drawing: the territory's colour is
-      // never taken away from under paint that is not there to stand in its place.
-      pictures: () => picturesRef.current.filter((picture) => {
-        try {
-          return Boolean(mapInstance.getLayer(frontPaintLayerId(picture.slot))) && mapInstance.isSourceLoaded(frontPaintSourceId(picture.slot));
-        } catch {
-          return false;
-        }
-      }),
+      // (The layer draws the painted ground whole, the bare map and the colour over it, from the
+      // picture itself: it does not wait on the map's own copy of the picture, nor need it.)
+      pictures: () => picturesRef.current,
+      strength: politicalFillOpacityAtZoom,
       onState: (working) => setSeenThrough(working === true),
       onError: (error) => console.warn("[fronts] the bare map could not be put back under the painted ground; it is cleared to grey instead.", error),
     });
@@ -955,7 +950,8 @@ const FrontLayers = () => {
             type="raster"
             beforeId={paintBefore}
             paint={{
-              "raster-opacity": PAINT_OPACITY,
+              // (Drawn by the layer that puts the bare map back, with it, where that layer works.)
+              "raster-opacity": seenThrough ? 0 : PAINT_OPACITY,
               "raster-resampling": "linear",
               "raster-fade-duration": 0,
             }}
