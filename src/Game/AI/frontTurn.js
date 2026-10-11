@@ -171,8 +171,13 @@ export const planFrontMoments = ({ events = [], frontOrders = [], warsBefore = [
     if (!isRecord(order) || order.problem) continue;
     const bound = asArray(order.eventIds).map((id) => dayById.get(clean(id))).filter((day) => day !== undefined);
     const held = settled instanceof Set && settled.has(foldBattlefieldName(order.battlefield));
+    // An order a player's action gave through the skip's own function
+    // (frontOrderFunction.js) is carried out from the day it was given, on a
+    // battlefield that was fought beforehand as on any other: the period was
+    // fought again with it, and that is the period the story told.
+    const given = order.now === true ? diffGameDays(fromDate, order.date) : null;
     const moment = {
-      day: held ? days : bound.length ? Math.min(...bound) : 0,
+      day: order.now === true ? Math.max(0, Math.min(Math.max(0, days - 1), given ?? (Number(order.day) || 0))) : held ? days : bound.length ? Math.min(...bound) : 0,
       type: "order",
       battlefield: clean(order.battlefield),
       side: clean(order.side),

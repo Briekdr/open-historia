@@ -219,5 +219,5 @@ test("the world keeps its transporters, shows them to everyone in a shared game,
   const apply = read("frontApply.js");
   assert.match(apply, /const fighting = \(world\) => onBattlefields\(world\) \|\| asArray\(world\?\.transports\)\.some\(isUnderWay\);/, "a transporter under way is reason enough to fight the period before its story");
   assert.match(apply, /hashOf\(JSON\.stringify\(asArray\(world\?\.transports\)\)\),/, "and a period worked out is kept only while they are as they were");
-  assert.match(apply, /transports: asArray\(run\.transports\), voyages: asArray\(run\.voyages\) \}/);
+  assert.match(apply, /transports: asArray\(run\.transports\), voyages: asArray\(run\.voyages\), /);
 });

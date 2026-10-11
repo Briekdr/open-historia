@@ -97,7 +97,7 @@ test("the story is told what the engine gives, on every level but Medium", async
   assert.ok(told.indexOf(hard) < told.indexOf("Battlefields open now:"), "it stands with the rules, above the battlefields");
   assert.equal(plain.includes("The difficulty is"), false);
   // The skip's block is given the game's level.
-  assert.match(read("frontApply.js"), /buildFrontsBlock\(\{ battlefields: world\?\.battlefields, players: humanCountriesOf\(game\), period: foreseen, transports: world\?\.transports, difficulty: normalizeDifficulty\(game\?\.difficulty\) \}\)/);
+  assert.match(read("frontApply.js"), /buildFrontsBlock\(\{ battlefields: world\?\.battlefields, players: humanCountriesOf\(game\), period: foreseen, transports: world\?\.transports, difficulty: normalizeDifficulty\(game\?\.difficulty\), orderFunction: /);
 });
 
 test("the player is told too: in the war room, and where the level is chosen", () => {

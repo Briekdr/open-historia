@@ -5,8 +5,9 @@
 //
 // Three things a turn has to get right about command:
 //   - what a person TYPES as an action is their order ("I withdraw my troops",
-//     "north-west dig trenches, the south pushes for the city"): the story
-//     writes it as their lines, and it is carried out in that very skip;
+//     "north-west dig trenches, the south pushes for the city"): the skip's
+//     model gives it to their troops through a function, the period is fought
+//     again with it, and it is carried out in that very skip;
 //   - on a side of several countries each commands its own, and an ally of a
 //     player's does what the two agreed in their talks;
 //   - a war between countries nobody plays is fought like any other.
@@ -23,7 +24,7 @@ import { createFrontRun } from "../../runtime/fronts/engine.js";
 import { projectorOf } from "../../runtime/fronts/frame.js";
 import { syntheticMap } from "../../runtime/fronts/syntheticMap.js";
 import { playerFronts } from "../GameUI/warRoomData.js";
-import { actionsCommandTroops } from "./frontApply.js";
+import { FRONT_ORDER_FUNCTION, GIVEN_ORDERS_MOST, readGivenOrders, withFrontOrderFunction } from "./frontOrderFunction.js";
 import { alliesRule, buildFrontsBlock } from "./frontPrompt.js";
 import { runTurnFronts } from "./frontTurn.js";
 import { bindFrontOrdersToEvents, screenFrontOrders } from "./nativeFrontLedger.js";
@@ -80,35 +81,99 @@ const troopsOf = (record, side) => {
 const mean = (values) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
 const STATE_DUG_IN = 4;
 
-test("a turn whose actions command the player's troops is asked for without its period fought first", () => {
-  const map = sheet();
-  const game = { country: "Aland", gameDate: "2024-03-01" };
-  const front = { name: "The Front", status: "active", sides: [["Aland"], ["Borduria"]] };
-  const atWar = worldOn(map, [WAR], { battlefields: [front] });
-  const action = (text, extra = {}) => ({ id: `a-${text.length}`, kind: "action", status: "planned", text, title: text.slice(0, 40), ...extra });
-  const asks = (world, ...texts) => actionsCommandTroops({ world, game, actions: texts.map((text) => (typeof text === "string" ? action(text) : text)) });
-  // What a person types to their troops.
-  assert.equal(asks(atWar, "I withdraw my troops from Borduria."), true);
-  assert.equal(asks(atWar, "Have the troops in the north west dig trenches and have the southern troops all push toward Brod."), true);
-  assert.equal(asks(atWar, "Pull back to the river and hold the line there"), true);
-  assert.equal(asks(atWar, "Launch a spring offensive"), true);
-  // Naming the battlefield is enough, in whatever words.
-  assert.equal(asks(atWar, "Sur The Front, on ne bouge plus."), true);
-  // What has nothing to do with them, or is not waiting to be done, or is a chat.
-  assert.equal(asks(atWar, "Raise the income tax to 20% and open talks with Neutralia."), false);
-  assert.equal(asks(atWar, action("Withdraw my troops", { status: "done" })), false);
-  assert.equal(asks(atWar, action("Withdraw my troops", { kind: "chat" })), false);
-  assert.equal(asks(atWar), false);
-  // At peace an order to attack begins a war, which is fought from its day; talk of troops alone is no order to any battlefield.
-  const atPeace = worldOn(map, []);
-  assert.equal(asks(atPeace, "Invade Borduria at dawn with everything we have."), true);
-  assert.equal(asks(atPeace, "Parade the troops through Alba on the national day."), false);
-  // A battlefield somebody else fights on is not the player's to order.
-  const elsewhere = worldOn(map, [WAR], { battlefields: [{ ...front, sides: [["Cisland"], ["Borduria"]] }] });
-  assert.equal(asks(elsewhere, "Reinforce the garrison of Alba."), false);
-  // The skip reads it before it would fight the period.
+// "No, the action should not keyword, just make the ai function call to
+// regenerate the events with that action. Make it so the battle that happens
+// that's given to the ai's context before it generates the events is basically
+// what would happen if the user does not give any actions that change that."
+test("a player's typed order reaches their troops through the function the skip's model calls, and the period is fought again with it", async () => {
+  // Nothing reads an action's words for troop commands any more: the period is always fought first.
   const skip = read("./gameplay.js");
-  assert.match(skip, /const frontsForecast = actionsCommandTroops\(\{ world: bundle\.world, game: bundle\.game, actions: bundle\.actions \}\) \? null : await forecastTurnFronts\(\{/);
+  assert.equal(skip.includes("actionsCommandTroops"), false);
+  assert.equal(read("./frontApply.js").includes("COMMAND_WORDS"), false);
+  assert.match(skip, /const foughtBefore = await forecastTurnFronts\(\{\s*world: bundle\.world,/);
+  assert.match(skip, /if \(frontsForecast\) frontsForecast\.orderFunction = segmentCount === 1 && plannedActionCount > 0;/);
+  assert.match(skip, /lookups: withFrontOrderFunction\(buildTaskLookups\(segmentBundle\), frontOrderCall\(context\)\),/);
+  assert.match(skip, /frontsGiven: normalizeArray\(context\.variables\?\.frontsForecast\?\.given\),/);
+  assert.match(skip, /givenOrders: normalizeArray\(result\.frontsGiven\),/);
+  // (It is no lookup: the lookup directive is not said for it alone.)
+  assert.match(skip, /lookups\.tools\.some\(\(tool\) => tool\?\.name !== FRONT_ORDER_FUNCTION\)\) blocks\.push\(LOOKUP_DIRECTIVE\);/);
+
+  // The lines of a call: the player's own, each with the day it is given.
+  const read2 = (text) => readGivenOrders(text, { players: ["Aland"], fromDate: "2024-03-01", days: 10 });
+  const { given, refused } = read2([
+    "The Front~Aland~dig in~north~~",
+    "The Front~Aland~push~south~2024-03-04~city: Brod",
+    "The Front~Aland~withdraw~all~2025-01-01",
+    "The Front~Borduria~advance~all~~",
+    "strike~Aland~missile strike~~~city: Brod",
+    "The Front~Aland~dance~all~~",
+  ].join("\n"));
+  assert.deepEqual(given.map((order) => [order.side, order.order, order.sector, order.objective, order.date, order.day, order.now]), [
+    ["Aland", "dig in", "north", "", "2024-03-01", 0, true],
+    ["Aland", "advance", "south", "city: Brod", "2024-03-04", 3, true],
+    // (A day outside the period is its first.)
+    ["Aland", "withdraw", "all", "", "2024-03-01", 0, true],
+  ]);
+  assert.equal(refused.length, 3);
+  assert.match(refused.join("\n"), /Borduria is not a country a person plays/);
+  assert.match(refused.join("\n"), /a strike or a transporter goes in frontOrders/);
+  assert.equal(read2(Array.from({ length: 20 }, () => "The Front~Aland~hold~all~~").join("\n")).given.length, GIVEN_ORDERS_MOST);
+
+  // The function beside a task's others: it is answered once, and the rest still answer.
+  const fought = [];
+  const offered = withFrontOrderFunction({ tools: [{ name: "list_powers", schema: {} }], execute: async (name) => `looked up ${name}`, maxRounds: 2 }, {
+    players: ["Aland"], fromDate: "2024-03-01", days: 10,
+    refight: async (orders) => { fought.push(orders); return "- The Front: as it now went."; },
+  });
+  assert.deepEqual(offered.tools.map((tool) => tool.name), [FRONT_ORDER_FUNCTION, "list_powers"]);
+  assert.equal(offered.maxRounds, 2);
+  assert.equal(await offered.execute("list_powers", {}), "looked up list_powers");
+  assert.match(await offered.execute(FRONT_ORDER_FUNCTION, { orders: "The Front~Borduria~advance~all~~" }), /^No order was taken, so the period stands as you were shown it\./);
+  const answer = await offered.execute(FRONT_ORDER_FUNCTION, { orders: "The Front~Aland~withdraw~all~~" });
+  assert.match(answer, /^The period fought again with that order, each from the day it was given\. This replaces the battlefields you were shown: write the events from it, and do not write these orders again in frontOrders\.\n- The Front: as it now went\.$/);
+  assert.equal(fought.length, 1);
+  assert.match(await offered.execute(FRONT_ORDER_FUNCTION, { orders: "The Front~Aland~advance~all~~" }), /fought again once already/);
+  assert.equal(fought.length, 1);
+  // Not offered: a task's own functions are what they were, and nothing is added to none.
+  assert.equal(withFrontOrderFunction(null, {}), null);
+  // With no lookups of the task's own it is the one function there is.
+  assert.deepEqual(withFrontOrderFunction(null, { refight: async () => "" }).tools.map((tool) => tool.name), [FRONT_ORDER_FUNCTION]);
+
+  // The story is told to call it, where the period was fought beforehand and the function is there.
+  const map = sheet();
+  const world = worldOn(map, [WAR], { countryStats: { Aland: { population: { total: 6e6 } }, Borduria: { population: { total: 5e5 } } } });
+  const opened = await runTurnFronts(turn(map, world, { fromDate: "2024-02-20", toDate: "2024-03-01", seed: "campaign|1|2024-02-20" }));
+  const fighting = { ...world, battlefields: opened.battlefields };
+  const [front] = opened.battlefields;
+  // The period as it goes with no new order from the player: this is what the model is shown first.
+  const quiet = await runTurnFronts(turn(map, fighting, { players: ["Aland"], foretold: true }));
+  const period = { fromDate: "2024-03-01", toDate: "2024-03-11", days: 10, battlefields: quiet.battlefields, news: quiet.news, voyages: [], transports: [] };
+  const block = buildFrontsBlock({ battlefields: fighting.battlefields, players: ["Aland"], period, orderFunction: true });
+  assert.match(block, /The battlefields below are the period as it goes if that person gives its troops NO new order\. If an action of this turn does give its troops one \(to attack, push for a place, dig in, hold, fall back, withdraw, or anything of the kind\), call order_troops FIRST, before you write any event/);
+  assert.match(block, /`NAME~X~dig in~northwest~~` and `NAME~X~advance~south~~city: Y`; to pull out is `NAME~X~withdraw~all~~`/);
+  assert.match(block, /Do not write such an order again in frontOrders\. With no such action, call nothing\./);
+  // Without the function the rule is the one it was: the order waits for the next period.
+  assert.match(buildFrontsBlock({ battlefields: fighting.battlefields, players: ["Aland"], period }), /Such an order is carried out next period/);
+  // What the function answers with is the battlefields alone, with none of the rules above them.
+  const list = buildFrontsBlock({ battlefields: fighting.battlefields, players: ["Aland"], period, listOnly: true });
+  assert.ok(list.startsWith("Battlefields, as the period from 2024-03-01 to 2024-03-11 leaves them:"), list.slice(0, 80));
+  assert.equal(list.includes("played by a person"), false);
+
+  // Fought again with the order, the period is another period: given on the 3rd, the withdrawal is done within it.
+  const orders = readGivenOrders(`${front.name}~Aland~withdraw~all~2024-03-03`, { players: ["Aland"], fromDate: "2024-03-01", days: 10 }).given;
+  const again = await runTurnFronts(turn(map, fighting, { players: ["Aland"], frontOrders: orders }));
+  assert.ok(troopsOf(quiet.battlefields[0], 0).length > 0, "with no order they are still there");
+  assert.equal(troopsOf(again.battlefields[0], 0).length, 0, "with it they have gone");
+  assert.deepEqual(again.battlefields[0].orders.filter((entry) => entry.s === 0).map((entry) => [entry.order, entry.since]), [["withdraw", "2024-03-03"]]);
+  // And the turn is applied as that same run: on a battlefield whose period was told, an order of the
+  // answer's own waits for the period's end, and one the function was given does not.
+  const applied = await runTurnFronts(turn(map, fighting, { players: ["Aland"], foretold: true, frontOrders: orders }));
+  assert.deepEqual(applied.battlefields[0].troops, again.battlefields[0].troops);
+  const waiting = await runTurnFronts(turn(map, fighting, { players: ["Aland"], foretold: true, frontOrders: orders.map(({ now, date, day, ...order }) => order) }));
+  assert.ok(troopsOf(waiting.battlefields[0], 0).length > 0, "an order of the answer's own is for the period after");
+  const apply = read("./frontApply.js");
+  assert.match(apply, /frontOrders: \[\.\.\.asArray\(givenOrders\)\.filter\(\(order\) => order\?\.now === true\), \.\.\.asArray\(frontOrders\)\],/);
+  assert.match(apply, /frontOrders: asArray\(given\),/);
 });
 
 test("what a person types is written as their own order lines, which stand because the event carries their action out", async () => {

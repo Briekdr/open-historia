@@ -194,32 +194,6 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
   };
 };
 
-// ---- a person's orders, typed as actions ----------------------------------------------
-
-// Whether what the people playing have typed as actions this turn tells their
-// troops what to do: an action that speaks of troops, a line, an attack or a
-// withdrawal, from somebody whose troops are on a battlefield (or who is at
-// peace and orders an attack: the war that begins is fought from its day).
-// The story turns such an action into the player's own order lines
-// (frontPrompt.js playerRule). So the turn is asked for WITHOUT its period
-// being fought first: the orders are then carried out in this very period,
-// from the day of the event that gives them, and not put off to the next.
-const COMMAND_WORDS = /\b(withdraw\w*|pull(?:s|ed|ing)? (?:out|back)|retreat\w*|fall(?:s|ing)? back|dig(?:s|ging)? (?:in|trenches)|entrench\w*|trench\w*|fortif\w*|hold(?:s|ing)? (?:the |our |my |their )?(?:line|ground|position|front)\w*|advanc\w*|attack\w*|push\w*|assault\w*|offensive\w*|encircl\w*|outflank\w*|flank\w*|storm\w*|invad\w*|invasion\w*|blitz\w*|spearhead\w*|march\w*|troops?|arm(?:y|ies)|divisions?|brigades?|soldiers|forces|front ?lines?|the front|garrison\w*|regroup\w*|redeploy\w*|deploy\w*)\b/i;
-const ATTACK_WORDS = /\b(attack\w*|invad\w*|invasion\w*|declar\w* war|assault\w*|offensive\w*)\b/i;
-export const actionsCommandTroops = ({ world = {}, game = {}, actions = [] } = {}) => {
-  if (!frontsOn()) return false;
-  const planned = asArray(actions).filter((action) => isRecord(action) && clean(action.status) === "planned" && fold(action.kind) !== "chat");
-  if (planned.length === 0) return false;
-  const humans = humanCountriesOf(game).map(fold);
-  const mine = asArray(world?.battlefields).filter((row) => row && row.status !== "closed"
-    && asArray(row.sides).some((members) => asArray(members).some((member) => humans.includes(fold(member)))));
-  return planned.some((action) => {
-    const text = `${clean(action.text)} ${clean(action.title)}`;
-    if (mine.some((row) => clean(row.name) && fold(text).includes(fold(row.name)))) return true;
-    return COMMAND_WORDS.test(text) && (mine.length > 0 || ATTACK_WORDS.test(text));
-  });
-};
-
 // ---- the period, fought before its story is written -------------------------------------
 
 // The last period worked out, kept while the same turn is being asked for: a
@@ -229,17 +203,22 @@ let foreseen = { key: "", value: null };
 // Runs the front engine over the days a turn is ABOUT to cover, under the
 // orders that already stand (the campaign's, and what was ordered in the war
 // room), before the story of those days is asked for. Nothing is written: the
-// world is the caller's own and stays as it is.
+// world is the caller's own and stays as it is. It is the period as it goes IF
+// NO PLAYER ORDERS ANYTHING NEW in it. A player's action of the turn may do
+// just that: the skip's model then calls a function with the order
+// (frontOrderFunction.js) and the period is fought again here with it
+// (`given`), each such order from the day it was given.
 //   world, game    the turn's world and game as they were read for it
 //   toDate         the date the turn is to land on
 //   requestedDays  how long the skip is, where the calendar cannot be counted
 //   loadRegions    reads the map's regions file, should the engine need it
-// Returns { fromDate, toDate, days, battlefields, news, flips }: the
+//   given          the orders players' actions gave, as readGivenOrders reads them
+// Returns { fromDate, toDate, days, battlefields, news, flips, given? }: the
 // battlefields as the period leaves them and what happened on them, or null
 // when there is nothing to tell (fronts off, no battlefield being fought, no
 // whole day to run, or the map could not be read). Then the turn is asked for
 // as it always was and the engine runs after it.
-export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "", toDate = "", requestedDays = 0, loadRegions = null, signal = null } = {}) => {
+export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "", toDate = "", requestedDays = 0, loadRegions = null, signal = null, given = [] } = {}) => {
   if (!frontsOn() || !fighting(world)) return null;
   const fromDate = clean(game?.gameDate);
   const target = clean(toDate) || fromDate;
@@ -252,6 +231,7 @@ export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "
       hashOf(JSON.stringify(asArray(world?.wars))),
       hashOf(JSON.stringify(asArray(world?.transports))),
       hashOf(JSON.stringify(asArray(world?.units).map((unit) => [unit?.id, unit?.committedTo, unit?.lng, unit?.lat, unit?.strength]))),
+      hashOf(JSON.stringify(asArray(given))),
     ].join("|");
     if (foreseen.key === key) return foreseen.value;
     const startedAt = Date.now();
@@ -259,7 +239,7 @@ export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "
       ...turnRunInput({ world, game, campaignId, loadRegions, signal, round, fromDate }),
       world: planned,
       events: [],
-      frontOrders: [],
+      frontOrders: asArray(given),
       warStages: [asArray(world?.wars)],
       fromDate,
       toDate: target,
@@ -267,7 +247,7 @@ export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "
     });
     const days = Number(run?.stats?.days) || 0;
     const value = run?.battlefields && days > 0
-      ? { fromDate, toDate: target, days, battlefields: run.battlefields, news: asArray(run.news), flips: asArray(run.flips), transports: asArray(run.transports), voyages: asArray(run.voyages) }
+      ? { fromDate, toDate: target, days, battlefields: run.battlefields, news: asArray(run.news), flips: asArray(run.flips), transports: asArray(run.transports), voyages: asArray(run.voyages), ...(asArray(given).length ? { given: asArray(given) } : {}) }
       : null;
     foreseen = { key, value };
     if (value) {
@@ -291,6 +271,9 @@ export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "
 //   foretold      true when the turn was asked for with its period already
 //                 fought and told (forecastTurnFronts): the run is that one
 //                 again, and the answer's orders are for the period after
+//   givenOrders   the orders players' actions gave through the skip's function
+//                 (frontOrderFunction.js), which the period was fought again
+//                 with: carried out from the day each was given
 // Returns null when fronts are off. Otherwise { events, battlefields,
 // unitChanges, ... }: the events with what an earlier apply's run added taken
 // out and this run's changes of hands put on, the battlefields to write (null
@@ -304,6 +287,7 @@ export const applyTurnFronts = async ({
   events = [],
   foretold = false,
   frontOrders = [],
+  givenOrders = [],
   loadRegions = null,
   nextGame = {},
   receipt = null,
@@ -326,7 +310,7 @@ export const applyTurnFronts = async ({
       // operations sent, and a side warned by its agents dug in.
       world: await plannedWorld(baseWorld, baseGame),
       events,
-      frontOrders,
+      frontOrders: [...asArray(givenOrders).filter((order) => order?.now === true), ...asArray(frontOrders)],
       warStages: warStagesOf({ wars: baseWorld?.wars, updates: warUpdates, events, stopDate: toDate, round }),
       fromDate,
       toDate,
@@ -576,7 +560,13 @@ export const withFrontUnits = (world, fronts) => {
 // gave for the turn, when it gave anything: the block then tells the
 // battlefields as the period leaves them and what happened on them.
 export const frontsLiveBlock = (world, game, foreseen = null) => (frontsOn()
-  ? buildFrontsBlock({ battlefields: world?.battlefields, players: humanCountriesOf(game), period: foreseen, transports: world?.transports, difficulty: normalizeDifficulty(game?.difficulty) })
+  ? buildFrontsBlock({ battlefields: world?.battlefields, players: humanCountriesOf(game), period: foreseen, transports: world?.transports, difficulty: normalizeDifficulty(game?.difficulty), orderFunction: foreseen?.orderFunction === true })
+  : "");
+
+// The battlefields of a period fought again with a player's orders, with no
+// rules above them: what the skip's function answers (frontOrderFunction.js).
+export const frontsListBlock = (world, game, foreseen) => (frontsOn() && foreseen
+  ? buildFrontsBlock({ battlefields: world?.battlefields, players: humanCountriesOf(game), period: foreseen, transports: world?.transports, listOnly: true })
   : "");
 
 // What the simulator is told of the plans agents have carried off from the

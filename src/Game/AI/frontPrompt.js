@@ -38,6 +38,7 @@
 import { difficultyMeta } from "../../runtime/difficulty.js";
 import { describeBattlefield, describeSince } from "../../runtime/fronts/brief.js";
 import { FAIR_EDGE, edgeOfDifficulty, handicapOf } from "../../runtime/fronts/handicap.js";
+import { FRONT_ORDER_FUNCTION } from "./frontOrderFunction.js";
 import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts/record.js";
 import { loadOf, normalizeTransports } from "../../runtime/fronts/transports.js";
 import { FRONT_ORDERS_FIELD } from "./nativeFrontLedger.js";
@@ -97,11 +98,21 @@ const FOUGHT_RULES = [
 ].join("\n");
 
 // The countries and groups people play: their troops are theirs to order.
-const playerRule = (players, fought) => {
+const playerRule = (players, fought, orderFunction = false) => {
   const names = asArray(players).map(clean).filter(Boolean);
   if (names.length === 0) return "";
   const who = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   const one = names.length === 1;
+  // The period was fought beforehand, as it goes with no new order from a
+  // player, and the skip has the function that fights it again with one
+  // (frontOrderFunction.js): the order is given there, not in a line here.
+  if (fought && orderFunction) {
+    return `${who} ${one ? "is" : "are each"} played by a person: write no order for ${one ? "it" : "them"} of your own. `
+      + `The battlefields below are the period as it goes if ${one ? "that person gives its" : "those people give their"} troops NO new order. `
+      + `If an action of this turn does give ${one ? "its" : "their"} troops one (to attack, push for a place, dig in, hold, fall back, withdraw, or anything of the kind), call ${FRONT_ORDER_FUNCTION} FIRST, before you write any event, with a line for each stretch of line the action speaks of (north-west troops to dig trenches and the southern ones to push for a city are two lines, \`NAME~X~dig in~northwest~~\` and \`NAME~X~advance~south~~city: Y\`; to pull out is \`NAME~X~withdraw~all~~\`). `
+      + "The period is fought again with it and you are given the war as it then went: that is what your events tell, and the event that carries the action tells what came of the order. Do not write such an order again in frontOrders. "
+      + "With no such action, call nothing. What came of a battle they are in may always be stated as a result, with the order field left empty.";
+  }
   return `${who} ${one ? "is" : "are each"} played by a person: write no order for ${one ? "it" : "them"} of your own. `
     // What a person types as an action is how they command: it becomes lines here.
     + `But what that person tells ${one ? "its" : "their"} troops to do in an action of this turn IS ${one ? "its" : "their"} order, and you write it for them: a line for each stretch of line the action speaks of, with the sector and the objective it names, resting on the event that carries the action out (north-west troops to dig trenches and the southern ones to push for a city are two lines, \`NAME~X~dig in~northwest~4\` and \`NAME~X~advance~south~4~city: Y\`; to pull out is \`NAME~X~withdraw~all~4\`). `
@@ -329,14 +340,17 @@ export const describeTransports = ({ transports = [], voyages = [], fought = fal
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 };
 
-export const buildFrontsBlock = ({ battlefields = [], players = [], max = FRONTS_BLOCK_MAX, period = null, transports = [], difficulty = "" } = {}) => {
+// `orderFunction`: the skip has the function that gives a player's troops
+// their orders (frontOrderFunction.js). `listOnly`: the battlefields with no
+// rules above them, which is what that function answers with.
+export const buildFrontsBlock = ({ battlefields = [], players = [], max = FRONTS_BLOCK_MAX, period = null, transports = [], difficulty = "", orderFunction = false, listOnly = false } = {}) => {
   const began = normalizeBattlefields(battlefields);
   // A period that was fought: its battlefields, or a transporter that sailed in it.
   const fought = Boolean(period) && (asArray(period.battlefields).length > 0 || asArray(period.voyages).length > 0);
   const carried = describeTransports({ transports: fought ? period.transports : transports, voyages: fought ? period.voyages : [], fought });
-  const rule = playerRule(players, fought);
+  const rule = playerRule(players, fought, orderFunction === true);
   const records = fought ? normalizeBattlefields(period.battlefields) : began;
-  const head = [fought ? FOUGHT_RULES : FRONT_RULES, rule, alliesRule(records, players), difficultyRule(records, players, difficulty)].filter(Boolean).join("\n");
+  const head = listOnly ? "" : [fought ? FOUGHT_RULES : FRONT_RULES, rule, alliesRule(records, players), difficultyRule(records, players, difficulty)].filter(Boolean).join("\n");
   const open = byWeight(records.filter(isOpen), players);
   // A battlefield that was open as the period began and that the period closed.
   const wasOpen = new Map(began.filter(isOpen).map((record) => [foldBattlefieldName(record.name), record]));
@@ -394,7 +408,7 @@ export const buildFrontsBlock = ({ battlefields = [], players = [], max = FRONTS
     ended.push(line);
     room -= line.length + 1;
   }
-  const block = [head, title, ...lines, ...ended, ...(unlisted > 0 ? [more(unlisted)] : []), ...(carried ? [carried] : [])].join("\n");
+  const block = [...(head ? [head] : []), title, ...lines, ...ended, ...(unlisted > 0 ? [more(unlisted)] : []), ...(carried ? [carried] : [])].join("\n");
   return block.length > max ? block.slice(0, max) : block;
 };
 
