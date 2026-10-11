@@ -86,6 +86,12 @@ test("the battlefield layer uses the pair, and clears to grey only where the map
   // picture, and then pale lines along every edge of the painted ground where the two drawings met.
   assert.ok(layers.includes("pictures: () => picturesRef.current,"));
   assert.ok(layers.includes("strength: politicalFillOpacityAtZoom,"));
+  // The map's layers are sorted only when one of the two has just been added, never on every change
+  // of style: sorting them each time moved every layer and sent whatever had just been added (a
+  // border, a troop layer) under the territory. "All the country borders and troops keep
+  // disappearing irregularly while reading through events."
+  assert.ok(layers.includes("if (added) enforceMapLayerOrder(mapInstance);"));
+  assert.equal(layers.split("mapInstance.addLayer(put);\n        enforceMapLayerOrder(mapInstance);").length, 1);
   // So the map's own two picture layers are drawn only where the map cannot be copied.
   assert.match(layers, /"raster-opacity": seenThrough \? 0 : PAINT_CLEAR_OPACITY,/);
   assert.match(layers, /"raster-opacity": seenThrough \? 0 : PAINT_OPACITY,/);

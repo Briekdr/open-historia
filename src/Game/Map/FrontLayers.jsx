@@ -303,9 +303,21 @@ const FrontLayers = () => {
     const add = () => {
       try {
         if (!mapInstance.style) return;
-        if (!mapInstance.getLayer(FRONT_BASEMAP_TAKE_LAYER_ID)) mapInstance.addLayer(take);
-        if (!mapInstance.getLayer(FRONT_BASEMAP_PUT_LAYER_ID)) mapInstance.addLayer(put);
-        enforceMapLayerOrder(mapInstance);
+        // The layers are put in their places ONLY when one of these two has just been added. This is
+        // asked on every change of the map's style, and to sort the map's layers each time was to
+        // sort them whenever anything else added one: every layer moved, and the newcomer (a border
+        // being redrawn, a troop layer, a highlight) sent under the territory. While a turn was read,
+        // borders and troops kept vanishing and the map stuttered.
+        let added = false;
+        if (!mapInstance.getLayer(FRONT_BASEMAP_TAKE_LAYER_ID)) {
+          mapInstance.addLayer(take);
+          added = true;
+        }
+        if (!mapInstance.getLayer(FRONT_BASEMAP_PUT_LAYER_ID)) {
+          mapInstance.addLayer(put);
+          added = true;
+        }
+        if (added) enforceMapLayerOrder(mapInstance);
       } catch { /* the map is between styles: asked again when the next has loaded */ }
     };
     add();
