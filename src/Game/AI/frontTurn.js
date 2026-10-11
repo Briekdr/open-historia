@@ -26,6 +26,7 @@
 
 import { diffGameDays, gameDateYear } from "../../runtime/gameDates.js";
 import { arenaFor } from "../../runtime/fronts/arena.js";
+import { SCENARIO_MARK } from "../../runtime/fronts/constants.js";
 import { pointInFrame } from "../../runtime/fronts/frame.js";
 import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts/record.js";
 import { TRANSPORT_LOAD_USUAL, TRANSPORT_ORDERS, isUnderWay, normalizeTransports, orderTransport } from "../../runtime/fronts/transports.js";
@@ -190,6 +191,13 @@ export const planFrontMoments = ({ events = [], frontOrders = [], warsBefore = [
     if (isRecord(order.objectiveAt) && Number.isFinite(Number(order.objectiveAt.lng)) && Number.isFinite(Number(order.objectiveAt.lat))) moment.objectiveAt = { lng: Number(order.objectiveAt.lng), lat: Number(order.objectiveAt.lat) };
     if (clean(order.result)) moment.result = clean(order.result);
     if (clean(order.effort)) moment.effort = clean(order.effort);
+    // Whose order it is, for the engine: what a scenario's author made the
+    // front; a person's own, given through the skip's function; or the story's
+    // with no event of its answer behind it (which opens no war by itself and
+    // does not end a posture a scenario set: runtime/fronts/constants.js).
+    if (order.mark === SCENARIO_MARK) moment.mark = SCENARIO_MARK;
+    else if (order.now === true) moment.given = true;
+    else if (bound.length === 0) moment.unbound = true;
     if (moment.battlefield && moment.side && (moment.order || moment.result)) moments.push(moment);
   }
 
@@ -637,6 +645,8 @@ const NOTE_TEXT = {
   },
   "no-pocket-there": (notes) => `A surrender was stated where no troops are cut off (${quoted(notes, "detail")}). Only a whole side, or the troops of a pocket, can be made to surrender.`,
   // The war it was for is not named: a war has a title only sometimes, and never an id a model is shown.
+  "minor-attack": (notes) => `An attack across a border at peace opened no war and no battlefield (${quoted(notes, "side")}): it was given no effort, or token or limited, and no war between the two was opened in warUpdates. A border clash, a raid or an incident is told with the formations that fought it (unitOps), as before. A real invasion is ordered at effort major or total, or with its war opened in warUpdates.`,
+  "posture-stands": (notes) => `An order to attack was not carried out (${quoted(notes, "side")} on ${quoted(notes, "battlefield")}): that side's posture there (${quoted(notes, "detail")}) is what the scenario's author made the front, and it stands until an event changes it. Give the order the number of the event in which the side goes over to the attack.`,
   "too-many-battlefields": () => "No more battlefields can be open at once, so a front that should have opened did not. It opens when another closes.",
   tempo: () => "The fronts stopped moving for the rest of the period: this scenario's ceiling on how fast the map may change was reached.",
   "transport-refused": (notes) => `${one(notes, "detail") ? "A transporter was" : "Transporters were"} not sent (${quoted(notes, "detail")}). One is sent to a place on the map that its kind can reach (a ship to a coast, rail through land its side holds): by a side at war, or in peace to another country's land, which is an attack on it.`,

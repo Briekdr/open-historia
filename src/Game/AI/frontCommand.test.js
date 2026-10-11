@@ -275,7 +275,7 @@ test("a war between countries nobody plays is fought in full: opened by the stor
   const world = worldOn(map, [], { countryStats: { Aland: { population: { total: 3e6 } }, Borduria: { population: { total: 1e6 } }, Cisland: { population: { total: 1e6 } } } });
   const events = normalizeEvents([event("e1", "2024-03-02"), event("e2", "2024-03-06")]);
   // One line is enough to begin it: Aland attacks across their border. Borduria is told to dig in.
-  const orders = screenFrontOrders(bindFrontOrdersToEvents(["border: Aland / Borduria~Aland~advance~all~1", "border: Aland / Borduria~Borduria~dig in~all~2"], events), { events, humanSides: ["Cisland"] });
+  const orders = screenFrontOrders(bindFrontOrdersToEvents(["border: Aland / Borduria~Aland~advance~all~1~~~major", "border: Aland / Borduria~Borduria~dig in~all~2"], events), { events, humanSides: ["Cisland"] });
   assert.equal(orders.dropped.length, 0, "neither is the player's: both lines stand");
   const run = await runTurnFronts(turn(map, world, { events, frontOrders: orders.kept, players: ["Cisland"], toDate: "2024-03-21" }));
   assert.deepEqual(run.starts.map((start) => [start.attacker, start.defender, start.date]), [["Aland", "Borduria", "2024-03-02"]]);
@@ -288,7 +288,7 @@ test("a war between countries nobody plays is fought in full: opened by the stor
   assert.ok(run.events.some((entry) => (entry.impacts?.regionControlOps ?? []).some((op) => op.by === "front")));
   // The story is told to fight and tell such wars like any other.
   const block = buildFrontsBlock({ battlefields: run.battlefields, players: ["Cisland"] });
-  assert.match(block, /Every war on the map is fought this way, between countries nobody plays as much as any other: when the story has two of them go to war, open it \(its warUpdates record, or an order to attack across their border\) and give each side its orders every period\./);
+  assert.match(block, /Every war on the map is fought this way, between countries nobody plays as much as any other: when the story has two of them go to war, open it \(its warUpdates record, or an order to attack across their border at effort major or total\) and give each side its orders when it opens and whenever the story changes what that side does there\./);
   assert.ok(block.includes(`- ${field.name}: Aland against Borduria`));
   // It is not the player's to command: the war room does not list it. The map draws every battlefield of the world.
   assert.equal(playerFronts(run.battlefields, "Cisland").length, 0);

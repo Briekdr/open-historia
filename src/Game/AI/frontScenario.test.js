@@ -107,8 +107,9 @@ test("the engine builds a scenario's fronts on the first day: named, manned as s
   assert.equal(war.openedDate, "1916-07-01");
   assert.equal(living(war, 0).length, 40, "as many as the author said");
   assert.ok(living(war, 1).length >= 6, "and the other side as many as its size gives");
-  // Borduria is told to dig in from the first day; Aland only holds.
-  assert.deepEqual(war.orders.map((order) => [order.s, order.order, order.sector]), [[1, "dig in", "all"]]);
+  // Borduria is told to dig in from the first day and Aland to hold: each is what the author made
+  // the front, and is marked as his, so that it stands until an event changes it.
+  assert.deepEqual(war.orders.map((order) => [order.s, order.order, order.sector, order.mark]), [[0, "hold", "all", "scenario"], [1, "dig in", "all", "scenario"]]);
   // Forty troops are three generals' commands: the two the author named, in
   // the order of their commands, and one he did not.
   assert.deepEqual(generalsOf(war, 0).map((general) => general.name), ["Gen. Haig", "Gen. Rawlinson", ""]);

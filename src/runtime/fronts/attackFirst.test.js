@@ -19,7 +19,9 @@ const legend = { A: "Aland", B: "Borduria", N: "Neutralia", "~": null };
 const cities = [{ name: "Alba", lng: 21.5, lat: 50.5, capital: true }, { name: "Brod", lng: 24.5, lat: 50.5, capital: true }];
 const sheet = (extra = {}) => syntheticMap({ layout: ["AAABBB", "AAABBB", "NNNNNN"], legend, west: 20, north: 51, step: 1, stepLat: 0.5, cities, ...extra });
 const peace = (world, overrides = {}) => frontInput(world, { wars: [], days: 10, ...overrides });
-const order = (day, battlefield, side, word, extra = {}) => ({ day, type: "order", battlefield, side, order: word, sector: "all", ...extra });
+// (An attack that begins a war is a real offensive: effort major. One with no effort is a border incident, tested at the foot.)
+const ATTACKS = ["advance", "blitz", "spearhead", "flank", "encircle", "assault", "land"];
+const order = (day, battlefield, side, word, extra = {}) => ({ day, type: "order", battlefield, side, order: word, sector: "all", ...(ATTACKS.includes(word) ? { effort: "major" } : {}), ...extra });
 const live = (record, side) => decodeTroops(record.troops[side]).filter((troop) => troop.strength > 0).length;
 
 test("an order to attack across a border in peace is the war beginning", () => {
@@ -161,4 +163,31 @@ test("a transporter sent in peace to another country's land is an attack: the wa
   assert.deepEqual(runFronts(peace(world, { days: 3, transports: home.transports })).transports.map((entry) => [entry.status, entry.note]), [["refused", "no-war"]]);
   const truce = runFronts(peace(world, { days: 3, transports: sent.transports, wars: [{ id: "war-1", status: "ceasefire", sideA: ["Aland"], sideB: ["Borduria"] }] }));
   assert.deepEqual(truce.transports.map((entry) => [entry.status, entry.note]), [["refused", "no-war"]]);
+});
+
+// "Border clashes, minor incidents and so forth also just cause war fronts to
+// happen; have it so border fronts are for all war / serious conflicts."
+test("an attack that is no real offensive is no war: nothing opens, and the run says why", () => {
+  for (const effort of [undefined, "token", "limited"]) {
+    const world = sheet();
+    const across = runFronts(peace(world, { moments: [order(2, "border: Aland / Borduria", "Aland", "advance", { ref: 2, effort })] }));
+    assert.deepEqual([across.starts, across.battlefields], [[], []], String(effort));
+    assert.deepEqual(across.notes, [{ kind: "minor-attack", battlefield: "border: Aland / Borduria", side: "Aland", ref: 2 }]);
+    // Aimed at a place the other holds, on a battlefield nobody has: the same.
+    const at = runFronts(peace(world, { moments: [order(2, "Operation Dawn", "Aland", "spearhead", { ref: 5, objective: "city: Brod", effort })] }));
+    assert.deepEqual([at.starts, at.battlefields], [[], []]);
+    assert.deepEqual(at.notes.map((note) => [note.kind, note.side]), [["minor-attack", "Aland"]]);
+  }
+  // A person's own order is that person's decision: given through the skip's function, or a line for the country they play.
+  const world = sheet();
+  const given = runFronts(peace(world, { moments: [order(2, "border: Aland / Borduria", "Aland", "advance", { effort: undefined, given: true })] }));
+  assert.deepEqual(given.starts.map((start) => [start.attacker, start.defender]), [["Aland", "Borduria"]]);
+  const played = runFronts(peace(world, { players: ["Aland"], moments: [order(2, "border: Aland / Borduria", "Aland", "advance", { effort: undefined })] }));
+  assert.deepEqual(played.starts.map((start) => [start.attacker, start.defender]), [["Aland", "Borduria"]]);
+  // And a war the story opens in its own ledger the same period is that war, whatever the order's effort.
+  const told = runFronts(peace(world, { moments: [
+    order(2, "border: Aland / Borduria", "Aland", "advance", { effort: undefined }),
+    { day: 4, type: "war", op: "start", warId: "war-told", names: ["Aland"], opponents: ["Borduria"], title: "The Dawn War" },
+  ] }));
+  assert.deepEqual([told.starts, told.battlefields.map((record) => [record.warId, record.status])], [[], [["war-told", "active"]]]);
 });

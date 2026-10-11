@@ -417,6 +417,10 @@ export const routesIntoOthers = async ({ world = {}, game = {}, campaignId = "",
     };
     const place = projectorOf(record.frame);
     const under = asArray(record.brief?.carry?.under);
+    // The sides of every other battlefield being fought.
+    const elsewhere = asArray(world?.battlefields)
+      .filter((other) => other && other.status === "active" && other.field && fold(other.name) !== fold(record.name))
+      .map((other) => asArray(other.sides).map((members) => asArray(members).map(fold)));
     for (const { order, index } of routes) {
       const troops = decodeTroops(record.troops?.[order.s]);
       let x = 0;
@@ -429,7 +433,11 @@ export const routesIntoOthers = async ({ world = {}, game = {}, campaignId = "",
         count += 1;
       });
       const route = order.way.map(([lng, lat]) => place.toCell(lng, lat));
-      const names = othersOnWay({ arena, place, way: count > 0 ? [[x / count, y / count], ...route] : route, holderOf, inWar });
+      // (A country its sender already fights on another battlefield is attacked by nobody new:
+      // troops sent into its land go over to that battlefield, engine.js handOver.)
+      const sender = fold(order.by) || fold(record.sides?.[order.s]?.[0]);
+      const names = othersOnWay({ arena, place, way: count > 0 ? [[x / count, y / count], ...route] : route, holderOf, inWar })
+        .filter((name) => !elsewhere.some((sides) => sides.some((members, side) => members.includes(sender) && sides[1 - side].includes(fold(name)))));
       if (names.length > 0) found.set(index, names);
     }
   } catch (error) {

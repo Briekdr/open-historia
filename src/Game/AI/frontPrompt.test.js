@@ -77,7 +77,7 @@ test("the block says how an order is written, what it sets aside, who may not be
   for (const word of FRONT_RESULTS) assert.ok(block.includes(word), `the result "${word}"`);
   for (const word of FRONT_EFFORTS) assert.ok(block.includes(word), `the effort "${word}"`);
   assert.match(block, /An assault sends the troops it takes straight at its objective, which it must have: `city: X`, `structure: X` or `unit: X`\./);
-  assert.match(block, /A border with no war is `border: A \/ B`, the two countries by their exact names: with dig in or hold, troops are sent to fortify it and attack nothing; with an order to attack from one of the two, that country attacks the other and the war between them begins that day/);
+  assert.match(block, /A border with no war is `border: A \/ B`, the two countries by their exact names: with dig in or hold, troops are sent to fortify it and attack nothing; with an order to attack from one of the two at effort major or total, that country invades the other and the war between them begins that day/);
   assert.match(block, /Any country may strike first so, at one a person plays as at any other, when the story has it do so\./);
   assert.match(block, /Sent in peace to another country's land it is an attack on it: the war begins the day its troops are put down\./);
   assert.match(block, /A war begun in this answer has none yet: name its battlefield yourself in its first order\./);
@@ -149,7 +149,7 @@ test("the block never outgrows its length: the battlefields a turn is most about
   // the engine's own telling of a battlefield is, so the fuller line is looked
   // for across a run of lengths: at some of them there is room for it.
   const fuller = /^- Front \d+: Aland, Cisland against Borduria, line \d+ km\. Sectors: north, centre, south(, [a-z]+)*, or a place on the line\.$/;
-  const lengths = Array.from({ length: 40 }, (_, step) => 4200 + step * 60);
+  const lengths = Array.from({ length: 40 }, (_, step) => 5200 + step * 60);
   assert.ok(lengths.some((max) => buildFrontsBlock({ battlefields: plainly, players: [], max }).split("\n").some((line) => fuller.test(line))));
 
   // Held to whatever length it is given, and saying what it had to leave out.

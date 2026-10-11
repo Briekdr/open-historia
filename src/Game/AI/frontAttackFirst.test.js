@@ -131,14 +131,14 @@ test("an order aimed at a city the map spells another way is still an attack on 
       return /brodgrad/i.test(text) ? { lng: 24.5, lat: 51.5 } : /albany/i.test(text) ? { lng: 21.5, lat: 51.5 } : null;
     },
   };
-  const orders = bindFrontOrdersToEvents(["Operation Dawn~Aland~spearhead~all~1~city: Brodgrad"], events);
+  const orders = bindFrontOrdersToEvents(["Operation Dawn~Aland~spearhead~all~1~city: Brodgrad~~major"], events);
   const run = await runTurnFronts(turn(map, world, { events, frontOrders: orders, strikePlaces }));
   assert.deepEqual(asks, ["city: Brodgrad"]);
   assert.deepEqual(run.starts.map((start) => [start.attacker, start.defender]), [["Aland", "Borduria"]]);
   assert.deepEqual([run.battlefields[0].name, run.battlefields[0].status], ["Operation Dawn", "active"]);
   // A place the map has by that name is not asked for, and one nobody can find is the unknown battlefield it always was.
   asks.length = 0;
-  const plain = await runTurnFronts(turn(map, world, { events, frontOrders: bindFrontOrdersToEvents(["Operation Dawn~Aland~advance~all~1~city: Brod", "Operation Dusk~Aland~advance~all~1~city: Atlantis"], events), strikePlaces }));
+  const plain = await runTurnFronts(turn(map, world, { events, frontOrders: bindFrontOrdersToEvents(["Operation Dawn~Aland~advance~all~1~city: Brod~~major", "Operation Dusk~Aland~advance~all~1~city: Atlantis~~major"], events), strikePlaces }));
   assert.deepEqual(asks, ["city: Atlantis"]);
   assert.deepEqual(plain.starts.length, 1);
   assert.ok(plain.notes.some((note) => /Operation Dusk/.test(note.text) && /name their border/.test(note.text)), JSON.stringify(plain.notes));
@@ -166,7 +166,7 @@ test("an order aimed at a city the map spells another way is still an attack on 
 
 test("the story is told how a country strikes first, and the next period is told who did", () => {
   const block = buildFrontsBlock({ players: ["Borduria"] });
-  assert.match(block, /with an order to attack from one of the two, that country attacks the other and the war between them begins that day \(the game enters it in the war ledger; its own warUpdates record, if you write one, is the same war\)/);
+  assert.match(block, /with an order to attack from one of the two at effort major or total, that country invades the other and the war between them begins that day \(the game enters it in the war ledger; its own warUpdates record, if you write one, is the same war\)/);
   assert.match(block, /Any country may strike first so, at one a person plays as at any other, when the story has it do so\./);
   // The player's own troops are still the player's: the rule stands beside it.
   assert.match(block, /Borduria is played by a person: write no order for it of your own\./);

@@ -240,6 +240,20 @@ export const WITHDRAW_KM = 60;
 // side defending needs the larger figures to do either. Under the last figure
 // any side digs in. A stretch of line needs this many troops to be attacked from.
 export const STAFF_MARK = "staff";
+// A FRONT'S POSTURE, AS ITS SCENARIO SET IT. The order each side of a front
+// begins under (runtime/fronts/scenarioFronts.js: hold, dig in or advance) is
+// what its author made that front: a dug-in line, a quiet one, one being
+// attacked along. It is marked as the scenario's and it STANDS until an event
+// changes what the side does there: its own staff never replaces it, and an
+// order of the story's to attack that rests on no event is not carried out.
+export const SCENARIO_MARK = "scenario";
+// The marks an order for a stretch of line may carry (one for troops picked out carries whatever it was written for).
+export const LINE_MARKS = Object.freeze([STAFF_MARK, SCENARIO_MARK]);
+// AN ATTACK THAT IS A WAR. An order of the story's to attack a country its
+// giver is at peace with begins a war only at one of these efforts (or when
+// the story opens that war in its own ledger): a border clash, a raid or an
+// incident is no war and opens no battlefield.
+export const WAR_EFFORTS = Object.freeze(["major", "total"]);
 export const STAFF_REVIEW_DAYS = 10;
 export const STAFF_STORY_ORDER_DAYS = 45;
 export const STAFF_ATTACKER_ADVANCES = 1.25;
@@ -447,6 +461,10 @@ export const ROUTE_JOIN_KM = 20;
 // within the second distance of its land. An order names at most so many.
 export const ROUTE_INTO_KM = 30;
 export const INVADE_REACH_KM = 18;
+// Troops that go over to another battlefield (engine.js handOver) stand where
+// they are on its sheet, or on the nearest ground of their side's within this
+// many of its cells.
+export const HAND_OVER_REACH_CELLS = 8;
 export const MAX_ORDER_ATTACKS = 4;
 export const HAND_STALL_DAYS = 6;
 export const HAND_STALL_KM = 4;

@@ -33,6 +33,7 @@ import {
   MAX_COMMANDS,
   MAX_SIDE_MEMBERS,
   MAX_TROOPS_PER_SIDE,
+  SCENARIO_MARK,
 } from "./constants.js";
 
 export const MAX_SCENARIO_FRONTS = 8;
@@ -144,11 +145,13 @@ export const scenarioFrontOrders = (fronts) => {
   fronts.forEach((front, index) => {
     const border = `border: ${front.sides[0][0]} / ${front.sides[1][0]}`;
     for (const side of SIDES) {
-      // At war every side has its troops raised when the battlefield opens, and
-      // one that only holds needs telling nothing. At peace a side has troops
-      // on the border only when it is told to be there.
-      if (front.war && front.stance[side] === "hold") continue;
+      // Every side is told, one that holds as much as one that digs in or
+      // attacks: what it is told is what its author made the front, and it
+      // stands as that (SCENARIO_MARK) until an event changes it. A side left
+      // with no order at all was the story's, and its own staff's, to send
+      // forward the first day.
       orders.push({
+        mark: SCENARIO_MARK,
         id: `scenario-front-${index}-${side}`,
         battlefield: border,
         side: front.sides[side][0],

@@ -74,7 +74,8 @@ test("orders take effect on the day of the earliest event they rest on", () => {
     ],
   });
   assert.deepEqual(moments, [
-    { day: 0, type: "order", battlefield: "Eastern Ukraine", side: "Ukraine", order: "dig in", sector: "all", ref: "front-1" },
+    // (One that rests on no event says so: it opens no war by itself and does not end a posture a scenario set.)
+    { day: 0, type: "order", battlefield: "Eastern Ukraine", side: "Ukraine", order: "dig in", sector: "all", ref: "front-1", unbound: true },
     { day: 9, type: "order", battlefield: "Eastern Ukraine", side: "Russia", order: "spearhead", sector: "north", ref: "front-0", objective: "city: Kharkiv", effort: "major" },
     { day: 19, type: "order", battlefield: "Eastern Ukraine", side: "Russia", order: "", sector: "centre", ref: "front-2", result: "repulsed" },
   ]);
