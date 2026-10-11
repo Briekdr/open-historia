@@ -15,6 +15,7 @@ const fs = require("node:fs");
 const net = require("node:net");
 const { spawn } = require("node:child_process");
 const { runLaunchUpdate } = require("./launchUpdate.cjs");
+const { recommendBeta } = require("./betaRecommendation.cjs");
 const { BETA_APP_NAME, readChannel } = require("./channel.cjs");
 const { createLayeredUpdater } = require("./layeredUpdate.cjs");
 const { createPayloadUpdater } = require("./payloadUpdate.cjs");
@@ -793,6 +794,21 @@ const boot = async () => {
   await mainWindow.loadURL(`http://localhost:${port}`);
   setupWindow?.close();
   setupWindow = null;
+  // The stable app asks, once for every build it runs, whether the player
+  // wants the beta: after a first install and after each update
+  // (electron/betaRecommendation.cjs). Over the open game, never in front of
+  // an update or the map download, and never allowed to stop the game.
+  recommendBeta({
+    fs,
+    recordFile: path.join(USER_ROOT, "beta-recommendation.json"),
+    isBeta: IS_BETA,
+    isPackaged: app.isPackaged,
+    version: app.getVersion(),
+    payloadBuild: files?.root ? String(files.build ?? "") : "",
+    ask: (options) => dialog.showMessageBox(mainWindow, { ...options, title: "Open Historia" }),
+    open: () => shell.openExternal(BETA_DOWNLOAD_URL),
+    log: logMain,
+  }).catch((error) => logMain("warn", "beta.recommendation.failed", String(error?.message || error)));
   // The game is up; now confirm the map on disk is still the map we shipped.
   verifyMapData();
 };
