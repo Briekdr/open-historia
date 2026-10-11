@@ -73,6 +73,8 @@ for (const file of pages) {
   // anywhere else would report its traffic into the real site's statistics — inventing pageviews
   // for a domain that is not openhistoria.com. A review copy must not touch production numbers.
   html = html.replace(/\s*<!-- Google tag \(gtag\.js\) -->[\s\S]*?gtag\('config'[^<]*<\/script>/g, "");
+  // And the Umami counter beside it, for the same reason.
+  html = html.replace(/\s*<!-- Umami[^\n]*-->\s*<script[^>]*cloud\.umami\.is[^>]*><\/script>/g, "");
 
   // Say what this is, on every page. A preview that looks exactly like the live site is one
   // screenshot away from someone quoting it as though it were published.

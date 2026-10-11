@@ -10,6 +10,7 @@ import {
     setDebugLogContext,
     withConsoleCaptureMuted,
 } from "./runtime/debugLog.js";
+import { countVisit } from "./runtime/visitCount.js";
 // Registers the Logging file's settings snapshot (every setting's current value).
 import "./runtime/settingsLog.js";
 import App from "./App.jsx";
@@ -62,6 +63,11 @@ setDebugLogContext({
     language: typeof navigator !== "undefined" ? navigator.language : "",
 });
 logDebugEvent("app", "Open Historia started.");
+
+// Counts the visit, and under which application (runtime/visitCount.js). Nothing
+// waits for it, and a development run counts nothing. The Android app loads no
+// analytics: asked here, so that its build carries none of the counter.
+if (!import.meta.env.VITE_OH_NATIVE) void countVisit({ env: import.meta.env });
 
 if (import.meta.env.VITE_OH_WEB) {
     // Web build (the hosted website): install the IndexedDB-backed /api
