@@ -196,7 +196,7 @@ import {
   withoutGroupOps,
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
-import { actionsCommandTroops, applyTurnFronts, forecastTurnFronts, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { applyTurnFronts, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { withTurnStrikes } from "../../runtime/strikes.js";
 import { kmBetween } from "../../runtime/fronts/worldGrid.js";
 import { readWarRoomAnswer, warRoomRequest, warRoomStanding, warRoomVariables } from "./warRoomContext.js";
@@ -215,6 +215,7 @@ import { PLACEMENT_DIRECTIVE, describeApproximatePlacement, distanceKm as placem
 import { loadWorldCities } from "./worldCities.js";
 import { FOOTPRINT_KM, obstaclesOf, spaceOut } from "../../runtime/featureSpacing.js";
 import { LOOKUP_DIRECTIVE, buildLookupContext, executeLookup, lookupToolsFor, placesNamedIn } from "./lookupTools.js";
+import { FRONT_ORDER_FUNCTION, withFrontOrderFunction } from "./frontOrderFunction.js";
 import { carriedRoundCount, createLookupCarry } from "./toolTurns.js";
 import {
   BACKGROUND_REQUEST,
@@ -2828,7 +2829,8 @@ ${brief}`);
     if (gmBlock) blocks.push(gmBlock);
   }
 
-  if (Array.isArray(lookups?.tools) && lookups.tools.length) blocks.push(LOOKUP_DIRECTIVE);
+  // (The function that gives a player's troops their orders is no lookup: the [Fronts] block says what it is for.)
+  if (Array.isArray(lookups?.tools) && lookups.tools.some((tool) => tool?.name !== FRONT_ORDER_FUNCTION)) blocks.push(LOOKUP_DIRECTIVE);
   if (historyJob) blocks.push(historyJob);
 
   return blocks.filter(Boolean).join("\n\n");
@@ -8857,6 +8859,7 @@ const applySimulationResult = async ({
     events: freshEvents,
     // The skip was asked for with its period already fought and told.
     foretold: result.frontsForetold === true,
+    givenOrders: normalizeArray(result.frontsGiven),
     frontOrders,
     loadRegions: createRenderedRegionsReader(),
     nextGame,
@@ -15758,6 +15761,34 @@ const foldedTurnReview = ({ context, merged, state }) => {
   return review;
 };
 
+// What the function that gives a player's troops their orders is handed
+// (frontOrderFunction.js withFrontOrderFunction); {} where it is not offered.
+// The period is fought again with the orders and the skip's own forecast
+// becomes that run: the turn is then applied as the period the model was told.
+const frontOrderCall = (context) => {
+  const forecast = context?.variables?.frontsForecast;
+  if (!forecast || forecast.orderFunction !== true) return {};
+  return {
+    players: humanCountriesOf(context.bundle.game),
+    fromDate: forecast.fromDate,
+    days: forecast.days,
+    refight: async (given) => {
+      const again = await forecastTurnFronts({
+        world: context.bundle.world,
+        game: context.bundle.game,
+        campaignId: context.campaignId,
+        toDate: context.targetDate,
+        requestedDays: context.safeDays,
+        loadRegions: createRenderedRegionsReader(),
+        given,
+      });
+      if (!again) return "";
+      Object.assign(forecast, again, { given });
+      return frontsListBlock(context.bundle.world, context.bundle.game, forecast);
+    },
+  };
+};
+
 const runJumpSegments = async ({ context, onEvents, onProgress, signal, state }) => {
   const {
     bundle,
@@ -15969,7 +16000,9 @@ const runJumpSegments = async ({ context, onEvents, onProgress, signal, state })
         // Function calling, when the player has it on (lookupFunctionsEnabled):
         // the only thing that makes a skip more than one request, and bounded
         // by the skip's budget (runJsonTask).
-        lookups: buildTaskLookups(segmentBundle),
+        // And the function that gives a player's troops the orders their
+        // actions give them, where there is a fought period to fight again.
+        lookups: withFrontOrderFunction(buildTaskLookups(segmentBundle), frontOrderCall(context)),
         // The skip itself always runs; asking again is what the budget weighs.
         ...spend,
         // One request in every mode: a flaw is cut out or repaired in place,
@@ -17224,6 +17257,9 @@ const finishTimelineJump = async ({ context, signal, state }) => {
     // Whether the answer was written knowing how the period's land war went
     // (frontApply.js forecastTurnFronts): its orders are then for the period after.
     frontsForetold: Boolean(context.variables?.frontsForecast),
+    // And the orders players' actions gave through the skip's function, which
+    // that period was fought again with (frontOrderFunction.js).
+    frontsGiven: normalizeArray(context.variables?.frontsForecast?.given),
     storylineUpdates: merged.storylineUpdates,
     breadthRepairContext: selectBreadthRepairContext(state, context),
     generation: state.generation,
@@ -17353,11 +17389,12 @@ export const simulateTimelineJump = async ({ days, mode = "jump", onEvents, onPr
   // into the prompt, so that the events tell the war that was fought and not
   // one the model guessed at. No request is made for it. null where there is
   // nothing to fight, and the skip is then asked for as it always was.
-  // Not in a turn whose actions command the player's troops: those orders are
-  // to be carried out in THIS period (from the day of the event that gives
-  // them), so the engine runs after the story, as it does for a war that
-  // begins in it, and nothing is put off to the next skip.
-  const frontsForecast = actionsCommandTroops({ world: bundle.world, game: bundle.game, actions: bundle.actions }) ? null : await forecastTurnFronts({
+  // What is fought here is the period as it goes if no player orders anything
+  // new in it. An action of the turn may order just that: the model, which
+  // reads the action, then calls a function with the order and the period is
+  // fought again with it (frontOrderFunction.js, frontOrderCall below). (A
+  // copy: what that function learns is this skip's, not the kept forecast's.)
+  const foughtBefore = await forecastTurnFronts({
     world: bundle.world,
     game: bundle.game,
     campaignId: activeCampaignId(),
@@ -17366,6 +17403,7 @@ export const simulateTimelineJump = async ({ days, mode = "jump", onEvents, onPr
     loadRegions: createRenderedRegionsReader(),
     signal,
   });
+  const frontsForecast = foughtBefore ? { ...foughtBefore } : null;
   // Guarantee at least one event per queued action, so each planned action has a
   // slot to resolve into (bounded so a huge queue can't demand absurd counts).
   const plannedActionCount = normalizeActions(bundle.actions).filter((action) => action.status === "planned").length;
@@ -17382,6 +17420,10 @@ export const simulateTimelineJump = async ({ days, mode = "jump", onEvents, onPr
     : [dateStep];
   const segmentCount = segmentDays.length;
   const plannedActionShare = Math.ceil(plannedActionCount / segmentCount);
+  // The function is offered where there is an order it could be for: a period
+  // fought beforehand, and an action queued. (Not to a skip made in segments,
+  // whose first piece would be told a war its later pieces then change.)
+  if (frontsForecast) frontsForecast.orderFunction = segmentCount === 1 && plannedActionCount > 0;
   if (segmentCount > 1) {
     logDebugEvent("turn", `Timeline jump split into ${segmentCount} segments.`, {
       dateStep,

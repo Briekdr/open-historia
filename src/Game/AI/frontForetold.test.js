@@ -264,7 +264,8 @@ test("the skip fights its period before it asks, and the turn it writes says so"
   const apply = fs.readFileSync(new URL("./frontApply.js", import.meta.url), "utf8");
   // Fought where the skip is read, before any prompt is built, and handed to the prompt with the skip's variables.
   const skip = gameplay.slice(gameplay.indexOf("export const simulateTimelineJump = async"));
-  assert.match(skip, /const frontsForecast = actionsCommandTroops\(\{ world: bundle\.world, game: bundle\.game, actions: bundle\.actions \}\) \? null : await forecastTurnFronts\(\{\s*world: bundle\.world,\s*game: bundle\.game,\s*campaignId: activeCampaignId\(\),\s*toDate: targetDate,\s*requestedDays: safeDays,/);
+  assert.match(skip, /const foughtBefore = await forecastTurnFronts\(\{\s*world: bundle\.world,\s*game: bundle\.game,\s*campaignId: activeCampaignId\(\),\s*toDate: targetDate,\s*requestedDays: safeDays,/);
+  assert.match(skip, /const frontsForecast = foughtBefore \? \{ \.\.\.foughtBefore \} : null;/);
   assert.ok(skip.indexOf("await forecastTurnFronts(") < skip.indexOf("const jumpContext = {"));
   assert.match(skip, /variables: frontsForecast \? \{ \.\.\.variables, frontsForecast \} : variables,/);
   assert.match(gameplay, /const fronts = frontsLiveBlock\(world, game, variables\.frontsForecast \?\? null\);/);
