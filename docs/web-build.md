@@ -375,9 +375,12 @@ A browser keeps `http://openhistoria.com` and `https://openhistoria.com` as two 
 
 Nothing is replaced or deleted: a game or scenario whose id is taken arrives as `<id>-moved`, the built-in scenario and identical downloads are not carried twice, settings are copied only where the https address has none, and the http library is left as it was. The trip is tried at most three times, six hours apart, and never again after an answer.
 
-**It does nothing until the site is set up for it.** Two rules are needed at the CDN, for the path `/save-move/` only:
+**The site's half is a Worker** (`tools/save-move-worker/`, deployed with `wrangler deploy` from that folder as `open-historia-save-move`; live since 2026-10-11). Its routes are `http://openhistoria.com/*`, `http://www.openhistoria.com/*` and `openhistoria.com/save-move*`:
 
-- `http://openhistoria.com/save-move/*` is served without the redirect to https (it is the only place the old library can be read).
-- `https://openhistoria.com/save-move/*` redirects (302) to the same address over http. A browser that upgrades http by itself falls back to http when the https address sends it there, and the game makes the trip only when it sees this redirect, so a site without the rules is never left.
+- `http://openhistoria.com/save-move/*` is served as it is, fetched from the Pages deployment. It is the only place the old library can be read.
+- every other plain-http request is sent to https, as before.
+- `https://openhistoria.com/save-move/*` is sent (302) to the same address over http. A browser that upgrades http by itself falls back to http when the https address sends it there, and the game makes the trip only when it sees this redirect, so a site without the Worker is never left.
 
+Removing the Worker (`wrangler delete`) switches the transfer off and nothing else: Pages answers plain http with its own redirect to https.
 The game's start-up sweep of unknown caches (`src/runtime/assets.js`) leaves `oh-save-move` alone; without that the arriving file was deleted before it was read. `saveMove.test.js` covers the file format, the merge and the wiring; a two-port run in headless Chrome (two ports stand in for the two addresses, switched on by `localStorage["oh:save-move-test-from"]` on loopback only) carried two games and a setting across.
+Checked on the live site in a throwaway Chrome profile (2026-10-11): a game placed under the http address came across on the next visit to the https game, with a setting, and a browser with nothing under http made one trip and was never sent again.

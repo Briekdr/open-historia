@@ -1,0 +1,9 @@
+name = "open-historia-save-move"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+routes = [
+  { pattern = "openhistoria.com/save-move*", zone_name = "openhistoria.com" },
+  { pattern = "http://openhistoria.com/*", zone_name = "openhistoria.com" },
+  { pattern = "http://www.openhistoria.com/*", zone_name = "openhistoria.com" },
+]
