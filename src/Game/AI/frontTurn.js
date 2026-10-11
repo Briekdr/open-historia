@@ -761,6 +761,8 @@ export const runTurnFronts = async ({
   tempoAllowance = null,
   seed = "",
   players = [],
+  // false leaves every side nobody plays to the orders it is given (runtime/fronts/staff.js decides for it otherwise).
+  staff = true,
   difficulty = "",
   narratesCombat = null,
   // The fronts a scenario begins with (runtime/fronts/scenarioFronts.js), on
@@ -959,6 +961,7 @@ export const runTurnFronts = async ({
       // Who is played by a person: on a side of several countries nobody's order stands in for theirs.
       players: asArray(players).map(clean).filter(Boolean),
       difficulty: clean(difficulty),
+      ...(staff === false ? { staff: false } : {}),
       pace,
       flipAllowance: frontFlipAllowance({ allowance, events: list }),
       seed,

@@ -45,6 +45,8 @@ import {
   MAX_SIDE_MEMBERS,
   MAX_TROOPS_PER_SIDE,
   POOL_PER_TROOP,
+  STAFF_MARK,
+  STAFF_REVIEW_DAYS,
   STANDING_QUIET_DAYS,
   TROOPS_PER_STRENGTH,
   TROOP_KINDS,
@@ -59,6 +61,7 @@ import { landWithin, othersOnWay } from "./invade.js";
 import { applyOrder, assignOrder, landCarried, putAshore, readSieges, setStandingOrder } from "./orders.js";
 import { foldBattlefieldName, normalizeBattlefields } from "./record.js";
 import { authoredName } from "./scenarioFronts.js";
+import { sideIsPlayed, staffDecision, staffMayOrder, staffStanding } from "./staff.js";
 import { findPockets } from "./supply.js";
 import { TRANSPORT_ENDED, boundFor, interceptionOf, loadOf, moveOn, normalizeTransports, setOut, struck, transportChance } from "./transports.js";
 import { createTroop, isLive, kindsFor, liveCount, troopsCap } from "./troops.js";
@@ -1529,6 +1532,45 @@ const assignStanding = (run, battle) => {
   }
 };
 
+// The staff of each side nobody plays looks at how it stands and decides what
+// it does (staff.js): on a battle's first day of a run and every
+// STAFF_REVIEW_DAYS after. Before the day is fought, and after whatever the
+// story ordered for that day or before it: an order of the story's is left
+// alone, and the staff's own is replaced only when it would decide otherwise.
+const reviewStaff = (run, battle, day) => {
+  // (A run may be told to leave every side to its orders: the engine's own tests of other things are.)
+  if (run.input?.staff === false) return;
+  const war = run.wars.get(battle.warId);
+  if (!war || war.status !== "active") return;
+  let today = null;
+  for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
+    if (battle.away[side] || sideIsPlayed(battle, side, run.input?.players) || !staffMayOrder(battle, side)) continue;
+    if (liveCount(battle.troops[side]) === 0) continue;
+    today = today ?? prepare(battle, day);
+    const decided = staffDecision(battle, side, {
+      // (The first side of a war is the one that began it.)
+      began: battleSide(battle, side) === 0,
+      today,
+      key: `${run.seed}|${battle.name}|${side}|${run.dateOf(day)}`,
+    });
+    if (!decided) continue;
+    const wanted = `${decided.order}|${fold(decided.sector)}`;
+    const stands = staffStanding(battle, side);
+    // To hold is what a side with no order does: nothing is written for it, unless the staff had it attacking.
+    if (stands === wanted || (decided.order === "hold" && stands === "" && !battle.orders.some((order) => order.s === side && !order.chosen))) continue;
+    const lead = battle.sides[side].find((member, at) => !battle.gone[side].has(at)) ?? "";
+    // What the staff had the side doing before is over, and so is an order of the story's that has
+    // stood too long to be left alone (staffMayOrder): the line is the staff's to order afresh.
+    battle.orders = battle.orders.filter((order) => order.s !== side || order.chosen);
+    const order = setStandingOrder(battle, side, { sector: decided.sector, order: decided.order, since: run.dateOf(day), age: 0, by: lead, mark: STAFF_MARK });
+    assignOrder(battle, run, order, { ...today, date: run.dateOf(day), run });
+    battle.touched = true;
+    battle.planKey = "";
+    // Going over to the attack is something to tell.
+    if (decided.order === "advance" && !stands.startsWith("advance")) battle.log.push({ d: run.dateOf(day), k: "offensive", s: side, at: decided.sector === "all" ? "the whole line" : decided.sector });
+  }
+};
+
 const stepDay = (run) => {
   const day = run.day + 1;
   for (let index = 0; index < run.battles.length; index += 1) {
@@ -1539,6 +1581,7 @@ const stepDay = (run) => {
       invadeWhereSent(run, battle, day);
       // A side that withdrew and whose orders no longer say so (the war room sent it back) is back.
       if (battle.away[0] || battle.away[1]) comeBack(run, battle, day);
+      if (battle.daysRun === 0 || battle.daysRun % STAFF_REVIEW_DAYS === 0) reviewStaff(run, battle, day);
       run.steps += simulateDay(battle, run, day);
       // Whoever was told to withdraw and has got clear is gone from the battlefield.
       withdrawWhoLeft(run, battle, day);

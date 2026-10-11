@@ -79,6 +79,8 @@ const advance = { id: "front-0", battlefield: "The Border", side: "Aland", order
 
 const turn = (map, world, overrides = {}) => ({
   createFrontRun,
+  // (Every side is left to the orders this test gives it: a side's own staff is tested in frontStaff.test.js.)
+  staff: false,
   world,
   events: [],
   frontOrders: [],

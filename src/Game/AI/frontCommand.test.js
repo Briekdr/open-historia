@@ -55,6 +55,8 @@ const worldOn = (map, wars, extra = {}) => ({
 const WAR = { id: "war-1", title: "The Border War", status: "active", sideA: ["Aland"], sideB: ["Borduria"], startedDate: "2024-02-01", lastUpdatedDate: "2024-02-01" };
 const turn = (map, world, overrides = {}) => ({
   createFrontRun,
+  // (Every side is left to the orders this test gives it: a side's own staff is tested in frontStaff.test.js.)
+  staff: false,
   world,
   events: [],
   frontOrders: [],
