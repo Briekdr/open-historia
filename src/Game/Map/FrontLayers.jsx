@@ -41,7 +41,7 @@ import { POLITICAL_FILL_OPACITY_STOPS } from "./vnext/presentationPolicy.js";
 import { getFrontTargets, settleFront, startFrontsSync, subscribeFronts } from "./frontsController.js";
 import { arrowDetailAt, frontArrowFeatures, frontArrowRgb, frontAt, frontShownOn, frontTroopFeatures, stageOf } from "./frontGeometry.js";
 import { PAINT_WALL } from "../../runtime/fronts/codec.js";
-import { createPaintPlayer, paintPixels, paintScaleFor, pictureFits } from "./frontPaint.js";
+import { createPaintPlayer, paintPixels, paintScaleFor, pictureCorners, pictureFits } from "./frontPaint.js";
 import { createSkirmish, skirmishAt } from "./frontSkirmish.js";
 import { FRONT_BASEMAP_PUT_LAYER_ID, FRONT_BASEMAP_TAKE_LAYER_ID, createFrontBasemapLayers } from "./frontBasemapLayer.js";
 import { contestedOwnersOf, setFrontShownOwners } from "./frontOwnership.js";
@@ -221,7 +221,10 @@ const makePicture = (view, onto = null) => {
       rowOf,
       ...(onto?.target.mask ? { mask: onto.target.mask } : {}),
     },
-    coordinates: onto?.coordinates ?? [[west, north], [east, north], [east, south], [west, south]],
+    // (As the map's own copy of the world has them: a frame told in longitudes a
+    // whole turn off, as one that crosses the date line may be, is a picture the
+    // map cannot place at all, and it says so by throwing.)
+    coordinates: onto?.coordinates ?? pictureCorners(west, north, east, south),
     player: createPaintPlayer(view),
     palette: new Uint8Array(32 * 4),
     blank: true,
@@ -760,7 +763,8 @@ const FrontLayers = () => {
       if (signature !== declared) {
         declared = signature;
         setPictures([...next.values()].map((entry) => ({
-          key: `${entry.target.name}:${entry.picture.coordinates.join(",")}:${entry.picture.canvas.width}`,
+          // (With its slot: a picture that is given another slot is another source to the map, which will not have one renamed.)
+          key: `${entry.slot}:${entry.target.name}:${entry.picture.coordinates.join(",")}:${entry.picture.canvas.width}`,
           slot: entry.slot,
           canvas: entry.picture.canvas,
           coordinates: entry.picture.coordinates,

@@ -430,3 +430,13 @@ export const paintPixels = (player, palette, target, only = null) => {
   }
   return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 };
+
+// The four corners of a picture as the map is given them ([west, north] round
+// to [west, south]), its middle within the map's own copy of the world. A
+// battlefield's frame may be told in longitudes a whole turn off (one that
+// reaches over the date line is): the map cannot place such a picture, and
+// says so by throwing.
+export const pictureCorners = (west, north, east, south) => {
+  const turn = 360 * Math.round((west + east) / 2 / 360);
+  return [[west - turn, north], [east - turn, north], [east - turn, south], [west - turn, south]];
+};

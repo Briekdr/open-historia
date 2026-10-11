@@ -1,12 +1,13 @@
 // Run: node --test src/Game/Map/frontPaint.test.js
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { PAINT_OWN_A, PAINT_OWN_B, PAINT_WALL } from "../../runtime/fronts/codec.js";
 import { HOLDER_SIDE_A, HOLDER_SIDE_B, HOLDER_WALL } from "../../runtime/fronts/constants.js";
 import { frontViewOf, normalizeBattlefield } from "../../runtime/fronts/record.js";
 import { createReplayRecorder } from "../../runtime/fronts/replay.js";
 import { projectorOf } from "../../runtime/fronts/frame.js";
-import { FILL_DAYS, createPaintPlayer, paintPixels, paintScaleFor, pictureFits } from "./frontPaint.js";
+import { FILL_DAYS, createPaintPlayer, paintPixels, paintScaleFor, pictureFits, pictureCorners } from "./frontPaint.js";
 
 const COLS = 24;
 const ROWS = 12;
@@ -334,4 +335,23 @@ test("the colour ends at the land's own edge where the picture is given one, not
   const half = maskOf((col, row) => (row < 2 ? 0 : 128));
   paintPixels(player, palette, half);
   assert.ok(Math.abs(pixelAt(half, 13, 5)[3] - 128) <= 1);
+});
+
+// A player's crash log (2026-10-11): "x=4, y=1, z=2 outside of bounds" from the map as a war
+// between the United States and Canada was painted, and then "source id changed".
+test("a picture's corners lie in the map's own copy of the world, whatever turn its frame was told in", () => {
+  assert.deepEqual(pictureCorners(20, 52, 28, 46), [[20, 52], [28, 52], [28, 46], [20, 46]]);
+  // A frame over North America told a whole turn to the east: the same picture, where the map can place it.
+  assert.deepEqual(pictureCorners(215, 62, 300, 40), [[-145, 62], [-60, 62], [-60, 40], [-145, 40]]);
+  assert.deepEqual(pictureCorners(-520, 10, -500, 0), [[-160, 10], [-140, 10], [-140, 0], [-160, 0]]);
+  // One that reaches over the date line keeps its width, its middle in range.
+  const [[west], [east]] = pictureCorners(170, 60, 200, 50);
+  assert.deepEqual([west, east], [-190, -160]);
+  assert.equal(east - west, 30);
+  const [[far], [farEast]] = pictureCorners(175, 60, 215, 50);
+  assert.deepEqual([far, farEast], [-185, -145]);
+  // Each picture is a source of its own to the map by its slot: one given another slot is declared afresh.
+  const layers = fs.readFileSync(new URL("./FrontLayers.jsx", import.meta.url), "utf8");
+  assert.ok(layers.includes("key: `${entry.slot}:${entry.target.name}:"));
+  assert.ok(layers.includes("coordinates: onto?.coordinates ?? pictureCorners(west, north, east, south),"));
 });
