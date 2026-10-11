@@ -196,7 +196,7 @@ import {
   withoutGroupOps,
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
-import { applyTurnFronts, forecastTurnFronts, frontPlansBlock, frontPowers, frontRegionTest, frontsLiveBlock, openScenarioFronts, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { applyTurnFronts, forecastTurnFronts, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontsLiveBlock, openScenarioFronts, routesIntoOthers, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { readWarRoomAnswer, warRoomRequest, warRoomStanding, warRoomVariables } from "./warRoomContext.js";
 import { bindFrontOrdersToEvents, describeDroppedFrontOrders, frontOrderProseLines, screenFrontOrders } from "./nativeFrontLedger.js";
 import { buildOwnerAliasMap, canonicalOwnerName, toCountryName } from "../../runtime/ownerNames.js";
@@ -8948,9 +8948,13 @@ const applySimulationResult = async ({
   // the same pass. Both are pure: they return a new normalized world.
   // A turn's ledgers are every segment's records together, each segment's
   // answer already held to the per-answer caps; the applies read them all.
+  // And a country troops were sent into on a battlefield is in that war from
+  // the day they came to it (runtime/fronts/invade.js): the engine's own
+  // records join the turn's, after them, so that the ledger says what the
+  // battlefields already do whether or not the story wrote it.
   const warMerge = applyWarUpdates({
     world: worldWithImpacts,
-    updates: warUpdates,
+    updates: [...warUpdates, ...frontWarJoins(turnFronts)],
     events: freshEvents,
     stopDate: nextGame.gameDate,
     round: nextGame.round,
@@ -12745,6 +12749,12 @@ export const maybeOpenScenarioFronts = async () => {
     endSimulation();
   }
 };
+
+// Which of the routes drawn on a battlefield go into a country outside its
+// war (frontApply.js routesIntoOthers), for the war room to say so before time
+// passes. It reads the map and asks nobody: no request is made.
+export const warRoomRouteAttacks = ({ world, game, record } = {}) =>
+  routesIntoOthers({ world, game, record, campaignId: activeCampaignId(), loadRegions: createRenderedRegionsReader() });
 
 // What the player's generals answer when he speaks to them over one battlefield
 // (GameUI/warRoom.jsx). One request a message and no lookup functions: the

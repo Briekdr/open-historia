@@ -153,3 +153,6 @@ export const generateListenInFeed = async (...args) => (await gameplay()).genera
 // they took are written by the caller through runtime/warRoomWrites.js, which
 // is where a shared game's rules apply.
 export const generateWarRoomReply = async (...args) => (await gameplay()).generateWarRoomReply(...args);
+// The war room: which routes drawn on a battlefield go into a country outside
+// its war. Read from the map, with no request made and nothing written.
+export const warRoomRouteAttacks = async (...args) => (await gameplay()).warRoomRouteAttacks(...args);

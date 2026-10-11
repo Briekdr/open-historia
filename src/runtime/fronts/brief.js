@@ -171,7 +171,8 @@ const ordersOf = (record, side) => {
   const parts = line.map(({ order }) => `${order.sector} ${order.order}${order.objective ? ` toward ${order.objective}` : ""}`);
   for (const { order, index } of mine) {
     if (!order.chosen) continue;
-    parts.push(`${serving(index)} formations ${order.way ? "sent along a route drawn for them" : `${order.order}${order.objective ? ` toward ${order.objective}` : ""}`}`);
+    const into = Array.isArray(order.attacks) && order.attacks.length > 0 ? `, into ${order.attacks.join(" and ")}, which is not in the war` : "";
+    parts.push(`${serving(index)} formations ${order.way ? `sent along a route drawn for them${into}` : `${order.order}${order.objective ? ` toward ${order.objective}` : ""}`}`);
   }
   parts[0] += ` (${record.effort[side]})`;
   if (!line.some(({ order }) => order.sector === "all")) parts.push("elsewhere hold");

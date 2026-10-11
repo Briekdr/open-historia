@@ -26,7 +26,7 @@
 import { addGameDays } from "../gameDates.js";
 import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf } from "../unitMotion.js";
 import { arenaFor } from "./arena.js";
-import { absorbUnit, keepStart, loadBattle, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setRadii, sideOfName } from "./battle.js";
+import { absorbUnit, holderOf, keepStart, lineLength, loadBattle, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
 import { assignCommands } from "./command.js";
 import { hashKey } from "./codec.js";
@@ -36,6 +36,7 @@ import {
   FRONT_EFFORTS,
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
+  INVADE_REACH_KM,
   LANDING_CELLS,
   MAX_BATTLEFIELDS,
   MAX_CLOSED_BATTLEFIELDS,
@@ -50,6 +51,7 @@ import { contactAt, findContacts, frameForContact, middleOf } from "./contact.js
 import { REGIONS_NEEDED, prepare, recordDay, settleRegions, simulateDay, startRecorder } from "./day.js";
 import { redistance, takeCapsule, traceContour } from "./field.js";
 import { pointInFrame } from "./frame.js";
+import { landWithin, othersOnWay } from "./invade.js";
 import { applyOrder, assignOrder, readSieges } from "./orders.js";
 import { foldBattlefieldName, normalizeBattlefields } from "./record.js";
 import { authoredName } from "./scenarioFronts.js";
@@ -93,6 +95,9 @@ const createRun = (input) => {
     battles: [],
     wars: new Map(),
     flips: [],
+    // The countries troops were sent into during the run, each brought into
+    // its war (invadeWhereSent): the caller writes them into the war ledger.
+    joins: [],
     unitChanges: [],
     notes: [],
     taken: new Set(),
@@ -303,8 +308,16 @@ const raiseFor = (battle, run, side, owner) => {
   const count = Math.max(0, Math.min(room, Math.max(2, wanted)));
   const contour = traceContour(battle.field);
   const own = side === HOLDER_SIDE_A ? contour.cellA : contour.cellB;
-  const cells = [];
+  let cells = [];
   for (let vertex = 0; vertex < own.length; vertex += 1) if (own[vertex] >= 0) cells.push(own[vertex]);
+  // On its OWN stretch of the line, where it has one: a country that has just
+  // been attacked stands on its own border, not along its ally's front.
+  const wantedName = fold(battle.sides[side][owner]);
+  const home = cells.filter((cell) => {
+    const region = battle.arena.region[cell];
+    return region > 0 && fold(holderOf(battle, run, battle.arena.ids[region])) === wantedName;
+  });
+  if (home.length > 0) cells = home;
   if (cells.length === 0) return;
   for (let index = 0; index < count; index += 1) {
     const cell = cells[Math.min(cells.length - 1, Math.floor(((index + 0.5) * cells.length) / count))];
@@ -322,8 +335,10 @@ const joinBattle = (run, battle, side, names) => {
     if (index >= 0) battle.gone[side].delete(index);
     else if (battle.sides[side].length < MAX_SIDE_MEMBERS) owner = battle.sides[side].push(name) - 1;
     else continue;
-    // Its land in the frame becomes its side's ground.
+    // Its land in the frame becomes its side's ground, and the line is as
+    // long as it now is: how many troops there is room for goes by that.
     reconcile(battle, run);
+    lineLength(battle);
     raiseFor(battle, run, side, owner);
     paintGround(battle, run);
   }
@@ -614,6 +629,16 @@ const applyWarMoment = (run, moment, day) => {
   if (!war) return;
   if (moment.op === "join-a" || moment.op === "join-b") {
     const side = moment.op === "join-a" ? 0 : 1;
+    // A country that troops are on their way into is brought in by those
+    // troops, on the day they come to it (invadeWhereSent), and not on the day
+    // the story names: the run that was made before the story was written did
+    // it that way, and this one has to be that run again.
+    if (moment.sent !== true) {
+      const awaited = (name) => run.battles.some((battle) => battle.warId === id && battle.status === "active" && sideOfName(battle, name) < 0
+        && battle.orders.some((order) => order.chosen && battleSide(battle, side) !== order.s && asArrayOf(order.attacks).some((entry) => fold(entry) === fold(name))));
+      for (let index = names.length - 1; index >= 0; index -= 1) if (awaited(names[index])) names.splice(index, 1);
+      if (names.length === 0) return;
+    }
     for (const name of names) {
       if (!war.sides.some((members) => members.some((member) => fold(member) === fold(name))) && war.sides[side].length < MAX_SIDE_MEMBERS) war.sides[side].push(name);
     }
@@ -693,6 +718,98 @@ const applyMoments = (run, day) => {
   }
 };
 
+// ---- troops sent into a country outside the war ----------------------------------
+
+const asArrayOf = (value) => (Array.isArray(value) ? value : []);
+
+// Reads, for every route a battle's troops were sent along by hand, the
+// countries outside the war it goes into (invade.js): what sending troops
+// along it attacks. Worked out from the ground whenever the routes are put to
+// their troops, and kept on the order for whoever reads the record.
+const markAttacks = (run, battle) => {
+  if (battle.status !== "active") return;
+  for (const order of battle.orders) {
+    if (!order.chosen || !Array.isArray(order.way) || order.way.length === 0) continue;
+    const troops = battle.troops[order.s];
+    let midX = 0;
+    let midY = 0;
+    let count = 0;
+    troops.forEach((troop) => {
+      if (!isLive(troop) || !(troop.order && !troop.order.done && (troop.order.standing === order || troop.order.resume?.standing === order))) return;
+      midX += troop.x;
+      midY += troop.y;
+      count += 1;
+    });
+    const route = order.way.map(([lng, lat]) => battle.place.toCell(lng, lat));
+    const names = othersOnWay({
+      arena: battle.arena,
+      place: battle.place,
+      // From where they stand, as they will go: the way to the route's first point is part of it.
+      way: count > 0 ? [[midX / count, midY / count], ...route] : route,
+      holderOf: (id) => holderOf(battle, run, id),
+      inWar: (name) => sideOfName(battle, name) >= 0,
+    });
+    if (names.length > 0) order.attacks = names;
+    else delete order.attacks;
+  }
+};
+
+// A day's look at the troops sent into a country outside the war: the first
+// of them to come within reach of its land brings it into the war, against
+// their side. It is the war ledger's own "joins" (applyWarMoment), so the
+// country joins every battlefield of that war, raises its troops, and a new
+// battlefield opens wherever else it now touches an enemy. What it holds on
+// this one is ground to be fought over from then on.
+const invadeWhereSent = (run, battle, day) => {
+  if (battle.status !== "active" || !battle.orders.some((order) => order.chosen && asArrayOf(order.attacks).length > 0)) return;
+  const war = run.wars.get(battle.warId);
+  if (!war || war.status !== "active") return;
+  // Once a country is in the war a route into it attacks nobody new, and its order no longer says so.
+  const settle = (order, name) => {
+    const left = asArrayOf(order.attacks).filter((other) => fold(other) !== fold(name));
+    if (left.length > 0) order.attacks = left;
+    else delete order.attacks;
+  };
+  for (const order of battle.orders.slice()) {
+    if (!order.chosen) continue;
+    for (const name of asArrayOf(order.attacks)) {
+      if (sideOfName(battle, name) >= 0) {
+        settle(order, name);
+        continue;
+      }
+      if (warSide(war, name) >= 0) continue;
+      const { arena } = battle;
+      const held = new Uint8Array(arena.ids.length);
+      let any = false;
+      for (let region = 1; region < arena.ids.length; region += 1) {
+        if (fold(holderOf(battle, run, arena.ids[region])) !== fold(name)) continue;
+        held[region] = 1;
+        any = true;
+      }
+      if (!any) continue;
+      const reached = battle.troops[order.s].some((troop) => {
+        if (!isLive(troop)) return false;
+        const mine = troop.order && !troop.order.done ? troop.order : null;
+        const way = mine && mine.kind !== "way" ? mine.resume : mine;
+        if (!way || way.done || way.standing !== order || day < way.since) return false;
+        return landWithin(arena, held, troop.x, troop.y, INVADE_REACH_KM / battle.place.kmAt(troop.y));
+      });
+      if (!reached) continue;
+      // The side of the war the country joins: the one its attackers are not on.
+      const joins = battleSide(battle, 1 - order.s);
+      applyWarMoment(run, { type: "war", op: joins === 0 ? "join-a" : "join-b", warId: war.id, names: [name], sent: true }, day);
+      // No room for another member there: it stays a wall, and nobody is at war with it.
+      if (sideOfName(battle, name) < 0) continue;
+      const date = run.dateOf(day);
+      battle.log.push({ d: date, k: "invaded", s: order.s, at: `${run.isGroup(name) ? "group" : "country"}: ${name}` });
+      run.joins.push({ day, date, battlefield: battle, warId: war.id, name, side: joins, by: clean(order.by) || battle.sides[order.s][0] });
+      settle(order, name);
+      battle.touched = true;
+      battle.planKey = "";
+    }
+  }
+};
+
 // ---- the run -------------------------------------------------------------------
 
 // Whether a run that was given no shapes can do without them: no war moment
@@ -746,6 +863,7 @@ const begin = (run) => {
     findPockets(battle);
     startRecorder(battle, run, 0);
     assignStanding(run, battle);
+    markAttacks(run, battle);
   }
   // A formation still marked as committed to a battlefield that is gone, or
   // that does not know it, is given back to the world.
@@ -798,6 +916,9 @@ const stepDay = (run) => {
   for (let index = 0; index < run.battles.length; index += 1) {
     const battle = run.battles[index];
     if (battle.status === "active") {
+      // Whoever was sent into a country outside the war and has come to it
+      // brings it in before the day is fought: its land is ground from today.
+      invadeWhereSent(run, battle, day);
       run.steps += simulateDay(battle, run, day);
       battle.daysRun += 1;
     } else if (battle.status === "standing") standDay(battle);
@@ -822,6 +943,9 @@ const snapshot = (run) => {
   return {
     battlefields: [...open, ...closed],
     flips: run.flips.map(({ day: on, date, battlefield, regionId, from, to, kind }) => ({ day: on, date, battlefield: battlefield.name, regionId, from, to, kind })),
+    // The countries troops were sent into, each with the war it is in from
+    // that day and the side of it (0 for its first, 1 for its second).
+    joins: run.joins.map(({ day: on, date, battlefield, warId, name, side, by }) => ({ day: on, date, battlefield: battlefield.name, warId, name, side, by })),
     unitChanges: changes,
     notes: run.notes.map((note) => (note.battlefield && typeof note.battlefield === "object" ? { ...note, battlefield: note.battlefield.name } : { ...note })),
     // What the days of this run added to each battlefield's log, all of it and

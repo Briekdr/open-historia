@@ -688,6 +688,9 @@ const listed = (names, most = 3) => `${names.slice(0, most).join("; ")}${names.l
 //   notes            [{ kind, text }] for the turn's receipt
 //   flips, stats     what the engine reported, for the log
 //   news             what the days of the run added to the battlefields' logs
+//   joins            the countries troops were sent into, each now in its war:
+//                    [{ day, date, battlefield, warId, name, side, by }], for
+//                    the war ledger (frontApply.js frontWarJoins)
 // The same arguments give the same result: a turn applied twice is one turn.
 export const runTurnFronts = async ({
   createFrontRun,
@@ -728,7 +731,7 @@ export const runTurnFronts = async ({
         + "Troops on a battlefield are moved by front orders, under [Fronts].",
     });
   }
-  const nothing = (battlefields) => ({ events: list, battlefields, unitChanges: [], notes, flips: [], stats: null, news: [] });
+  const nothing = (battlefields) => ({ events: list, battlefields, unitChanges: [], notes, flips: [], stats: null, news: [], joins: [] });
 
   const saved = normalizeBattlefields(world?.battlefields);
   const stages = asArray(warStages).length ? asArray(warStages).map(asArray) : [asArray(world?.wars)];
@@ -881,5 +884,6 @@ export const runTurnFronts = async ({
     flips: asArray(result.flips),
     stats: result.stats ?? null,
     news: asArray(result.news),
+    joins: asArray(result.joins),
   };
 };

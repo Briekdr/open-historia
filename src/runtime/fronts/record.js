@@ -53,6 +53,7 @@ import {
   MAX_TROOPS_PER_SIDE,
 } from "./constants.js";
 import { cellIndexAt, normalizeFrame, projectorOf } from "./frame.js";
+import { readAttacks } from "./invade.js";
 import { normalizeReplay, replayBetween, replayDayOn, replayOf, replayWindowOf } from "./replay.js";
 
 const NAME_MAX = 120;
@@ -120,9 +121,17 @@ const normalizeOrder = (raw) => {
     if (way.length >= MAX_WAY_POINTS) break;
   }
   if (way.length > 0) entry.way = way;
+  // The countries outside the war a route goes into, which sending troops
+  // along it attacks (invade.js). The engine works them out afresh whenever
+  // the route is put to its troops; what is kept is for whoever reads the record.
+  const attacks = entry.chosen ? readAttacks(raw.attacks) : [];
+  if (attacks.length > 0) entry.attacks = attacks;
   return entry;
 };
 
+// (The kinds a log entry may be are the engine's: "city", "whole", "overrun",
+// "pocket", "siege", "taken", "destroyed", "assault", and "invaded" for a
+// country a side sent its troops into.)
 const normalizeOrders = (value) => {
   const kept = [];
   const count = [0, 0];

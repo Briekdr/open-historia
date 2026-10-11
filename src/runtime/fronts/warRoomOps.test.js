@@ -50,6 +50,19 @@ test("a route is kept where it crosses the battlefield, and troops can be given 
   const [order] = chosenOrdersOf(routed.record, 0);
   assert.deepEqual([order.order, order.way, order.troops], ["advance", [[21.2, 50.8], [22.2, 50.6], [22.6, 50]], [3, 4, 5]]);
   assert.match(applyWarRoomOp(battlefields, { op: "route", battlefield: name, troops: [3], way: [[140, 10], [21.2, 50.8]] }, as("Aland")).error, /does not cross the battlefield/);
+  // A route that leaves the frame is kept past its edge: the battlefield grows
+  // toward where its troops are sent, and a route cut at the edge would stop them there.
+  const beyond = applyWarRoomOp(battlefields, { op: "route", battlefield: name, troops: [3], way: [[21.2, 50.8], [25.5, 49.4], [27.5, 50.2]] }, as("Aland"));
+  assert.deepEqual(chosenOrdersOf(beyond.record, 0)[0].way, [[21.2, 50.8], [25.5, 49.4], [27.5, 50.2]]);
+  // One that never touches the battlefield is no route of it.
+  assert.match(applyWarRoomOp(battlefields, { op: "route", battlefield: name, troops: [3], way: [[27.2, 50.2], [27.9, 50.2]] }, as("Aland")).error, /does not cross the battlefield/);
+  // A drawing of very many points is thinned from end to end, never cut short: its last point is where the troops go.
+  const long = Array.from({ length: 3000 }, (_, index) => [21.2 + (index * 3.6) / 2999, 50.8 - (index * 0.9) / 2999]);
+  const sent = cleanWarRoomOp({ op: "route", battlefield: name, troops: [3], way: long });
+  assert.ok(sent.way.length <= 100, `${sent.way.length} points sent`);
+  assert.deepEqual(sent.way.at(-1), [24.8, 49.9]);
+  const drawn = chosenOrdersOf(applyWarRoomOp(battlefields, { op: "route", battlefield: name, troops: [3], way: long }, as("Aland")).record, 0)[0].way;
+  assert.deepEqual([drawn[0], drawn.at(-1)], [[21.2, 50.8], [24.8, 49.9]]);
   const released = applyWarRoomOp(routed.battlefields, { op: "release", battlefield: name, troops: [3, 4, 5, 6] }, as("Aland"));
   assert.deepEqual(chosenOrdersOf(released.record, 0), []);
   assert.equal(released.record.orders.length, 0);

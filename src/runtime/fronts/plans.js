@@ -317,6 +317,9 @@ const orderPlans = (record, side, cities, decoded) => {
       // Days of fighting have passed over it: a movement being made, and no
       // longer one still to be made.
       begun: Number(ages[index]) > 0,
+      // The countries outside the war a route goes into (invade.js), once the
+      // engine has read them: sending troops along it attacks them.
+      attacks: Array.isArray(order.attacks) ? order.attacks.map((name) => clean(name)).filter(Boolean) : [],
       ways: [],
     };
     if (plan.kind === "route") {

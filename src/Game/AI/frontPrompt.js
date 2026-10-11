@@ -76,7 +76,7 @@ const FRONT_RULES = [
 const FOUGHT_RULES = [
   FRONTS_BLOCK_HEADING,
   "Land war is fought on battlefields: one opens by itself wherever the two sides of a war hold land that touches, and there the game raises the troops, moves them and decides who holds the ground. It has ALREADY fought this period on every battlefield told in full below: what a battlefield's account says happened, happened, on the dates it gives. You tell that story, and give the orders for what comes next. On the battlefields below this replaces what the instructions above say of moving formations and taking regions: write no unitOps for their sides' land forces and no regionControlOps for their regions (the game changes the map itself, on the dates of the fighting). Fleets, air wings, garrisons, bases and land forces away from every battlefield move as before.",
-  "Tell the war. A battlefield where ground changed hands is among the first things this period is about, whoever is fighting on it: give it at least three events of this answer (two, where the answer has fewer than six), each on a date from its account and saying what the account says: the places that fell and to whom, the troops cut off or lost, how far the line went and where it stands now, and then what that did to the countries fighting and how others answered. Where an account also says what happened before this period and was not yet told, tell that too, early in the answer, as what the fighting had come to by then. A war that is only mentioned in passing has not been told. Nothing in any event goes against an account: a place it does not say fell did not fall, and a side it shows giving ground was not advancing.",
+  "Tell the war. A battlefield where ground changed hands is among the first things this period is about, whoever is fighting on it: give it at least three events of this answer (two, where the answer has fewer than six), each on a date from its account and saying what the account says: the places that fell and to whom, the troops cut off or lost, how far the line went and where it stands now, and then what that did to the countries fighting and how others answered. Where an account says a side sent its troops into a country that was not in the war, that country is in the war against it from that date, and the game has entered it in that war already: tell it as the invasion it is, with what the country and the others did about it. Where an account also says what happened before this period and was not yet told, tell that too, early in the answer, as what the fighting had come to by then. A war that is only mentioned in passing has not been told. Nothing in any event goes against an account: a place it does not say fell did not fall, and a side it shows giving ground was not advancing.",
   ...ORDER_LINES,
   "- eventNumbers: the events of this answer in which the order is given, counted from 1, with commas between; may be blank.",
   "- objective (a place with its kind: `city: Kharkiv`), result (breakthrough | captured | repulsed | stalemate | collapse | surrender) and effort (token | limited | major | total) may be left off. A result is the story itself deciding what no account says (a garrison surrenders, an army collapses): it takes effect as the period ends.",
@@ -136,6 +136,8 @@ const byWeight = (records, players) => {
 // What a happening of the engine's log is in words: `who` leads the side it
 // names, `at` is the place with its kind.
 const NEWS_WORDS = {
+  // A country that was in nobody's war until a side's troops were sent into it.
+  invaded: (who, at) => `${who} sent its troops into ${at}, which was not in the war and is at war with it from that day`,
   city: (who, at) => `${who} took ${at}`,
   taken: (who, at) => `${who} took ${at}`,
   destroyed: (who, at) => `${who} destroyed ${at}`,
@@ -151,6 +153,7 @@ const NEWS_WORDS = {
 // names the regions taken. They are counted.)
 const LARGE_TOWN = 100000;
 const newsWeight = (entry) => {
+  if (entry.k === "invaded") return 7e9;
   const size = Math.min(9e8, Math.max(0, Number(entry.size) || 0));
   if (entry.k === "city") return entry.capital ? 6e9 : size >= LARGE_TOWN ? 4e9 + size : 2e9 + size;
   if (entry.k === "pocket" || entry.k === "siege") return 3e9;

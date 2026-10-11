@@ -27,7 +27,7 @@
 
 import { generalsOf, nameGenerals, orderTroops, readTalk, releaseTroops, withTalk } from "./command.js";
 import { HOLDER_SIDE_A, HOLDER_SIDE_B, MAX_COMMANDS, MAX_TROOPS_PER_SIDE, MAX_WAY_POINTS, TALK_TEXT_MAX, WAR_ROOM_ORDERS } from "./constants.js";
-import { pointInFrame } from "./frame.js";
+import { pointInFrame, projectorOf } from "./frame.js";
 import { withDiversion, withProjectPlan, withoutPlan } from "./plans.js";
 import { battlefieldSideOf, foldBattlefieldName, isOpenBattlefield, normalizeBattlefield } from "./record.js";
 
@@ -38,15 +38,31 @@ export const WAR_ROOM_WAY_MOST = 400;
 const clean = (value, most = 200) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, most).trim();
 const list = (value) => (Array.isArray(value) ? value : []);
 
-// The points of a way that lie on the battlefield, as [lng, lat].
+// A way as it was drawn, as [lng, lat], when it is a way of this battlefield:
+// one that touches its frame. The points beyond the frame are kept, out to
+// half a frame further each way: a battlefield grows toward where its troops
+// are sent (day.js growIfNeeded), and a route cut off at the edge of the frame
+// would stop them there. A drawing of very many points is thinned evenly, end
+// to end, and never cut short: its last point is where the troops are to go.
 const wayOn = (record, value) => {
-  const way = [];
-  for (const point of list(value).slice(0, WAR_ROOM_WAY_MOST)) {
+  const drawn = [];
+  for (const point of list(value)) {
     const lng = Number(point?.[0]);
     const lat = Number(point?.[1]);
-    if (Number.isFinite(lng) && Number.isFinite(lat) && pointInFrame(record.frame, lng, lat)) way.push([lng, lat]);
+    if (Number.isFinite(lng) && Number.isFinite(lat)) drawn.push([lng, lat]);
+    if (drawn.length >= WAR_ROOM_WAY_MOST * 25) break;
   }
-  return way;
+  const { toCell } = projectorOf(record.frame);
+  const { cols, rows } = record.frame;
+  const near = drawn.filter(([lng, lat]) => {
+    const [x, y] = toCell(lng, lat);
+    return x >= -cols / 2 && x <= cols * 1.5 && y >= -rows / 2 && y <= rows * 1.5;
+  });
+  if (!near.some(([lng, lat]) => pointInFrame(record.frame, lng, lat))) return [];
+  if (near.length <= WAR_ROOM_WAY_MOST) return near;
+  const kept = [];
+  for (let index = 0; index < WAR_ROOM_WAY_MOST; index += 1) kept.push(near[Math.round((index * (near.length - 1)) / (WAR_ROOM_WAY_MOST - 1))]);
+  return kept;
 };
 
 const troopIndexes = (value) => [...new Set(list(value).map(Number).filter((index) => Number.isInteger(index) && index >= 0 && index < MAX_TROOPS_PER_SIDE))];
@@ -171,7 +187,9 @@ export const cleanWarRoomOp = (op) => {
   if (op.order !== undefined) sent.order = clean(op.order, 20).toLowerCase();
   if (op.objective !== undefined) sent.objective = clean(op.objective, 120);
   if (op.way !== undefined) {
-    sent.way = list(op.way).slice(0, WAR_ROOM_WAY_MOST)
+    // The whole of what was drawn, thinned: a long drawing is never cut short
+    // (its last point is where the troops are to go).
+    sent.way = list(op.way).slice(0, WAR_ROOM_WAY_MOST * 25)
       .map((point) => [Math.round(Number(point?.[0]) * 10000) / 10000, Math.round(Number(point?.[1]) * 10000) / 10000])
       .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat));
     // What is kept of a way is a dozen points: no need to send hundreds.

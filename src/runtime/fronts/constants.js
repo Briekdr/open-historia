@@ -394,6 +394,13 @@ export const ROUTE_JOIN_KM = 20;
 // made it, and also when it cannot be made: once none of them has got this
 // much further along it in this many days, it is given up and they go back to
 // what their stretch of the line is told.
+// A route drawn for troops that goes this far into the land of a country
+// outside the war is an attack on it (invade.js): less is a corner clipped,
+// and attacks nobody. The country is at war when a troop on the route comes
+// within the second distance of its land. An order names at most so many.
+export const ROUTE_INTO_KM = 30;
+export const INVADE_REACH_KM = 18;
+export const MAX_ORDER_ATTACKS = 4;
 export const HAND_STALL_DAYS = 6;
 export const HAND_STALL_KM = 4;
 export const BLITZ_BREADTH = 0.5;

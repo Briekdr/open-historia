@@ -25,6 +25,10 @@
 import { noteReceipt } from "../../runtime/applicationReceipt.js";
 import { JSON_URLS, loadRegionCatalog, readJson } from "../../runtime/assets.js";
 import { frontCitiesOf, readFrontCities } from "../../runtime/frontCities.js";
+import { arenaFor } from "../../runtime/fronts/arena.js";
+import { decodeTroops } from "../../runtime/fronts/codec.js";
+import { projectorOf } from "../../runtime/fronts/frame.js";
+import { othersOnWay } from "../../runtime/fronts/invade.js";
 import { logDebugEvent } from "../../runtime/debugLog.js";
 import { createFrontRun } from "../../runtime/fronts/engine.js";
 import { getActiveWorldDirection, isActiveFeatureEnabled } from "../../runtime/gameFeatures.js";
@@ -310,8 +314,85 @@ export const applyTurnFronts = async ({
     if (signal?.aborted || error?.name === "AbortError") throw error;
     console.warn("[fronts] the front engine could not be run for this turn; the turn goes on without it and the battlefields stand as they were.", error);
     logDebugEvent("turn", "Fronts: the engine could not be run for this turn; the battlefields stand as they were.", error, { problem: true });
-    return { events: stripFrontOps(events), battlefields: null, unitChanges: [], notes: [], flips: [], stats: null };
+    return { events: stripFrontOps(events), battlefields: null, unitChanges: [], notes: [], flips: [], stats: null, news: [], joins: [] };
   }
+};
+
+// ---- a country troops were sent into --------------------------------------------------
+
+// The countries a turn's troops were sent into (runtime/fronts/invade.js), as
+// records for the war ledger: each joins the side of its war that its
+// attackers are not on, on the day they came to it. The ledger's own merge
+// takes them (nativeWarLedger.js applyWarUpdates): one the story wrote too is
+// simply the same record twice. [] with nothing of the kind.
+export const frontWarJoins = (fronts) => asArray(fronts?.joins)
+  .filter((join) => clean(join?.warId) && clean(join?.name))
+  .map((join) => ({
+    id: clean(join.warId),
+    op: join.side === 0 ? "join-a" : "join-b",
+    actors: [clean(join.name)],
+    opponents: [],
+    eventIds: [],
+    baselineDate: clean(join.date),
+  }));
+
+// What sending troops along the routes drawn on a battlefield would attack:
+// for each order that is a route, the countries outside the war it goes well
+// into, read from the same ground the engine reads them from. The war room
+// asks as soon as a route is drawn, so that the player is told before time
+// passes. A Map from the order's place in the record's list to the names;
+// empty when no route attacks anybody, or the ground could not be read.
+//   loadRegions   reads the map's regions file, should the ground of this
+//                 battlefield not have been drawn yet in this sitting
+export const routesIntoOthers = async ({ world = {}, game = {}, campaignId = "", record = null, loadRegions = null } = {}) => {
+  const found = new globalThis.Map();
+  // The routes whose orders do not say yet: what the engine has read is on the
+  // order already, and the plan carries it. (A route under way with nothing on
+  // its order is read too: it may have been drawn before the engine read routes.)
+  const routes = asArray(record?.orders).map((order, index) => ({ order, index }))
+    .filter(({ order }) => order?.chosen === true && asArray(order.way).length > 0 && asArray(order.attacks).length === 0);
+  if (!frontsOn() || !record?.frame || routes.length === 0) return found;
+  try {
+    const front = await readFrontMap(world, game, campaignId);
+    const arenas = arenasFor(front.map.key);
+    const regionTypes = asArray(world?.regionTypes);
+    let arena = arenaFor(arenas, { ...front.map, regions: null }, record.frame, regionTypes);
+    if (!arena) {
+      // The ground of this frame has not been drawn in this sitting: the map's shapes are read for it, once.
+      const shapes = typeof loadRegions === "function" ? await loadRegions() : null;
+      const regions = shapes ? engineRegionsOf(shapes, { nameOf: (id) => front.names.get(id) }) : null;
+      if (asArray(regions).length === 0) return found;
+      arena = arenaFor(arenas, { ...front.map, regions }, record.frame, regionTypes);
+    }
+    if (!arena) return found;
+    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, regionIds: front.regionIds, groups: isActiveFeatureEnabled("groups") });
+    const members = new Set(asArray(record.sides).flat().map(fold));
+    const inWar = (name) => members.has(fold(name));
+    const holderOf = (id) => {
+      const group = clean(readers.groupAreas?.[id]);
+      return group && inWar(group) ? group : clean(readers.controllerOf(id));
+    };
+    const place = projectorOf(record.frame);
+    const under = asArray(record.brief?.carry?.under);
+    for (const { order, index } of routes) {
+      const troops = decodeTroops(record.troops?.[order.s]);
+      let x = 0;
+      let y = 0;
+      let count = 0;
+      asArray(under[order.s]).forEach((serves, troop) => {
+        if (serves !== index || !(troops[troop]?.strength > 0)) return;
+        x += troops[troop].x;
+        y += troops[troop].y;
+        count += 1;
+      });
+      const route = order.way.map(([lng, lat]) => place.toCell(lng, lat));
+      const names = othersOnWay({ arena, place, way: count > 0 ? [[x / count, y / count], ...route] : route, holderOf, inWar });
+      if (names.length > 0) found.set(index, names);
+    }
+  } catch (error) {
+    console.warn("[fronts] what a route goes into could not be read; the engine says when the route is put to its troops.", error);
+  }
+  return found;
 };
 
 // Builds a new game's battlefields from the fronts its scenario begins with

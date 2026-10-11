@@ -725,7 +725,7 @@ export const saveBattle = (battle, run, day, changes, brief) => {
     base: battle.base.slice(),
     quality: battle.quality.slice(),
     effort: battle.effort.slice(),
-    orders: orders.map(({ s, sector, order, objective, effort, by, since, chosen, way, mark }) => ({
+    orders: orders.map(({ s, sector, order, objective, effort, by, since, chosen, way, mark, attacks }) => ({
       s,
       sector,
       order,
@@ -736,6 +736,7 @@ export const saveBattle = (battle, run, day, changes, brief) => {
       ...(chosen ? { chosen: true } : {}),
       ...(chosen && mark ? { mark } : {}),
       ...(Array.isArray(way) && way.length > 0 ? { way } : {}),
+      ...(chosen && Array.isArray(attacks) && attacks.length > 0 ? { attacks: attacks.slice() } : {}),
     })),
     replay: battle.replay ?? battle.recorder.finish({ date: run.input.fromDate, days: day }),
     held: "",

@@ -25,7 +25,7 @@
 // goes through runtime/warRoomWrites.js.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { generateWarRoomReply } from "../AI/gameplayLazy.js";
+import { generateWarRoomReply, warRoomRouteAttacks } from "../AI/gameplayLazy.js";
 import { warRoomIntel, warRoomPlans } from "../AI/frontPlans.js";
 import { isSimulationBusy } from "../AI/simulationStatus.js";
 import { closeWarRoom, getWarRoom, onWarRoomWay, openWarRoom, setWarRoom, showBattlefield, takeTool, useWarRoom } from "../Map/warRoomStore.js";
@@ -219,6 +219,30 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
     if (open) setWarRoom({ plans, known: intel.plans });
   }, [open, plans, intel]);
 
+  // A route drawn into a country that is not in this war is an attack on it
+  // (runtime/fronts/invade.js). The engine reads that when time passes; the
+  // room reads it from the same ground as soon as the route is drawn, so that
+  // it is said before anything moves: by plan, the names it goes into.
+  const [intoOthers, setIntoOthers] = useState(null);
+  useEffect(() => {
+    if (!open || !record) {
+      setIntoOthers(null);
+      return undefined;
+    }
+    let live = true;
+    warRoomRouteAttacks({ world, game, record })
+      .then((found) => { if (live) setIntoOthers(found); })
+      .catch(() => { if (live) setIntoOthers(null); });
+    return () => { live = false; };
+    // The routes are the record's: read again when it changes, and for another game.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, record, activeGame?.id]);
+  const attackedBy = (plan) => {
+    if (plan.kind !== "route") return [];
+    if (plan.attacks?.length > 0) return plan.attacks;
+    return intoOthers?.get(Number(String(plan.id).replace("order:", ""))) ?? [];
+  };
+
   // ---- doing things --------------------------------------------------------------------
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -359,6 +383,7 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   const underWay = ownPlans.filter((plan) => plan.begun || plan.done);
   const planRow = (plan) => {
     const past = plan.begun || plan.done;
+    const attacked = attackedBy(plan);
     const tone = planTone(plan);
     const redrawing = tool === "replan" && replan === plan.project;
     return (
@@ -386,6 +411,11 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
             {plan.kind === "project" && plan.edited && <> · redrawn</>}
             {plan.kind === "order" && !plan.chosen && plan.sector && plan.sector !== "all" && <> · <span data-no-translate>{plan.sector}</span></>}
           </div>
+          {attacked.length > 0 && (
+            <div style={{ color: AMBER, fontSize: "0.72rem", lineHeight: 1.4, marginTop: "0.12rem" }}>
+              This route goes into <span data-no-translate>{attacked.join(", ")}</span>, which is not in this war. Sending troops along it is an attack: when they reach its border it is at war with you, and its land is fought over.
+            </div>
+          )}
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginTop: "0.1rem" }}>
             {plan.kind === "project" && plan.own && !plan.done && (
               <>
@@ -535,6 +565,8 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.32rem", marginTop: "0.45rem" }}>
                 <button type="button" className="oh-tap" aria-pressed={tool === "select"} disabled={locked} onClick={() => takeTool("select")} style={keyStyle(tool === "select", locked)}>Select troops</button>
                 <button type="button" className="oh-tap" aria-pressed={tool === "route"} disabled={locked || selected.length === 0} onClick={() => takeTool("route")} style={keyStyle(tool === "route", locked || selected.length === 0)}>Draw route</button>
+                {/* An advance with no route: each goes straight out from where it stands, as a line told to advance does. */}
+                <button type="button" className="oh-tap" disabled={locked || selected.length === 0} onClick={() => orderPicked("advance")} title="Send these troops forward from where they stand, with no route drawn for them" style={keyStyle(false, locked || selected.length === 0)}>Advance</button>
                 <button type="button" className="oh-tap" disabled={locked || selected.length === 0} onClick={() => orderPicked("dig in")} style={keyStyle(false, locked || selected.length === 0)}>Dig in</button>
                 <button type="button" className="oh-tap" disabled={locked || selected.length === 0} onClick={() => orderPicked("hold")} style={keyStyle(false, locked || selected.length === 0)}>Hold</button>
                 <button type="button" className="oh-tap" disabled={locked || selected.length === 0} onClick={() => orderPicked("fall back")} style={keyStyle(false, locked || selected.length === 0)}>Fall back</button>
