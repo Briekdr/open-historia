@@ -195,3 +195,41 @@ test("the war room's steel is a picture worked out a pixel at a time, the same e
     assert.doesNotMatch(read(file), /(?:linear|radial|conic)-gradient\s*\(|create(?:Linear|Radial|Conic)Gradient/);
   }
 });
+
+test("the troop tools are on a rail at the left of the map, and the drawer keeps what is read", () => {
+  const rail = read("warRoomRail.jsx");
+  // Every tool and order a body of troops can be given has its key on the rail, and none is left in the drawer.
+  for (const [label, action] of [
+    ["Select", "onTool(\"select\")"],
+    ["Route", "onTool(\"route\")"],
+    ["Advance", "onOrder(\"advance\")"],
+    ["Dig in", "onOrder(\"dig in\")"],
+    ["Hold", "onOrder(\"hold\")"],
+    ["Fall back", "onOrder(\"fall back\")"],
+    ["Diversion", "onTool(\"diversion\")"],
+  ]) {
+    const key = rail.split("\n").find((line) => line.includes(`<RailKey label="${label}" `)) ?? "";
+    assert.ok(key.includes(`onClick={() => ${action}}>`), `${label} is a key on the rail`);
+  }
+  assert.match(rail, /<RailKey label="Release" [^>]*onClick=\{onRelease\}>/);
+  assert.doesNotMatch(panel, />Select troops<|>Draw route<|>Dig in<\/button>|>Fall back<\/button>|>Draw a diversion</, "the keys are not in the drawer as well");
+  // The panel hands the rail what the keys do: the rail writes nothing itself.
+  assert.match(panel, /<WarRoomRail\s+shown=\{railShown\}\s+top=\{railTop\}/);
+  for (const prop of ["onTool={takeTool}", "onOrder={orderPicked}", "onRelease={releasePicked}", "locked={locked}", "turnRunning={turnRunning}", "notice={notice}"]) assert.ok(panel.includes(prop), `the rail is given ${prop}`);
+  assert.doesNotMatch(rail, /sendWarRoomOp|mutateWorldState|writeWorldState/);
+  // It is out while the map is in sight: beside the drawer, and on a phone once the drawer is folded down.
+  assert.match(panel, /const railShown = open && Boolean\(record\) && \(!isMobile \|\| foldedNow\);/);
+  // It comes out of the left edge, and can be tucked back against it.
+  assert.match(rail, /left: 0,/);
+  assert.match(rail, /transform: out \? "translateX\(0\)" : "translateX\(-100%\)",/);
+  assert.match(rail, /aria-expanded=\{!tucked\}/);
+  // What a key cannot do it says why: nothing is ordered while a turn is being resolved, or with nobody picked out.
+  assert.match(rail, /disabled=\{locked \|\| none\} onClick=\{\(\) => onOrder\("advance"\)\}/);
+  assert.match(rail, /\{turnRunning && <>A turn is being resolved\. Orders are taken once it has landed\.<\/>\}/);
+  // The map fits a battlefield beside the rail as it does beside the drawer.
+  assert.match(rail, /setWarRoom\(\{ rail: Math\.round\(railRef\.current\?\.getBoundingClientRect\(\)\.right \?\? 0\) \}\)/);
+  assert.match(read("../Map/WarRoomTools.jsx"), /padding: \{ top: 96, bottom: 96, left: left \+ 48, right: right \+ 48 \},/);
+  assert.match(read("../Map/warRoomStore.js"), /\n {2}rail: 0,\n/);
+  // No gradient and no glass on it: the plate is the war room's own.
+  assert.doesNotMatch(rail, /gradient|backdrop-filter|backdropFilter/i);
+});

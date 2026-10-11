@@ -17,6 +17,9 @@
 //     his generals' orders, the Board's operations (each can be redrawn, or
 //     told to move nothing), and diversions; and under them what his agents
 //     and his Board have of the other side's;
+//   - the TROOP TOOLS, which are not in the drawer: they are on a rail that
+//     comes out of the left edge of the screen, beside the map they are used
+//     on (warRoomRail.jsx).
 //   - the TALK with the generals: one request a message (AI/gameplay.js
 //     generateWarRoomReply). They answer, push back, and take orders.
 //
@@ -43,6 +46,7 @@ import { useRuntimeState } from "../../runtime/useRuntimeState.js";
 import { sendWarRoomOp } from "../../runtime/warRoomWrites.js";
 import { ADVISOR_SLIDE } from "./advisorSlide.js";
 import { placeName, playerFronts } from "./warRoomData.js";
+import { WarRoomRail } from "./warRoomRail.jsx";
 import {
   AMBER,
   BONE,
@@ -370,7 +374,6 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   // folding the panel down to its tools.
   const [folded, setFolded] = useState(false);
   const foldedNow = isMobile && folded;
-  const drawing = tool !== "pan";
   const nameOf = (command) => generals.find((general) => general.command === command)?.name || "";
   const locked = turnRunning || busy;
   const other = record ? record.sides[1 - side] ?? [] : [];
@@ -441,9 +444,28 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   };
   const panelWidth = `calc(${width || WAR_ROOM_WIDTH} + ${SAFE_RIGHT})`;
   const plate = plateStyle();
+  // The tools are out while the map is in sight: always beside the drawer, and
+  // on a phone once the drawer is folded down to show the map.
+  const railShown = open && Boolean(record) && (!isMobile || foldedNow);
+  const railTop = isMobile ? `calc(${SAFE_TOP} + 0.6rem)` : `calc(${FRAME_BAR} + ${SAFE_TOP} + 0.7rem)`;
 
   return (
     <>
+      <WarRoomRail
+        shown={railShown}
+        top={railTop}
+        isMobile={isMobile}
+        tool={tool}
+        selected={selected}
+        locked={locked}
+        turnRunning={turnRunning}
+        notice={notice}
+        onTool={takeTool}
+        onOrder={orderPicked}
+        onRelease={releasePicked}
+        onClear={() => setWarRoom({ selected: [] })}
+      />
+
       {/* The frame of plate round the map: its bar says which battlefield this
           is and what day it is, now that the date widget is out of sight. */}
       {open && !isMobile && record && (
@@ -557,34 +579,13 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
 
         {record && (
           <div style={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0 }}>
-            {/* Always in reach: the tools do not scroll away with the lists under them. */}
-            <div style={{ borderBottom: `1px solid ${STEEL.seam}`, boxShadow: `0 1px 0 ${STEEL.lip}`, flex: "0 0 auto", padding: "0.65rem 0.8rem 0.6rem" }}>
-              {isMobile && fronts.length === 1 && <div data-no-translate style={{ ...stencilStyle, color: BONE, marginBottom: "0.5rem" }}>{record.name}</div>}
-              {/* The tools for troops picked out. */}
-              <Heading>Troops</Heading>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.32rem", marginTop: "0.45rem" }}>
-                <button type="button" className="oh-tap" aria-pressed={tool === "select"} disabled={locked} onClick={() => takeTool("select")} style={keyStyle(tool === "select", locked)}>Select troops</button>
-                <button type="button" className="oh-tap" aria-pressed={tool === "route"} disabled={locked || selected.length === 0} onClick={() => takeTool("route")} style={keyStyle(tool === "route", locked || selected.length === 0)}>Draw route</button>
-                {/* An advance with no route: each goes straight out from where it stands, as a line told to advance does. */}
-                <button type="button" className="oh-tap" disabled={locked || selected.length === 0} onClick={() => orderPicked("advance")} title="Send these troops forward from where they stand, with no route drawn for them" style={keyStyle(false, locked || selected.length === 0)}>Advance</button>
-                <button type="button" className="oh-tap" disabled={locked || selected.length === 0} onClick={() => orderPicked("dig in")} style={keyStyle(false, locked || selected.length === 0)}>Dig in</button>
-                <button type="button" className="oh-tap" disabled={locked || selected.length === 0} onClick={() => orderPicked("hold")} style={keyStyle(false, locked || selected.length === 0)}>Hold</button>
-                <button type="button" className="oh-tap" disabled={locked || selected.length === 0} onClick={() => orderPicked("fall back")} style={keyStyle(false, locked || selected.length === 0)}>Fall back</button>
-                <button type="button" className="oh-tap" disabled={locked || selected.length === 0} onClick={releasePicked} title="Give these troops back to their stretch of the line" style={keyStyle(false, locked || selected.length === 0)}>Release</button>
+            {/* The troop tools are on the rail at the left of the map (warRoomRail.jsx): here, only where they are and when orders are carried out. */}
+            <div style={{ borderBottom: `1px solid ${STEEL.seam}`, boxShadow: `0 1px 0 ${STEEL.lip}`, flex: "0 0 auto", padding: "0.5rem 0.8rem 0.5rem" }}>
+              {isMobile && fronts.length === 1 && <div data-no-translate style={{ ...stencilStyle, color: BONE, marginBottom: "0.35rem" }}>{record.name}</div>}
+              <div style={softText}>
+                {turnRunning ? <>A turn is being resolved. Orders are taken once it has landed.</> : <>Nothing moves here: orders are carried out when time next passes.</>}
+                {isMobile && !foldedNow ? <> The troop tools are beside the map: press Map to use them.</> : <> The troop tools are on the left of the map.</>}
               </div>
-              <div style={{ ...softText, marginTop: "0.45rem", minHeight: "1rem" }} role="status">
-                {turnRunning && <>A turn is being resolved. Orders are taken once it has landed.</>}
-                {!turnRunning && tool === "select" && <>Drag a box round your troops on the map. Hold Shift to add to those picked.{selected.length > 0 && <> {selected.length} picked out.</>}</>}
-                {!turnRunning && tool === "route" && <>Draw the way for the {selected.length} picked out. They follow it as the ground and the enemy allow.</>}
-                {!turnRunning && tool === "diversion" && <>Draw the movement you want the other side to believe.</>}
-                {!turnRunning && tool === "replan" && <>Draw the operation’s way anew.</>}
-                {!turnRunning && !drawing && selected.length > 0 && (
-                  <>{selected.length} picked out. <button type="button" onClick={() => setWarRoom({ selected: [] })} style={linkStyle}>Clear</button></>
-                )}
-                {!turnRunning && !drawing && selected.length === 0 && <>Nothing moves here: orders are carried out when time next passes.</>}
-                {drawing && !turnRunning && <> <button type="button" onClick={() => takeTool("pan")} style={linkStyle}>Cancel</button></>}
-              </div>
-              {notice && <div role="alert" data-no-translate style={{ color: "#ffb4a8", fontSize: "0.74rem", marginTop: "0.3rem" }}>{notice}</div>}
             </div>
             <div style={{ borderBottom: foldedNow ? "none" : `2px solid ${STEEL.seam}`, display: foldedNow ? "none" : "block", flex: "0 1 auto", maxHeight: "44%", overflowY: "auto", padding: "0.7rem 0.8rem 0.8rem" }}>
 
@@ -643,9 +644,7 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
               {/* Every movement meant and not yet made. */}
               {!foldedNow && (
                 <div onPointerLeave={() => setWarRoom({ pointed: "" })} style={{ marginTop: "0.85rem" }}>
-                  <Heading action={(
-                    <button type="button" className="oh-tap" aria-pressed={tool === "diversion"} disabled={locked} onClick={() => takeTool("diversion")} style={keyStyle(tool === "diversion", locked)}>Draw a diversion</button>
-                  )}>Planned movements</Heading>
+                  <Heading>Planned movements</Heading>
                   {planned.length === 0 && (
                     <div style={{ ...softText, marginTop: "0.4rem" }}>None. A route you draw, an order a general takes, and an operation on your Board that sends troops at a place here all show on the map as arrows.</div>
                   )}

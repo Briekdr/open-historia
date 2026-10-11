@@ -88,6 +88,7 @@ const WarRoomTools = () => {
   const tool = useWarRoom((state) => state.tool);
   const replan = useWarRoom((state) => state.replan);
   const cover = useWarRoom((state) => state.cover);
+  const rail = useWarRoom((state) => state.rail);
   const fit = useWarRoom((state) => state.fit);
   const record = useShownRecord(open ? name : "");
   const standing = useMemo(() => standingOf(record), [record]);
@@ -112,14 +113,18 @@ const WarRoomTools = () => {
     try {
       const size = map.getContainer?.()?.getBoundingClientRect?.();
       const right = Math.max(0, Math.min(cover, (size?.width ?? 0) - 240));
+      // The tool rail stands on the left of the map: the battlefield is fitted beside it.
+      const left = Math.max(0, Math.min(rail, 120));
       map.fitBounds(boundsOf(record, standing), {
-        padding: { top: 96, bottom: 96, left: 48, right: right + 48 },
+        padding: { top: 96, bottom: 96, left: left + 48, right: right + 48 },
         duration: 900,
         maxZoom: 8.5,
       });
     } catch (error) {
       console.warn("the war room could not fit its battlefield on the map:", error);
     }
+    // (The rail slides out as the room opens: the fit reads where it stands when it is asked for.)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, map, record, standing, name, fit, cover]);
   useEffect(() => {
     if (!open) fittedRef.current = "";

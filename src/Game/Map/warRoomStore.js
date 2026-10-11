@@ -39,6 +39,8 @@ const CLOSED = Object.freeze({
   // How far the drawer covers the map from the right, in px, so that a
   // battlefield is fitted into what is left of it.
   cover: 0,
+  // And how far the tool rail covers it from the left (GameUI/warRoomRail.jsx).
+  rail: 0,
   // Raised whenever the panel wants the battlefield fitted on the map again.
   fit: 0,
 });

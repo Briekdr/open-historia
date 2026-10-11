@@ -215,8 +215,9 @@ test("the turn hands the engine's joinings to the war ledger, and the war room h
   assert.match(gameplay, /export const warRoomRouteAttacks = \(\{ world, game, record \} = \{\}\) =>\n {2}routesIntoOthers\(\{ world, game, record, campaignId: activeCampaignId\(\), loadRegions: createRenderedRegionsReader\(\) \}\);/);
   assert.match(read("gameplayLazy.js"), /export const warRoomRouteAttacks = async \(\.\.\.args\) => \(await gameplay\(\)\)\.warRoomRouteAttacks\(\.\.\.args\);/);
   const panel = read("../GameUI/warRoom.jsx");
-  // Troops picked out can be told to advance with no route drawn for them.
-  assert.match(panel, /onClick=\{\(\) => orderPicked\("advance"\)\}[^>]*>Advance<\/button>/);
+  // Troops picked out can be told to advance with no route drawn for them: a key on the tool rail, carried out by the panel.
+  assert.match(read("../GameUI/warRoomRail.jsx"), /<RailKey label="Advance" [^>]*onClick=\{\(\) => onOrder\("advance"\)\}>/);
+  assert.match(panel, /onOrder=\{orderPicked\}/);
   assert.match(panel, /warRoomRouteAttacks\(\{ world, game, record \}\)/);
   assert.match(panel, /This route goes into <span data-no-translate>\{attacked\.join\(", "\)\}<\/span>, which is not in this war\./);
 });
