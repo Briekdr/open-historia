@@ -46,6 +46,7 @@ import {
   parseDiplomaticEnvelope,
 } from "../../runtime/diplomaticEnvelope.js";
 import { chatLanguageDirective, languageDirective } from "../../runtime/i18n.js";
+import { withDifficultyPriority } from "../../runtime/difficulty.js";
 import { normalizePromptPack } from "./gameplayPrompts.js";
 import { promptTranslationsVersion } from "../../runtime/promptTranslations.js";
 import {
@@ -2879,6 +2880,26 @@ export async function callAI(systemPrompt, history, opts = {}) {
         requestKind = PLAYER_REQUEST, onRequest: observeRequest = null,
         ...providerOpts
     } = opts;
+    // The difficulty's priority line opens every system prompt the game sends
+    // about the player's world (runtime/difficulty.js): a time skip, a leader,
+    // the advisor, an interactive event, a director. Here, because every call
+    // comes through here, so no task can be built without it; the tasks that
+    // decide nothing for the player are named there and get nothing. It is the
+    // same for every call of a campaign, so the cacheable prefix of the prompt
+    // (promptLayout.js) still leads it and is longer by the line.
+    try {
+        const savedGame = await readJson(JSON_URLS.game, { defaultValue: {} });
+        const led = withDifficultyPriority({
+            systemPrompt,
+            taskKey: providerOpts.taskKey,
+            difficulty: savedGame?.difficulty,
+            staticPrefixEnd: providerOpts.staticPrefixEnd ?? null,
+        });
+        systemPrompt = led.systemPrompt;
+        if (providerOpts.staticPrefixEnd != null) providerOpts.staticPrefixEnd = led.staticPrefixEnd;
+    } catch {
+        // Without the save the call goes out as it was built.
+    }
     const directive = languageMode === "none" ? ""
         : languageMode === "chat" ? chatLanguageDirective()
         : languageDirective();
@@ -4188,6 +4209,13 @@ const pendingBatchIds = new Map(); // customId -> { batchId, apiKey }
 export async function submitAIBatch({ customId, systemPrompt, history, taskKey, tool }) {
     const entry = batchEntryFor(taskKey);
     if (entry?.provider !== "anthropic") return null;
+    // A batched task opens with the difficulty's priority line like any other (callAI).
+    try {
+        const savedGame = await readJson(JSON_URLS.game, { defaultValue: {} });
+        systemPrompt = withDifficultyPriority({ systemPrompt, taskKey, difficulty: savedGame?.difficulty }).systemPrompt;
+    } catch {
+        // Without the save the batch goes out as it was built.
+    }
     const apiKey = entry.apiKey.trim();
     if (!apiKey) return null;
 

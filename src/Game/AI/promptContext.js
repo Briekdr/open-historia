@@ -958,7 +958,7 @@ export const formatDateReadable = (value) => {
   return parsed.isValid() ? parsed.format("D MMMM YYYY") : normalizeString(value);
 };
 
-// Difficulty 2.0 (runtime/difficulty.js), as the templates carry it: the
+// The difficulty's longer directive (runtime/difficulty.js), as the templates carry it: the
 // leader's diplomacy directive, and the time skip's simulation one. Nothing
 // appends a second copy to those prompts.
 export const buildDifficultyGuidance = (difficulty, mode = "general") =>
