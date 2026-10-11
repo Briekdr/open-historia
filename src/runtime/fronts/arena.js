@@ -28,6 +28,7 @@
 import { hashKey } from "./codec.js";
 import { TERRAIN_SPEED_MAX, TERRAIN_SPEED_MIN } from "./constants.js";
 import { cellIndexAt, latToY, projectorOf } from "./frame.js";
+import { isWaterType } from "../regionTypes.js";
 
 const text = (value) => String(value ?? "").trim();
 
@@ -203,11 +204,12 @@ const fillPolygon = (rings, grid, width, height, originX, originY, scale, value)
 
 // A region type's speed as the engine reads it: the Workshop's Pathfinding
 // Speed held to a range a front can live with, and nothing at all for ground
-// no unit may enter.
+// no unit may enter. Water is such ground: a sea drawn as regions is crossed
+// aboard a transporter and by nothing on foot.
 const speedOfType = (type) => {
   if (!type) return 1;
   const speed = Number(type.pathfindingSpeed);
-  if (type.passable === false || speed === 0) return 0;
+  if (type.passable === false || speed === 0 || isWaterType(type)) return 0;
   if (!Number.isFinite(speed)) return 1;
   return Math.min(TERRAIN_SPEED_MAX, Math.max(TERRAIN_SPEED_MIN, speed));
 };

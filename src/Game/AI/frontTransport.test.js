@@ -123,12 +123,12 @@ test("a transporter the story orders is the world's from that turn and sets out 
     ["2024-03-11", "refused", "Neutralia"],
     ["2024-03-12", "landed", "Aland"],
   ]);
-  assert.deepEqual(told.transports.map((entry) => [entry.id, entry.status, entry.note]), [["t1", "landed", ""], ["t2", "refused", "no-place"], ["t3", "refused", "no-war"]]);
+  assert.deepEqual(told.transports.map((entry) => [entry.id, entry.status, entry.note]), [["t1", "landed", ""], ["t2", "refused", "no-place"], ["t3", "refused", "no-origin"]]);
   const [record] = told.battlefields;
   assert.deepEqual([record.name, record.openedDate, record.sides], ["Operation Tide", "2024-03-12", [["Aland"], ["Borduria"]]]);
   assert.ok(told.flips.length >= 1, `${told.flips.length} regions taken from the sea in the period`);
   // What could not set out is said to whoever ordered it, once, in words.
-  assert.deepEqual(told.notes, [{ kind: "dropped", text: "Transporters were not sent (Borduria to city: Atlantis: the place it was sent to is not on the map; Neutralia to city: Port: its sender is fighting no war). One is sent by a side at war, to a place on the map that its kind can reach: a ship to a coast, rail through land its side holds." }]);
+  assert.deepEqual(told.notes, [{ kind: "dropped", text: "Transporters were not sent (Borduria to city: Atlantis: the place it was sent to is not on the map; Neutralia to city: Port: its sender has no city to send it from). One is sent to a place on the map that its kind can reach (a ship to a coast, rail through land its side holds): by a side at war, or in peace to another country's land, which is an attack on it." }]);
   assert.equal(transportRefusal("no-sea-way"), "no sea leads there");
   assert.equal(transportRefusal("something new"), "it could not set out");
 

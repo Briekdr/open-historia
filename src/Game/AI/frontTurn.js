@@ -29,7 +29,8 @@ import { arenaFor } from "../../runtime/fronts/arena.js";
 import { pointInFrame } from "../../runtime/fronts/frame.js";
 import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts/record.js";
 import { TRANSPORT_LOAD_USUAL, TRANSPORT_ORDERS, isUnderWay, normalizeTransports, orderTransport } from "../../runtime/fronts/transports.js";
-import { buildWorldGrid, distanceTo, seasOf } from "../../runtime/fronts/worldGrid.js";
+import { buildWorldGrid, distanceTo, seasOf, worldSheetKey } from "../../runtime/fronts/worldGrid.js";
+import { waterTypeIds } from "../../runtime/regionTypes.js";
 import { STRIKES_PER_TURN_MOST, findStrikePlace, pickStrikeOrigin, seaLaunchPlace } from "../../runtime/strikes.js";
 
 export const FRONT_MARK = "front";
@@ -40,6 +41,8 @@ export const STATED_REF = "stated:";
 const asArray = (value) => (Array.isArray(value) ? value : []);
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 const fold = (value) => clean(value).toLowerCase();
+// The orders that send troops at something (the engine's ATTACK_ORDERS).
+const ATTACKING = ["advance", "blitz", "spearhead", "flank", "encircle", "assault", "land"];
 const isRecord = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 // ---- before ----------------------------------------------------------------------
@@ -178,6 +181,8 @@ export const planFrontMoments = ({ events = [], frontOrders = [], warsBefore = [
       ref: clean(order.id),
     };
     if (clean(order.objective)) moment.objective = clean(order.objective);
+    // (Where the turn found the place for the engine: a city the map spells another way.)
+    if (isRecord(order.objectiveAt) && Number.isFinite(Number(order.objectiveAt.lng)) && Number.isFinite(Number(order.objectiveAt.lat))) moment.objectiveAt = { lng: Number(order.objectiveAt.lng), lat: Number(order.objectiveAt.lat) };
     if (clean(order.result)) moment.result = clean(order.result);
     if (clean(order.effort)) moment.effort = clean(order.effort);
     if (moment.battlefield && moment.side && (moment.order || moment.result)) moments.push(moment);
@@ -616,7 +621,7 @@ const named = (notes, field) => [...new Set(notes.map((note) => clean(note?.[fie
 const quoted = (notes, field) => named(notes, field).slice(0, 4).join("; ") || "unnamed";
 const one = (notes, field) => named(notes, field).length <= 1;
 const NOTE_TEXT = {
-  "unknown-battlefield": (notes) => `Front orders named ${one(notes, "battlefield") ? "a battlefield that does" : "battlefields that do"} not exist (${quoted(notes, "battlefield")}). Use the names listed under [Fronts]; a battlefield opens by itself where two sides at war hold touching land.`,
+  "unknown-battlefield": (notes) => `Front orders named ${one(notes, "battlefield") ? "a battlefield that does" : "battlefields that do"} not exist (${quoted(notes, "battlefield")}). Use the names listed under [Fronts]; a battlefield opens by itself where two sides at war hold touching land. To have a country attack one it is at peace with, name their border (\`border: A / B\`) or give the order an objective the other holds.`,
   "side-not-fighting": (notes) => `Front orders were given for ${quoted(notes, "side")}, which ${one(notes, "side") ? "is" : "are"} not fighting on the battlefield named. Only a side of that battlefield's war takes orders there.`,
   "sector-read-as-all": (notes) => `A sector that does not fit its line was read as the whole line (${quoted(notes, "detail")}). The sectors each line has are listed under [Fronts].`,
   "objective-not-found": (notes) => `An objective was not found on its battlefield and was left out (${quoted(notes, "detail")}). Name a city or a region that lies on that battlefield.`,
@@ -629,13 +634,13 @@ const NOTE_TEXT = {
   // The war it was for is not named: a war has a title only sometimes, and never an id a model is shown.
   "too-many-battlefields": () => "No more battlefields can be open at once, so a front that should have opened did not. It opens when another closes.",
   tempo: () => "The fronts stopped moving for the rest of the period: this scenario's ceiling on how fast the map may change was reached.",
-  "transport-refused": (notes) => `${one(notes, "detail") ? "A transporter was" : "Transporters were"} not sent (${quoted(notes, "detail")}). One is sent by a side at war, to a place on the map that its kind can reach: a ship to a coast, rail through land its side holds.`,
+  "transport-refused": (notes) => `${one(notes, "detail") ? "A transporter was" : "Transporters were"} not sent (${quoted(notes, "detail")}). One is sent to a place on the map that its kind can reach (a ship to a coast, rail through land its side holds): by a side at war, or in peace to another country's land, which is an attack on it.`,
   closed: (notes) => `${one(notes, "battlefield") ? "A battlefield" : "Battlefields"} closed (${quoted(notes, "battlefield")}): the fighting there is over. Land a side still holds there that is not its own stays occupied until an event settles it.`,
 };
 
 // Why a transporter did not set out, in words.
 const TRANSPORT_REFUSALS = {
-  "no-war": "its sender is fighting no war",
+  "no-war": "its sender is fighting no war and it was not bound for another country's land",
   "no-place": "the place it was sent to is not on the map",
   "no-origin": "its sender has no city to send it from",
   "no-coast": "no sea is near where it would set out",
@@ -695,6 +700,9 @@ const listed = (names, most = 3) => `${names.slice(0, most).join("; ")}${names.l
 //                    span of that many days, or null for no ceiling
 //   seed             what makes this turn's run its own
 //   players          the countries and groups people play
+//   difficulty       the game's difficulty, by its id: above Medium the side
+//                    fighting a person's country has an edge in the land war,
+//                    below it that side is held back (runtime/fronts/handicap.js)
 //   narratesCombat   (event) => whether an event tells of fighting
 //   foretold         true when the period was fought BEFORE the story was asked
 //                    for and the story was given its account (frontApply.js
@@ -714,6 +722,10 @@ const listed = (names, most = 3) => `${names.slice(0, most).join("; ")}${names.l
 //   joins            the countries troops were sent into, each now in its war:
 //                    [{ day, date, battlefield, warId, name, side, by }], for
 //                    the war ledger (frontApply.js frontWarJoins)
+//   starts           the wars that began because one country sent its troops
+//                    at another it was at peace with:
+//                    [{ day, date, warId, attacker, defender }], for the war
+//                    ledger too (frontApply.js frontWarStarts)
 //   transports       world.transports as the run leaves it, with what the
 //                    answer ordered added (those set out when the next period
 //                    begins); null to leave it as it is
@@ -744,6 +756,7 @@ export const runTurnFronts = async ({
   tempoAllowance = null,
   seed = "",
   players = [],
+  difficulty = "",
   narratesCombat = null,
   // The fronts a scenario begins with (runtime/fronts/scenarioFronts.js), on
   // the one run that builds them: what they are called and how many troops
@@ -766,7 +779,7 @@ export const runTurnFronts = async ({
     });
   }
   let strikes = [];
-  const nothing = (battlefields) => ({ events: list, battlefields, unitChanges: [], notes, flips: [], stats: null, news: [], joins: [], transports: null, voyages: [], strikes });
+  const nothing = (battlefields) => ({ events: list, battlefields, unitChanges: [], notes, flips: [], stats: null, news: [], joins: [], starts: [], transports: null, voyages: [], strikes });
 
   const saved = normalizeBattlefields(world?.battlefields);
   const stages = asArray(warStages).length ? asArray(warStages).map(asArray) : [asArray(world?.wars)];
@@ -779,9 +792,12 @@ export const runTurnFronts = async ({
   const dispatches = written.filter((order) => Object.hasOwn(TRANSPORT_ORDERS, order.order));
   const atWar = stages.some((wars) => wars.some((war) => clean(war?.status) !== "ended"));
   const committed = asArray(world?.units).some((unit) => clean(unit?.committedTo));
-  // No battlefield, no war and no order: there is nothing for the engine to do.
+  // No battlefield, no war, no order and nothing at sea: there is nothing for
+  // the engine to do. (A transporter may be under way in peace: sent at a
+  // country its owner is not at war with, it begins the war where it lands.)
   // A battlefield that closed last turn has had its one more turn on the map.
-  if (!saved.some(isOpen) && !atWar && written.length === 0 && !committed) return nothing(saved.length ? [] : null);
+  const sailing = asArray(world?.transports).some(isUnderWay);
+  if (!saved.some(isOpen) && !atWar && written.length === 0 && !committed && !sailing) return nothing(saved.length ? [] : null);
 
   const read = typeof readMap === "function" ? await readMap() : null;
   const map = read?.map ?? givenMap;
@@ -856,11 +872,12 @@ export const runTurnFronts = async ({
   const adrift = strikes.filter((strike) => strike.weapon === "submarine missile" && !Number.isFinite(strike.from?.lng) && Number.isFinite(strike.to?.lng));
   if (adrift.length > 0) {
     try {
-      const key = `world|${clean(map?.key)}`;
+      const water = waterTypeIds(regionTypes);
+      const key = worldSheetKey(clean(map?.key), water);
       let sheet = clean(map?.key) && arenas ? arenas.get(key) ?? null : null;
       if (!sheet) {
         const shapes = await readRegions();
-        sheet = shapes ? buildWorldGrid(shapes, { flat: map?.flat === true, scale: map?.scale }) : null;
+        sheet = shapes ? buildWorldGrid(shapes, { flat: map?.flat === true, scale: map?.scale, water }) : null;
         if (sheet && clean(map?.key) && arenas) arenas.set(key, sheet);
       }
       for (const strike of adrift) {
@@ -892,9 +909,22 @@ export const runTurnFronts = async ({
     stated = statedCaptures({ events: list, battlefields: fought, arenaOf, readers, nameOf });
   }
 
+  // An order that aims its side's troops at a place, on a battlefield nobody
+  // has, is an attack on whoever holds the place (engine.js attackAtObjective).
+  // The engine knows a city only as the map spells it, so where the map has no
+  // city of that name the game's own reader of places is asked where it is.
+  const open = new Set(saved.filter(isOpen).map((record) => foldBattlefieldName(record.name)));
+  const aimed = [];
+  for (const order of orders) {
+    const lost = clean(order.objective) && ATTACKING.includes(order.order) && !/^border\s*:/i.test(clean(order.battlefield)) && !open.has(foldBattlefieldName(order.battlefield))
+      && !/^(region|country|group)\s*:/i.test(clean(order.objective)) && !findStrikePlace(order.objective, { cities: asArray(map?.cities) });
+    const at = lost && typeof strikePlaces?.find === "function" ? await lookedFor(() => strikePlaces.find(order.objective)) : null;
+    aimed.push(at ? { ...order, objectiveAt: at } : order);
+  }
+
   // The battlefields whose period the story was told before it was written.
   const settled = foretold ? new Set(saved.filter((record) => record.status === "active").map((record) => foldBattlefieldName(record.name))) : null;
-  const moments = planFrontMoments({ events: list, frontOrders: [...orders, ...stated], warStages: stages, fromDate, days, dayOf, settled })
+  const moments = planFrontMoments({ events: list, frontOrders: [...aimed, ...stated], warStages: stages, fromDate, days, dayOf, settled })
     .map((moment) => {
       if (moment.type === "order") return { ...moment, side: nameOf(withoutKind(moment.side)) };
       if (moment.type === "control") return { ...moment, to: nameOf(moment.to) };
@@ -921,6 +951,9 @@ export const runTurnFronts = async ({
       map: { ...map, regions },
       regionTypes: asArray(regionTypes),
       strengthOf: readers.strengthOf,
+      // Who is played by a person: on a side of several countries nobody's order stands in for theirs.
+      players: asArray(players).map(clean).filter(Boolean),
+      difficulty: clean(difficulty),
       pace,
       flipAllowance: frontFlipAllowance({ allowance, events: list }),
       seed,
@@ -993,10 +1026,13 @@ export const runTurnFronts = async ({
     const owner = nameOf(withoutKind(order.side));
     // The battlefield it names is the one its landing opens: not one that is open already.
     const taken = asArray(result.battlefields).some((record) => record.status !== "closed" && foldBattlefieldName(record.name) === foldBattlefieldName(order.battlefield));
+    // (A city the map spells another way is found here: the engine knows it only by the map's name.)
+    const known = /^(region|country|group)\s*:/i.test(clean(order.objective)) || findStrikePlace(order.objective, { cities: asArray(map?.cities) });
+    const bound = !known && typeof strikePlaces?.find === "function" ? await lookedFor(() => strikePlaces.find(order.objective)) : null;
     const sent = orderTransport(transports, {
       medium: TRANSPORT_ORDERS[order.order],
       owner,
-      to: { name: clean(order.objective) },
+      to: { name: clean(order.objective), ...(bound ?? {}) },
       battlefield: taken ? "" : clean(order.battlefield),
       kind: clean(order.carrier),
       speed: Number(order.speed) || 0,
@@ -1026,5 +1062,6 @@ export const runTurnFronts = async ({
     stats: result.stats ?? null,
     news: asArray(result.news),
     joins: asArray(result.joins),
+    starts: asArray(result.starts),
   };
 };

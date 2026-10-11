@@ -36,4 +36,4 @@ export const placeName = (value) => clean(value).replace(/^(city|region)\s*:\s*/
 
 // (The labels and sentences themselves are in warRoom.jsx, as JSX, where the
 // interface's translator finds them.)
-export const ORDER_KEYS = Object.freeze(["advance", "blitz", "spearhead", "flank", "encircle", "hold", "dig in", "fall back"]);
+export const ORDER_KEYS = Object.freeze(["advance", "blitz", "spearhead", "flank", "encircle", "hold", "dig in", "fall back", "withdraw"]);

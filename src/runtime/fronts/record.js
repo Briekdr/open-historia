@@ -130,8 +130,10 @@ const normalizeOrder = (raw) => {
 };
 
 // (The kinds a log entry may be are the engine's: "city", "whole", "overrun",
-// "pocket", "siege", "taken", "destroyed", "assault", and "invaded" for a
-// country a side sent its troops into.)
+// "pocket", "siege", "taken", "destroyed", "assault", "invaded" for a
+// country a side sent its troops into, "attacked" for one it went to war with
+// by attacking, and "withdrew" and "returned" for a side that took its troops
+// off the battlefield and brought them back.)
 const normalizeOrders = (value) => {
   const kept = [];
   const count = [0, 0];

@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { syntheticMap } from "./syntheticMap.js";
 import { CANALS, findWay } from "./wayfinder.js";
-import { buildWorldGrid, greatPoint, kmBetween, placeAlong, seasOf, wayKm } from "./worldGrid.js";
+import { buildWorldGrid, greatPoint, kmBetween, placeAlong, seasOf, wayKm, worldSheetKey } from "./worldGrid.js";
 
 const legend = { A: "Aland", B: "Borduria", N: "Neutralia", C: "Cisland", L: "Landia", "~": null };
 const sheetOf = (layout, extra = {}) => syntheticMap({ layout, legend, west: 20, north: 56, step: 1, ...extra });
@@ -272,6 +272,70 @@ test("an invented world is sailed like any other: its own land is what is gone r
     const flown = findWay(grid, { medium: "air", from: [-35, 5], to: [-19.6, 5], ...holders(world) });
     assert.ok(Math.abs(flown.km - kmBetween(-35, 5, -19.6, 5, { flat })) < 25, `${flown.km} km flown`);
   }
+});
+
+test("a sea drawn as regions is sailed where its type is water", () => {
+  // A pirate's world: every stretch of water is a region somebody may hold. No
+  // cell of the map is without a region.
+  const realm = { A: "Aland", B: "Borduria", o: { owner: "", typeId: "sea" }, p: { owner: "Corsairs", typeId: "sea" }, l: { owner: "Borduria", typeId: "lake" } };
+  const layout = [
+    "oooooooooooo",
+    "oAAAoppoBBBo",
+    "oAAAoppoBlBo",
+    "oAAAoppoBBBo",
+    "oooooooooooo",
+  ];
+  const world = syntheticMap({ layout, legend: realm, west: 20, north: 54, step: 1 });
+  const holders = { holderOf: world.controllerOf, friendly: (name) => name === "Aland", hostile: (name) => name === "Borduria", year: 1680 };
+  // Drawn as it stands, every region is land: the water between the two is not sea at all.
+  const dry = buildWorldGrid(world.regions, { step: 0.25 });
+  assert.equal(seasOf(dry)[dry.cellOf(26, 51.5)], 0);
+  assert.equal(dry.land[dry.cellOf(26, 51.5)], dry.full);
+  // (All a ship could do there is go round the outside of the map, where no region is.)
+  const outside = findWay(dry, { medium: "sea", from: [22.5, 51.5], to: [28.5, 51.5], ...holders });
+  // With its water types known, the same map has a sea, and a lake apart from it.
+  const water = new Set(["sea", "lake"]);
+  const grid = buildWorldGrid(world.regions, { step: 0.25, water });
+  const seas = seasOf(grid);
+  assert.ok(seas[grid.cellOf(26, 51.5)] > 0, "the corsairs' water is sea");
+  assert.equal(seas[grid.cellOf(26, 51.5)], seas[grid.cellOf(20.5, 53.5)], "one sea with the water nobody holds");
+  assert.ok(seas[grid.cellOf(29.5, 51.5)] > 0 && seas[grid.cellOf(29.5, 51.5)] !== seas[grid.cellOf(26, 51.5)], "the lake is water of its own");
+  assert.equal(grid.land[grid.cellOf(22.5, 51.5)], grid.full, "and the land is land");
+  // (The sheet reaches as far as the water regions do: they are part of the map.)
+  assert.ok(grid.cellOf(20.2, 53.8) >= 0);
+  const found = findWay(grid, { medium: "sea", from: [22.5, 51.5], to: [28.5, 51.5], ...holders });
+  assert.equal(found.error, undefined);
+  let ashore = 0;
+  const total = wayKm(found.way);
+  for (let km = 0; km <= total; km += 5) {
+    const at = placeAlong(found.way, km);
+    const cell = grid.cellOf(at.lng, at.lat);
+    if (cell < 0 || grid.land[cell] >= grid.full) ashore += 1;
+  }
+  assert.equal(ashore, 0, "it keeps to the water the whole way");
+  assert.ok(found.km > 250 && found.km < 700, `${Math.round(found.km)} km across`);
+  // (Told it is all land, a ship never crosses the corsairs' water: it has none to cross.)
+  let through = 0;
+  if (!outside.error) {
+    for (let km = 0; km <= wayKm(outside.way); km += 5) {
+      const at = placeAlong(outside.way, km);
+      if (at.lng > 25.3 && at.lng < 26.7 && at.lat > 50.3 && at.lat < 52.7) through += 1;
+    }
+  }
+  assert.equal(through, 0);
+  let crossing = 0;
+  for (let km = 0; km <= total; km += 5) {
+    const at = placeAlong(found.way, km);
+    if (at.lng > 25.3 && at.lng < 26.7 && at.lat > 50.3 && at.lat < 52.7) crossing += 1;
+  }
+  assert.ok(crossing > 0, "with its water known, it sails straight through it");
+  // A train still keeps to the land, and stops at the shore.
+  assert.equal(findWay(grid, { medium: "land", from: [21.5, 52.5], to: [28.5, 51.5], ...holders }).arrived, false);
+  // A sheet is kept by its map and its water types: switching one is another sheet.
+  assert.equal(worldSheetKey("map"), "world|map");
+  assert.equal(worldSheetKey("map", new Set()), "world|map");
+  assert.notEqual(worldSheetKey("map", water), worldSheetKey("map"));
+  assert.equal(worldSheetKey("map", new Set(["lake", "sea"])), worldSheetKey("map", water), "in whatever order they are named");
 });
 
 test("a canal is gone through once it has been dug, on the world's own map", () => {

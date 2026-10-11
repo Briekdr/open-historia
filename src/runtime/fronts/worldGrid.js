@@ -138,11 +138,21 @@ const boundsOf = (regions) => {
   return Number.isFinite(west) ? { west, south, east, north } : null;
 };
 
-// The sheet for a map's regions ([{ id, geometry }]), or null when they have
-// no land at all.
+// What a sheet is kept under: the map it is of, and which of its region types
+// are water (a type switched to water, or back, is another sheet).
+export const worldSheetKey = (mapKey, water = null) => {
+  const types = water && typeof water[Symbol.iterator] === "function" ? [...water].map((id) => String(id)).sort() : [];
+  return `world|${String(mapKey ?? "")}${types.length ? `|water:${types.join("\u0002")}` : ""}`;
+};
+
+// The sheet for a map's regions ([{ id, geometry, typeId }]), or null when
+// they have no land at all.
 //   flat    the map is a flat sheet: nothing wraps and a degree is `scale` km both ways
 //   step    a cell's side in degrees, where the sheet's own choice is not wanted (a test)
-export const buildWorldGrid = (regions, { flat = false, scale = KM_PER_DEGREE, step: asked = 0 } = {}) => {
+//   water   the ids of the region types that are water (regionTypes.js
+//           waterTypeIds): a region of one is sea on the sheet, like the sea
+//           no region covers. The sheet still reaches as far as they do.
+export const buildWorldGrid = (regions, { flat = false, scale = KM_PER_DEGREE, step: asked = 0, water = null } = {}) => {
   const list = Array.isArray(regions) ? regions : [];
   const box = boundsOf(list);
   if (!box) return null;
@@ -165,9 +175,12 @@ export const buildWorldGrid = (regions, { flat = false, scale = KM_PER_DEGREE, s
   // Each sample: 0 for sea, else the region there (its place in `ids`, from 1).
   const samples = new Int32Array(subCols * subRows);
   const ids = [""];
+  const wet = water && typeof water.has === "function" && water.size > 0 ? water : null;
   for (const region of list) {
     const id = String(region?.id ?? "").trim();
     if (!id) continue;
+    // A region of water is left as the sea it is.
+    if (wet && wet.has(String(region?.typeId ?? "").trim())) continue;
     const mark = ids.push(id) - 1;
     for (const polygon of ringsOf(region.geometry)) {
       if (!Array.isArray(polygon) || !Array.isArray(polygon[0]) || polygon[0].length < 3) continue;

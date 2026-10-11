@@ -5,6 +5,16 @@
 // - it NEVER rewrites canonical facts, deterministic accounting, territory semantics, or GM/editor intent;
 // - higher difficulty means less benefit of the doubt and more competent causally-motivated opposition,
 //   not secret anti-player knowledge or a world that conspires against the human.
+//
+// THE LAND WAR IS THE ONE EXCEPTION, by the owner's decision: on the
+// battlefields (runtime/fronts/) the level is also a handicap in the engine
+// itself. Medium is the fight as it is, the same for both sides. Above it the
+// armies fighting a country a person plays fight harder and are reinforced
+// more, hugely so on Impossible; below it they are the ones held back. The
+// figures are runtime/fronts/constants.js DIFFICULTY_EDGES, who they apply to
+// is runtime/fronts/handicap.js, and each level's `effects` says them to the
+// player, so the handicap is never a hidden one. Nothing here tells the model
+// to bend anything: the directives below are as they were.
 const makeLevel = ({ id, label, emoji, blurb, description, profile, effects, directives }) => ({
   id,
   label,
@@ -35,6 +45,7 @@ export const DIFFICULTY_LEVELS = [
       "Ambiguous but reasonable player intent is interpreted generously.",
       "NPCs still pursue their interests, but react less quickly to marginal openings.",
       "When several outcomes are equally plausible, the less punishing one is preferred.",
+      "On battlefields, armies fighting you fight at 85% of their strength and advance at 90% of their pace, with 70% of the usual reserves.",
     ],
     directives: {
       simulation:
@@ -61,6 +72,7 @@ export const DIFFICULTY_LEVELS = [
       "Reasonable player plans receive some benefit of the doubt.",
       "NPCs protect obvious interests but are less aggressive about marginal advantages.",
       "Setbacks matter, but uncertain failures tend not to cascade immediately.",
+      "On battlefields, armies fighting you fight at 93% of their strength and advance at 95% of their pace, with 85% of the usual reserves.",
     ],
     directives: {
       simulation:
@@ -87,6 +99,7 @@ export const DIFFICULTY_LEVELS = [
       "Player plans succeed or fail on their merits.",
       "NPCs act with normal competence and pursue their own interests.",
       "Consequences persist when causally warranted, with no hidden difficulty bias.",
+      "On battlefields, both sides fight on equal terms: numbers, ground, supply and orders decide it.",
     ],
     directives: {
       simulation:
@@ -113,6 +126,7 @@ export const DIFFICULTY_LEVELS = [
       "Vague or under-resourced plans receive little benefit of the doubt.",
       "NPCs react promptly to threats and exploit clear opportunities they can actually perceive.",
       "Political, military, diplomatic, and economic mistakes have durable consequences.",
+      "On battlefields, armies fighting you fight at 115% of their strength and advance at 110% of their pace, with 130% of the usual reserves.",
     ],
     directives: {
       simulation:
@@ -139,6 +153,7 @@ export const DIFFICULTY_LEVELS = [
       "Plans need clear means, sequencing, and political or diplomatic support.",
       "NPCs use available intelligence and existing relationships efficiently.",
       "Serious mistakes can trigger second-order consequences when the causal chain supports them.",
+      "On battlefields, armies fighting you fight at 135% of their strength and advance at 120% of their pace, with 175% of the usual reserves.",
     ],
     directives: {
       simulation:
@@ -165,6 +180,7 @@ export const DIFFICULTY_LEVELS = [
       "Ambiguity is resolved conservatively; success needs explicit capability and leverage.",
       "NPCs act near the top of plausible competence without omniscience.",
       "Failures can cascade fully when each step is causally supported.",
+      "On battlefields, armies fighting you have a huge advantage: they fight at 175% of their strength and advance at 140% of their pace, with 300% of the usual reserves.",
     ],
     directives: {
       simulation:

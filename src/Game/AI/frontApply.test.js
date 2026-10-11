@@ -320,7 +320,7 @@ test("a time skip's prompt gains the block only with fronts on, after the rules 
   assert.match(live, /const fronts = frontsLiveBlock\(world, game, variables\.frontsForecast \?\? null\);\s*\n\s*if \(fronts\) blocks\.push\(fronts\);/);
   assert.ok(live.indexOf("blocks.push(FOLDED_SKIP_CONSEQUENCES)") < live.indexOf("frontsLiveBlock(world, game"), "after [Every Event Carries Its Consequences]");
   assert.ok(live.indexOf("[Units and Structures on the Map]") < live.indexOf("frontsLiveBlock(world, game"));
-  assert.match(read("frontApply.js"), /export const frontsLiveBlock = \(world, game, foreseen = null\) => \(frontsOn\(\)\s*\n\s*\? buildFrontsBlock\(\{ battlefields: world\?\.battlefields, players: humanCountriesOf\(game\), period: foreseen, transports: world\?\.transports \}\)\s*\n\s*: ""\);/);
+  assert.match(read("frontApply.js"), /export const frontsLiveBlock = \(world, game, foreseen = null\) => \(frontsOn\(\)\s*\n\s*\? buildFrontsBlock\(\{ battlefields: world\?\.battlefields, players: humanCountriesOf\(game\), period: foreseen, transports: world\?\.transports, difficulty: normalizeDifficulty\(game\?\.difficulty\) \}\)\s*\n\s*: ""\);/);
   // The contract carries the field under the same switch.
   assert.match(gameplay, /return frontsOn\(\) \? withFrontOrders\(shown\) : shown;/);
   // A side of a battlefield is not "at war with nobody on the map"; with fronts off the set is the units' owners alone.

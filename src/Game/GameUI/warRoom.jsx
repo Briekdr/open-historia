@@ -32,14 +32,17 @@ import { generateWarRoomReply, warRoomRouteAttacks, warRoomTransportWays } from 
 import { warRoomIntel, warRoomPlans } from "../AI/frontPlans.js";
 import { isSimulationBusy } from "../AI/simulationStatus.js";
 import { closeWarRoom, getWarRoom, onWarRoomWay, openWarRoom, setWarRoom, showBattlefield, takeTool, useWarRoom } from "../Map/warRoomStore.js";
+import { requestDiplomaticChat } from "./chat.jsx";
 import { PLAN_COLOURS, planTone } from "../Map/warRoomGeometry.js";
 import { readFrontCities } from "../../runtime/frontCities.js";
-import { chosenOrdersOf, commandTitle, generalsOf, talkOf } from "../../runtime/fronts/command.js";
+import { chosenOrdersOf, commandTitle, generalsOf, ownTroopsOf, talkOf } from "../../runtime/fronts/command.js";
 import { THRUST_TROOPS } from "../../runtime/fronts/constants.js";
+import { handicapOf } from "../../runtime/fronts/handicap.js";
 import { foldBattlefieldName, normalizeBattlefield } from "../../runtime/fronts/record.js";
 import { TRANSPORT_MEDIA, carrierFor, isUnderWay, loadOf, normalizeTransports } from "../../runtime/fronts/transports.js";
 import { formatGameDateReadable, gameDateYear } from "../../runtime/gameDates.js";
 import { isActiveFeatureEnabled, useActiveFeatures } from "../../runtime/gameFeatures.js";
+import { humanCountriesOf } from "../../runtime/humanPolities.js";
 import { useLibraryState } from "../../runtime/library.js";
 import { SAFE_BOTTOM, SAFE_LEFT, SAFE_RIGHT, SAFE_TOP } from "../../runtime/mobileUi.js";
 import { useIsMobile } from "../../runtime/useIsMobile.js";
@@ -81,6 +84,8 @@ const selectGame = (game) => ({
   country: game?.country || "",
   gameDate: String(game?.gameDate || game?.startDate || ""),
   humanCountries: Array.isArray(game?.humanCountries) ? game.humanCountries : null,
+  // (What the level gives the other side on a battlefield is said in the room.)
+  difficulty: String(game?.difficulty || ""),
 });
 
 // What an order is called on the panel.
@@ -93,6 +98,7 @@ const OrderWord = ({ order }) => {
   if (order === "hold") return <>Hold</>;
   if (order === "dig in") return <>Dig in</>;
   if (order === "fall back") return <>Fall back</>;
+  if (order === "withdraw") return <>Withdraw</>;
   return <>Order</>;
 };
 
@@ -105,6 +111,7 @@ const DoingWord = ({ doing }) => {
   if (doing === "closing") return <>closing on a pocket</>;
   if (doing === "assaulting") return <>assaulting</>;
   if (doing === "falling-back") return <>falling back</>;
+  if (doing === "withdrawing") return <>withdrawing</>;
   if (doing === "breaking-out") return <>breaking out</>;
   if (doing === "pursuing") return <>pursuing</>;
   if (doing === "spearhead") return <>driving a spearhead</>;
@@ -228,7 +235,33 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, game.gameDate, activeGame?.id]);
 
-  const generals = useMemo(() => (record ? generalsOf(record, side) : []), [record, side]);
+  // (On a side of several countries each commands its own: these are the player's generals, with the player's troops.)
+  const generals = useMemo(() => (record ? generalsOf(record, side, { member: game.country }) : []), [record, side, game.country]);
+  // Who fights beside the player here, with how many formations and under what orders of its own.
+  const allies = useMemo(() => {
+    if (!record || (side !== 0 && side !== 1)) return [];
+    const mine = String(game.country ?? "").trim().toLowerCase();
+    const counted = new Map((record.brief?.strength?.[side]?.members ?? []).map((entry) => [String(entry.name).toLowerCase(), entry.n]));
+    return record.sides[side].filter((member) => member.toLowerCase() !== mine).map((member) => ({
+      name: member,
+      n: counted.get(member.toLowerCase()) ?? 0,
+      orders: record.orders.filter((order) => order.s === side && !order.chosen && String(order.by ?? "").toLowerCase() === member.toLowerCase()),
+    }));
+  }, [record, side, game.country]);
+  // What the game's difficulty gives the other side on this battlefield (runtime/fronts/handicap.js),
+  // as percentages: the room says it, so that the handicap is never a hidden one. Null on even terms.
+  const theirEdge = useMemo(() => {
+    if (!record || (side !== 0 && side !== 1)) return null;
+    // (Everybody a person plays, in a shared game too: nobody is handicapped against another player.)
+    const people = [...humanCountriesOf(game), ...(Array.isArray(game.humanCountries) ? game.humanCountries : [])];
+    const given = handicapOf({ difficulty: game.difficulty, sides: record.sides, players: people });
+    return given.side === 1 - side ? { power: Math.round(given.edge.power * 100), pace: Math.round(given.edge.pace * 100), reserves: Math.round(given.edge.reserves * 100) } : null;
+  }, [record, side, game]);
+  // Strategy with an ally is agreed with its leader: the room shuts and the conversation opens.
+  const talkTo = (ally) => {
+    onClose?.();
+    requestDiplomaticChat({ name: ally });
+  };
   const orders = useMemo(() => (record ? chosenOrdersOf(record, side) : []), [record, side]);
   const talk = useMemo(() => (record ? talkOf(record, side) : []), [record, side]);
   const plans = useMemo(
@@ -362,6 +395,14 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   const releasePicked = async () => {
     if (await act({ op: "release", battlefield: name, troops: selected })) setWarRoom({ selected: [] });
   };
+  // The troops picked out leave the battlefield; with none picked, every troop of the player's own does.
+  const ownTroops = useMemo(() => (record && side >= 0 ? ownTroopsOf(record, side, game.country) : []), [record, side, game.country]);
+  const away = record?.brief?.carry?.away?.[side] === true;
+  const withdrawPicked = async () => {
+    const troops = selected.length > 0 ? selected : ownTroops;
+    if (troops.length > 0 && await act({ op: "order", battlefield: name, troops, order: "withdraw" })) setWarRoom({ selected: [] });
+  };
+  const sendBack = () => act({ op: "return", battlefield: name });
 
   // Esc shuts the room, once no tool is in hand (with one in hand it puts the
   // tool down: Map/WarRoomTools.jsx).
@@ -536,6 +577,10 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
         onTool={takeTool}
         onOrder={orderPicked}
         onRelease={releasePicked}
+        own={ownTroops.length}
+        away={away}
+        onWithdraw={withdrawPicked}
+        onReturn={sendBack}
         onClear={() => setWarRoom({ selected: [] })}
         carriers={carriers}
         onCarrier={(medium) => takeTool("transport", { medium })}
@@ -740,6 +785,26 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
                     </>
                   )}
 
+                  {/* Who fights beside the player: each commands its own troops, and its leader is who a plan is agreed with. */}
+                  {allies.length > 0 && (
+                    <>
+                      <Heading style={{ marginTop: "0.8rem" }}>Allies</Heading>
+                      <div style={{ ...softText, marginTop: "0.3rem" }}>Each ally commands its own troops here. Agree a plan with its leader, and its troops carry it out when time passes.</div>
+                      {allies.map((ally) => (
+                        <div key={ally.name} data-oh-war-room-ally="" style={{ ...trayStyle(false), marginTop: "0.3rem", padding: "0.4rem 0.5rem" }}>
+                          <div data-no-translate style={{ fontSize: "0.8rem", fontWeight: 700 }}>{ally.name}</div>
+                          <div style={softText}>
+                            {ally.n} formations
+                            {ally.orders.length === 0
+                              ? <> · no orders of its own yet</>
+                              : ally.orders.map((order, index) => <React.Fragment key={index}> · <OrderWord order={order.order} /></React.Fragment>)}
+                          </div>
+                          <button type="button" onClick={() => talkTo(ally.name)} style={linkStyle}>Talk strategy with its leader</button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
                   {/* The transporters: this side's, and the other side's that are on their way. */}
                   {(ownTransports.length > 0 || theirTransports.length > 0) && (
                     <>
@@ -792,6 +857,11 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
                   )}
 
                   <Heading style={{ marginTop: "0.8rem" }}>What is known of theirs</Heading>
+                  {theirEdge && (
+                    <div data-oh-war-room-edge="" style={{ ...softText, marginTop: "0.4rem" }}>
+                      At this difficulty their troops here fight at {theirEdge.power}% of their strength and advance at {theirEdge.pace}% of their pace, with {theirEdge.reserves}% of the usual reserves.
+                    </div>
+                  )}
                   {intel.plans.length === 0 && (
                     <div style={{ ...softText, marginTop: "0.4rem" }}>
                       {espionage

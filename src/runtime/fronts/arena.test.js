@@ -105,6 +105,27 @@ test("ground no unit may enter is a wall, and a type's speed is held to its rang
   assert.equal(zero.regionSpeed[1], 0, "a speed of nothing is impassable too");
 });
 
+test("water is ground no troop enters, whatever else its type is set to", () => {
+  const world = syntheticMap({ layout: ["AAwwBB", "AAwwBB"], legend: { A: "Aland", B: "Borduria", w: { owner: "", typeId: "deep" } } });
+  const speedOf = (types) => {
+    const arena = rasterizeArena(world.frame(), world.regions, { regionTypes: types });
+    return arena.regionSpeed[arena.indexOf.get("r2-0")];
+  };
+  // Named for what it is, or switched: a wall. Left passable and fast by its maker, still a wall.
+  assert.equal(speedOf([{ id: "deep", name: "Deep Ocean" }]), 0);
+  assert.equal(speedOf([{ id: "deep", name: "Deep Ocean", passable: true, pathfindingSpeed: 3 }]), 0);
+  assert.equal(speedOf([{ id: "deep", name: "The Narrows", water: true }]), 0);
+  // Not water: ground like any other.
+  assert.equal(speedOf([{ id: "deep", name: "Deep Ocean", water: false }]), 1);
+  assert.equal(speedOf([{ id: "deep", name: "Marsh" }]), 1);
+  // A type switched to water, or back, is other ground: an arena is not kept across it.
+  const cache = new Map();
+  const map = { ...world.map, key: "narrows" };
+  const frame = world.frame();
+  const wet = arenaFor(cache, map, frame, [{ id: "deep", name: "The Narrows", water: true }]);
+  assert.notEqual(arenaFor(cache, map, frame, [{ id: "deep", name: "The Narrows" }]), wet);
+});
+
 test("a map across the date line is drawn in one piece", () => {
   const world = syntheticMap({ layout: ["AABB", "AABB", "NN~~"], legend, west: 176, north: 60, step: 2, wrapped: true });
   // Stored the way a file stores it: nothing past 180, so one region's ring

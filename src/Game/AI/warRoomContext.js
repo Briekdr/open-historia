@@ -23,7 +23,8 @@ export { WAR_ROOM_ORDERS };
 const ORDER_WORDS = new Map([
   ...WAR_ROOM_ORDERS.map((word) => [word, word]),
   ["attack", "advance"], ["push", "advance"], ["entrench", "dig in"], ["dig-in", "dig in"], ["digin", "dig in"], ["fortify", "dig in"],
-  ["retreat", "fall back"], ["withdraw", "fall back"], ["fallback", "fall back"], ["fall-back", "fall back"], ["defend", "hold"], ["stand", "hold"],
+  ["retreat", "fall back"], ["fallback", "fall back"], ["fall-back", "fall back"], ["defend", "hold"], ["stand", "hold"],
+  ["pull out", "withdraw"], ["withdrawal", "withdraw"], ["evacuate", "withdraw"], ["go home", "withdraw"],
   ["outflank", "flank"], ["envelop", "encircle"], ["surround", "encircle"],
 ]);
 

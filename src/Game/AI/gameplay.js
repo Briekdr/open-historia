@@ -196,7 +196,7 @@ import {
   withoutGroupOps,
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
-import { applyTurnFronts, forecastTurnFronts, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { actionsCommandTroops, applyTurnFronts, forecastTurnFronts, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { withTurnStrikes } from "../../runtime/strikes.js";
 import { kmBetween } from "../../runtime/fronts/worldGrid.js";
 import { readWarRoomAnswer, warRoomRequest, warRoomStanding, warRoomVariables } from "./warRoomContext.js";
@@ -9043,7 +9043,8 @@ const applySimulationResult = async ({
   // battlefields already do whether or not the story wrote it.
   const warMerge = applyWarUpdates({
     world: worldWithImpacts,
-    updates: [...warUpdates, ...frontWarJoins(turnFronts)],
+    // (A war that began with an attack, then whoever was brought into one: the ledger says what the battlefields do.)
+    updates: [...warUpdates, ...frontWarStarts(turnFronts), ...frontWarJoins(turnFronts)],
     events: freshEvents,
     stopDate: nextGame.gameDate,
     round: nextGame.round,
@@ -17351,7 +17352,11 @@ export const simulateTimelineJump = async ({ days, mode = "jump", onEvents, onPr
   // into the prompt, so that the events tell the war that was fought and not
   // one the model guessed at. No request is made for it. null where there is
   // nothing to fight, and the skip is then asked for as it always was.
-  const frontsForecast = await forecastTurnFronts({
+  // Not in a turn whose actions command the player's troops: those orders are
+  // to be carried out in THIS period (from the day of the event that gives
+  // them), so the engine runs after the story, as it does for a war that
+  // begins in it, and nothing is put off to the next skip.
+  const frontsForecast = actionsCommandTroops({ world: bundle.world, game: bundle.game, actions: bundle.actions }) ? null : await forecastTurnFronts({
     world: bundle.world,
     game: bundle.game,
     campaignId: activeCampaignId(),

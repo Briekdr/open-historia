@@ -42,6 +42,9 @@ const DigInIcon = () => <Icon><path d="M2.5 9h5l2 7h5l2-7h5" /><path d="M12 3.5v
 const HoldIcon = () => <Icon><path d="M12 3l7 2.6v5.6c0 4.4-2.9 7.6-7 9.3-4.1-1.7-7-4.9-7-9.3V5.6z" /></Icon>;
 // Back the way they came.
 const FallBackIcon = () => <Icon><path d="M19 7v4a4 4 0 0 1-4 4H5" /><path d="M9.5 10.5L5 15l4.5 4.5" /></Icon>;
+// Off the battlefield, for home; and back onto it.
+const WithdrawIcon = () => <Icon><path d="M20.5 4.5v15" /><path d="M16 12H4M8.5 7.5L4 12l4.5 4.5" /></Icon>;
+const ReturnIcon = () => <Icon><path d="M3.5 4.5v15" /><path d="M8 12h12M15.5 7.5L20 12l-4.5 4.5" /></Icon>;
 // Back into the line.
 const ReleaseIcon = () => <Icon><path d="M3.5 19.5h17" /><path d="M12 4v10.5M7.8 10.6L12 14.8l4.2-4.2" /></Icon>;
 // What carries troops: a hull, two carriages, an aircraft, each seen from above.
@@ -106,7 +109,11 @@ const Rule = () => <div aria-hidden="true" style={{ background: STEEL.seam, boxS
 //   notice       what the last order was refused for
 //   carriers     what carries troops this year: [{ medium, kind, speed, capacity }]
 //   onCarrier    (medium) => the troops picked out are to go by it: the map then asks where
-const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning, notice, carriers = [], onTool, onOrder, onRelease, onClear, onCarrier }) => {
+//   own          how many troops the player has on this battlefield
+//   away         the player's troops have all withdrawn from it
+//   onWithdraw   the troops picked out leave the battlefield (all of the player's, with none picked)
+//   onReturn     a side that withdrew is sent back
+const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning, notice, carriers = [], own = 0, away = false, onTool, onOrder, onRelease, onClear, onCarrier, onWithdraw, onReturn }) => {
   const none = selected.length === 0;
   const drawing = tool !== "pan";
   // The choice of carrier, open beside the rail.
@@ -202,6 +209,10 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
         <RailKey label="Hold" title="Hold: these troops keep their ground and attack nothing" disabled={locked || none} onClick={() => onOrder("hold")}><HoldIcon /></RailKey>
         <RailKey label="Fall back" title="Fall back: these troops give ground toward their own rear" disabled={locked || none} onClick={() => onOrder("fall back")}><FallBackIcon /></RailKey>
         <RailKey label="Release" title="Give these troops back to their stretch of the line" disabled={locked || none} onClick={onRelease}><ReleaseIcon /></RailKey>
+        {/* Off the battlefield altogether: the ground stays as it is. With none picked out, every troop of the player's goes. */}
+        {away
+          ? <RailKey label="Send back" title="Send your troops back onto this battlefield" disabled={locked} onClick={onReturn}><ReturnIcon /></RailKey>
+          : <RailKey label="Withdraw" title="Withdraw: these troops leave the battlefield and go home. With none picked out, all of yours do" disabled={locked || (none && own === 0)} onClick={onWithdraw}><WithdrawIcon /></RailKey>}
         <Rule />
         {/* Carried to where their side holds no land: by ship, rail or air, then a click on the map for where. */}
         <RailKey label="Transport" title="Transport: carry these troops by ship, rail or air to a place your side has no border with" on={tool === "transport" || choice} disabled={locked || none} onClick={() => (tool === "transport" ? onTool("pan") : setChoosing((value) => !value))}><ShipIcon /></RailKey>

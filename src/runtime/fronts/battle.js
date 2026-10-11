@@ -43,6 +43,7 @@ import { nearestOnContour, openField, ownCell, packField, redistance, setGround,
 import { awayOf, downhill, measure } from "./ground.js";
 import { placeBehind } from "./move.js";
 import { readGenerals, readTalk } from "./command.js";
+import { FAIR_EDGE, handicapOf } from "./handicap.js";
 import { standingOf } from "./orders.js";
 import { leftOnLeg } from "./way.js";
 import { authoredTroops } from "./scenarioFronts.js";
@@ -151,6 +152,17 @@ export const paintGround = (battle, run) => {
   }
 };
 
+// What the difficulty gives each side of a battle, by who is fighting on it
+// now and who is played by a person: read when the battle is made, and again
+// whenever a country comes into it or leaves.
+export const setHandicap = (battle, run) => {
+  battle.edge = handicapOf({
+    difficulty: run.input?.difficulty,
+    sides: battle.sides.map((members, side) => members.filter((member, at) => !battle.gone[side].has(at))),
+    players: run.input?.players,
+  }).edges;
+};
+
 const createBattle = (run, { name, warId, sides, frame, arena, openedDate, openedDay }) => ({
   name,
   warId,
@@ -174,6 +186,9 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   pool: [0, 0],
   base: [0, 0],
   quality: [1, 1],
+  // What the game's difficulty gives each side here (handicap.js): not kept
+  // with the record, read again by every run (setHandicap).
+  edge: [FAIR_EDGE, FAIR_EDGE],
   effort: [DEFAULT_EFFORT, DEFAULT_EFFORT],
   orders: [],
   ordersChanged: 0,
@@ -198,6 +213,11 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   generals: [[], []],
   // What was said in each side's war room: kept with the battlefield, and nothing here reads it.
   talk: [[], []],
+  // A side whose troops have all withdrawn from here, and the formations of
+  // the world that left it so (unit id -> side): they are not taken in again
+  // until their side comes back (engine.js withdrawWhoLeft).
+  away: [false, false],
+  sentHome: new Map(),
   // A border fortified in peace: the days nothing has been ordered there, and
   // which of its sides have been told to leave it.
   quiet: 0,
@@ -368,7 +388,7 @@ export const raiseTroops = (battle, run, only = -1) => {
     if (only >= 0 && side !== only) continue;
     const room = Math.max(0, Math.min(counts[side], MAX_TROOPS_PER_SIDE - battle.troops[side].length));
     battle.base[side] = round3(members[side].reduce((sum, weight) => sum + weight, 0));
-    battle.pool[side] += room * POOL_PER_TROOP;
+    battle.pool[side] += room * POOL_PER_TROOP * battle.edge[side].reserves;
     const first = battle.troops[side].length;
     for (const kind of kindsFor(room, run.era)) battle.troops[side].push(createTroop({ kind }));
     const raised = battle.troops[side].slice(first);
@@ -497,6 +517,7 @@ export const loadBattle = (run, record, arena) => {
   });
   battle.status = record.status;
   battle.fresh = false;
+  setHandicap(battle, run);
   // Who the map draws each region as: the names the last run left for the
   // regions it listed. A region it did not list is shown as its holder in name.
   const carry = record.brief?.carry ?? {};
@@ -551,6 +572,11 @@ export const loadBattle = (run, record, arena) => {
   battle.log = record.log.map((entry) => ({ ...entry }));
   battle.logFrom = battle.log.length;
   battle.quiet = Math.max(0, Math.floor(Number(carry.quiet) || 0));
+  battle.away = [carry.away?.[0] === true, carry.away?.[1] === true];
+  battle.sentHome = new Map((Array.isArray(carry.sentHome) ? carry.sentHome : [])
+    .filter((entry) => Array.isArray(entry) && typeof entry[0] === "string" && entry[0] && (entry[1] === 0 || entry[1] === 1))
+    .slice(0, MAX_NAMED_TROOPS)
+    .map(([unitId, side]) => [unitId, side]));
   return battle;
 };
 
@@ -558,6 +584,7 @@ export const loadBattle = (run, record, arena) => {
 // touch on this ground after all.
 export const openBattle = (run, { name, warId, sides, frame, arena, day }) => {
   const battle = createBattle(run, { name, warId, sides, frame, arena, openedDate: run.dateOf(day), openedDay: day });
+  setHandicap(battle, run);
   readRegions(battle, run);
   battle.field = openField(arena, run.input.map.regions, battle.regionSide);
   if (!battle.field || traceContour(battle.field).segments === 0) return null;
@@ -755,6 +782,8 @@ export const saveBattle = (battle, run, day, changes, brief) => {
         ...(battle.talk.some((lines) => lines.length > 0) ? { talk: battle.talk } : {}),
         ...(plans ? { plans } : {}),
         ...(battle.status === "standing" ? { quiet: battle.quiet } : {}),
+        ...(battle.away[0] || battle.away[1] ? { away: battle.away.slice() } : {}),
+        ...(battle.sentHome.size > 0 ? { sentHome: [...battle.sentHome] } : {}),
         halts: battle.halts.map(({ s, sector, days }) => ({ s, sector, days })),
         anchors: battle.anchors.map(({ s, x, y }) => ({ s, x, y })),
         pockets: battle.pockets.map(({ s, cell, days, told }) => ({ s, cell, days, ...(told ? { told: true } : {}) })),

@@ -49,6 +49,8 @@ export const othersOnWay = ({ arena, place, way, holderOf, inWar } = {}) => {
       if (!(x >= 0) || !(y >= 0) || x >= cols || y >= rows) continue;
       const index = region[Math.floor(y) * cols + Math.floor(x)];
       if (!index) continue;
+      // Ground no troop may enter (water, or a type that is a wall) is nobody's land to march into.
+      if (arena.regionSpeed && !(arena.regionSpeed[index] > 0)) continue;
       const name = nameOf(index);
       if (!name || inWar(name)) continue;
       const key = fold(name);

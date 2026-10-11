@@ -107,11 +107,11 @@ export const TROOP_STATES = Object.freeze(["holding", "advancing", "encircled", 
 // "assault" is the one order that names WHAT is attacked and not where the
 // line is pushed: a city, a structure, or a formation of the other side. The
 // troops it takes are sent at that directly, from wherever they are.
-export const FRONT_ORDERS = Object.freeze(["advance", "blitz", "spearhead", "encircle", "hold", "dig in", "fall back", "land", "flank", "assault"]);
+export const FRONT_ORDERS = Object.freeze(["advance", "blitz", "spearhead", "encircle", "hold", "dig in", "fall back", "withdraw", "land", "flank", "assault"]);
 // What a general may be told from the war room (GameUI/warRoom.jsx). An assault
 // on a named place, and a landing, are the campaign's to order: they are given
 // in the orders for the next period.
-export const WAR_ROOM_ORDERS = Object.freeze(["advance", "blitz", "spearhead", "flank", "encircle", "hold", "dig in", "fall back"]);
+export const WAR_ROOM_ORDERS = Object.freeze(["advance", "blitz", "spearhead", "flank", "encircle", "hold", "dig in", "fall back", "withdraw"]);
 // Where a general stands in a line he speaks: he takes the order he was just
 // given, he argues against it (and it is then no order yet), or neither.
 export const WAR_ROOM_STANCES = Object.freeze(["accepts", "objects", "speaks"]);
@@ -225,6 +225,12 @@ export const RESERVES_AMPLE_PER_TROOP = 15;
 // Standing orders. (What an attack order is, and how its troops go: "how troops move", below.)
 export const FALL_BACK_KM_PER_DAY = 15;
 export const FALL_BACK_MAX_KM = 150;
+// Troops told to WITHDRAW leave the battlefield: they go back from the line as
+// troops falling back do, and are gone from it once they have gone this far,
+// or can go no further back, or after this many days at the most (troops with
+// the sea behind them are taken off where they stand).
+export const WITHDRAW_KM = 60;
+export const WITHDRAW_DAYS_MOST = 12;
 export const ATTACK_LAPSE_DAYS = 120;
 // A sector named for a place is the line within this far of the point nearest it.
 export const PLACE_SECTOR_KM = 60;
@@ -265,6 +271,27 @@ export const DIG_MAX_HOLD = 0.5;
 // A troop that moved more than this in a day has left its works behind.
 export const DIG_LOST_KM = 2;
 export const REINFORCE_PER_DAY = 1;
+
+// What the game's difficulty gives the side that fights a country a person
+// plays (handicap.js), by the difficulty's id. Medium is the fight as it is:
+// realistic, and the same for both sides. Above it that side has an edge, and
+// on Impossible a huge one; below it that side is the one held back.
+//   power      how hard its troops fight, in attack and in defence; and, above
+//              1, how much more slowly its ground is taken where none of its
+//              troops stands (an advance nobody opposes goes at 1 / power of
+//              its pace: most of a large army's advance is unopposed, and a
+//              level that weighed only the fights would hardly be felt there)
+//   pace       how fast its own troops advance
+//   reserves   how much reserve comes with each troop it raises or brings
+//   mend       how fast its troops are brought back up to strength
+export const DIFFICULTY_EDGES = Object.freeze({
+  "very-easy": Object.freeze({ power: 0.85, pace: 0.9, reserves: 0.7, mend: 0.75 }),
+  easy: Object.freeze({ power: 0.93, pace: 0.95, reserves: 0.85, mend: 0.9 }),
+  medium: Object.freeze({ power: 1, pace: 1, reserves: 1, mend: 1 }),
+  hard: Object.freeze({ power: 1.15, pace: 1.1, reserves: 1.3, mend: 1.25 }),
+  "very-hard": Object.freeze({ power: 1.35, pace: 1.2, reserves: 1.75, mend: 1.6 }),
+  impossible: Object.freeze({ power: 1.75, pace: 1.4, reserves: 3, mend: 2.5 }),
+});
 
 // The points of a 16-gon, written out so that no step of a day needs a sine:
 // a troop's slow drift of its own is one of them.

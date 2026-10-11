@@ -166,7 +166,7 @@ const squeeze = (battle, books, side) => {
     if (here < 0 || hanging[here] !== 1) continue;
     const order = liveOrder(troop);
     const entry = standing.get(here) ?? [0, 0];
-    entry[order && order.kind !== "breakout" && order.kind !== "fallback" ? 1 : 0] += 1;
+    entry[order && order.kind !== "breakout" && order.kind !== "fallback" && order.kind !== "withdraw" ? 1 : 0] += 1;
     standing.set(here, entry);
   }
   const near = (SQUEEZED_NEAR_KM * 3) / cellKm;
@@ -360,8 +360,8 @@ export const drawIn = (battle, side, day) => {
         return;
       }
       if (troop.dug || troop.strength < CLOSE_UNDER_STRENGTH || troop.rested > day) return;
-      // One sent at a named place or formation is not drawn off it; nor one told to fall back.
-      if (order && (order.kind === "assault" || order.kind === "fallback")) return;
+      // One sent at a named place or formation is not drawn off it; nor one told to fall back, or to leave.
+      if (order && (order.kind === "assault" || order.kind === "fallback" || order.kind === "withdraw")) return;
       if (onSiegeRing(battle, side, troop)) return;
       // Those beside it first; from further off only if they are not enough.
       const live = order ? 1 : 0;

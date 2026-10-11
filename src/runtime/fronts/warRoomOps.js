@@ -10,6 +10,7 @@
 //   { op: "order",     battlefield, troops, order, objective? }   troops picked out are told something
 //   { op: "route",     battlefield, troops, way }                 ... or sent along a route drawn for them
 //   { op: "release",   battlefield, troops }                      ... or given back to their stretch of line
+//   { op: "return",    battlefield }                              a side that withdrew from it is sent back
 //   { op: "talk",      battlefield, said, lines, orders, names }  what was said to the generals, what they
 //                                                                 answered, and the orders they took
 //   { op: "forget",    battlefield }                              the war room's talk there is cleared
@@ -27,14 +28,14 @@
 
 import { gameDateYear } from "../gameDates.js";
 import { decodeTroops } from "./codec.js";
-import { generalsOf, nameGenerals, orderTroops, readTalk, releaseTroops, withTalk } from "./command.js";
+import { generalsOf, nameGenerals, orderTroops, ownTroopsOf, readTalk, releaseTroops, returnTroops, withTalk } from "./command.js";
 import { HOLDER_SIDE_A, HOLDER_SIDE_B, MAX_COMMANDS, MAX_TROOPS_PER_SIDE, MAX_WAY_POINTS, TALK_TEXT_MAX, WAR_ROOM_ORDERS } from "./constants.js";
 import { pointInFrame, projectorOf } from "./frame.js";
 import { withDiversion, withProjectPlan, withoutPlan } from "./plans.js";
 import { battlefieldSideOf, foldBattlefieldName, isOpenBattlefield, normalizeBattlefield } from "./record.js";
 import { TRANSPORT_LOAD_MOST, TRANSPORT_MEDIA, cancelTransport, huntTransport, isUnderWay, normalizeTransports, orderTransport } from "./transports.js";
 
-export const WAR_ROOM_OPS = Object.freeze(["order", "route", "release", "talk", "forget", "diversion", "plan", "unplan", "transport", "untransport", "hunt"]);
+export const WAR_ROOM_OPS = Object.freeze(["order", "route", "release", "return", "talk", "forget", "diversion", "plan", "unplan", "transport", "untransport", "hunt"]);
 // The ops that change the world's transporters and not a battlefield.
 const TRANSPORT_OPS = Object.freeze(["transport", "untransport", "hunt"]);
 // The most a drawn way may hold as it is sent: it is thinned to what a route keeps.
@@ -71,6 +72,12 @@ const wayOn = (record, value) => {
 };
 
 const troopIndexes = (value) => [...new Set(list(value).map(Number).filter((index) => Number.isInteger(index) && index >= 0 && index < MAX_TROOPS_PER_SIDE))];
+// Of the troops asked for, those that are the asker's own. On a side of several
+// countries each commands its own: nobody orders an ally's troops from here.
+const ownIndexes = (record, side, player, value) => {
+  const own = new Set(ownTroopsOf(record, side, player));
+  return troopIndexes(value).filter((index) => own.has(index));
+};
 
 const REFUSED = Object.freeze({
   nothing: "Nothing was asked.",
@@ -87,6 +94,7 @@ const REFUSED = Object.freeze({
   transports: "Too many transporters are out already: wait for one to arrive.",
   gone: "That transporter has set out already, or is not yours to call off.",
   quarry: "That is not a transporter of a side you are fighting here.",
+  away: "Your troops have not withdrawn from that battlefield.",
 });
 
 // One of the transporter ops, for a side of a battlefield. Returns
@@ -113,7 +121,7 @@ const applyTransportOp = (record, side, op, { player, date, transports }) => {
   // The asker's own troops that stand there, and are not told to board already.
   const standing = decodeTroops(record.troops?.[side]);
   const boarding = new Set(kept.filter((entry) => entry.status === "ordered" && entry.embark && entry.embark.side === side && foldBattlefieldName(entry.embark.battlefield) === foldBattlefieldName(record.name)).flatMap((entry) => entry.embark.troops));
-  const asked = troopIndexes(op.troops).filter((index) => standing[index]?.strength > 0);
+  const asked = ownIndexes(record, side, player, op.troops).filter((index) => standing[index]?.strength > 0);
   if (asked.length === 0) return { error: REFUSED.troops };
   const troops = asked.filter((index) => !boarding.has(index)).slice(0, TRANSPORT_LOAD_MOST);
   if (troops.length === 0) return { error: REFUSED.aboard };
@@ -137,7 +145,7 @@ const applyTo = (record, side, op, { player, date }) => {
   if (op.op === "order") {
     const order = clean(op.order, 20).toLowerCase();
     if (!WAR_ROOM_ORDERS.includes(order)) return { error: REFUSED.order };
-    const troops = troopIndexes(op.troops);
+    const troops = ownIndexes(record, side, player, op.troops);
     const next = orderTroops(record, { side, troops, order, objective: clean(op.objective, 120), by: player, since });
     if (next === record) return { error: troops.length === 0 ? REFUSED.troops : REFUSED.room };
     return { record: next };
@@ -145,17 +153,21 @@ const applyTo = (record, side, op, { player, date }) => {
   if (op.op === "route") {
     const way = wayOn(record, op.way);
     if (way.length < 2) return { error: REFUSED.way };
-    const troops = troopIndexes(op.troops);
+    const troops = ownIndexes(record, side, player, op.troops);
     const next = orderTroops(record, { side, troops, order: "advance", way, by: player, since });
     if (next === record) return { error: troops.length === 0 ? REFUSED.troops : REFUSED.room };
     return { record: next };
   }
   if (op.op === "release") {
-    const next = releaseTroops(record, { side, troops: troopIndexes(op.troops) });
+    const next = releaseTroops(record, { side, troops: ownIndexes(record, side, player, op.troops) });
     return { record: next };
   }
+  if (op.op === "return") {
+    const next = returnTroops(record, { side, by: player, since });
+    return next === record ? { error: REFUSED.away } : { record: next };
+  }
   if (op.op === "talk") {
-    const generals = generalsOf(record, side);
+    const generals = generalsOf(record, side, { member: player });
     const commands = new Set(generals.map((general) => general.command));
     const said = clean(op.said, TALK_TEXT_MAX);
     const lines = [];

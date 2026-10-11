@@ -20,6 +20,7 @@ import Panel from "./Panel.jsx";
 import Icon from "./Icon.jsx";
 import { pillButton } from "./editorStyles.js";
 import { Row, NumberField, TextField, ColorField, Toggle } from "./fields.jsx";
+import { isWaterType } from "../runtime/regionTypes.js";
 
 const newType = () => ({
   id: `type_${Date.now().toString(36)}`,
@@ -136,6 +137,9 @@ const TypeManager = ({ types, setTypes, usage = {}, onClose }) => {
                 </Row>
                 <Row label="Passable" title="Off: the AI moves no units into or through these regions.">
                   <Toggle value={t.passable} onChange={(v) => update(t.id, { passable: v })} />
+                </Row>
+                <Row label="Water" title="On: these regions are sea. Troop transporters sail through them, and no army marches across them.">
+                  <Toggle value={isWaterType(t)} onChange={(v) => update(t.id, { water: v })} />
                 </Row>
                 <Row label="Included In Labels">
                   <Toggle value={t.includedInLabels} onChange={(v) => update(t.id, { includedInLabels: v })} />

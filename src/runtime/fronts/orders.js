@@ -168,15 +168,61 @@ export const ageOrders = (battle) => {
 
 const sectorText = (sector) => (sector.kind === "all" ? "all" : sector.word);
 
+// ---- whose troops an order is for ------------------------------------------------------
+// On a side of one country every troop is that country's. On a side of
+// several, EACH COMMANDS ITS OWN: an order is for the troops of the member
+// that gave it (`by`). The order of the side's first member is also for the
+// troops of any other member nobody plays that has no order of its own for
+// where they stand, so that a coalition the story orders in one line still
+// moves together; and an order nobody in particular gave is the whole side's.
+
+// The members of a side that are still in the fight, by their places in its list.
+const membersIn = (battle, side) => battle.sides[side].map((member, at) => (battle.gone[side].has(at) ? "" : fold(member)));
+// Which member gave an order, as its place in the side's list: -1 for an order
+// that is the whole side's (nobody's in particular, or a side of one).
+const giverOf = (battle, side, order) => {
+  const members = membersIn(battle, side);
+  if (members.filter(Boolean).length <= 1) return -1;
+  const by = fold(order?.by);
+  return by ? members.indexOf(by) : -1;
+};
+// (troop) => whether a standing order for a stretch of line is that troop's to carry out.
+export const takesOrder = (battle, run, order, today) => {
+  const side = order.s;
+  const giver = giverOf(battle, side, order);
+  if (giver < 0) return () => true;
+  const members = membersIn(battle, side);
+  const lead = members.findIndex(Boolean);
+  if (giver !== lead) return (troop) => troop.owner === giver;
+  const played = new Set((Array.isArray(run?.input?.players) ? run.input.players : []).map(fold));
+  // What each other member has ordered for itself, as the stretches of line it ordered them for.
+  const own = members.map((member, at) => (!member || at === giver ? null : battle.orders
+    .filter((standing) => standing.s === side && !standing.chosen && standing !== order && standing.order !== "assault" && fold(standing.by) === member)
+    .map((standing) => resolveSector(battle.arena, today.line, today.sectors, standing.sector) ?? WHOLE_LINE)));
+  const { kmAt } = battle.place;
+  return (troop) => {
+    if (troop.owner === giver) return true;
+    const member = members[troop.owner];
+    if (!member || played.has(member)) return false;
+    return !(own[troop.owner] ?? []).some((sector) => inSector(sector, troop.x, troop.y, kmAt));
+  };
+};
+
 // Puts an order among a side's standing orders: it replaces the one for the
-// same sector, and one for the whole line replaces them all.
+// same sector, and one for the whole line replaces them all. (Of the same
+// member's, on a side of several: one country's order never replaces another's.)
 export const setStandingOrder = (battle, side, order) => {
   const sector = fold(order.sector);
   // An assault is not an order for a stretch of line: it stands beside the others.
   const besides = order.order === "assault";
+  const giver = giverOf(battle, side, order);
+  const another = (standing) => {
+    const theirs = giverOf(battle, side, standing);
+    return giver >= 0 && theirs >= 0 && theirs !== giver;
+  };
   // (An order given to troops picked out is theirs until they have carried it
   // out or are told otherwise: an order for a stretch of line does not end it.)
-  battle.orders = battle.orders.filter((standing) => standing.s !== side || standing.chosen || (standing.order === "assault") !== besides
+  battle.orders = battle.orders.filter((standing) => standing.s !== side || standing.chosen || another(standing) || (standing.order === "assault") !== besides
     || (besides ? fold(standing.objective) !== fold(order.objective) : sector !== "all" && fold(standing.sector) !== sector));
   const set = { ...order, s: side };
   battle.orders.push(set);
@@ -238,8 +284,10 @@ const assault = (battle, run, order, today) => {
   }
   const needed = Math.max(ASSAULT_LEAST, Math.min(ASSAULT_MOST, ASSAULT_BASE + Math.ceil((2 * held) / ASSAULT_PER_STRENGTH)));
   const near = [];
+  // (Of the troops this order is for: on a side of several countries, its giver's.)
+  const mine = takesOrder(battle, run, order, today);
   battle.troops[side].forEach((troop, index) => {
-    if (!isLive(troop) || troop.dug || troop.pocket || troop.kind === KIND_ARTILLERY || troop.strength < CLOSE_UNDER_STRENGTH) return;
+    if (!isLive(troop) || troop.dug || troop.pocket || troop.kind === KIND_ARTILLERY || troop.strength < CLOSE_UNDER_STRENGTH || !mine(troop)) return;
     const distance = Math.sqrt((troop.x - target.x) * (troop.x - target.x) + (troop.y - target.y) * (troop.y - target.y)) * km;
     if (distance < ASSAULT_FROM_KM) near.push({ index, troop, distance });
   });
@@ -267,8 +315,10 @@ export const assignOrder = (battle, run, order, today, { picked = null, lagless 
   if (word === "assault") return assault(battle, run, order, today);
   const sector = resolveSector(battle.arena, today.line, today.sectors, order.sector) ?? WHOLE_LINE;
   const group = [];
+  // (Troops picked out are the order's whoever they are; a stretch of line gives it to those it is for.)
+  const mine = picked ? null : takesOrder(battle, run, order, today);
   troops.forEach((troop, index) => {
-    if (isLive(troop) && (picked ? picked.includes(index) : inSector(sector, troop.x, troop.y, kmAt))) group.push(index);
+    if (isLive(troop) && (picked ? picked.includes(index) : inSector(sector, troop.x, troop.y, kmAt) && mine(troop))) group.push(index);
   });
   if (word === "dig in") {
     // They dig in where they stand, and do not move again until told otherwise.
@@ -285,6 +335,14 @@ export const assignOrder = (battle, run, order, today, { picked = null, lagless 
       if (troops[index].order && troops[index].order.resume) troops[index].order.resume = null;
       if (troops[index].dug) troops[index].state = STATE_HOLDING;
       troops[index].dug = false;
+    }
+  } else if (word === "withdraw") {
+    // They leave: back from the line, and then off the battlefield (engine.js withdrawWhoLeft).
+    for (const index of group) {
+      if (troops[index].dug) troops[index].state = STATE_HOLDING;
+      troops[index].dug = false;
+      troops[index].order = { kind: "withdraw", standing: order, since: today.day, day: today.day, gone: 0 };
+      troops[index].fallback = null;
     }
   } else if (word === "fall back") {
     const target = order.objective ? findPlace(battle.arena, order.objective) : null;
@@ -620,7 +678,7 @@ export const putAshore = (battle, side, x, y, load, owner) => {
     battle.troops[side].push(createTroop({ x: px, y: py, strength: Math.min(100, Math.max(1, Number(strength) || 100)), kind: kind === 1 || kind === 2 ? kind : KIND_INFANTRY, owner: Math.max(0, owner) }));
   }
   // What comes with them to keep them up to strength: half of what troops raised on the spot have.
-  battle.pool[side] += count * POOL_PER_TROOP * 0.5;
+  battle.pool[side] += count * POOL_PER_TROOP * 0.5 * battle.edge[side].reserves;
   battle.planKey = "";
   return count;
 };
@@ -694,7 +752,7 @@ export const applyOrder = (battle, moment, today, notes) => {
   if (FRONT_EFFORTS.includes(moment.effort) && moment.effort !== battle.effort[side]) {
     // More effort brings up reserves; less never takes a troop away.
     const rise = EFFORT_FACTORS[moment.effort] / EFFORT_FACTORS[battle.effort[side]] - 1;
-    if (rise > 0) battle.pool[side] += rise * POOL_PER_TROOP * liveCount(battle.troops[side]);
+    if (rise > 0) battle.pool[side] += rise * POOL_PER_TROOP * liveCount(battle.troops[side]) * battle.edge[side].reserves;
     battle.effort[side] = moment.effort;
   }
 

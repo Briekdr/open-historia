@@ -51,17 +51,57 @@ export const commandCount = (troops) => {
 
 // ---- in a run --------------------------------------------------------------------
 
-// Puts every living troop of one side under a general. A side none of whose
-// troops has one yet is shared out: its troops in the order they stand along
-// the way they are strung out (the northernmost first, or the westernmost),
-// in bodies of the same size. After that only newcomers are placed: each
-// under whoever commands the nearest of its side.
+// Puts every living troop of one side under a general. On a side of several
+// countries each has generals of its own: no general commands two countries'
+// troops (the commands are dealt out among them by how many troops each has,
+// every country with troops getting at least one while there are any left).
 const shareOut = (troops) => {
+  const owners = [];
+  for (const troop of troops) if (live(troop) && !owners.includes(troop.owner ?? 0)) owners.push(troop.owner ?? 0);
+  if (owners.length <= 1) {
+    shareAmong(troops, troops.map((troop, index) => index), 0, MAX_COMMANDS);
+    return;
+  }
+  owners.sort((a, b) => a - b);
+  // The commands each country has already (a battle that is being fought keeps them), and those nobody has.
+  const taken = new Map(owners.map((owner) => [owner, new Set()]));
+  troops.forEach((troop) => {
+    if (live(troop) && troop.command >= 0) taken.get(troop.owner ?? 0).add(troop.command);
+  });
+  const used = new Set([...taken.values()].flatMap((commands) => [...commands]));
+  const free = [];
+  for (let command = 0; command < MAX_COMMANDS; command += 1) if (!used.has(command)) free.push(command);
+  // Those with none yet get theirs: the larger first, as many as their troops call for while any are left.
+  const count = (owner) => troops.reduce((sum, troop) => sum + (live(troop) && (troop.owner ?? 0) === owner ? 1 : 0), 0);
+  const waiting = owners.filter((owner) => taken.get(owner).size === 0).sort((a, b) => count(b) - count(a) || a - b);
+  waiting.forEach((owner, at) => {
+    const left = waiting.length - at - 1;
+    const wanted = Math.max(1, Math.min(commandCount(count(owner)), free.length - left));
+    for (let given = 0; given < wanted && free.length > 0; given += 1) taken.get(owner).add(free.shift());
+  });
+  for (const owner of owners) {
+    const mine = troops.map((troop, index) => index).filter((index) => (troops[index].owner ?? 0) === owner);
+    const commands = [...taken.get(owner)].sort((a, b) => a - b);
+    // (No command left for it: it shares the nearest general of its side, as a newcomer does.)
+    if (commands.length === 0) shareAmong(troops, troops.map((troop, index) => index), 0, MAX_COMMANDS, mine);
+    else shareAmong(troops, mine, commands[0], commands.length, null, commands);
+  }
+};
+
+// Shares the living troops among `indexes` out under generals. Those none of
+// whom has one yet are shared out: in the order they stand along the way they
+// are strung out (the northernmost first, or the westernmost), in bodies of
+// the same size, under `most` generals at the most, numbered from `first`
+// (or the commands listed). After that only newcomers are placed: each under
+// whoever commands the nearest of them. `only`: of the newcomers, place just these.
+const shareAmong = (troops, indexes, first, most, only = null, listed = null) => {
   const led = [];
   const loose = [];
-  troops.forEach((troop, index) => {
+  indexes.forEach((index) => {
+    const troop = troops[index];
     if (!live(troop)) return;
-    (troop.command >= 0 ? led : loose).push(index);
+    if (troop.command >= 0) led.push(index);
+    else if (!only || only.includes(index)) loose.push(index);
   });
   if (loose.length === 0) return;
   if (led.length === 0) {
@@ -82,9 +122,10 @@ const shareOut = (troops) => {
     });
     const [ax, ay] = AXES[axis];
     const along = (index) => troops[index].x * ax + troops[index].y * ay;
-    const count = commandCount(loose.length);
+    const count = Math.max(1, Math.min(most, commandCount(loose.length)));
     loose.slice().sort((a, b) => along(a) - along(b) || a - b).forEach((index, rank) => {
-      troops[index].command = Math.min(count - 1, Math.floor((rank * count) / loose.length));
+      const place = Math.min(count - 1, Math.floor((rank * count) / loose.length));
+      troops[index].command = listed ? listed[place] : first + place;
     });
     return;
   }
@@ -154,7 +195,7 @@ const commandsIn = (record, troops) => {
       return live(troop) && Number.isInteger(command) && command >= 0 && command < MAX_COMMANDS ? command : -1;
     });
     if (commands.some((command) => command >= 0) || !list.some(live)) return commands;
-    const fresh = list.map((troop) => ({ x: troop.x, y: troop.y, strength: troop.strength, command: -1 }));
+    const fresh = list.map((troop) => ({ x: troop.x, y: troop.y, strength: troop.strength, owner: troop.owner, command: -1 }));
     shareOut(fresh);
     return fresh.map((troop) => (live(troop) ? troop.command : -1));
   });
@@ -174,10 +215,14 @@ const underIn = (record, troops) => {
 //   { command, name, troops: [index in the record's list], n, pct, at, doing, cut, dug }
 // `at` (the place his troops stand about), `doing`, `cut` and `dug` are the
 // engine's, from the brief; a general with nobody left is left out.
-export const generalsOf = (record, side) => {
+//   member   on a side of several countries, the one whose generals are wanted:
+//            each commands its own, so only its troops are counted under them
+export const generalsOf = (record, side, { member = "" } = {}) => {
   if (!record || !Array.isArray(record.troops) || (side !== 0 && side !== 1)) return [];
   const troops = [decodeTroops(record.troops[0]), decodeTroops(record.troops[1])];
-  const commands = commandsIn(record, troops)[side];
+  const wanted = clean(member, 120).toLowerCase();
+  const owner = wanted ? (record.sides?.[side] ?? []).findIndex((name) => clean(name, 120).toLowerCase() === wanted) : -1;
+  const commands = commandsIn(record, troops)[side].map((command, index) => (owner >= 0 && troops[side][index].owner !== owner ? -1 : command));
   const names = readGenerals(carryOf(record).generals)[side];
   const told = Array.isArray(record.brief?.commands?.[side]) ? record.brief.commands[side] : [];
   const generals = [];
@@ -311,6 +356,46 @@ export const releaseTroops = (record, { side, troops } = {}) => {
   if (!changed) return record;
   const ages = record.orders.map((entry, index) => carryOf(record).ages?.[index] ?? 0);
   return tidy(record, record.orders, under, ages);
+};
+
+// A saved record on which a side that withdrew is sent back: its standing
+// order to withdraw is taken off and it is told to hold. The engine raises its
+// troops on the ground it holds when time next passes (engine.js comeBack).
+// The record comes back unchanged when the side has not withdrawn.
+export const returnTroops = (record, { side, by = "", since = "" } = {}) => {
+  if (!record || !Array.isArray(record.orders) || (side !== 0 && side !== 1)) return record;
+  const leaving = (order) => order.s === side && !order.chosen && order.order === "withdraw";
+  if (carryOf(record).away?.[side] !== true && !record.orders.some(leaving)) return record;
+  const decoded = [decodeTroops(record.troops[0]), decodeTroops(record.troops[1])];
+  const under = underIn(record, decoded);
+  const ages = record.orders.map((entry, index) => carryOf(record).ages?.[index] ?? 0);
+  const moved = new Map();
+  const orders = [];
+  const keptAges = [];
+  record.orders.forEach((order, index) => {
+    if (leaving(order)) return;
+    moved.set(index, orders.length);
+    orders.push(order);
+    keptAges.push(ages[index]);
+  });
+  const entry = { s: side, sector: "all", order: "hold", since: clean(since, 40) };
+  const giver = clean(by, 120);
+  if (giver) entry.by = giver;
+  return tidy(record, [...orders, entry], under.map((list) => list.map((order) => moved.get(order) ?? -1)), [...keptAges, 0]);
+};
+
+// The troops of a side that are one member's own to order, by their places in
+// the record's list: the live ones that member brought. (On a side of one
+// member, all of them.)
+export const ownTroopsOf = (record, side, member) => {
+  if (!record || !Array.isArray(record.troops) || (side !== 0 && side !== 1)) return [];
+  const wanted = clean(member, 120).toLowerCase();
+  const owner = (record.sides?.[side] ?? []).findIndex((name) => clean(name, 120).toLowerCase() === wanted);
+  const found = [];
+  decodeTroops(record.troops[side]).forEach((troop, index) => {
+    if (live(troop) && (owner < 0 || troop.owner === owner)) found.push(index);
+  });
+  return found;
 };
 
 // The orders a side's troops were given by hand that are still to be carried

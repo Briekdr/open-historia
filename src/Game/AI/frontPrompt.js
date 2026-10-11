@@ -35,12 +35,14 @@
 //
 // Pure, and loads in plain Node.
 
+import { difficultyMeta } from "../../runtime/difficulty.js";
 import { describeBattlefield, describeSince } from "../../runtime/fronts/brief.js";
+import { FAIR_EDGE, edgeOfDifficulty, handicapOf } from "../../runtime/fronts/handicap.js";
 import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts/record.js";
 import { loadOf, normalizeTransports } from "../../runtime/fronts/transports.js";
 import { FRONT_ORDERS_FIELD } from "./nativeFrontLedger.js";
 
-export const FRONTS_BLOCK_MAX = 8900;
+export const FRONTS_BLOCK_MAX = 10800;
 // The most that is told of transporters in it.
 export const TRANSPORTS_TEXT_MAX = 640;
 export const FRONTS_BLOCK_HEADING = "[Fronts]";
@@ -56,16 +58,17 @@ const fold = (value) => clean(value).toLowerCase();
 const ORDER_LINES = [
   `Orders go in ${FRONT_ORDERS_FIELD}, one line each:`,
   "battlefield~side~order~sector~eventNumbers~objective~result~effort",
-  "- battlefield: a name from the list below. A war begun in this answer has none yet: name its battlefield yourself in its first order. A border with no war is `border: A / B`, the two countries by their exact names, with dig in or hold: troops are sent to fortify it and attack nothing.",
-  "- side: the country or group being ordered, by its exact name.",
-  "- order: advance | blitz | spearhead | flank | encircle | assault | hold | dig in | fall back | land. An assault sends the troops it takes straight at its objective, which it must have: `city: X`, `structure: X` or `unit: X`. A landing's objective says where.",
-  "  An advance moves the whole stretch forward as a line, and a blitz the same, faster, after some days of massing. A spearhead (a wedge), a flank (a column round one side) and an encirclement (two columns that shut a place in and besiege it) are made by the troops nearest their objective, and the rest of the stretch stays as it was. Troops told to hold give ground rather than be cut off; troops told to dig in stand where they are, stronger, and can be shut in for it.",
+  "- battlefield: a name from the list below. A war begun in this answer has none yet: name its battlefield yourself in its first order. A border with no war is `border: A / B`, the two countries by their exact names: with dig in or hold, troops are sent to fortify it and attack nothing; with an order to attack from one of the two, that country attacks the other and the war between them begins that day (the game enters it in the war ledger; its own warUpdates record, if you write one, is the same war). Any country may strike first so, at one a person plays as at any other, when the story has it do so.",
+  "- side: the country or group being ordered, by its exact name. On a side of several countries each commands its own troops: a line orders the troops of the country it names, and a line for a side's first country also orders any ally there that nobody plays and that has no line of its own.",
+  "- order: advance | blitz | spearhead | flank | encircle | assault | hold | dig in | fall back | withdraw | land. An assault sends the troops it takes straight at its objective, which it must have: `city: X`, `structure: X` or `unit: X`. A landing's objective says where.",
+  "  An advance moves the whole stretch forward as a line, and a blitz the same, faster, after some days of massing. A spearhead (a wedge), a flank (a column round one side) and an encirclement (two columns that shut a place in and besiege it) are made by the troops nearest their objective, and the rest of the stretch stays as it was. Troops told to hold give ground rather than be cut off; troops told to dig in stand where they are, stronger, and can be shut in for it. Troops told to withdraw leave the battlefield and go home: the ground stays whose it is, with nobody of theirs on it, until their side is given another order there and comes back.",
   "- sector: all, a sector word listed for that battlefield, or a place on its line.",
-  "- ship | rail | airlift send a TRANSPORTER: troops carried to a place their side has no border with, to fight there. objective says where (`city: X`, `region: X` or `country: X`); battlefield names the front they open. After effort may come what carries them (any name), how many formations (1 to 40) and its speed in km a day. The game finds the way (ships by sea, rail through land its side holds, aircraft by air); it sets out as the next period begins and can be intercepted.",
+  "- ship | rail | airlift send a TRANSPORTER: troops carried to a place their side has no border with, to fight there. objective says where (`city: X`, `region: X` or `country: X`); battlefield names the front they open. After effort may come what carries them (any name), how many formations (1 to 40) and its speed in km a day. The game finds the way (ships by sea, rail through land its side holds, aircraft by air); it sets out as the next period begins and can be intercepted. Sent in peace to another country's land it is an attack on it: the war begins the day its troops are put down.",
   "NAME~A~ship~~3~city: X~~~troop convoy~12~600",
   "A missile launch or a bombing run that an event tells of is DRAWN on the map from a line of its own. It changes nothing by itself: what the strike did is what the event's own operations say. strike~side~weapon~from~eventNumbers~target~shot down~count",
   "- weapon: silo missile | submarine missile | nuclear bomber (these three are nuclear) | missile strike | bombing run. from: where it is launched (`structure: X`, `unit: X`, `city: X`), or blank and the game picks. target: the place hit. count: how many missiles or aircraft. shot down: how many of them were intercepted on the way.",
   "strike~A~bombing run~city: X~4~city: Y~3~24",
+  "Every war on the map is fought this way, between countries nobody plays as much as any other: when the story has two of them go to war, open it (its warUpdates record, or an order to attack across their border) and give each side its orders every period.",
 ];
 
 // The engine runs AFTER the answer: an order is carried out in this period.
@@ -100,10 +103,56 @@ const playerRule = (players, fought) => {
   const who = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   const one = names.length === 1;
   return `${who} ${one ? "is" : "are each"} played by a person: write no order for ${one ? "it" : "them"} of your own. `
+    // What a person types as an action is how they command: it becomes lines here.
+    + `But what that person tells ${one ? "its" : "their"} troops to do in an action of this turn IS ${one ? "its" : "their"} order, and you write it for them: a line for each stretch of line the action speaks of, with the sector and the objective it names, resting on the event that carries the action out (north-west troops to dig trenches and the southern ones to push for a city are two lines, \`NAME~X~dig in~northwest~4\` and \`NAME~X~advance~south~4~city: Y\`; to pull out is \`NAME~X~withdraw~all~4\`). `
     + (fought
-      ? `Where an event has that player's own order given to ${one ? "its" : "their"} troops, write the order here, resting on that event: it too is carried out next period, so the event tells of the order, not of what came of it. `
-      : "Where an event carries out one of that player's own orders, give that order here, resting on that event. ")
+      ? "Such an order is carried out next period, so its event tells of the order being given and not of what came of it. "
+      : "It is carried out from that event's date. ")
     + "What came of a battle they are in may always be stated as a result, with the order field left empty.";
+};
+
+// A player's allies: the countries nobody plays that fight on the same side of
+// a battlefield as somebody a person plays. Each commands its own troops, and
+// the story writes its orders; what it does there is where diplomacy counts.
+export const alliesRule = (battlefields, players) => {
+  const human = new Set(asArray(players).map(fold).filter(Boolean));
+  if (human.size === 0) return "";
+  const pairs = new Map();
+  for (const record of asArray(battlefields)) {
+    if (!record || record.status === "closed") continue;
+    for (const members of asArray(record.sides)) {
+      const played = asArray(members).filter((member) => human.has(fold(member)));
+      const others = asArray(members).filter((member) => !human.has(fold(member)));
+      if (played.length === 0 || others.length === 0) continue;
+      for (const ally of others) {
+        const key = fold(ally);
+        const entry = pairs.get(key) ?? { ally: clean(ally), beside: new Set(), on: [] };
+        for (const name of played) entry.beside.add(clean(name));
+        entry.on.push(clean(record.name));
+        pairs.set(key, entry);
+      }
+    }
+  }
+  if (pairs.size === 0) return "";
+  const told = [...pairs.values()].slice(0, 6).map((entry) => `${entry.ally} beside ${[...entry.beside].join(" and ")} on ${entry.on.slice(0, 3).join(", ")}`);
+  return `Allies of a player command their own troops, and their orders are yours to write: ${told.join("; ")}. Where such an ally and the player have agreed a plan in their talks ([Diplomatic Memory]), its orders carry that plan out, in the sector and at the time agreed. What the player has only asked of it, it weighs as its own government would, by its interests and how it stands with the player; left to itself it fights its own war as it sees fit.`;
+};
+
+// What the game's difficulty does on the battlefields (runtime/fronts/
+// handicap.js), said to the story so that what it tells and what it orders go
+// with how the fighting will go. Nothing on Medium, where the fight is even,
+// and nothing while no battlefield has a person's country on one side of it.
+export const difficultyRule = (battlefields, players, difficulty) => {
+  const edge = edgeOfDifficulty(difficulty);
+  if (edge === FAIR_EDGE) return "";
+  const weighed = asArray(battlefields).some((record) => record && record.status !== "closed"
+    && handicapOf({ difficulty, sides: record.sides, players: asArray(players) }).side >= 0);
+  if (!weighed) return "";
+  const figures = `they fight at ${Math.round(edge.power * 100)}% of their strength and advance at ${Math.round(edge.pace * 100)}% of their pace, with ${Math.round(edge.reserves * 100)}% of the usual reserves`;
+  const level = difficultyMeta(difficulty).label;
+  return edge.power > 1
+    ? `The difficulty is ${level}: the engine gives the troops that fight a player's country an edge (${figures}). Command them to use it: they attack where they stand the stronger and do not wait to be attacked.`
+    : `The difficulty is ${level}: the engine holds back the troops that fight a player's country (${figures}). Command them with the caution that calls for.`;
 };
 
 const isOpen = (record) => record?.status !== "closed";
@@ -146,6 +195,11 @@ const byWeight = (records, players) => {
 const NEWS_WORDS = {
   // A country that was in nobody's war until a side's troops were sent into it.
   invaded: (who, at) => `${who} sent its troops into ${at}, which was not in the war and is at war with it from that day`,
+  // A side whose last troops left the battlefield, and one that came back to it.
+  withdrew: (who) => `${who} withdrew the last of its troops from the battlefield, leaving the ground it holds there unguarded`,
+  returned: (who) => `${who} sent its troops back onto the battlefield`,
+  // A country that was at peace with the one that struck it.
+  attacked: (who, at) => `${who} attacked ${at}, with which it had been at peace, and the two are at war from that day`,
   // Troops a transporter put down.
   landed: (who, at) => `troops of ${who} came ashore at ${at}`,
   reinforced: (who, at) => `${who} was reinforced at ${at}`,
@@ -164,7 +218,8 @@ const NEWS_WORDS = {
 // names the regions taken. They are counted.)
 const LARGE_TOWN = 100000;
 const newsWeight = (entry) => {
-  if (entry.k === "invaded") return 7e9;
+  if (entry.k === "invaded" || entry.k === "attacked") return 7e9;
+  if (entry.k === "withdrew" || entry.k === "returned") return 5.5e9;
   if (entry.k === "landed") return 6.5e9;
   if (entry.k === "reinforced") return 2.2e9;
   const size = Math.min(9e8, Math.max(0, Number(entry.size) || 0));
@@ -184,7 +239,8 @@ const newsWeight = (entry) => {
 export const describePeriod = ({ record, before = null, news = [], most = PERIOD_NEWS_MOST, max = PERIOD_TEXT_MAX } = {}) => {
   if (!record || record.status === "standing") return "";
   const lead = [record.sides?.[0]?.[0] ?? "", record.sides?.[1]?.[0] ?? ""];
-  const sided = asArray(news).filter((entry) => entry && (entry.s === 0 || entry.s === 1) && clean(entry.at));
+  // (A side leaving the battlefield, or coming back to it, happens at no place on it.)
+  const sided = asArray(news).filter((entry) => entry && (entry.s === 0 || entry.s === 1) && (clean(entry.at) || entry.k === "withdrew" || entry.k === "returned"));
   const mine = sided.filter((entry) => NEWS_WORDS[entry.k]);
   // The regions that came wholly into each side's hands, counted once each.
   const whole = [0, 1].map((side) => new Set(sided.filter((entry) => entry.k === "whole" && entry.s === side).map((entry) => fold(entry.at))).size);
@@ -253,7 +309,9 @@ const VOYAGE_WORDS = {
   lost: (voyage, what) => `${what} bound for ${voyage.to} was caught${voyage.by ? ` by ${voyage.by}${voyage.with ? ` (${voyage.with})` : ""}` : ""}${voyage.at ? ` near ${voyage.at}` : ""} and lost with all aboard`,
   landed: (voyage, what) => `${what} put ${voyage.landed} formations ashore at ${voyage.at}${voyage.battlefield ? `, on ${voyage.battlefield}` : ""}`,
   reinforced: (voyage, what) => `${what} brought ${voyage.landed} formations to ${voyage.at}${voyage.battlefield ? `, on ${voyage.battlefield}` : ""}`,
-  invaded: (voyage) => `${voyage.owner} put troops into ${voyage.at}, which was not in the war and is at war with it from that day`,
+  invaded: (voyage) => (voyage.opened === true
+    ? `${voyage.owner} put troops into ${voyage.at}, with which it had been at peace, and the two are at war from that day`
+    : `${voyage.owner} put troops into ${voyage.at}, which was not in the war and is at war with it from that day`),
   returned: (voyage, what) => `${what} bound for ${voyage.to} turned back`,
 };
 export const describeTransports = ({ transports = [], voyages = [], fought = false, max = TRANSPORTS_TEXT_MAX } = {}) => {
@@ -271,14 +329,14 @@ export const describeTransports = ({ transports = [], voyages = [], fought = fal
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 };
 
-export const buildFrontsBlock = ({ battlefields = [], players = [], max = FRONTS_BLOCK_MAX, period = null, transports = [] } = {}) => {
+export const buildFrontsBlock = ({ battlefields = [], players = [], max = FRONTS_BLOCK_MAX, period = null, transports = [], difficulty = "" } = {}) => {
   const began = normalizeBattlefields(battlefields);
   // A period that was fought: its battlefields, or a transporter that sailed in it.
   const fought = Boolean(period) && (asArray(period.battlefields).length > 0 || asArray(period.voyages).length > 0);
   const carried = describeTransports({ transports: fought ? period.transports : transports, voyages: fought ? period.voyages : [], fought });
   const rule = playerRule(players, fought);
-  const head = [fought ? FOUGHT_RULES : FRONT_RULES, rule].filter(Boolean).join("\n");
   const records = fought ? normalizeBattlefields(period.battlefields) : began;
+  const head = [fought ? FOUGHT_RULES : FRONT_RULES, rule, alliesRule(records, players), difficultyRule(records, players, difficulty)].filter(Boolean).join("\n");
   const open = byWeight(records.filter(isOpen), players);
   // A battlefield that was open as the period began and that the period closed.
   const wasOpen = new Map(began.filter(isOpen).map((record) => [foldBattlefieldName(record.name), record]));

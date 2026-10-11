@@ -20,12 +20,14 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMap } from "react-map-gl/maplibre";
 import { decodeTroops } from "../../runtime/fronts/codec.js";
+import { ownTroopsOf } from "../../runtime/fronts/command.js";
 import { frameBounds, projectorOf } from "../../runtime/fronts/frame.js";
 import { foldBattlefieldName, normalizeBattlefield } from "../../runtime/fronts/record.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
 import { getWarRoom, reportWarRoomWay, setWarRoom, takeTool, useWarRoom } from "./warRoomStore.js";
 
 const NONE = Object.freeze([]);
+const selectCountry = (game) => String(game?.country ?? "");
 const ACCENT = "#2bc1f3";
 // A drag shorter than this is a click; a way shorter than this is no way.
 const CLICK_PX = 5;
@@ -96,9 +98,14 @@ const WarRoomTools = () => {
   // (For the pointer's handlers, which are attached once a tool and must see
   // the troops where they stand now.)
   const standingRef = useRef(standing);
+  // The troops the player may pick: its own. On a side of several countries each commands its own.
+  const country = useRuntimeState("game", selectCountry);
+  const own = useMemo(() => new Set(record && (side === 0 || side === 1) ? ownTroopsOf(record, side, country) : []), [record, side, country]);
+  const ownRef = useRef(own);
   useEffect(() => {
     standingRef.current = standing;
-  }, [standing]);
+    ownRef.current = own;
+  }, [standing, own]);
   // What is being drawn: a box ({ x0, y0, x1, y1 }) or a way ([[x, y]...]), in px of the map.
   const [draft, setDraft] = useState(null);
   const sheetRef = useRef(null);
@@ -154,7 +161,7 @@ const WarRoomTools = () => {
       const box = sheet.getBoundingClientRect();
       return [event.clientX - box.left, event.clientY - box.top];
     };
-    const mine = () => standingRef.current[side] ?? [];
+    const mine = () => (standingRef.current[side] ?? []).map((point, index) => (ownRef.current.has(index) ? point : null));
     const pickAt = ([x, y]) => {
       let best = -1;
       let bestPx = PICK_PX * PICK_PX;

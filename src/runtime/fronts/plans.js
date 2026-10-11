@@ -732,6 +732,7 @@ const WORDS = Object.freeze({
   hold: "holding its line",
   "dig in": "digging in",
   "fall back": "falling back",
+  withdraw: "withdrawing from the battlefield",
 });
 
 // A list of plans as a prompt reads them, a line each: names with their kind,

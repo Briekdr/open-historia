@@ -12,7 +12,7 @@ import { FRONT_EFFORTS, FRONT_ORDERS, FRONT_RESULTS, MAX_BATTLEFIELDS } from "..
 import { createFrontRun } from "../../runtime/fronts/engine.js";
 import { enlarge, syntheticMap } from "../../runtime/fronts/syntheticMap.js";
 import { decodeFrontOrders } from "./nativeFrontLedger.js";
-import { FRONTS_BLOCK_HEADING, FRONTS_BLOCK_MAX, battlefieldPowers, buildFrontsBlock } from "./frontPrompt.js";
+import { FRONTS_BLOCK_HEADING, FRONTS_BLOCK_MAX, alliesRule, battlefieldPowers, buildFrontsBlock } from "./frontPrompt.js";
 import { runTurnFronts } from "./frontTurn.js";
 
 const legend = { A: "Aland", B: "Borduria", "~": null };
@@ -75,7 +75,9 @@ test("the block says how an order is written, what it sets aside, who may not be
   for (const word of FRONT_RESULTS) assert.ok(block.includes(word), `the result "${word}"`);
   for (const word of FRONT_EFFORTS) assert.ok(block.includes(word), `the effort "${word}"`);
   assert.match(block, /An assault sends the troops it takes straight at its objective, which it must have: `city: X`, `structure: X` or `unit: X`\./);
-  assert.match(block, /A border with no war is `border: A \/ B`, the two countries by their exact names, with dig in or hold: troops are sent to fortify it and attack nothing\./);
+  assert.match(block, /A border with no war is `border: A \/ B`, the two countries by their exact names: with dig in or hold, troops are sent to fortify it and attack nothing; with an order to attack from one of the two, that country attacks the other and the war between them begins that day/);
+  assert.match(block, /Any country may strike first so, at one a person plays as at any other, when the story has it do so\./);
+  assert.match(block, /Sent in peace to another country's land it is an attack on it: the war begins the day its troops are put down\./);
   assert.match(block, /A war begun in this answer has none yet: name its battlefield yourself in its first order\./);
   // Its own examples are lines the ledger reads without a complaint.
   const examples = lines.filter((line) => line.startsWith("Eastern Ukraine~"));
@@ -154,8 +156,8 @@ test("the block never outgrows its length: the battlefields a turn is most about
     assert.ok(tight.length <= max, `${tight.length} of ${max}`);
     assert.ok(tight.startsWith(FRONTS_BLOCK_HEADING));
   }
-  // (Room for a few lines past the rules themselves, however long those are.)
-  const rules = buildFrontsBlock({ battlefields: [], players: ["Neutralia"] }).length;
+  // (Room for a few lines past the rules themselves, however long those are: with what is said of a player's allies there.)
+  const rules = buildFrontsBlock({ battlefields: [], players: ["Neutralia"] }).length + alliesRule(many, ["Neutralia"]).length + 1;
   const tight = buildFrontsBlock({ battlefields: many, players: ["Neutralia"], max: rules + 560 });
   const shown = tight.split("\n").filter((line) => line.startsWith("- The Great Northern")).length;
   assert.ok(shown > 0 && shown < MAX_BATTLEFIELDS);

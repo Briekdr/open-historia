@@ -67,7 +67,8 @@ const ORDER_WORDS = wordTable([...FRONT_ORDERS, ...Object.keys(TRANSPORT_ORDERS)
   encircle: ["envelop", "encirclement", "pincer", "pincers", "surround"],
   hold: ["defend", "hold the line", "stand", "stand fast", "holds"],
   "dig in": ["dig-in", "digin", "entrench", "fortify", "entrenched"],
-  "fall back": ["fall-back", "fallback", "retreat", "withdraw", "pull back", "withdrawal"],
+  "fall back": ["fall-back", "fallback", "retreat", "pull back"],
+  withdraw: ["withdrawal", "withdraws", "pull out", "pull out of", "evacuate", "evacuation", "go home", "leave"],
   land: ["landing", "amphibious landing", "amphibious", "landings"],
 });
 // A strike is a line of its own on the same field (runtime/strikes.js): it

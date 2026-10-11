@@ -183,7 +183,8 @@ test("the block tells a period that was fought as it leaves the battlefield, by 
     ["Ukraine", "dig in", "south", "", "", undefined],
   ]);
   // A person's side: its order too is for the next period.
-  assert.ok(lines.some((line) => line.startsWith("Aland is played by a person: write no order for it of your own. Where an event has that player's own order given to its troops, write the order here, resting on that event: it too is carried out next period")));
+  assert.ok(lines.some((line) => line.startsWith("Aland is played by a person: write no order for it of your own. But what that person tells its troops to do in an action of this turn IS its order, and you write it for them:")
+    && line.includes("Such an order is carried out next period, so its event tells of the order being given and not of what came of it.")));
   // The battlefield as the period LEAVES it, then how it began and what happened when.
   assert.ok(lines.includes("Battlefields, as the period from 2024-03-11 to 2024-03-21 leaves them:"));
   const [after] = told.battlefields;
@@ -263,7 +264,7 @@ test("the skip fights its period before it asks, and the turn it writes says so"
   const apply = fs.readFileSync(new URL("./frontApply.js", import.meta.url), "utf8");
   // Fought where the skip is read, before any prompt is built, and handed to the prompt with the skip's variables.
   const skip = gameplay.slice(gameplay.indexOf("export const simulateTimelineJump = async"));
-  assert.match(skip, /const frontsForecast = await forecastTurnFronts\(\{\s*world: bundle\.world,\s*game: bundle\.game,\s*campaignId: activeCampaignId\(\),\s*toDate: targetDate,\s*requestedDays: safeDays,/);
+  assert.match(skip, /const frontsForecast = actionsCommandTroops\(\{ world: bundle\.world, game: bundle\.game, actions: bundle\.actions \}\) \? null : await forecastTurnFronts\(\{\s*world: bundle\.world,\s*game: bundle\.game,\s*campaignId: activeCampaignId\(\),\s*toDate: targetDate,\s*requestedDays: safeDays,/);
   assert.ok(skip.indexOf("await forecastTurnFronts(") < skip.indexOf("const jumpContext = {"));
   assert.match(skip, /variables: frontsForecast \? \{ \.\.\.variables, frontsForecast \} : variables,/);
   assert.match(gameplay, /const fronts = frontsLiveBlock\(world, game, variables\.frontsForecast \?\? null\);/);

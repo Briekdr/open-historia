@@ -85,6 +85,41 @@ test("a transporter is a medium, a speed and a load: what it is called is free, 
   assert.deepEqual(normalizeTransport({ ...transport, load: [[250, 1], [0, 0], { strength: 60, kind: 2 }, [40, 9]] }).load, [[100, 1], [60, 2], [40, 0]]);
 });
 
+test("a sea drawn as regions: ships sail it, no army marches across it, and it is nobody's front", () => {
+  // Every stretch of water here is a region: Aland's own waters and Borduria's
+  // touch in the middle, and nothing else lies between the two countries.
+  const realm = { A: "Aland", B: "Borduria", a: { owner: "Aland", typeId: "sea" }, b: { owner: "Borduria", typeId: "sea" }, o: { owner: "", typeId: "sea" } };
+  const world = syntheticMap({ layout: ["oooooooooooo", "oAAAaabbBBBo", "oAAAaabbBBBo", "oAAAaabbBBBo", "oooooooooooo"], legend: realm, west: 20, north: 54, step: 1, cities, key: "pirate seas" });
+  const sea = [{ id: "sea", name: "Sea" }];
+  const { transports } = convoy();
+  // At war across the water: with the sea known as sea, their waters touching opens no battlefield.
+  assert.deepEqual(run(world, { days: 5, regionTypes: sea }).battlefields, []);
+  // A convoy crosses it and puts its troops ashore.
+  const crossed = run(world, { transports, days: 6, regionTypes: sea });
+  assert.deepEqual(crossed.transports.map((transport) => transport.status), ["landed"]);
+  const [field] = crossed.battlefields;
+  assert.ok(field, "the landing opens a battlefield");
+  assert.ok(live(field, 0).length >= 20, `${live(field, 0).length} formations ashore`);
+  assert.deepEqual(crossed.voyages.map((voyage) => voyage.k), ["sailed", "landed"]);
+  // Nothing of the land war ever stands on the water: every troop of both sides is on land.
+  const read = readBattlefield(field, world, { regionTypes: sea });
+  const onLand = (troop) => troop.strength <= 0 || (troop.lng >= 21 && troop.lng <= 24) || (troop.lng >= 28 && troop.lng <= 31);
+  assert.ok(read.troops.flat().every(onLand), "no formation stands in the sea");
+  // And no region of the sea changes hands, however the fighting goes.
+  const fought = run(world, { transports, days: 40, regionTypes: sea });
+  const names = new Map(world.regions.map((region) => [region.id, region.typeId ?? ""]));
+  assert.equal(fought.flips.filter((flip) => names.get(flip.regionId) === "sea").length, 0);
+  // The same map with its sea NOT water is all dry land: there is nothing between them to sail, and nobody is put ashore.
+  const dry = run(world, { transports, days: 6, regionTypes: [{ id: "sea", name: "Sea", water: false }], arenas: new Map() });
+  assert.ok(["refused", "returned"].includes(dry.transports[0].status), dry.transports[0].status);
+  assert.equal(dry.voyages.some((voyage) => voyage.k === "landed"), false);
+  // A lake, an ocean or plain water by name does as well as a sea.
+  for (const name of ["Ocean", "Water", "Lake"]) {
+    const other = run(world, { transports, days: 6, regionTypes: [{ id: "sea", name }], arenas: new Map() });
+    assert.deepEqual(other.transports.map((transport) => transport.status), ["landed"], name);
+  }
+});
+
 test("troops sent by ship to a country they have no border with land there and open a battlefield", () => {
   const world = apart();
   const { transports } = convoy();
@@ -238,9 +273,11 @@ test("a transporter that cannot set out says why, and nothing is taken from anyb
     const result = run(world, { transports: sent.transports, days: 3, ...extra });
     return [result.transports[0].status, result.transports[0].note, result.voyages[0]?.k, result.battlefields.length];
   };
-  // A place nobody knows, a country at war with nobody, and a train with the sea in its way.
+  // A place nobody knows, a country with nowhere to sail from, and a train with the sea in its way.
   assert.deepEqual(refused({ medium: "sea", to: { name: "city: Atlantis" } }), ["refused", "no-place", "refused", 0]);
-  assert.deepEqual(refused({ medium: "sea", owner: "Neutralia", to: { name: "city: Port" } }), ["refused", "no-war", "refused", 0]);
+  assert.deepEqual(refused({ medium: "sea", owner: "Neutralia", to: { name: "city: Port" } }), ["refused", "no-origin", "refused", 0]);
+  // In peace nothing is carried to a country's own land, nor against one a ceasefire stands with.
+  assert.deepEqual(refused({ medium: "sea", to: { name: "city: Alba" } }, { wars: [] }), ["refused", "no-war", "refused", 0]);
   assert.deepEqual(refused({ medium: "sea", to: { name: "city: Port" } }, { wars: [{ id: "war-1", status: "ceasefire", sideA: ["Aland"], sideB: ["Borduria"] }] }), ["refused", "no-war", "refused", 0]);
   // A train goes as far as its side's land does: sent across the water it stops at its own shore, and there is nobody there to fight.
   assert.deepEqual(refused({ medium: "land", to: { name: "city: Port" } }), ["returned", "railhead", "sailed", 0]);

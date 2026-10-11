@@ -50,7 +50,11 @@ test("words a model is likely to write fold onto the engine's own; a place stays
   assert.equal(order("Offensive"), "advance");
   assert.equal(order("blitzkrieg"), "blitz");
   assert.equal(order("entrench"), "dig in");
-  assert.equal(order("withdraw."), "fall back");
+  assert.equal(order("retreat."), "fall back");
+  // To withdraw is to leave the battlefield, an order of its own: not to fall back along it.
+  assert.equal(order("withdraw."), "withdraw");
+  assert.equal(order("Pull out"), "withdraw");
+  assert.equal(order("evacuate"), "withdraw");
   assert.equal(order("pincer"), "encircle");
   assert.equal(normalizeFrontSector("Center"), "centre");
   assert.equal(normalizeFrontSector("north-east"), "northeast");

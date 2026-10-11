@@ -46,17 +46,15 @@ test("a border is fortified in peace: troops are deployed along it and dug in, a
   assert.deepEqual(record.field, atOnce.field);
   assert.deepEqual(record.troops, atOnce.troops);
 
-  // The next turn: an order to attack there is refused, and says why. The
-  // other side may deploy too, by either name of the border.
+  // The next turn: the other side may deploy too, by either name of the
+  // border. (An order to ATTACK there is the war beginning: attackFirst.test.js.)
   const later = runFronts(peace(world, {
     battlefields: opened.battlefields,
     fromDate: "2024-03-06",
-    moments: [order(1, BORDER, "Aland", "advance", { ref: 3 }), order(1, "border: Aland / Borduria", "Aland", "assault", { objective: "city: Nowhere", ref: 4 }), order(2, "border: Borduria / Aland", "Borduria", "hold")],
+    moments: [order(2, "border: Borduria / Aland", "Borduria", "hold")],
   }));
-  assert.deepEqual(later.notes, [
-    { battlefield: BORDER, side: "Aland", ref: 3, kind: "not-at-war" },
-    { battlefield: BORDER, side: "Aland", ref: 4, kind: "not-at-war" },
-  ]);
+  assert.deepEqual(later.notes, []);
+  assert.deepEqual(later.starts, [], "nobody is at war");
   assert.equal(later.battlefields.length, 1, "one battlefield for the one border");
   const [both] = later.battlefields;
   assert.equal(both.status, "standing");
@@ -69,9 +67,10 @@ test("a border is fortified in peace: troops are deployed along it and dug in, a
 
   // With no shapes of the map a border that has no battlefield yet cannot be laid out: the engine says so.
   assert.deepEqual(runFronts(peace(world, { map: { ...world.map, regions: null }, moments: [order(0, "border: Aland / Borduria", "Aland", "dig in")] })), { needsRegions: true });
-  // Two that do not touch, or are at war already, have no border to fortify.
+  // Two that do not touch have no border to fortify.
   assert.deepEqual(runFronts(peace(world, { moments: [order(0, "border: Aland / Atlantis", "Aland", "dig in", { ref: 1 })] })).notes, [{ kind: "border-not-found", battlefield: "border: Aland / Atlantis", side: "Aland", ref: 1 }]);
-  assert.deepEqual(runFronts(peace(world, { moments: [order(0, "border: Aland / Borduria", "Aland", "advance", { ref: 2 })] })).notes, [{ kind: "not-at-war", battlefield: "border: Aland / Borduria", side: "Aland", ref: 2 }]);
+  // Somebody who is neither of the two has nothing to order on it.
+  assert.deepEqual(runFronts(peace(world, { moments: [order(0, "border: Aland / Borduria", "Neutralia", "advance", { ref: 2 })] })).notes, [{ kind: "not-at-war", battlefield: "border: Aland / Borduria", side: "Neutralia", ref: 2 }]);
 });
 
 test("when war comes a fortified border is fought over as it stands, with whoever is dug in there", () => {

@@ -33,10 +33,12 @@ import { gameDateYear } from "../../runtime/gameDates.js";
 import { normalizeBattlefields } from "../../runtime/fronts/record.js";
 import { isUnderWay, normalizeTransports } from "../../runtime/fronts/transports.js";
 import { findWay } from "../../runtime/fronts/wayfinder.js";
-import { buildWorldGrid } from "../../runtime/fronts/worldGrid.js";
+import { buildWorldGrid, worldSheetKey } from "../../runtime/fronts/worldGrid.js";
+import { waterTypeIds } from "../../runtime/regionTypes.js";
 import { logDebugEvent } from "../../runtime/debugLog.js";
 import { createFrontRun } from "../../runtime/fronts/engine.js";
 import { getActiveWorldDirection, isActiveFeatureEnabled } from "../../runtime/gameFeatures.js";
+import { normalizeDifficulty } from "../../runtime/difficulty.js";
 import { humanCountriesOf } from "../../runtime/humanPolities.js";
 import { FREEFORM, normalizeProjection } from "../../../server/mapProjection.js";
 import { stolenPlansBlock, turnPlanned, warRoomIntel } from "./frontPlans.js";
@@ -187,7 +189,35 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
     // The same turn of the same campaign is the same run, whoever applies it and how often.
     seed: `${clean(campaignId)}|${round}|${fromDate}`,
     players: humanCountriesOf(game),
+    // The difficulty weighs the land war for whoever fights a person's country (runtime/fronts/handicap.js).
+    difficulty: normalizeDifficulty(game?.difficulty),
   };
+};
+
+// ---- a person's orders, typed as actions ----------------------------------------------
+
+// Whether what the people playing have typed as actions this turn tells their
+// troops what to do: an action that speaks of troops, a line, an attack or a
+// withdrawal, from somebody whose troops are on a battlefield (or who is at
+// peace and orders an attack: the war that begins is fought from its day).
+// The story turns such an action into the player's own order lines
+// (frontPrompt.js playerRule). So the turn is asked for WITHOUT its period
+// being fought first: the orders are then carried out in this very period,
+// from the day of the event that gives them, and not put off to the next.
+const COMMAND_WORDS = /\b(withdraw\w*|pull(?:s|ed|ing)? (?:out|back)|retreat\w*|fall(?:s|ing)? back|dig(?:s|ging)? (?:in|trenches)|entrench\w*|trench\w*|fortif\w*|hold(?:s|ing)? (?:the |our |my |their )?(?:line|ground|position|front)\w*|advanc\w*|attack\w*|push\w*|assault\w*|offensive\w*|encircl\w*|outflank\w*|flank\w*|storm\w*|invad\w*|invasion\w*|blitz\w*|spearhead\w*|march\w*|troops?|arm(?:y|ies)|divisions?|brigades?|soldiers|forces|front ?lines?|the front|garrison\w*|regroup\w*|redeploy\w*|deploy\w*)\b/i;
+const ATTACK_WORDS = /\b(attack\w*|invad\w*|invasion\w*|declar\w* war|assault\w*|offensive\w*)\b/i;
+export const actionsCommandTroops = ({ world = {}, game = {}, actions = [] } = {}) => {
+  if (!frontsOn()) return false;
+  const planned = asArray(actions).filter((action) => isRecord(action) && clean(action.status) === "planned" && fold(action.kind) !== "chat");
+  if (planned.length === 0) return false;
+  const humans = humanCountriesOf(game).map(fold);
+  const mine = asArray(world?.battlefields).filter((row) => row && row.status !== "closed"
+    && asArray(row.sides).some((members) => asArray(members).some((member) => humans.includes(fold(member)))));
+  return planned.some((action) => {
+    const text = `${clean(action.text)} ${clean(action.title)}`;
+    if (mine.some((row) => clean(row.name) && fold(text).includes(fold(row.name)))) return true;
+    return COMMAND_WORDS.test(text) && (mine.length > 0 || ATTACK_WORDS.test(text));
+  });
 };
 
 // ---- the period, fought before its story is written -------------------------------------
@@ -324,7 +354,7 @@ export const applyTurnFronts = async ({
     if (signal?.aborted || error?.name === "AbortError") throw error;
     console.warn("[fronts] the front engine could not be run for this turn; the turn goes on without it and the battlefields stand as they were.", error);
     logDebugEvent("turn", "Fronts: the engine could not be run for this turn; the battlefields stand as they were.", error, { problem: true });
-    return { events: stripFrontOps(events), battlefields: null, unitChanges: [], notes: [], flips: [], stats: null, news: [], joins: [], transports: null, voyages: [], strikes: [] };
+    return { events: stripFrontOps(events), battlefields: null, unitChanges: [], notes: [], flips: [], stats: null, news: [], joins: [], starts: [], transports: null, voyages: [], strikes: [] };
   }
 };
 
@@ -344,6 +374,25 @@ export const frontWarJoins = (fronts) => asArray(fronts?.joins)
     opponents: [],
     eventIds: [],
     baselineDate: clean(join.date),
+  }));
+
+// The wars that began in a turn because one country sent its troops at
+// another it was at peace with (runtime/fronts/engine.js attackOpensWar): an
+// attack across their border, an order aimed at a place the other holds, a
+// transporter put down on its land. Each is a `start` for the war ledger, by
+// the id the battlefields already carry, dated by the day the troops went in.
+// A war the story opened itself in the same answer is not among them: the
+// engine took that one for its own. [] with nothing of the kind.
+export const frontWarStarts = (fronts) => asArray(fronts?.starts)
+  .filter((start) => clean(start?.warId) && clean(start?.attacker) && clean(start?.defender))
+  .map((start) => ({
+    id: clean(start.warId),
+    op: "start",
+    actors: [clean(start.attacker)],
+    opponents: [clean(start.defender)],
+    eventIds: [],
+    baselineDate: clean(start.date),
+    note: `${clean(start.attacker)} attacked ${clean(start.defender)}, with which it had been at peace`,
   }));
 
 // What sending troops along the routes drawn on a battlefield would attack:
@@ -419,13 +468,14 @@ export const transportWaysFor = async ({ world = {}, game = {}, campaignId = "",
   try {
     const front = await readFrontMap(world, game, campaignId);
     const kept = arenasFor(front.map.key);
-    const sheet = `world|${front.map.key}`;
+    const water = waterTypeIds(world?.regionTypes);
+    const sheet = worldSheetKey(front.map.key, water);
     let grid = kept.get(sheet) ?? null;
     if (!grid) {
       const shapes = typeof loadRegions === "function" ? await loadRegions() : null;
       const regions = shapes ? engineRegionsOf(shapes, { nameOf: (id) => front.names.get(id) }) : null;
       if (asArray(regions).length === 0) return found;
-      grid = buildWorldGrid(regions, { flat: front.map.flat === true, scale: front.map.scale });
+      grid = buildWorldGrid(regions, { flat: front.map.flat === true, scale: front.map.scale, water });
       if (grid) kept.set(sheet, grid);
     }
     if (!grid) return found;
@@ -499,6 +549,7 @@ export const openScenarioFronts = async ({ world = {}, game = {}, campaignId = "
     pace: frontsPace(),
     seed: `${clean(campaignId)}|1|${clean(game?.gameDate || game?.startDate)}`,
     players: humanCountriesOf(game),
+    difficulty: normalizeDifficulty(game?.difficulty),
   });
 };
 export { scenarioFrontsPending };
@@ -525,7 +576,7 @@ export const withFrontUnits = (world, fronts) => {
 // gave for the turn, when it gave anything: the block then tells the
 // battlefields as the period leaves them and what happened on them.
 export const frontsLiveBlock = (world, game, foreseen = null) => (frontsOn()
-  ? buildFrontsBlock({ battlefields: world?.battlefields, players: humanCountriesOf(game), period: foreseen, transports: world?.transports })
+  ? buildFrontsBlock({ battlefields: world?.battlefields, players: humanCountriesOf(game), period: foreseen, transports: world?.transports, difficulty: normalizeDifficulty(game?.difficulty) })
   : "");
 
 // What the simulator is told of the plans agents have carried off from the

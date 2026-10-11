@@ -28,6 +28,7 @@ const doingOf = (troop) => {
   if (order.kind === "reduce") return "closing";
   if (order.kind === "assault") return "assaulting";
   if (order.kind === "fallback") return "falling-back";
+  if (order.kind === "withdraw") return "withdrawing";
   if (order.kind === "breakout") return "breaking-out";
   if (order.kind === "pursue") return "pursuing";
   return "holding";
@@ -82,10 +83,13 @@ export const buildBrief = (battle, since) => {
   const strength = [HOLDER_SIDE_A, HOLDER_SIDE_B].map((side) => {
     const live = battle.troops[side].filter(isLive);
     const pool = battle.pool[side];
+    // On a side of several countries, how many each has there: each commands its own.
+    const members = battle.sides[side].map((name, owner) => ({ name, n: live.reduce((count, troop) => count + (troop.owner === owner ? 1 : 0), 0) })).filter((entry) => entry.n > 0);
     return {
       n: live.length,
       pct: live.length > 0 ? Math.round(live.reduce((sum, troop) => sum + troop.strength, 0) / live.length) : 0,
       reserves: pool >= RESERVES_AMPLE_PER_TROOP * Math.max(1, live.length) ? "ample" : pool >= 1 ? "thin" : "none",
+      ...(members.length > 1 ? { members } : {}),
     };
   });
 
@@ -168,7 +172,10 @@ const ordersOf = (record, side) => {
   const under = record.brief?.carry?.under?.[side];
   const serving = (index) => (Array.isArray(under) ? under.reduce((count, serves) => count + (serves === index ? 1 : 0), 0) : 0);
   const line = mine.filter(({ order }) => !order.chosen);
-  const parts = line.map(({ order }) => `${order.sector} ${order.order}${order.objective ? ` toward ${order.objective}` : ""}`);
+  // (On a side of several countries an order is its giver's troops' alone: it says whose, where it is not the first country's.)
+  const lead = String(record.sides?.[side]?.[0] ?? "").toLowerCase();
+  const whose = (order) => (record.sides?.[side]?.length > 1 && order.by && String(order.by).toLowerCase() !== lead ? ` (${order.by}'s troops)` : "");
+  const parts = line.map(({ order }) => `${order.sector} ${order.order}${order.objective ? ` toward ${order.objective}` : ""}${whose(order)}`);
   for (const { order, index } of mine) {
     if (!order.chosen) continue;
     const into = Array.isArray(order.attacks) && order.attacks.length > 0 ? `, into ${order.attacks.join(" and ")}, which is not in the war` : "";
@@ -223,8 +230,11 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
   const head = `- ${record.name}: ${record.sides[0].join(", ")} against ${record.sides[1].join(", ")}, open since ${record.openedDate}${status}, line ${brief.km ?? 0} km`;
 
   const strength = Array.isArray(brief.strength) && brief.strength.length === 2
-    ? `  Strength: ${brief.strength.map((side, index) => `${lead[index]} ${side.n} formations (${side.pct}%), reserves ${side.reserves}`).join("; ")}`
+    ? `  Strength: ${brief.strength.map((side, index) => `${lead[index]} ${side.n} formations (${side.pct}%)${Array.isArray(side.members) && side.members.length > 1 ? ` (${side.members.map((member) => `${member.name} ${member.n}`).join(", ")})` : ""}, reserves ${side.reserves}`).join("; ")}`
     : "";
+  // A side that has withdrawn its troops from here (engine.js withdrawWhoLeft).
+  const gone = [HOLDER_SIDE_A, HOLDER_SIDE_B].filter((side) => brief.carry?.away?.[side] === true)
+    .map((side) => `  ${lead[side]} has withdrawn its troops from here: the ground it holds is unguarded until it orders them back.`).join("\n");
   const sectors = Array.isArray(brief.sectors) ? brief.sectors : [];
   const where = sectors.filter((sector) => sector.from && sector.to);
   const lineText = (most) => (where.length > 0 ? `  Line: ${where.slice(0, most).map((sector) => `${sector.name}: ${sector.from === sector.to ? sector.from : `${sector.from} to ${sector.to}`}`).join("; ")}` : "");
@@ -243,7 +253,7 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
   // are listed, then fewer sectors.
   let text = "";
   for (const [mostSectors, mostNames] of [[3, 4], [3, 2], [3, 1], [2, 1], [0, 1]]) {
-    text = [head, strength, lineText(mostSectors), sinceText(mostNames), orders, valid].filter(Boolean).join("\n");
+    text = [head, strength, gone, lineText(mostSectors), sinceText(mostNames), orders, valid].filter(Boolean).join("\n");
     if (text.length <= BRIEF_TEXT_MAX) return text;
   }
   return text.slice(0, BRIEF_TEXT_MAX - 1).trimEnd() + "…";

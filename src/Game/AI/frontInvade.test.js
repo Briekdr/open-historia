@@ -211,7 +211,7 @@ test("the war room is told what a route goes into as soon as it is drawn, from t
 
 test("the turn hands the engine's joinings to the war ledger, and the war room has the order and the warning", () => {
   const gameplay = read("gameplay.js");
-  assert.match(gameplay, /updates: \[\.\.\.warUpdates, \.\.\.frontWarJoins\(turnFronts\)\],/);
+  assert.match(gameplay, /updates: \[\.\.\.warUpdates, \.\.\.frontWarStarts\(turnFronts\), \.\.\.frontWarJoins\(turnFronts\)\],/);
   assert.match(gameplay, /export const warRoomRouteAttacks = \(\{ world, game, record \} = \{\}\) =>\n {2}routesIntoOthers\(\{ world, game, record, campaignId: activeCampaignId\(\), loadRegions: createRenderedRegionsReader\(\) \}\);/);
   assert.match(read("gameplayLazy.js"), /export const warRoomRouteAttacks = async \(\.\.\.args\) => \(await gameplay\(\)\)\.warRoomRouteAttacks\(\.\.\.args\);/);
   const panel = read("../GameUI/warRoom.jsx");

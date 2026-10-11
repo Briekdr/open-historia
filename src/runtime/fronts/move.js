@@ -275,8 +275,11 @@ const hold = (battle, side, troop, day, date, attackers) => {
   // Told to fall back: away from the other side's ground, or toward the place
   // named, a day's march further every day until it has gone far enough. (One
   // the other side has already walked over is driven off like any other.)
-  if (order && order.kind === "fallback" && onOwn) {
-    if (order.gone >= FALL_BACK_MAX_KM) return;
+  // (Told to WITHDRAW it goes back the same way with no end to how far: it is
+  // on its way off the battlefield, and `home` says it can go no further back.)
+  if (order && (order.kind === "fallback" || order.kind === "withdraw") && onOwn) {
+    const leaving = order.kind === "withdraw";
+    if (!leaving && order.gone >= FALL_BACK_MAX_KM) return;
     let dx = 0;
     let dy = 0;
     if (order.target) {
@@ -287,7 +290,10 @@ const hold = (battle, side, troop, day, date, attackers) => {
       dy = -toward[1];
     }
     const gap = Math.sqrt(dx * dx + dy * dy);
-    if (!(gap > 0.05)) return;
+    if (!(gap > 0.05)) {
+      if (leaving) order.home = true;
+      return;
+    }
     const step = Math.min(order.target ? gap : Infinity, FALL_BACK_KM_PER_DAY / km);
     for (const share of [1, 0.5, 0.25]) {
       const x = troop.x + (dx / gap) * step * share;
@@ -300,6 +306,7 @@ const hold = (battle, side, troop, day, date, attackers) => {
       turnTo(troop, dx, dy);
       return;
     }
+    if (leaving) order.home = true;
     return;
   }
 
@@ -723,6 +730,7 @@ export const moveDay = (battle, run, day) => {
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     const other = 1 - side;
     if (!run.braked) drawIn(battle, side, day);
+    // (Troops that WITHDRAW are not followed up: they are leaving, and the ground stays as it is unless the other side is ordered forward.)
     const falling = battle.views[other].filter((view) => view.word === "fall back");
     battle.troops[side].forEach((troop, index) => {
       troop.stepping = false;
@@ -741,7 +749,8 @@ export const moveDay = (battle, run, day) => {
       }
       // Cut off, and its own side's ground not far: it tries to break out to
       // it. (Not from a place under siege: a garrison holds.)
-      if (troop.pocket && !troop.besieged && !troop.dug && troop.kind !== KIND_ARTILLERY && (!order || order.kind !== "breakout")
+      // (Nor one that is leaving the battlefield: it goes on leaving, and is taken off where it can go no further.)
+      if (troop.pocket && !troop.besieged && !troop.dug && troop.kind !== KIND_ARTILLERY && (!order || (order.kind !== "breakout" && order.kind !== "withdraw"))
         && troop.spent <= day && books.cut[side] && cellsOf(field, books.toSupplied[side], troop.x, troop.y) * cellKm < BREAK_OUT_KM) {
         order = { kind: "breakout", since: day, day };
         troop.order = order;
@@ -780,7 +789,7 @@ export const moveDay = (battle, run, day) => {
           troop.order = order;
         }
       }
-      let acts = order && day >= order.since && order.kind !== "fallback" && (!troop.pocket || order.kind === "breakout") ? order : null;
+      let acts = order && day >= order.since && order.kind !== "fallback" && order.kind !== "withdraw" && (!troop.pocket || order.kind === "breakout") ? order : null;
       // Under an order, and the other side has walked past it: the ground it
       // stands on is theirs, and its own side's is further off than its own
       // brush reaches. It is driven off like any other troop, back onto its

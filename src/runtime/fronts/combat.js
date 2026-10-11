@@ -19,6 +19,10 @@
 // troop that is DUG IN is stronger than any that merely holds, and what it
 // loses costs it less.
 //
+// What the game's difficulty gives a side (battle.edge, handicap.js) is in its
+// troops' power, in attack and in defence, in the pace of their advance, in
+// how slowly its undefended ground is taken, and in how fast they are mended.
+//
 // Ground that is cut off is fought for like any other, at a disadvantage: its
 // troops attack and defend at a share of their power, and those closing on
 // them wear them faster. Only a place under siege is left alone: the side
@@ -78,10 +82,10 @@ const terrainDefence = (speed) => 1 + Math.min(0.8, Math.max(0, 1 - speed)) * TE
 // attacker comes at its front, where its works count.
 const defensivePower = (battle, side, troop, front = true) =>
   troop.strength * TROOP_DEFENCE[troop.kind] * (!front ? 1 : troop.dug ? DUG_IN_DEFENCE : 1 + troop.dig)
-  * battle.quality[side] * troop.supply * (troop.pocket ? POCKET_DEFENCE : 1);
+  * battle.quality[side] * battle.edge[side].power * troop.supply * (troop.pocket ? POCKET_DEFENCE : 1);
 // And in attack.
 const offensivePower = (battle, side, troop) =>
-  troop.strength * TROOP_ATTACK[troop.kind] * battle.quality[side] * troop.supply * (troop.pocket ? POCKET_ATTACK : 1);
+  troop.strength * TROOP_ATTACK[troop.kind] * battle.quality[side] * battle.edge[side].power * troop.supply * (troop.pocket ? POCKET_ATTACK : 1);
 
 // ---- who is near whom ----------------------------------------------------------
 
@@ -229,7 +233,7 @@ export const stepForward = (battle, paceKm, pace) => {
     const kept = battle.kept[entry.side];
     entry.forward = (x, y) => inPlay(x, y) && !spared(spare, x, y) && !(kept && kept[Math.floor(y) * field.cols + Math.floor(x)])
       && (x - troop.x) * troop.axisX + (y - troop.y) * troop.axisY >= 0;
-    entry.dayCells = (paceKm[troop.kind] * arena.speed[cell] * troop.supply * pace * troop.drive * troop.paceFactor) / kmAt(troop.y);
+    entry.dayCells = (paceKm[troop.kind] * arena.speed[cell] * troop.supply * pace * troop.drive * troop.paceFactor * battle.edge[entry.side].pace) / kmAt(troop.y);
     parts = Math.max(parts, Math.ceil(entry.dayCells / (entry.radius * 0.5)));
   }
   parts = Math.min(SUBSTEPS_MAX, parts);
@@ -269,7 +273,13 @@ export const stepForward = (battle, paceKm, pace) => {
       const raw = defence;
       if (inPlay(aheadX, aheadY)) defence *= terrainDefence(arena.speed[Math.floor(aheadY) * field.cols + Math.floor(aheadX)]);
       const ratio = defence > 0 ? attack / defence : Infinity;
-      const gain = defence > 0 ? Math.min(1, Math.max(0, (GAIN * (ratio - RATIO_NEEDED)) / (ratio + RATIO_SOFTNESS))) : 1;
+      // Ground nobody defends is walked at the full pace, but for what the
+      // difficulty gives the side that holds it: the harder its troops fight,
+      // the more slowly its ground is taken, defended or empty (never faster
+      // than 1 / power of the pace: a lone defender far off is no way round it).
+      const theirs = inPlay(aheadX, aheadY) && field.holders[Math.floor(aheadY) * field.cols + Math.floor(aheadX)] === 1 - side;
+      const open = theirs ? Math.min(1, 1 / battle.edge[1 - side].power) : 1;
+      const gain = Math.min(open, defence > 0 ? Math.min(1, Math.max(0, (GAIN * (ratio - RATIO_NEEDED)) / (ratio + RATIO_SOFTNESS))) : 1);
       entry.power = attack;
       entry.fromX = troop.x;
       entry.fromY = troop.y;
@@ -390,7 +400,7 @@ export const closeDay = (battle) => {
         else if (!busy && troop.dig < DIG_MAX_HOLD) troop.dig = Math.min(DIG_MAX_HOLD, troop.dig + DIG_PER_DAY_HOLD);
         // Reserves reach every troop that is not cut off.
         if (!troop.pocket && troop.strength < 100 && battle.pool[side] > 0) {
-          const sent = Math.min(REINFORCE_PER_DAY, 100 - troop.strength, battle.pool[side]);
+          const sent = Math.min(REINFORCE_PER_DAY * battle.edge[side].mend, 100 - troop.strength, battle.pool[side]);
           troop.strength += sent;
           battle.pool[side] -= sent;
         }
