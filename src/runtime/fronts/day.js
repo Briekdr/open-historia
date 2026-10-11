@@ -398,7 +398,9 @@ const largerFrame = (frame, grow, map, within) => {
 // Where a point of one frame lies in another on the same map.
 const carrier = (from, to) => {
   const scale = from.cell / to.cell;
-  const shiftX = (from.lng0 - to.lng0) / to.cell;
+  // (The two may be told a turn of the world apart, one read from an old save: the same ground.)
+  const apart = from.lng0 + (from.cols * from.cell) / 2 - (to.lng0 + (to.cols * to.cell) / 2);
+  const shiftX = (from.lng0 - to.lng0 - 360 * Math.round(apart / 360)) / to.cell;
   const shiftY = (latToY(from.lat0) - latToY(to.lat0)) / to.cell;
   return (x, y) => [x * scale + shiftX, y * scale + shiftY];
 };

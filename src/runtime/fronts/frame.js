@@ -9,6 +9,14 @@
 //
 //   lng0, lat0   the south-west corner, as stored coordinates. lng0 is NOT
 //                wrapped: a battlefield across the date line runs past 180.
+//                But the frame's MIDDLE is always within the map's own turn
+//                of the world, -180 up to 180 (homeLng0): a frame made from
+//                a box told a whole turn off (a country with land across
+//                the date line gives one: North America as 215 to 300
+//                east) is that same frame, told in the longitudes the map
+//                and everything drawn on it use. One told a turn off was
+//                a picture the map would not place and troops the war
+//                room's tools looked for a world away.
 //   cell         a cell's side in degrees of longitude.
 //   cols, rows   columns eastward, rows northward; at most 255 each.
 //   km           what a cell's side was meant to measure, at the middle row.
@@ -44,6 +52,14 @@ export const unwrapLng = (lng, around = 0) => {
 
 const round6 = (value) => Math.round(value * 1e6) / 1e6;
 
+// A frame's west edge with its middle brought within the map's own turn of the
+// world: the same edge where it is there already.
+export const homeLng0 = (lng0, width) => {
+  const middle = lng0 + width / 2;
+  const turn = Math.floor((middle + 180) / 360);
+  return turn === 0 ? lng0 : lng0 - turn * 360;
+};
+
 // The frame round a box of stored coordinates { west, south, east, north }.
 // `east` less than `west` is a box across the date line. The cell is the finest
 // of CELL_STEPS_KM the limits allow, coarser still for a box no step fits.
@@ -64,10 +80,11 @@ export const createFrame = (bounds, { flat = false, scale = KM_PER_DEGREE, margi
     ? (Number(scale) > 0 ? Number(scale) : KM_PER_DEGREE)
     : KM_PER_DEGREE * Math.cos(yToLat((bottom + top) / 2) * RAD);
   const margin = Math.max(0, Number(marginKm) || 0) / kmPerDegree;
-  const lng0 = round6(west - margin);
+  const outer = round6(west - margin);
   const lat0 = round6(yToLat(Math.max(latToY(-MERCATOR_MAX_LAT), bottom - margin)));
   const y0 = latToY(lat0);
-  const width = east + margin - lng0;
+  const width = east + margin - outer;
+  const lng0 = round6(homeLng0(outer, width));
   const height = Math.min(latToY(MERCATOR_MAX_LAT), top + margin) - y0;
 
   const fits = (km) => {
@@ -111,7 +128,8 @@ export const normalizeFrame = (value) => {
   if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 2) return null;
   if (cols > MAX_GRID_SPAN || rows > MAX_GRID_SPAN || cols * rows > MAX_CELLS) return null;
   if (lat0 < -MERCATOR_MAX_LAT || lat0 > MERCATOR_MAX_LAT || lng0 < -540 || lng0 > 540) return null;
-  const frame = { lng0, lat0, cell, cols, rows, km };
+  // (A frame saved a whole turn off, before frames were made at home, is brought home as it is read.)
+  const frame = { lng0: homeLng0(lng0, cols * cell), lat0, cell, cols, rows, km };
   if (value.flat === true) {
     const scale = Number(value.scale);
     frame.flat = true;
