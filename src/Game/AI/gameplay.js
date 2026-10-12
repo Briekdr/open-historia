@@ -213,7 +213,7 @@ import { CAPTURE_REACH_KM, findNarratedCaptures, mayNarrateCapture } from "./nar
 import { EVENT_PLACES_RULE, findEventPlace, findEventPlaces, readEventPlace } from "./eventPlaces.js";
 import { normalizeEventPlaces } from "../../runtime/eventPlaces.js";
 import { describeTravelPace, seaShareOf } from "../../runtime/unitMotion.js";
-import { PLACEMENT_DIRECTIVE, describeApproximatePlacement, distanceKm as placementDistanceKm, hashText as placementHash, homeWaters, nearestInteriorPoint, nearestSea, pointInGeometry, regionWithinContainer, resolvePlacement, resolveRegionPlacement, seasForMap } from "./placement.js";
+import { PLACEMENT_DIRECTIVE, describeApproximatePlacement, describeOtherKind, distanceKm as placementDistanceKm, hashText as placementHash, homeWaters, nearestInteriorPoint, nearestSea, pointInGeometry, regionWithinContainer, resolvePlacement, resolveRegionPlacement, seasForMap } from "./placement.js";
 import { loadWorldCities } from "./worldCities.js";
 import { FOOTPRINT_KM, obstaclesOf, spaceOut } from "../../runtime/featureSpacing.js";
 import { LOOKUP_DIRECTIVE, buildLookupContext, executeLookup, lookupToolsFor, placesNamedIn } from "./lookupTools.js";
@@ -2324,7 +2324,7 @@ const resolvePlacements = async (containers, world, { receipt = null, renderedRe
     // operation that gives only an id it is the whole answer. It used to be
     // ignored, so such an operation was dropped for having no coordinates: the
     // exact move a model reaches for after being told its `at` was not on the map.
-    const readPhrase = () => resolvePlacement(entry.phrase, gazetteer, { seedText: entry.name, owner: entry.owner, home: entry.owner || entry.home });
+    const readPhrase = () => resolvePlacement(entry.phrase, gazetteer, { seedText: entry.name, owner: entry.owner, home: entry.owner || entry.home, raising: Boolean(entry.spawn || entry.build) });
     let byPhrase = entry.phrase ? readPhrase() : null;
     // A phrase naming a place this map does not carry is read a second time
     // with the world's towns to hand. They are fetched here, the first time a
@@ -2353,17 +2353,32 @@ const resolvePlacements = async (containers, world, { receipt = null, renderedRe
     // the event names, near the country's capital, inside it, or in its owner's
     // own land. Seen in a live game (2026-09-27): a base at "Djibo, Burkina Faso"
     // was dropped because the map has no Djibo.
+    //
+    // The same for an address the map could answer only with what its spot is
+    // in ("Basa Air Base, Philippines": the Philippines). The approximate
+    // placement has the event's own words and the capital to go by, and it
+    // says what it did; the country alone put the thing in the middle of it
+    // and said nothing. Seen on the built-in map (2026-10-12).
+    const containerOnly = Boolean(resolved && resolved === byPhrase && byPhrase.contained);
     const approximated = (() => {
       // A structure given no place at all still goes into its owner's land, marked
       // so (placement.js `unnamed`); a unit with none is raised at home, below.
-      if (resolved || hasCoordinates || !(entry.spawn || entry.build) || !(entry.phrase || (entry.build && !entry.regionId))) return null;
-      const attempt = resolvePlacement(entry.phrase, gazetteer, { seedText: entry.name, owner: entry.owner, approximate: true, context: entry.context });
+      // A structure whose region field names nothing is placed by that name.
+      const asked = entry.phrase || (entry.build ? entry.regionId : "");
+      if ((resolved && !containerOnly) || hasCoordinates || !(entry.spawn || entry.build) || !(asked || entry.build)) return null;
+      const attempt = resolvePlacement(asked, gazetteer, { seedText: entry.name, owner: entry.owner, approximate: true, context: entry.context });
       return attempt?.approximate && !attempt.error ? attempt : null;
     })();
-    const homeland = !resolved && !approximated && !hasCoordinates && entry.spawn && entry.owner
+    // A new unit or structure nothing has placed goes into its owner's land.
+    const homeland = !resolved && !approximated && !hasCoordinates && (entry.spawn || entry.build) && entry.owner
       ? resolvePlacement(entry.owner, gazetteer, { seedText: entry.name })
       : null;
-    if (resolved) {
+    if (resolved && !(containerOnly && approximated)) {
+      // A name the map has as another kind than the phrase said (placement.js
+      // readAsAnotherKind): used, and said, so the next answer names it right.
+      if (resolved.otherKind) {
+        noteReceipt(receipt, "adjusted", describeOtherKind({ title: entry.title, name: entry.name, phrase: entry.phrase || entry.regionId, placed: resolved }));
+      }
       // A phrase that failed still gets said: the model wrote it, and next turn
       // it should know which of the two the engine went with.
       if (byPhrase?.error) {
@@ -2389,8 +2404,13 @@ const resolvePlacements = async (containers, world, { receipt = null, renderedRe
       if (entry.family === "unit" && resolved.regionId) target.regionId = resolved.regionId;
       placed += 1;
     } else if (approximated) {
+      // What the map lacks, said for an address too: its first part is the
+      // spot, and the rest only what the spot is in.
+      const lacking = containerOnly
+        ? `this map has no place called "${stripKindTags(entry.phrase).text.split(",")[0].trim()}"`
+        : "";
       noteReceipt(receipt, "adjusted", describeApproximatePlacement({
-        title: entry.title, name: entry.name, phrase: entry.phrase, reason: byPhrase?.error, placed: approximated,
+        title: entry.title, name: entry.name, phrase: entry.phrase || entry.regionId, reason: byPhrase?.error || lacking || byRegion?.error, placed: approximated,
       }));
       target[lngKey] = approximated.lng;
       target[latKey] = approximated.lat;
@@ -2430,7 +2450,13 @@ const resolvePlacements = async (containers, world, { receipt = null, renderedRe
         + (near.length ? ` Did you mean ${near.map((name) => `"${name}"`).join(" or ")}?` : "")
         + (hasCoordinates ? " Its coordinates were used instead." : " It was left off the map. Name a city, region, structure or unit as the map spells it."),
         placementNote(hasCoordinates ? "coordinates" : "nowhere", { name: entry.name, eventTitle: entry.title }));
-      if (!hasCoordinates) continue;
+      if (!hasCoordinates) {
+        // In the log too, with its reason: the op is dropped further on as one
+        // that awaits a place, which is not reported (gameState.js
+        // awaitsPlacement), so this is the only word of it a log carries.
+        console.warn(`[placement] ${entry.name || "a unit"} ${tried}; it was left off the map.`);
+        continue;
+      }
     }
     delete target.at;
     let lng = Number(target[lngKey]); let lat = Number(target[latKey]);
@@ -2469,12 +2495,22 @@ const resolvePlacements = async (containers, world, { receipt = null, renderedRe
       // map. Off the coast nearest where it was put; nearest the capital when
       // it was given no place at all. A fleet put inland in another power's
       // country is not sent home to a coast an ocean away: it is dropped, below.
-      const ownWaters = !offshore && entry.spawn && entry.owner
-        && gazetteer.samePolity(gazetteer.regionAt([lng, lat])?.owner, entry.owner)
-        ? homeWaters(entry.owner, gazetteer, {
-          near: (homeland && !homeland.error && gazetteer.capitalOf(entry.owner)?.point) || [lng, lat],
-          seed: seaSeed,
-        })
+      //
+      // A NEW fleet inland in another power's country goes to that country's
+      // own coast nearest the place it was given, and only where that country
+      // has no coast to its owner's waters: a formation the event raised is
+      // not left off the map for the place it was raised at. A move is still
+      // not made.
+      const holder = normalizeString(gazetteer.regionAt([lng, lat])?.owner);
+      const inOwnCountry = Boolean(entry.owner) && gazetteer.samePolity(holder, entry.owner);
+      const ownWaters = !offshore && entry.spawn
+        ? (inOwnCountry
+          ? homeWaters(entry.owner, gazetteer, {
+            near: (homeland && !homeland.error && gazetteer.capitalOf(entry.owner)?.point) || [lng, lat],
+            seed: seaSeed,
+          })
+          : (holder ? homeWaters(holder, gazetteer, { near: [lng, lat], seed: seaSeed }) : null)
+            ?? (entry.owner ? homeWaters(entry.owner, gazetteer, { near: gazetteer.capitalOf(entry.owner)?.point ?? null, seed: seaSeed }) : null))
         : null;
       if (offshore) {
         noteReceipt(receipt, "adjusted", `${entry.title ? `Event "${entry.title}": ` : ""}${entry.name || "a fleet"} was placed on land and was moved to the sea off its coast. Place fleets with "off <port>" or the name of a sea.`);
@@ -2482,7 +2518,7 @@ const resolvePlacements = async (containers, world, { receipt = null, renderedRe
         target[lngKey] = lng; target[latKey] = lat;
         target.regionId = "";
       } else if (ownWaters) {
-        noteReceipt(receipt, "adjusted", `${entry.title ? `Event "${entry.title}": ` : ""}${entry.name || "a fleet"} was placed inland, too far from any sea for a fleet, and was put to sea off ${ownWaters.coast || entry.owner}, on ${entry.owner}'s own coast, instead. Place fleets with "off <port>" or the name of a sea.`);
+        noteReceipt(receipt, "adjusted", `${entry.title ? `Event "${entry.title}": ` : ""}${entry.name || "a fleet"} was placed inland, too far from any sea for a fleet, and was put to sea off ${ownWaters.coast || ownWaters.label || entry.owner}, on ${ownWaters.label || entry.owner}'s own coast, instead. Place fleets with "off <port>" or the name of a sea.`);
         lng = ownWaters.lng; lat = ownWaters.lat;
         target[lngKey] = lng; target[latKey] = lat;
         target.regionId = "";

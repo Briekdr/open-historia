@@ -2735,6 +2735,30 @@ const reportUnitOpDrop = (entry, index, event) => {
   console.warn(`[ai] unitOps[${index}] dropped — ${describeUnitOpRejection(entry)}:`, entry);
 };
 
+// An op that names a place and has no coordinates yet is waiting to be placed,
+// not broken. Every event of a time skip looks like this while it is being
+// written: the panel shows the raw answer as it arrives ("Show time skip events
+// as they are written"), and the engine turns `at` into a point only when the
+// whole answer is validated (AI/gameplay.js resolvePlacements). A player's log
+// (2026-10-12) said two squadrons were "dropped — spawn has unusable
+// coordinates (lng=undefined, lat=undefined)" that were on the map a second
+// later. The pass that places them says so itself when it cannot.
+const awaitsPlacement = (entry) => {
+  if (!entry || typeof entry !== "object") return false;
+  const op = normalizeOptionalString(entry.op).toLowerCase();
+  const none = (...values) => values.every((value) => value === undefined || value === null || value === "");
+  if (op === "spawn") {
+    const unit = entry.unit && typeof entry.unit === "object" ? entry.unit : entry;
+    return none(unit.lng, unit.lon, unit.longitude, unit.lat, unit.latitude)
+      && Boolean(normalizeOptionalString(unit.at ?? entry.at) || normalizeOptionalString(unit.regionId ?? entry.regionId));
+  }
+  if (op === "move") {
+    return none(entry.toLng, entry.toLat, entry.lng, entry.lat)
+      && Boolean(normalizeOptionalString(entry.at) || normalizeOptionalString(entry.regionId));
+  }
+  return false;
+};
+
 const normalizeUnitOp = (entry) => {
   if (!entry || typeof entry !== "object") {
     return null;
@@ -3491,7 +3515,7 @@ const normalizeEventImpacts = (value, event = null) => {
     unitOps: normalizeArray(value.unitOps)
       .map((entry, index) => {
         const normalized = normalizeUnitOp(entry);
-        if (!normalized) reportUnitOpDrop(entry, index, event);
+        if (!normalized && !awaitsPlacement(entry)) reportUnitOpDrop(entry, index, event);
         return normalized;
       })
       .filter(Boolean),
