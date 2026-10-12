@@ -138,3 +138,40 @@ test("it is asked after a turn, when a scenario's fronts are built, and when a r
   // And the player's own country, tracked from the first skip, is asked for the same.
   assert.ok(turn.includes('if (waiting) void ensureCountryStatSheet(waiting, { reason: "historical tracking", needBackend: true });'));
 });
+
+// "I meant update both layers of the stats in one request."
+test("a patch that moves a country's own values moves its backend in the same patch", async () => {
+  const { STATS_BACKEND_PATCH_SCHEMA } = await import("../Game/AI/gameplaySchemas.js");
+  const { statsBackendTurnRule } = await import("./statsBackend.js");
+  const sheet = mergeCountryStatPatch(null, { customStats: { legions: 12, grain: 40 }, backend: { population: 5200000, gdp: 3e9, budgetBalance: -2, publicDebt: 35 } });
+  assert.deepEqual(statsBackendOf(sheet), { population: 5200000, gdp: 3e9, budgetBalance: -2, publicDebt: 35 });
+  // A war's losses: fewer legions on the sheet, fewer people under it, in the one patch; what was not named stays.
+  const after = mergeCountryStatPatch(sheet, { customStats: { legions: 9 }, backend: { population: 4900000 } });
+  assert.deepEqual(after.customStats, { legions: 9, grain: 40 });
+  assert.deepEqual(statsBackendOf(after), { population: 4900000, gdp: 3e9, budgetBalance: -2, publicDebt: 35 });
+  // A backend that says nothing usable changes nothing.
+  assert.deepEqual(statsBackendOf(mergeCountryStatPatch(after, { backend: { population: "many" } })), statsBackendOf(after));
+  assert.deepEqual(readStatsBackend({ gdp: 5e9 }, { partial: true }), { gdp: 5e9 });
+  assert.equal(readStatsBackend({ gdp: 5e9 }), null, "a whole backend says how many people");
+
+  // A time skip of such a scenario may write it: its stats patch has the field, and it is told which backends there are.
+  const tool = getGameplayToolForCustomStatSheet("jumpForward", [{ key: "legions", label: "Legions", min: 0, max: 60 }], { custom: true });
+  const patches = [];
+  const walk = (value, key) => {
+    if (Array.isArray(value)) return value.forEach((entry) => walk(entry, key));
+    if (!value || typeof value !== "object") return undefined;
+    if (key === "stats" && value.properties) patches.push(value.properties);
+    for (const [name, inner] of Object.entries(value)) walk(inner, name);
+    return undefined;
+  };
+  walk(tool.schema, "");
+  assert.ok(patches.length > 0 && patches.every((properties) => properties.customStats && properties.backend === STATS_BACKEND_PATCH_SCHEMA));
+  assert.equal(STATS_BACKEND_PATCH_SCHEMA.required, undefined, "only the figures that changed");
+  const rule = statsBackendTurnRule({ Roma: sheet, Parthia: { customStats: { legions: 20 } } });
+  assert.match(rule, /^\[Hidden Backend\]\n/);
+  assert.match(rule, /The two are moved TOGETHER, in this one answer: when an event changes a polity's values above for a reason that also moves its people or its economy \(a war's losses, a plague, a famine, a boom, a default\), write the backend's new figures in the same stats patch, as `backend`, beside its customStats\./);
+  assert.ok(rule.endsWith('- Roma: {"population":5200000,"gdp":3000000000,"budgetBalance":-2,"publicDebt":35}'), "only a polity that has one is shown");
+  assert.equal(statsBackendTurnRule({ Parthia: { customStats: { legions: 20 } } }), "");
+  const turn = read("../Game/AI/gameplay.js");
+  assert.ok(turn.includes("    const backends = statsBackendTurnRule(world?.countryStats);\n    if (backends) blocks.push(backends);"));
+});

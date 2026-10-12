@@ -21,7 +21,7 @@ import { describeBasisAction, sameRegionChange, screenTerritoryBasis } from "../
 import { PLAYER_GROUP_JUMP_RULE, describeGroupsForPrompt, describePlayerGroupForPrompt, normalizeGroupOp, withoutGroupOpsLines } from "../../runtime/groups.js";
 import { effectiveCityPopulation } from "../../runtime/cityPopulation.js";
 import { hostingSharedGame, humanCountriesOf } from "../../runtime/humanPolities.js";
-import { STATS_BACKEND_FIELD, conflictSheetTargets, hasStatsBackend, statsBackendInstruction, statsBackendOf, statsBackendPatch } from "../../runtime/statsBackend.js";
+import { STATS_BACKEND_FIELD, conflictSheetTargets, hasStatsBackend, statsBackendInstruction, statsBackendOf, statsBackendPatch, statsBackendTurnRule } from "../../runtime/statsBackend.js";
 import { CONFLICT_BACKENDS_MOST, conflictBackendsRequest, readConflictBackends } from "./conflictBackends.js";
 import {
   createApplicationReceipt,
@@ -2808,8 +2808,12 @@ ${brief}`);
     /* no documents this turn */
   }
 
-  if (stats.customFullStatSheet) blocks.push(scenarioStatSheetDirective(stats.statSheetDefinition));
-  else if (stats.customStatIndices) blocks.push(scenarioStatIndicesDirective(stats.statIndexRows));
+  if (stats.customFullStatSheet) {
+    blocks.push(scenarioStatSheetDirective(stats.statSheetDefinition));
+    // Both layers are moved by the one answer (runtime/statsBackend.js): the backends it may write beside customStats.
+    const backends = statsBackendTurnRule(world?.countryStats);
+    if (backends) blocks.push(backends);
+  } else if (stats.customStatIndices) blocks.push(scenarioStatIndicesDirective(stats.statIndexRows));
 
   // Groups switched off for this game: their lever goes with their rule.
   blocks.push(isActiveFeatureEnabled("groups") ? JUMP_LEVERS : withoutGroupOpsLines(JUMP_LEVERS));
@@ -13630,12 +13634,21 @@ export const ensureConflictBackends = (targets, { reason = "" } = {}) => {
     const sheetOf = (source, name) => source.countryStats?.[canonicalStatsPolity(name, source) || name];
     const wanted = names.filter((name) => !hasStatsBackend(sheetOf(world, name)));
     if (wanted.length === 0) return null;
+    // A scenario with a sheet of its own has both layers written by this one
+    // request: its sheet for every country that has none, and the backend under it.
+    const definition = await loadStatSheetDefinition();
+    const keys = definition.custom ? statSheetKeys(definition) : [];
+    const ownSheet = (source, name) => (definition.custom && isCompleteCustomCountryStatSheet(sheetOf(source, name), keys)
+      ? normalizeCustomStatValues(normalizeCountryStatSheet(sheetOf(source, name))?.customStats, definition, { partial: true })
+      : null);
+    const currentDate = normalizeString(bundle.game?.gameDate || bundle.game?.startDate);
     const { systemPrompt, userMessage, asked } = conflictBackendsRequest({
-      date: normalizeString(bundle.game?.gameDate || bundle.game?.startDate),
+      date: currentDate,
       rules: normalizeString(world.simulationRules),
       player: normalizeString(bundle.game?.country),
-      countries: wanted.map((name) => ({ name, population: Number(world.polityOverrides?.[name]?.population) })),
+      countries: wanted.map((name) => ({ name, population: Number(world.polityOverrides?.[name]?.population), values: ownSheet(world, name) })),
       known: Object.entries(world.countryStats || {}).map(([name, sheet]) => ({ name, backend: statsBackendOf(sheet) })).filter((entry) => entry.backend),
+      sheet: definition.custom ? { description: describeStatSheetDefinition(definition), keys } : null,
     });
     const response = await callAIWithTaskLimit(systemPrompt, [{ role: "user", parts: [{ text: userMessage }] }], {
       reasoningEnabled: false,
@@ -13649,10 +13662,15 @@ export const ensureConflictBackends = (targets, { reason = "" } = {}) => {
     try {
       const kept = [];
       await mutateWorldState((latest) => {
-        for (const { name, backend } of read) {
+        for (const { name, backend, customStats } of read) {
           const key = canonicalStatsPolity(name, latest) || name;
           if (hasStatsBackend(latest.countryStats?.[key])) continue;
-          applyCountryStatPatchToWorld(latest, key, statsBackendPatch(backend));
+          // The scenario's own sheet with it, where the answer wrote the whole of one and the country has none.
+          const values = definition.custom && customStats && !ownSheet(latest, name) ? normalizeCustomStatValues(customStats, definition) : null;
+          const whole = values && keys.every((stat) => Object.prototype.hasOwnProperty.call(values, stat));
+          applyCountryStatPatchToWorld(latest, key, { ...(whole ? { customStats: values } : {}), ...statsBackendPatch(backend) }, whole
+            ? { continuity: { assessedDate: currentDate, assessedRound: Math.max(0, Math.trunc(Number(bundle.game?.round) || 0)) } }
+            : {});
           kept.push(key);
         }
         return kept.length > 0 ? latest : null;
