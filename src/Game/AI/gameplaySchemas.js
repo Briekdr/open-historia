@@ -3744,6 +3744,14 @@ export const STATS_BACKEND_SCHEMA = Object.freeze({
   additionalProperties: false,
 });
 
+// The same in a patch a turn writes: whichever of the four changed.
+export const STATS_BACKEND_PATCH_SCHEMA = Object.freeze({
+  type: "object",
+  description: "The hidden backend under this polity's sheet, moved in the same patch when what happened also moved its people or its economy: only the figures that changed, as absolute values.",
+  properties: STATS_BACKEND_SCHEMA.properties,
+  additionalProperties: false,
+});
+
 const customStatsProperties = (rows) => Object.fromEntries(
   (Array.isArray(rows) ? rows : [])
     .map((row) => [String(row?.key || "").trim(), statSchemaForDefinition(row)])
@@ -3806,6 +3814,7 @@ export const getGameplayToolForCustomStatSheet = (taskKey, rows, { custom = fals
       `JSON array text for authoritative country Stats patches in this custom-sheet scenario. `
       + `Numeric Stats MUST be written only as patch.customStats using these exact machine keys: ${keyList}. `
       + `Do not use population, economy, indices, stability, or gdpBreakdown. `
+      + `The hidden backend the game's own arithmetic reads may be corrected in the same patch, as patch.${STATS_BACKEND_FIELD}: {"population":0,"gdp":0,"budgetBalance":0,"publicDebt":0}, any of the four. `
       + `Example: [{"country":"Full Polity Name","patch":{"customStats":{"${sampleKey}":1}},"eventIndexes":[],"reason":""}]. `
       + "Use only the requested customStats keys; values are absolute, not deltas.";
     const eventDescription =
@@ -3863,6 +3872,8 @@ export const getGameplayToolForCustomStatSheet = (taskKey, rows, { custom = fals
         additionalProperties: false,
         maxProperties: keys.length,
       };
+      // The layer under them, moved in the same patch (runtime/statsBackend.js).
+      keep[STATS_BACKEND_FIELD] = STATS_BACKEND_PATCH_SCHEMA;
       return { ...value, properties: keep, additionalProperties: false };
     }
 
@@ -3878,6 +3889,7 @@ export const getGameplayToolForCustomStatSheet = (taskKey, rows, { custom = fals
         additionalProperties: false,
         maxProperties: keys.length,
       };
+      keep[STATS_BACKEND_FIELD] = STATS_BACKEND_PATCH_SCHEMA;
       return { ...value, properties: keep, additionalProperties: false };
     }
 

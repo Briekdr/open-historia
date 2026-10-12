@@ -35,29 +35,59 @@ const within = (value, least, most) => Math.min(most, Math.max(least, value));
 
 // A backend as a model wrote it, held to what each figure can be; null when
 // it says nothing usable of a country's people.
-export const readStatsBackend = (value) => {
+//   partial   a change to a backend that is there (a turn's patch): whichever of
+//             the four it names, where a whole one has to say how many people
+export const readStatsBackend = (value, { partial = false } = {}) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const population = number(value.population);
-  if (!(population >= 1)) return null;
-  const backend = { population: Math.round(within(population, 1, 2e10)) };
+  if (!(population >= 1) && !partial) return null;
+  const backend = population >= 1 ? { population: Math.round(within(population, 1, 2e10)) } : {};
   const gdp = number(value.gdp);
   if (gdp > 0) backend.gdp = within(gdp, 1, 1e18);
   const balance = number(value.budgetBalance);
   if (!Number.isNaN(balance)) backend.budgetBalance = within(balance, -100, 100);
   const debt = number(value.publicDebt);
   if (!Number.isNaN(debt)) backend.publicDebt = within(debt, 0, 1000);
-  return backend;
+  return Object.keys(backend).length > 0 ? backend : null;
 };
 
 // The same as a patch for a country's sheet (runtime/countryStats.js mergeCountryStatPatch).
-export const statsBackendPatch = (backend) => {
-  const read = readStatsBackend(backend);
+export const statsBackendPatch = (backend, options) => {
+  const read = readStatsBackend(backend, options);
   if (!read) return {};
   const economy = {};
   if (read.gdp !== undefined) economy.gdp = read.gdp;
   if (read.budgetBalance !== undefined) economy.budgetBalance = read.budgetBalance;
   if (read.publicDebt !== undefined) economy.publicDebt = read.publicDebt;
-  return { population: { total: read.population }, ...(Object.keys(economy).length ? { economy } : {}) };
+  return { ...(read.population !== undefined ? { population: { total: read.population } } : {}), ...(Object.keys(economy).length ? { economy } : {}) };
+};
+
+// BOTH LAYERS IN ONE REQUEST. "I meant update both layers of the stats in one
+// request." Whatever request writes a country's statistics writes the backend
+// with them: the first sheet and the periodic refresh do (above); the request
+// for the countries a player comes into conflict with does (Game/AI/
+// conflictBackends.js); and a time skip, in a scenario with a sheet of its
+// own, may write `backend` beside `customStats` in the same stats patch,
+// which is told here. A patch's `backend` is taken for the standard fields it
+// stands for wherever a patch is merged (countryStats.js mergeCountryStatPatch).
+//
+// What a time skip of such a scenario is told, with the backends it may move;
+// "" when no polity has one yet.
+//   countryStats   world.countryStats
+export const statsBackendTurnRule = (countryStats, { most = 10 } = {}) => {
+  const known = Object.entries(countryStats && typeof countryStats === "object" ? countryStats : {})
+    .map(([name, sheet]) => ({ name, backend: statsBackendOf(sheet) }))
+    .filter((entry) => entry.backend)
+    .sort((a, b) => b.backend.population - a.backend.population || a.name.localeCompare(b.name))
+    .slice(0, most);
+  if (known.length === 0) return "";
+  return [
+    "[Hidden Backend]",
+    "Under the sheet above every polity has a hidden backend the player never sees, which the game's own arithmetic reads (armies are raised from its people and paid from its economy): population, gdp, budgetBalance (% of gdp) and publicDebt (% of gdp). "
+    + `The two are moved TOGETHER, in this one answer: when an event changes a polity's values above for a reason that also moves its people or its economy (a war's losses, a plague, a famine, a boom, a default), write the backend's new figures in the same stats patch, as \`${STATS_BACKEND_FIELD}\`, beside its customStats. `
+    + "Absolute values, only the figures that changed, and only for a polity whose backend is shown here.",
+    ...known.map((entry) => `- ${entry.name}: ${JSON.stringify(entry.backend)}`),
+  ].join("\n");
 };
 
 // The backend a sheet carries, as the four figures; null for a sheet with no people on it.

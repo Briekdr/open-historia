@@ -85,3 +85,40 @@ test("it is one request, asked as a first reading is, and it overwrites nobody",
   // And no country in a conflict is asked for a whole sheet any more.
   assert.equal(turn.includes('void ensureCountryStatSheet(name, { reason: "in conflict with the player"'), false);
 });
+
+// "I meant update both layers of the stats in one request."
+test("in a scenario with a sheet of its own the one request writes both layers: the sheet for a country that has none, the backend for all", () => {
+  const sheet = { description: "legions (Legions, 0 to 60): standing legions.\ngrain (Grain, 0 to 100): the harvest in store.", keys: ["legions", "grain"] };
+  const { systemPrompt, userMessage, asked, sheets } = conflictBackendsRequest({
+    date: "0050-03-01",
+    player: "Roma",
+    countries: [{ name: "Parthia" }, { name: "Armenia", values: { legions: 3, grain: 40 } }, { name: "Dacia", population: 900000 }],
+    sheet,
+  });
+  assert.deepEqual(asked, ["Parthia", "Armenia", "Dacia"]);
+  assert.deepEqual(sheets, ["Parthia", "Dacia"], "Armenia's sheet is there already");
+  assert.match(systemPrompt, /The two layers are written TOGETHER, in this one answer\./);
+  assert.match(systemPrompt, /For a polity marked `and its sheet`: after its four figures, write every value of the scenario's sheet in customStats, under the exact keys, so that the sheet says the same thing as the figures/);
+  assert.match(systemPrompt, /For a polity whose sheet is shown: its sheet stands as it is\. Return its four figures only, agreeing with that sheet\./);
+  assert.match(systemPrompt, /\{"countries":\[\{"country":"the exact name you were given","population":0,"gdp":0,"budgetBalance":0,"publicDebt":0,"customStats":\{"legions":0\}\}\]\}/);
+  assert.ok(userMessage.includes("THE SCENARIO'S OWN SHEET:\nlegions (Legions, 0 to 60): standing legions."));
+  assert.ok(userMessage.includes('ESTIMATE THESE:\n- Parthia; and its sheet\n- Armenia; its sheet: {"legions":3,"grain":40}\n- Dacia (its scenario gives its people as 900000); and its sheet'));
+  // An ordinary scenario is asked for nothing of the kind: its backend is part of the sheet it shows.
+  const plain = conflictBackendsRequest({ countries: [{ name: "Parthia", values: { legions: 3 } }] });
+  assert.equal(plain.systemPrompt.includes("customStats"), false);
+  assert.deepEqual(plain.sheets, []);
+  assert.ok(plain.userMessage.includes("ESTIMATE THESE:\n- Parthia"));
+
+  // The answer carries the sheet beside the backend, for whoever keeps it to hold to the definition.
+  const answered = readConflictBackends({ countries: [
+    { country: "Parthia", population: 6e6, gdp: 4e9, budgetBalance: 1, publicDebt: 10, customStats: { legions: 20, grain: 55 } },
+    { country: "Armenia", population: 1.2e6, gdp: 6e8, budgetBalance: -1, publicDebt: 20 },
+  ] }, asked);
+  assert.deepEqual(answered.map((entry) => [entry.name, entry.backend.population, entry.customStats ?? null]), [["Parthia", 6000000, { legions: 20, grain: 55 }], ["Armenia", 1200000, null]]);
+
+  // And it is kept as a whole sheet with both layers, dated as a first reading is; a sheet that was there is not written again.
+  const turn = read("gameplay.js");
+  assert.ok(turn.includes("sheet: definition.custom ? { description: describeStatSheetDefinition(definition), keys } : null,"));
+  assert.ok(turn.includes("const values = definition.custom && customStats && !ownSheet(latest, name) ? normalizeCustomStatValues(customStats, definition) : null;"));
+  assert.ok(turn.includes("applyCountryStatPatchToWorld(latest, key, { ...(whole ? { customStats: values } : {}), ...statsBackendPatch(backend) }, whole"));
+});

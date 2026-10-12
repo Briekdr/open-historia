@@ -1,4 +1,5 @@
 import { astronomicalYear, compareGameDates, isGameDate, parseGameDate } from "./gameDates.js";
+import { STATS_BACKEND_FIELD, statsBackendPatch } from "./statsBackend.js";
 import { DEFAULT_STAT_INDEX_KEYS, DEFAULT_STAT_INDEX_ROWS, MAX_STAT_INDICES, STAT_INDEX_KEY_PATTERN } from "./statIndexDefinitions.js";
 
 /*! Open Historia — native persistent country statistics and economic aggregation. */
@@ -951,9 +952,18 @@ export const mergeCountryStatPatch = (
   { replaceComponents = false, continuity = null, maxAggregateRescale = 0 } = {},
 ) => {
   const base = normalizeCountryStatSheet(baseValue) || {};
-  const patch = patchValue && typeof patchValue === "object" && !Array.isArray(patchValue)
+  const written = patchValue && typeof patchValue === "object" && !Array.isArray(patchValue)
     ? patchValue
     : {};
+  // A patch may carry the backend layer as one object (statsBackend.js): it is
+  // the standard fields it stands for, and a field the patch also names itself
+  // is the patch's.
+  const backend = written[STATS_BACKEND_FIELD] ? statsBackendPatch(written[STATS_BACKEND_FIELD], { partial: true }) : {};
+  const patch = Object.keys(backend).length === 0 ? written : {
+    ...written,
+    ...(backend.population ? { population: { ...backend.population, ...(written.population && typeof written.population === "object" ? written.population : {}) } } : {}),
+    ...(backend.economy ? { economy: { ...backend.economy, ...(written.economy && typeof written.economy === "object" ? written.economy : {}) } } : {}),
+  };
 
   const merged = {
     ...base,
