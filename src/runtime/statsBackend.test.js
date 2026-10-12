@@ -22,7 +22,6 @@ import { STATS_BACKEND_SCHEMA, getGameplayToolForCustomStatSheet } from "../Game
 import { isCompleteCustomCountryStatSheet, mergeCountryStatPatch, normalizeCountryStatSheet } from "./countryStats.js";
 import { fundingFactor, militaryFunding } from "./militaryFunding.js";
 import {
-  CONFLICT_SHEETS_AT_ONCE,
   STATS_BACKEND_FIELD,
   STATS_BACKEND_KEYS,
   conflictSheetTargets,
@@ -127,10 +126,10 @@ test("a country the player's own is on a battlefield with is asked for its sheet
   assert.deepEqual(conflictSheetTargets(world({ countryStats: known }), ["Aland"]), []);
 });
 
-test("it is asked after a turn, when a scenario's fronts are built, and when a route is drawn into a country: a few at a time", () => {
-  assert.equal(CONFLICT_SHEETS_AT_ONCE, 2);
+test("it is asked after a turn, when a scenario's fronts are built, and when a route is drawn into a country", () => {
   const turn = read("../Game/AI/gameplay.js");
-  assert.ok(turn.includes('for (const name of names.slice(0, CONFLICT_SHEETS_AT_ONCE)) void ensureCountryStatSheet(name, { reason: "in conflict with the player", needBackend: true });'));
+  // (All of them in one request: Game/AI/conflictBackends.test.js.)
+  assert.ok(turn.includes('if (names.length > 0) void ensureConflictBackends(names.slice(0, CONFLICT_BACKENDS_MOST), { reason: "in conflict with the player" });'));
   assert.ok(turn.includes("  requestConflictSheets(nextWorld, nextGame);\n"), "after a turn");
   assert.ok(turn.includes("    if (written) requestConflictSheets({ ...world, battlefields: built.battlefields }, bundle.game);"), "when a scenario's fronts are built");
   assert.ok(turn.includes("    if (attacked.length > 0) requestConflictSheets(world, game, attacked);"), "when a route is drawn into a country");

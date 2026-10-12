@@ -98,8 +98,7 @@ export const statsBackendInstruction = (previous = null) => [
 // either if you deploy a front on them, if you redirect a front to attack them
 // or anything else, so that the stats can be used."
 
-// How many such countries are asked for their sheet at a time: each is a request.
-export const CONFLICT_SHEETS_AT_ONCE = 2;
+// (They are all asked of in one request: Game/AI/conflictBackends.js.)
 
 const fold = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 const list = (value) => (Array.isArray(value) ? value : []);
