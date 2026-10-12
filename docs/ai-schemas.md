@@ -496,6 +496,8 @@ When a model answers in prose instead of a tool call, `runJsonTask` must dig the
 4. **`balancedJsonCandidates`** — a string-aware brace/bracket walker that extracts every balanced top-level `{…}`/`[…]`, sorted objects-first so a stray inline array in the model's commentary can't shadow the real object payload. Each candidate is parsed leniently; first object wins.
 5. Returns `null` if nothing parses → Layer 1 reports `"Response did not contain parseable JSON or tool arguments."`
 
+Steps 3 and 4 are what a caller with no contract gets. `runJsonTask` passes `prefer` (how well a value fits the tool's required keys, and whether it passes the task's schema), and then the best-fitting value is taken wherever it stands, never the first that parses; a small fragment in a long text is nothing, and the failure reads `"The model wrote only its reasoning and no answer."` (`REASONING_ONLY_MESSAGE`). Reasoning a provider returns apart from the answer is not put through this ladder as the answer. See `ai-overview.md`, "The answer is the object the contract asks for".
+
 This ladder is what lets local/self-hosted models without tool support still play; hosted providers normally return clean `toolInput` and skip it entirely.
 
 ---

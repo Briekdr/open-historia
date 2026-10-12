@@ -4427,6 +4427,12 @@ export const extractPregameHistoryStableRetrySections = (value, { includeCanonic
   return sections;
 };
 
+// An event as a model writes one, told from any other object by its headline
+// and one of the two things every event has beside it.
+const looksLikeBareEvent = (entry) => isPlainRecord(entry)
+  && [entry.title, entry.headline].some((text) => typeof text === "string" && text.trim())
+  && [entry.description, entry.summary, entry.date].some((text) => typeof text === "string" && text.trim());
+
 export const normalizeGameplayPayload = (taskKey, value) => {
   if (taskKey === "chatActions") return normalizeChatActionsShape(value);
   if (taskKey === "pregameHistory") return normalizePregameHistoryShape(value);
@@ -4435,6 +4441,15 @@ export const normalizeGameplayPayload = (taskKey, value) => {
   if (taskKey === "countryStatSheet") return normalizeCountryStatSheetShape(value);
   if (taskKey === "listenIn") return normalizeListenInShape(value);
   if (taskKey !== "jumpForward" && taskKey !== "autoJumpForward") return value;
+  // A bare list of events where the contract wants { events: [...] }: the
+  // events, with the fields beside them empty. A player's log (2026-10-12) has
+  // a skip sent back for "an array instead of an object", and the second
+  // request it cost came back worse. The stop date is the last event's until
+  // the skip's own check sets it to the date that was asked for.
+  if (Array.isArray(value) && value.length > 0 && value.every(looksLikeBareEvent)) {
+    const lastDate = [...value].reverse().map((entry) => entry.date).find((date) => typeof date === "string" && date.trim()) ?? "";
+    value = { events: value, stopDate: lastDate, summary: "" };
+  }
   if (!isPlainRecord(value)) return value;
 
   let source = value;
