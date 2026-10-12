@@ -7,7 +7,12 @@ export const COUNTRY_STATS_SCHEMA_VERSION = 1;
 export const COUNTRY_STATS_POPULATION_CALIBRATION_VERSION = 2;
 export const COUNTRY_STATS_HISTORY_VERSION = 1;
 export const COUNTRY_STATS_HISTORY_MAX_SAMPLES = 1200;
-export const COUNTRY_STATS_TRACKING_VERSION = 1;
+// (2: historical tracking is ON unless the player has turned it off. A setting
+// stored under 1 with no interval was nobody's choice: it was the default of
+// its day, and it reads as today's.)
+export const COUNTRY_STATS_TRACKING_VERSION = 2;
+// "Historical tracking on for player by default set to 6 months."
+export const COUNTRY_STATS_TRACKING_DEFAULT_MONTHS = 6;
 export const COUNTRY_STATS_TRACKING_MAX_POLITIES = 8;
 export const COUNTRY_STATS_TRACKING_INTERVALS = Object.freeze([0, 3, 6, 12, 24]);
 // How far one event's stats patch may move a polity's GDP or GDP per head
@@ -81,7 +86,12 @@ export const normalizeCountryStatsTracking = (
   const input = value && typeof value === "object" && !Array.isArray(value)
     ? value
     : {};
-  const rawInterval = Math.max(0, Math.trunc(Number(input.intervalMonths) || 0));
+  const storedInterval = Math.max(0, Math.trunc(Number(input.intervalMonths) || 0));
+  // What the player chose: an interval, or Off said under the version that
+  // has a default to turn off. Anything else is the default.
+  const chosen = storedInterval > 0
+    || (Object.prototype.hasOwnProperty.call(input, "intervalMonths") && Math.trunc(Number(input.trackingVersion) || 0) >= COUNTRY_STATS_TRACKING_VERSION);
+  const rawInterval = chosen ? storedInterval : COUNTRY_STATS_TRACKING_DEFAULT_MONTHS;
   const intervalMonths = COUNTRY_STATS_TRACKING_INTERVALS.includes(rawInterval)
     ? rawInterval
     : 0;

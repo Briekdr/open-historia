@@ -1406,6 +1406,8 @@ export const buildTargetDossierKernel = ({ bundle, code, scenarioCatalog = [], f
       }`,
     );
     if (polity.note) lines.push(`Notes: ${polity.note}`);
+    // What the scenario's author gives as its people when the scenario begins (runtime/populationFigure.js).
+    if (Number(polity.population) > 0) lines.push(`Population when the scenario begins, as its author gives it: ${Math.round(Number(polity.population))}. Take that as given, and move it only by what has happened since.`);
   }
 
   if (code) {

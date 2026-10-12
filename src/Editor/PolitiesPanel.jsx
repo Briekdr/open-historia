@@ -11,6 +11,7 @@ import { TAG_SUGGESTIONS } from "../runtime/countryTags.js";
 import { bundledFlagUrl, flagImageUrlFromGid } from "../runtime/countryFlags.js";
 import { resolveStockCountryCode } from "../runtime/polityIdentity.js";
 import { acceptFor } from "../runtime/fileAccept.js";
+import { formatPopulationFigure, readPopulationFigure } from "../runtime/populationFigure.js";
 import PuppetFields from "./PuppetFields.jsx";
 import { rosterRowKey } from "./polityRoster.js";
 
@@ -618,6 +619,20 @@ const PolitiesPanel = ({
                 rows={2}
                 style={{ ...inputStyle, resize: "vertical" }}
               />
+              <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.48)", margin: "8px 0 4px" }}>Population when the scenario begins</div>
+              <input
+                key={`population-${current.key}`}
+                defaultValue={formatPopulationFigure(current.record?.population)}
+                inputMode="numeric"
+                placeholder="Leave empty and the game works it out"
+                onBlur={(e) => {
+                  const people = readPopulationFigure(e.target.value);
+                  e.target.value = formatPopulationFigure(people);
+                  upsertPolity?.(current.key, { population: people > 0 ? people : undefined });
+                }}
+                style={inputStyle}
+              />
+              <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.42)", marginTop: 4 }}>Its troops are raised from these people, and its statistics begin from this figure. You can write 12,500,000 or 12.5 million.</div>
             </div>
           )}
 

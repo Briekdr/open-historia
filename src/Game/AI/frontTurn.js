@@ -25,6 +25,8 @@
 // applySimulationResult).
 
 import { diffGameDays, gameDateYear } from "../../runtime/gameDates.js";
+import { fundingFactor, middleFundingPerHead } from "../../runtime/militaryFunding.js";
+import { populationFigureOf } from "../../runtime/populationFigure.js";
 import { arenaFor } from "../../runtime/fronts/arena.js";
 import { REINFORCE_ORDER, SCENARIO_MARK } from "../../runtime/fronts/constants.js";
 import { pointInFrame } from "../../runtime/fronts/frame.js";
@@ -223,9 +225,11 @@ export const planFrontMoments = ({ events = [], frontOrders = [], warsBefore = [
 // used to start every country at four points and add two for the root of its
 // regions, from when only the ratio of two sides counted: by the engine's
 // count that stood a state of one region seventy counters.)
-export const countryWeight = ({ population = 0, regions = 0 } = {}) => {
+//   funding   what its economy does to that (runtime/militaryFunding.js fundingFactor): 1 where it is not known
+export const countryWeight = ({ population = 0, regions = 0, funding = 1 } = {}) => {
   const people = Number(population);
-  if (Number.isFinite(people) && people > 0) return Math.max(1, 2 * Math.sqrt(people / 1e6));
+  const paid = Number.isFinite(Number(funding)) && Number(funding) > 0 ? Number(funding) : 1;
+  if (Number.isFinite(people) && people > 0) return Math.max(1, 2 * Math.sqrt(people / 1e6) * paid);
   return Math.max(1, 1.3 * Math.sqrt(Math.max(0, Number(regions) || 0)));
 };
 
@@ -324,11 +328,39 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
     }
     return held.get(fold(name)) ?? 0;
   };
+  const sheets = isRecord(world?.countryStats) ? world.countryStats : {};
   let people = null;
   const peopleOf = (name) => {
-    people ??= new Map(Object.entries(isRecord(world?.countryStats) ? world.countryStats : {})
-      .map(([key, sheet]) => [fold(key), Number(sheet?.population?.total)]));
+    if (!people) {
+      people = new Map();
+      // What the scenario's author gives a country or a group (runtime/populationFigure.js) ...
+      for (const [key, record] of Object.entries(isRecord(world?.polityOverrides) ? world.polityOverrides : {})) {
+        const figure = populationFigureOf(record);
+        if (!(figure > 0)) continue;
+        people.set(fold(key), figure);
+        if (clean(record?.name)) people.set(fold(record.name), figure);
+      }
+      for (const [key, record] of Object.entries(groups && isRecord(world?.groups) ? world.groups : {})) {
+        const figure = populationFigureOf(record);
+        if (figure > 0) people.set(fold(key), figure);
+      }
+      // ... until its sheet of statistics says what they are now.
+      for (const [key, sheet] of Object.entries(sheets)) {
+        const total = Number(sheet?.population?.total);
+        if (Number.isFinite(total) && total > 0) people.set(fold(key), total);
+      }
+    }
     return people.get(fold(name));
+  };
+  // What a country's economy does to its weight (runtime/militaryFunding.js):
+  // how its treasury stands, and how well funded it is against the others known.
+  let funded = null;
+  const fundingOf = (name) => {
+    if (!funded) {
+      const middle = middleFundingPerHead(sheets);
+      funded = new Map(Object.entries(sheets).map(([key, sheet]) => [fold(key), fundingFactor(sheet, middle)]));
+    }
+    return funded.get(fold(name)) ?? 1;
   };
 
   return {
@@ -336,7 +368,12 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
     sovereignOf,
     groupAreas,
     isGroup: (name) => groupNames.has(fold(name)),
-    strengthOf: (name) => countryWeight({ population: peopleOf(name), regions: heldBy(name) }),
+    strengthOf: (name) => countryWeight({ population: peopleOf(name), regions: heldBy(name), funding: fundingOf(name) }),
+    // A country's people, where its sheet says: what its troops are raised from (runtime/fronts/manpower.js).
+    peopleOf: (name) => {
+      const people = Number(peopleOf(name));
+      return Number.isFinite(people) && people > 0 ? people : 0;
+    },
   };
 };
 
@@ -651,6 +688,7 @@ const NOTE_TEXT = {
   "posture-stands": (notes) => `An order to attack was not carried out (${quoted(notes, "side")} on ${quoted(notes, "battlefield")}): that side's posture there (${quoted(notes, "detail")}) is what the scenario's author made the front, and it stands until an event changes it. Give the order the number of the event in which the side goes over to the attack.`,
   "reinforce-needs-event": (notes) => `More troops were not brought to a front (${quoted(notes, "side")} on ${quoted(notes, "battlefield")}): a country nobody plays mobilises or sends reinforcements in an event of the answer, and the line carries that event's number.`,
   "reinforce-halted": (notes) => `More troops were not brought to a front (${quoted(notes, "side")} on ${quoted(notes, "battlefield")}): the fighting there is halted.`,
+  "reinforce-no-men": (notes) => `More troops were not brought to a front (${quoted(notes, "side")} on ${quoted(notes, "battlefield")}): that country has no more men fit to serve; all it can raise are under arms already.`,
   "reinforce-full": (notes) => `More troops were not brought to a front (${quoted(notes, "side")} on ${quoted(notes, "battlefield")}): that side has all the troops its strength and its line can carry there.`,
   "reinforce-no-ground": (notes) => `More troops were not brought to a front (${quoted(notes, "side")} on ${quoted(notes, "battlefield")}): that side holds no ground there to bring them to.`,
   "too-many-battlefields": () => "No more battlefields can be open at once, so a front that should have opened did not. It opens when another closes.",
@@ -781,6 +819,8 @@ export const runTurnFronts = async ({
   staff = true,
   // How many troops are raised, of the usual: a factor, 1 unless a run says (runtime/fronts/troops.js troopsFactor).
   troops = 1,
+  // false charges no country's people for the troops raised (runtime/fronts/manpower.js).
+  manpower = true,
   difficulty = "",
   narratesCombat = null,
   // The fronts a scenario begins with (runtime/fronts/scenarioFronts.js), on
@@ -976,6 +1016,9 @@ export const runTurnFronts = async ({
       map: { ...map, regions },
       regionTypes: asArray(regionTypes),
       strengthOf: readers.strengthOf,
+      peopleOf: readers.peopleOf,
+      // (A run may be told to charge nobody for the troops it raises.)
+      ...(manpower === false ? { manpower: false } : {}),
       // Who is played by a person: on a side of several countries nobody's order stands in for theirs.
       players: asArray(players).map(clean).filter(Boolean),
       difficulty: clean(difficulty),
@@ -1090,5 +1133,7 @@ export const runTurnFronts = async ({
     news: asArray(result.news),
     joins: asArray(result.joins),
     starts: asArray(result.starts),
+    // What recruitment drew from each country's people and what came home, in men: for frontApply.js withFrontManpower.
+    manpower: asArray(result.manpower),
   };
 };

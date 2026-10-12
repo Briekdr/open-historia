@@ -24,6 +24,7 @@
 
 import { noteReceipt } from "../../runtime/applicationReceipt.js";
 import { JSON_URLS, loadRegionCatalog, readJson } from "../../runtime/assets.js";
+import { citiesFollowing, cityPopulationKey, cityPopulationOverridesByTileName, countryPopulationMoves, effectiveCityPopulation } from "../../runtime/cityPopulation.js";
 import { frontCitiesOf, readFrontCities } from "../../runtime/frontCities.js";
 import { arenaFor } from "../../runtime/fronts/arena.js";
 import { decodeTroops } from "../../runtime/fronts/codec.js";
@@ -340,6 +341,98 @@ export const applyTurnFronts = async ({
     logDebugEvent("turn", "Fronts: the engine could not be run for this turn; the battlefields stand as they were.", error, { problem: true });
     return { events: stripFrontOps(events), battlefields: null, unitChanges: [], notes: [], flips: [], stats: null, news: [], joins: [], starts: [], transports: null, voyages: [], strikes: [] };
   }
+};
+
+// ---- cities follow their country --------------------------------------------------------
+
+// A world whose cities have followed their countries' populations (runtime/
+// cityPopulation.js): those of every country whose people have moved enough
+// since its cities last followed are moved by the same share. Which country a
+// city is in is read from the map, on the sheet of the whole of it that the
+// fronts draw (runtime/fronts/worldGrid.js), and the map's shapes are read
+// for that only on a turn when some country is due and the sheet has not been
+// drawn in this sitting. No request is made. The same world when nothing is due.
+//   baseWorld   the world before the turn: a city whose figure the turn's own
+//               events changed is left at what they say
+export const citiesFollowCountries = async ({ world = {}, baseWorld = null, game = {}, campaignId = "", loadRegions = null } = {}) => {
+  try {
+    const moves = countryPopulationMoves(world?.countryStats, world?.cityPopulationBasis);
+    const noted = JSON.stringify(moves.basis) !== JSON.stringify(isRecord(world?.cityPopulationBasis) ? world.cityPopulationBasis : {});
+    if (moves.due.length === 0) return noted ? { ...world, cityPopulationBasis: moves.basis } : world;
+    const [front, citiesGeojson] = await Promise.all([
+      readFrontMap(world, game, campaignId),
+      readJson(JSON_URLS.citiesGeojson, { defaultValue: null }).catch(() => null),
+    ]);
+    const kept = arenasFor(front.map.key);
+    const water = waterTypeIds(world?.regionTypes);
+    const sheet = worldSheetKey(front.map.key, water);
+    let grid = kept.get(sheet) ?? null;
+    if (!grid) {
+      const shapes = typeof loadRegions === "function" ? await loadRegions() : null;
+      const regions = shapes ? engineRegionsOf(shapes, { nameOf: (id) => front.names.get(id) }) : null;
+      // (The map could not be read: nothing is moved and nothing is noted, so it is tried again next turn.)
+      if (asArray(regions).length === 0) return world;
+      grid = buildWorldGrid(regions, { flat: front.map.flat === true, scale: front.map.scale, water });
+      if (grid) kept.set(sheet, grid);
+    }
+    if (!grid) return world;
+    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, regionIds: front.regionIds, groups: false });
+    const date = clean(game?.gameDate || game?.startDate);
+    const renames = isRecord(world?.cityRenames) ? world.cityRenames : {};
+    const set = cityPopulationOverridesByTileName(world?.cityPopulations, renames);
+    const dueNames = new Set(moves.due.map((entry) => fold(entry.name)));
+    const cities = [];
+    for (const feature of asArray(citiesGeojson?.features)) {
+      const props = isRecord(feature?.properties) ? feature.properties : {};
+      const point = feature?.geometry?.type === "Point" ? feature.geometry.coordinates : null;
+      const tileName = clean(props.city || props.name);
+      if (!tileName || !Array.isArray(point)) continue;
+      const cell = grid.cellOf(Number(point[0]), Number(point[1]));
+      const mark = cell >= 0 ? grid.region[cell] : 0;
+      const holder = mark ? clean(readers.controllerOf(grid.ids[mark])) : "";
+      if (!holder || !dueNames.has(fold(holder))) continue;
+      cities.push({
+        name: clean(renames[tileName.toLowerCase()]) || tileName,
+        population: effectiveCityPopulation(props, { date, cityPopulations: set, name: tileName }),
+        holder,
+      });
+    }
+    // What this turn's own events set stays what they said.
+    const before = isRecord(baseWorld?.cityPopulations) ? baseWorld.cityPopulations : {};
+    const now = isRecord(world?.cityPopulations) ? world.cityPopulations : {};
+    const skip = new Set(Object.keys(now).filter((key) => Number(now[key]) !== Number(before[key])).map(cityPopulationKey));
+    const followed = citiesFollowing({ cityPopulations: now, cities, due: moves.due, skip });
+    return { ...world, cityPopulations: followed.cityPopulations, cityPopulationBasis: moves.basis };
+  } catch (error) {
+    console.warn("[stats] the cities could not follow their countries' populations this turn; they stay as they are.", error);
+    return world;
+  }
+};
+
+// ---- the men troops are raised from ---------------------------------------------------
+
+// A world with what a turn's recruitment cost its countries taken off their
+// populations (runtime/fronts/manpower.js): the men drawn for the formations
+// raised, drafted and sent to make good losses, less the men who came home. A
+// country with no sheet of statistics has no population to take them from and
+// is left as it is. The same world when the run charged nobody.
+//   patch   (world, name, { population: { total } }) => writes it (gameState.js applyCountryStatPatchToWorld)
+export const withFrontManpower = (world, fronts, patch) => {
+  const ledger = asArray(fronts?.manpower).filter((entry) => clean(entry?.name) && (Number(entry.drawn) > 0 || Number(entry.returned) > 0));
+  if (ledger.length === 0 || typeof patch !== "function" || !world || typeof world.countryStats !== "object" || !world.countryStats) return world;
+  const next = { ...world, countryStats: { ...world.countryStats } };
+  const keys = new Map(Object.keys(next.countryStats).map((key) => [fold(key), key]));
+  let changed = false;
+  for (const entry of ledger) {
+    const key = keys.get(fold(entry.name));
+    const total = Number(next.countryStats[key]?.population?.total);
+    if (!key || !(total > 0)) continue;
+    const after = Math.max(1, Math.round(total - (Number(entry.drawn) || 0) + (Number(entry.returned) || 0)));
+    if (after === total) continue;
+    patch(next, key, { population: { total: after } });
+    changed = true;
+  }
+  return changed ? next : world;
 };
 
 // ---- a country troops were sent into --------------------------------------------------

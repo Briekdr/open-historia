@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Panel from "./Panel.jsx";
 import { inputStyle, labelDim, pillButton } from "./editorStyles.js";
+import { formatPopulationFigure, readPopulationFigure } from "../runtime/populationFigure.js";
 import {
   GROUP_DESCRIPTION_MAX,
   GROUP_NAME_MAX,
@@ -197,6 +198,19 @@ const GroupsPanel = ({ api, groups = {}, setGroups, selection = [], regionEpoch 
             onBlur={(e) => patchRecord(current, { description: normalizeGroupDescription(e.target.value) })}
             rows={5}
             style={{ ...inputStyle, padding: "6px 7px", resize: "vertical", fontFamily: "inherit", fontSize: 12.5 }}
+          />
+          <div style={labelDim}>Population when the scenario begins</div>
+          <input
+            key={`population-${current}`}
+            defaultValue={formatPopulationFigure(record.population)}
+            inputMode="numeric"
+            placeholder="Leave empty and the game goes by the land it holds"
+            onBlur={(e) => {
+              const people = readPopulationFigure(e.target.value);
+              e.target.value = formatPopulationFigure(people);
+              patchRecord(current, { population: people > 0 ? people : undefined });
+            }}
+            style={{ ...inputStyle, padding: "5px 7px" }}
           />
           <div style={labelDim}>Tint colour</div>
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 5 }}>

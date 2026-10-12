@@ -1,6 +1,7 @@
 /*! Open Historia — portions (troop deployments + era troop types) © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 import { JSON_URLS, getPrimedScenarioRegionCatalog, loadTurnRestorePoint, primeJson, publishJsonWriteBatch, readJson, reportPerfOperation, writeJson } from "./assets.js";
 import { withMapClaims } from "./mapClaims.js";
+import { populationFigureOf } from "./populationFigure.js";
 import { MAX_GROUPS, applyGroupOps, canRenameGroup, findGroupKey, normalizeGroupAreas, normalizeGroupOp, normalizeGroups } from "./groups.js";
 import { enqueueEventStrings } from "./translator.js";
 import { normalizeTagList } from "./countryTags.js";
@@ -3676,6 +3677,8 @@ const normalizePolityOverride = (key, value) => {
     ...(normalizeOptionalString(value.mapDistinctLabel) ? { mapDistinctLabel: normalizeOptionalString(value.mapDistinctLabel) } : {}),
     name: normalizeOptionalString(value.name || value.label),
     note: normalizeOptionalString(value.note),
+    // Its people when the scenario begins, where its author says (runtime/populationFigure.js).
+    ...(populationFigureOf(value) > 0 ? { population: populationFigureOf(value) } : {}),
     ...(POLITY_STATUS_SET.has(status) ? { status } : {}),
     ...(value.verbatim === true ? { verbatim: true } : {}),
   };

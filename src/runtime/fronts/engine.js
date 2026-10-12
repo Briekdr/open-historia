@@ -67,6 +67,7 @@ import { REGIONS_NEEDED, growToHold, prepare, recordDay, settleRegions, simulate
 import { redistance, takeCapsule, traceContour } from "./field.js";
 import { pointInFrame } from "./frame.js";
 import { landWithin, othersOnWay } from "./invade.js";
+import { draw, formationsLeft, manpowerReport, menPerFormation, sendHome } from "./manpower.js";
 import { applyOrder, assignOrder, landCarried, putAshore, readSieges, setStandingOrder } from "./orders.js";
 import { foldBattlefieldName, normalizeBattlefields } from "./record.js";
 import { authoredName } from "./scenarioFronts.js";
@@ -108,6 +109,9 @@ const createRun = (input) => {
     seed: String(input?.seed ?? ""),
     // How many troops are raised, of the usual (troops.js troopsFactor).
     troops: troopsFactor(input?.troops),
+    // The men a formation is, and what each country has been charged and given back this run (manpower.js).
+    menEach: menPerFormation(era),
+    manpower: new Map(),
     pace: Math.min(3, Math.max(0.1, Number(input?.pace) || 1)),
     // The weights that bend a troop's step, for a test or the rig to set aside.
     steer: input?.steering && typeof input.steering === "object" ? input.steering : {},
@@ -272,6 +276,7 @@ const closeBattle = (run, battle, day) => {
   const { arena } = battle;
   battle.status = "closed";
   battle.closedDate = run.dateOf(day);
+  for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) sendHome(run, battle, side);
   releaseNamed(battle, run);
   // What is still held by a country that is not its sovereign: the war ending
   // moves no border, so the model is told what is left occupied.
@@ -356,7 +361,7 @@ const examineWar = (run, war, day) => {
 const raiseFor = (battle, run, side, owner) => {
   const wanted = Math.round(TROOPS_PER_STRENGTH * run.troops * memberWeights(battle, run, side)[owner] * EFFORT_FACTORS[battle.effort[side]]);
   const room = Math.min(MAX_TROOPS_PER_SIDE - battle.troops[side].length, troopsCap(battle.lineKm, run.troops) - liveCount(battle.troops[side]));
-  const count = Math.max(0, Math.min(room, Math.max(2, wanted)));
+  const count = Math.max(0, Math.min(room, Math.max(2, wanted), formationsLeft(run, battle.sides[side][owner])));
   const contour = traceContour(battle.field);
   const own = side === HOLDER_SIDE_A ? contour.cellA : contour.cellB;
   let cells = [];
@@ -374,6 +379,7 @@ const raiseFor = (battle, run, side, owner) => {
     const cell = cells[Math.min(cells.length - 1, Math.floor(((index + 0.5) * cells.length) / count))];
     battle.troops[side].push(createTroop({ x: (cell % battle.field.cols) + 0.5, y: Math.floor(cell / battle.field.cols) + 0.5, owner }));
   }
+  draw(run, battle.sides[side][owner], count * run.menEach);
   battle.pool[side] += count * POOL_PER_TROOP * battle.edge[side].reserves;
 };
 
@@ -405,6 +411,7 @@ const leaveBattle = (run, battle, names) => {
       if (index < 0) continue;
       battle.gone[side].add(index);
       // Its troops go home with it: a named formation back to the world, the rest away.
+      sendHome(run, battle, side, battle.troops[side].map((troop, at) => (troop.owner === index && isLive(troop) ? at : -1)).filter((at) => at >= 0));
       battle.troops[side].forEach((troop, at) => {
         if (troop.owner !== index || !isLive(troop)) return;
         const named = battle.named.find((entry) => entry.s === side && entry.i === at);
@@ -751,6 +758,7 @@ const withdrawWhoLeft = (run, battle, day) => {
         named.reported = true;
         battle.sentHome.set(named.unitId, side);
       }
+      sendHome(run, battle, side, [index]);
       troop.strength = 0;
       troop.station = null;
       troop.order = null;
@@ -818,11 +826,13 @@ const reinforceOnFront = (run, battle, moment, day) => {
     REINFORCED_SIZE_MOST * usual - live,
     REINFORCED_LINE_MOST * troopsCap(battle.lineKm, run.troops) - live,
   );
+  // And the men have to be there to call up (manpower.js).
+  const men = formationsLeft(run, battle.sides[side][owner]);
   const said = Number(moment.count);
   const asked = Number.isFinite(said) && said >= 1 ? Math.min(REINFORCE_MOST, Math.round(said)) : Math.max(2, Math.round(usual * REINFORCE_USUAL_SHARE));
-  const count = Math.max(0, Math.min(asked, room));
+  const count = Math.max(0, Math.min(asked, room, men));
   if (count === 0) {
-    run.notes.push({ ...note, kind: "reinforce-full" });
+    run.notes.push({ ...note, kind: room > 0 && men <= 0 ? "reinforce-no-men" : "reinforce-full" });
     return;
   }
   // Where: its side's own ground along the line, on the stretch the order names, and its own country's where it has some.
@@ -854,6 +864,7 @@ const reinforceOnFront = (run, battle, moment, day) => {
     const cell = cells[Math.min(cells.length - 1, Math.floor(((index + 0.5) * cells.length) / count))];
     battle.troops[side].push(createTroop({ x: (cell % cols) + 0.5, y: Math.floor(cell / cols) + 0.5, kind, owner }));
   });
+  draw(run, battle.sides[side][owner], count * run.menEach);
   battle.pool[side] += count * POOL_PER_TROOP * battle.edge[side].reserves;
   // They come under what their stretch of the line is told: an order for that stretch before one for the whole line.
   const standing = battle.orders.filter((order) => order.s === side && !order.chosen && order.order !== "assault" && order.order !== "withdraw");
@@ -1549,6 +1560,7 @@ const departTransport = (run, index, day) => {
     boarding = { battle, side, picked };
   } else if (load.length === 0) {
     load = kindsFor(Math.max(1, transport.raise || 1), run.era).map((kind) => [100, kind]);
+    draw(run, transport.owner, load.length * run.menEach);
     if (origins.length === 0) origins = originsOf(run, grid, war, transport);
   }
   if (origins.length === 0) return refuse("no-origin");
@@ -1941,6 +1953,8 @@ const snapshot = (run) => {
       const city = battle.arena.cities.find((candidate) => `city: ${candidate.name}` === entry.at);
       return city ? { ...told, size: Math.max(0, Number(city.population) || 0), ...(city.capital ? { capital: true } : {}) } : told;
     })),
+    // What recruitment drew from each country's people and what came home to them, in men (manpower.js).
+    manpower: manpowerReport(run),
     stats: { days: day, steps: run.steps },
   };
 };
