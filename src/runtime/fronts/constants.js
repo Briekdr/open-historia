@@ -235,6 +235,13 @@ export const TROOPS_FACTOR_MOST = 4;
 // the number its own strength raises, nor past REINFORCED_LINE_MOST times what
 // its line has room for: a draft doubles an army, it does not stack a short front.
 export const REINFORCE_ORDER = "reinforce";
+// THE MEN TROOPS ARE RAISED FROM (manpower.js). A formation at full strength
+// is this many men, by era (before 1500, 1500 to 1849, 1850 to 1944, from
+// 1945), and a country can have this share of its people under arms at once:
+// what is fit to serve. Recruitment is drawn from that pool and leaves the
+// country's population; the men who come home are given back.
+export const MEN_PER_FORMATION_BY_ERA = Object.freeze([2000, 5000, 12000, 10000]);
+export const MANPOWER_SHARE = 0.12;
 export const REINFORCE_MOST = 60;
 export const REINFORCE_USUAL_SHARE = 0.25;
 export const REINFORCED_SIZE_MOST = 3;

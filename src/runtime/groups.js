@@ -13,6 +13,8 @@
 // reads is the name it writes back. Pure: no IO, shared by the game, the
 // Workshop export and the tests.
 
+import { populationFigureOf } from "./populationFigure.js";
+
 export const GROUP_NAME_MAX = 80;
 export const GROUP_DESCRIPTION_MAX = 1200;
 export const MAX_GROUPS = 64;
@@ -77,6 +79,8 @@ const normalizeGroup = (key, value) => {
     name,
     description: normalizeGroupDescription(record.description ?? record.note),
     color: normalizeGroupColor(record.color) || defaultGroupColor(name),
+    // Its people when the scenario begins, where its author says (populationFigure.js).
+    ...(populationFigureOf(record) > 0 ? { population: populationFigureOf(record) } : {}),
     ...(formerNames.length ? { formerNames } : {}),
   };
 };

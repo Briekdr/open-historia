@@ -63,8 +63,10 @@ const turn = async (state, { from = "2024-03-01", to = "2024-03-11", frontOrders
     loadRegions: async () => state.map.regions,
     seed,
     players,
-    // (Every side is left to the orders this file gives it.)
+    // (Every side is left to the orders this file gives it, and to no limit of men but the draft's own:
+    // what a country has the men for is runtime/fronts/manpower.test.js.)
     staff: false,
+    manpower: false,
     ...extra,
   });
   state.world = { ...state.world, battlefields: run.battlefields ?? state.world.battlefields };

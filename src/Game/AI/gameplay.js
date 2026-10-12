@@ -196,7 +196,7 @@ import {
   withoutGroupOps,
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
-import { applyTurnFronts, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { applyTurnFronts, citiesFollowCountries, withFrontManpower, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { withTurnStrikes } from "../../runtime/strikes.js";
 import { kmBetween } from "../../runtime/fronts/worldGrid.js";
 import { readWarRoomAnswer, warRoomRequest, warRoomStanding, warRoomVariables } from "./warRoomContext.js";
@@ -8963,6 +8963,10 @@ const applySimulationResult = async ({
   // one (frontApply.js): before the standing orders advance, since a formation
   // on a battlefield keeps none, and before the unit caps, which leave it out.
   impactedWorld = withFrontUnits(impactedWorld, turnFronts);
+  // And what the troops raised this turn cost their countries in people, less
+  // the men who came home (runtime/fronts/manpower.js): "military recruitment
+  // directly draws from and reduces the available population pool."
+  impactedWorld = withFrontManpower(impactedWorld, turnFronts, applyCountryStatPatchToWorld);
   // Ground a side has taken on a battlefield is controlled by it, not disputed:
   // the claimants an earlier turn wrote for such a region come off it
   // (runtime/fronts/heldRegions.js). Nothing is touched with fronts off.
@@ -9602,6 +9606,11 @@ const applySimulationResult = async ({
     if (projects?.signal?.aborted) throw error;
     console.warn("[stats auto] unexpected scheduler failure; the completed turn is preserved.", error);
   }
+
+  // And the cities of every country whose people have moved go with them
+  // (frontApply.js citiesFollowCountries): no request, and the map's shapes are
+  // read only on a turn when some country is due.
+  nextWorld = await citiesFollowCountries({ world: nextWorld, baseWorld, game: nextGame, campaignId, loadRegions: createRenderedRegionsReader() });
 
   const lifecycleEventIds = [];
   // Native institution lifecycle clock: withdrawal notice periods and other
@@ -12069,6 +12078,17 @@ const askTrackedStats = (replay, requests, due, ask) => replayAnswer(replay, "tr
   trackedStatsPutOff(requests, due) ? { putOff: true } : ask()
 ));
 
+// "Historical tracking on for player by default": the player's own country is
+// tracked from the first skip, and a country cannot be tracked before it has a
+// sheet to track. Its first one is asked for here, once, as any first reading
+// is (ensureCountryStatSheet: after the turn, never twice, and nothing when the
+// sheet is there). The other countries a player adds get theirs when he does.
+const requestTrackedBaseline = (pending, game) => {
+  const player = normalizeString(game?.country).toLowerCase();
+  const waiting = player ? normalizeArray(pending).find((polity) => normalizeString(polity).toLowerCase() === player) : "";
+  if (waiting) void ensureCountryStatSheet(waiting, { reason: "historical tracking" });
+};
+
 const refreshTrackedCustomStatsIfDue = async ({ bundle, signal, definition, requests = null, replay = null } = {}) => {
   const game = normalizeGameData(bundle?.game);
   let world = normalizeWorldState(bundle?.world);
@@ -12116,6 +12136,7 @@ const refreshTrackedCustomStatsIfDue = async ({ bundle, signal, definition, requ
     ...tracking,
     pendingBaselinePolities: pendingBaseline,
   }, { playerCountry: game?.country });
+  requestTrackedBaseline(pendingBaseline, game);
   if (!due.length) return world;
 
   const systemPrompt = `You are Open Historia's bounded periodic scenario-defined National Stats auditor.
@@ -12290,6 +12311,7 @@ const refreshTrackedCountryStatsIfDue = async ({
     ...tracking,
     pendingBaselinePolities: pendingBaseline,
   }, { playerCountry: game?.country });
+  requestTrackedBaseline(pendingBaseline, game);
 
   if (!due.length) return world;
 

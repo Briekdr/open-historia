@@ -403,6 +403,8 @@ export const closeDay = (battle) => {
           const sent = Math.min(REINFORCE_PER_DAY * battle.edge[side].mend, 100 - troop.strength, battle.pool[side]);
           troop.strength += sent;
           battle.pool[side] -= sent;
+          // (Men sent to make good a loss are recruits like any others: manpower.js counts them.)
+          battle.mendedBy[side][troop.owner] = (battle.mendedBy[side][troop.owner] ?? 0) + sent;
         }
       } else {
         troop.strength = 0;

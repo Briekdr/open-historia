@@ -141,6 +141,77 @@ export const cityPopulationOverridesByTileName = (cityPopulations, cityRenames =
   return out;
 };
 
+// ---- cities follow their country -------------------------------------------------------
+//
+// "City population and country population stats should be connected so city
+// updates proportionally with country unless something happens to the city
+// like if it's nuked, then it updates proportionally to the country stats from
+// that moment onward."
+//
+// A country's population moves (its statistics are brought up to date every
+// few months, a war costs it men), and its cities move with it by the same
+// share. What a city is moved FROM is whatever it is at that moment: the
+// figure its scenario gives for the date, or the one an event set (a city
+// that was bombed flat begins again from what was left). The figure it is
+// moved to is kept as a hand-set one (world.cityPopulations), which is what
+// every reader of a city's population already looks at first.
+//
+// It is done when a country's people have moved by CITY_FOLLOW_STEP or more
+// since its cities last followed (world.cityPopulationBasis: the population
+// each country had then), so a week's losses do not rewrite every city.
+export const CITY_FOLLOW_STEP = 0.005;
+
+// The countries whose cities are due to follow, and the basis as it then stands.
+//   countryStats   world.countryStats
+//   basis          world.cityPopulationBasis: { [country]: its people when its cities last followed }
+// Returns { due: [{ name, ratio }], basis }. A country seen for the first time
+// is only noted: its cities are what they are at that moment.
+export const countryPopulationMoves = (countryStats, basis) => {
+  const before = basis && typeof basis === "object" && !Array.isArray(basis) ? basis : {};
+  const next = {};
+  const due = [];
+  for (const [name, sheet] of Object.entries(countryStats && typeof countryStats === "object" ? countryStats : {})) {
+    const total = Number(sheet?.population?.total);
+    if (!Number.isFinite(total) || !(total > 0)) continue;
+    const was = Number(before[name]);
+    if (!Number.isFinite(was) || !(was > 0)) {
+      next[name] = Math.round(total);
+      continue;
+    }
+    const ratio = total / was;
+    if (Math.abs(ratio - 1) >= CITY_FOLLOW_STEP) {
+      due.push({ name, ratio });
+      next[name] = Math.round(total);
+    } else next[name] = was;
+  }
+  return { due, basis: next };
+};
+
+// world.cityPopulations with the cities of the countries that are due moved by
+// their country's share.
+//   cities   [{ name, population, holder }]: each city by the name it goes by
+//            today, with what it is now and whose it is
+//   due      countryPopulationMoves(...).due
+//   skip     the keys (cityPopulationKey) an event set this very turn: those
+//            are what the event says, and follow from the next time on
+export const citiesFollowing = ({ cityPopulations = null, cities = [], due = [], skip = null } = {}) => {
+  const ratios = new Map((Array.isArray(due) ? due : []).map((entry) => [String(entry?.name ?? "").trim().toLowerCase(), Number(entry?.ratio)]));
+  const next = { ...(cityPopulations && typeof cityPopulations === "object" ? cityPopulations : {}) };
+  let moved = 0;
+  for (const city of Array.isArray(cities) ? cities : []) {
+    const key = cityPopulationKey(city?.name);
+    const ratio = ratios.get(String(city?.holder ?? "").trim().toLowerCase());
+    const now = Number(city?.population);
+    if (!key || !Number.isFinite(ratio) || !(ratio > 0) || !Number.isFinite(now) || !(now > 0)) continue;
+    if (skip && skip.has(key)) continue;
+    const then = Math.max(0, Math.round(now * ratio));
+    if (then === Math.round(now) && !Object.prototype.hasOwnProperty.call(next, key)) continue;
+    next[key] = then;
+    moved += 1;
+  }
+  return { cityPopulations: next, moved };
+};
+
 // The population the game uses for a city on a date: a hand-set figure first,
 // then the city's series for the date, then the file's one number.
 export const effectiveCityPopulation = (properties, { date = "", cityPopulations = null, name = "" } = {}) => {

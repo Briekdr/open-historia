@@ -47,6 +47,7 @@ import { readGenerals, readTalk } from "./command.js";
 import { FAIR_EDGE, handicapOf } from "./handicap.js";
 import { standingOf } from "./orders.js";
 import { leftOnLeg } from "./way.js";
+import { draw, sideFormationsLeft } from "./manpower.js";
 import { authoredTroops } from "./scenarioFronts.js";
 import { projectorOf } from "./frame.js";
 import { drawLine, measureLine } from "./line.js";
@@ -185,6 +186,8 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   troops: [[], []],
   named: [],
   pool: [0, 0],
+  // What its reserves have sent each member's troops to make good their losses, in points of strength, this run (manpower.js).
+  mendedBy: [[], []],
   base: [0, 0],
   quality: [1, 1],
   // What the game's difficulty gives each side here (handicap.js): not kept
@@ -387,7 +390,8 @@ export const raiseTroops = (battle, run, only = -1) => {
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     // (On a border fortified in peace only the side that deploys there raises troops.)
     if (only >= 0 && side !== only) continue;
-    const room = Math.max(0, Math.min(counts[side], MAX_TROOPS_PER_SIDE - battle.troops[side].length));
+    // (No more than its members have the men for: manpower.js.)
+    const room = Math.max(0, Math.min(counts[side], MAX_TROOPS_PER_SIDE - battle.troops[side].length, sideFormationsLeft(run, battle, side)));
     battle.base[side] = round3(members[side].reduce((sum, weight) => sum + weight, 0));
     battle.pool[side] += room * POOL_PER_TROOP * battle.edge[side].reserves;
     const first = battle.troops[side].length;
@@ -429,6 +433,8 @@ export const raiseTroops = (battle, run, only = -1) => {
       troop.owner = owner;
       quota[owner] -= 1;
     }
+    // Each is drawn from the people of the country it is.
+    for (const troop of raised) draw(run, battle.sides[side][troop.owner], run.menEach);
   }
   battle.planKey = "";
 };

@@ -57,6 +57,8 @@ const turn = (map, world, overrides = {}) => ({
   createFrontRun,
   // (Every side is left to the orders this test gives it: a side's own staff is tested in frontStaff.test.js.)
   staff: false,
+  // (And nobody is held to the men his country has: these fights were worked out before recruitment drew on them, runtime/fronts/manpower.test.js.)
+  manpower: false,
   world,
   events: [],
   frontOrders: [],
