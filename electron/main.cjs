@@ -21,6 +21,17 @@ const { createLayeredUpdater } = require("./layeredUpdate.cjs");
 const { createPayloadUpdater } = require("./payloadUpdate.cjs");
 const payloadBoot = require("./payloadBoot.cjs");
 
+// The map is drawn with WebGL, and without it the game is a black window with
+// "WebGL Not Available" on it (seen on a player's Mac, 2026-10-12, in the middle
+// of a campaign). Chromium takes WebGL away for the rest of a session in two
+// cases this app can do without: a graphics card or driver on its blocklist,
+// and a graphics process that has crashed three times. Neither is a reason to
+// stop drawing a map: an old card draws it slowly, and a graphics process that
+// is started again draws it as before. Set before the app is ready, which is
+// the only time Chromium reads them.
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+app.commandLine.appendSwitch("disable-gpu-process-crash-limit");
+
 // Which build this is. scripts/stamp-channel.mjs writes electron/channel.json for
 // the beta build (`npm run dist:win:beta` and the beta release workflow); the
 // stable build ships no such file, reads "stable", and every branch below is the
@@ -595,6 +606,14 @@ const handlePageGone = (win, details, { quitting: isQuitting = false } = {}) => 
   return true;
 };
 // --- end of a page that stops
+
+// The graphics process stopping is not the page stopping: Chromium starts it
+// again and the game's own watcher redraws the map. It is written to the log,
+// so a report of a black map says whether this is what happened.
+app.on("child-process-gone", (_event, details) => {
+  if (details?.type !== "GPU") return;
+  logMain("warn", "gpu.processGone", `The graphics process stopped (${String(details.reason || "unknown")}).`, { reason: details.reason, exitCode: details.exitCode });
+});
 
 const createMainWindow = () => {
   const win = new BrowserWindow({
