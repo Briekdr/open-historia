@@ -37,8 +37,9 @@ test("the standard sheet's tool gains the rating as its last, required field", (
 test("a scenario-defined sheet's tool gains it too, after its own values", () => {
     const rows = [{ key: "timber", label: "Timber", kind: "index", minimum: 0, maximum: 100, description: "Usable timber supply." }];
     const tool = withIntelligenceRating(getGameplayToolForCustomStatSheet("countryStatSheet", rows, { custom: true }));
-    assert.deepEqual(Object.keys(tool.schema.properties), ["customStats", INTELLIGENCE_RATING_FIELD]);
-    assert.deepEqual(tool.schema.required, ["customStats", INTELLIGENCE_RATING_FIELD]);
+    // (Between them, the hidden backend a scenario's own sheet is written with: runtime/statsBackend.js.)
+    assert.deepEqual(Object.keys(tool.schema.properties), ["customStats", "backend", INTELLIGENCE_RATING_FIELD]);
+    assert.deepEqual(tool.schema.required, ["customStats", "backend", INTELLIGENCE_RATING_FIELD]);
 });
 
 test("nothing else changes: the base tool and the sheet schema never carry the rating", () => {

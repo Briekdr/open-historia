@@ -1,4 +1,5 @@
 import { DEMAND_CHECK_OUTCOMES } from "../../runtime/demandCheck.js";
+import { STATS_BACKEND_FIELD, STATS_BACKEND_KEYS } from "../../runtime/statsBackend.js";
 import { EVENT_TAG_ENUM, MAX_EVENT_TAGS } from "../../runtime/eventTags.js";
 import { normalizeEventPresentation } from "../../runtime/eventQuote.js";
 import {
@@ -3729,6 +3730,20 @@ const statSchemaForDefinition = (row) => {
   return schema;
 };
 
+// The backend in a request's schema.
+export const STATS_BACKEND_SCHEMA = Object.freeze({
+  type: "object",
+  description: "Hidden engine figures the player never sees: what this polity's armies are raised from and paid with. Worked out first; the scenario's own values then say the same thing.",
+  properties: {
+    population: { type: "number", description: "Its people, as a plain count." },
+    gdp: { type: "number", description: "The size of its economy in a year, in one unit used for every polity of this world (any unit, as long as it is the same for all)." },
+    budgetBalance: { type: "number", description: "Its treasury's balance for the year as a percentage of that economy: above 0 a surplus, below 0 a deficit." },
+    publicDebt: { type: "number", description: "What its treasury owes, as a percentage of that economy." },
+  },
+  required: [...STATS_BACKEND_KEYS],
+  additionalProperties: false,
+});
+
 const customStatsProperties = (rows) => Object.fromEntries(
   (Array.isArray(rows) ? rows : [])
     .map((row) => [String(row?.key || "").trim(), statSchemaForDefinition(row)])
@@ -3768,8 +3783,11 @@ export const getGameplayToolForCustomStatSheet = (taskKey, rows, { custom = fals
             maxProperties: keys.length,
             additionalProperties: false,
           },
+          // What the game's own arithmetic reads, which this scenario's player
+          // never sees (runtime/statsBackend.js): worked out with the sheet.
+          [STATS_BACKEND_FIELD]: STATS_BACKEND_SCHEMA,
         },
-        required: ["customStats"],
+        required: ["customStats", STATS_BACKEND_FIELD],
         additionalProperties: false,
       },
     };

@@ -21,6 +21,7 @@ import { describeBasisAction, sameRegionChange, screenTerritoryBasis } from "../
 import { PLAYER_GROUP_JUMP_RULE, describeGroupsForPrompt, describePlayerGroupForPrompt, normalizeGroupOp, withoutGroupOpsLines } from "../../runtime/groups.js";
 import { effectiveCityPopulation } from "../../runtime/cityPopulation.js";
 import { hostingSharedGame, humanCountriesOf } from "../../runtime/humanPolities.js";
+import { CONFLICT_SHEETS_AT_ONCE, STATS_BACKEND_FIELD, conflictSheetTargets, hasStatsBackend, statsBackendInstruction, statsBackendOf, statsBackendPatch } from "../../runtime/statsBackend.js";
 import {
   createApplicationReceipt,
   firstComplaintLine,
@@ -9611,6 +9612,8 @@ const applySimulationResult = async ({
   // (frontApply.js citiesFollowCountries): no request, and the map's shapes are
   // read only on a turn when some country is due.
   nextWorld = await citiesFollowCountries({ world: nextWorld, baseWorld, game: nextGame, campaignId, loadRegions: createRenderedRegionsReader() });
+  // And a country the player has come into conflict with is asked for its sheet, so that the war has its people and its economy to go by.
+  requestConflictSheets(nextWorld, nextGame);
 
   const lifecycleEventIds = [];
   // Native institution lifecycle clock: withdrawal notice periods and other
@@ -12086,7 +12089,23 @@ const askTrackedStats = (replay, requests, due, ask) => replayAnswer(replay, "tr
 const requestTrackedBaseline = (pending, game) => {
   const player = normalizeString(game?.country).toLowerCase();
   const waiting = player ? normalizeArray(pending).find((polity) => normalizeString(polity).toLowerCase() === player) : "";
-  if (waiting) void ensureCountryStatSheet(waiting, { reason: "historical tracking" });
+  if (waiting) void ensureCountryStatSheet(waiting, { reason: "historical tracking", needBackend: true });
+};
+
+// "Stats should be generated for countries you're going into conflict with,
+// either if you deploy a front on them, if you redirect a front to attack them
+// or anything else, so that the stats can be used." A country a person's own
+// is on a battlefield with, or that a route of its troops goes into, is asked
+// for its sheet if it has nothing the war can read (runtime/statsBackend.js
+// conflictSheetTargets): those it fights first. Each is a first reading like
+// any other (after the turn, never twice, one request), and no more than
+// CONFLICT_SHEETS_AT_ONCE are asked for at a time: the rest follow on the
+// turns after.
+const requestConflictSheets = (world, game, extra = []) => {
+  if (!frontsOn()) return;
+  const players = humanCountriesOf(game);
+  const names = conflictSheetTargets(world, players, { extra });
+  for (const name of names.slice(0, CONFLICT_SHEETS_AT_ONCE)) void ensureCountryStatSheet(name, { reason: "in conflict with the player", needBackend: true });
 };
 
 const refreshTrackedCustomStatsIfDue = async ({ bundle, signal, definition, requests = null, replay = null } = {}) => {
@@ -12147,9 +12166,10 @@ SCENARIO STATS:
 ${describeStatSheetDefinition(definition)}
 
 Return exactly one JSON object and no markdown:
-{"updates":[{"country":"exact supplied canonical key","customStats":{"oneDefinedKey":0}}]}
+{"updates":[{"country":"exact supplied canonical key","customStats":{"oneDefinedKey":0},"backend":{"population":0,"gdp":0,"budgetBalance":0,"publicDebt":0}}]}
 
-For each country include only values that genuinely changed.`;
+For each country include only values that genuinely changed.
+Each country also has a HIDDEN BACKEND the player never sees, which the game's own arithmetic reads: population (a count), gdp (its economy in a year, in the one unit used for every polity of this world), budgetBalance and publicDebt (percentages of that economy). Move it FIRST by what happened in the period, and return it whole in "backend"; the scenario's own values then say the same thing. A country shown with no backend has none yet: establish one that fits the era and its size.`;
 
   const userMessage = [
     `Campaign date: ${currentDate}`,
@@ -12160,6 +12180,7 @@ For each country include only values that genuinely changed.`;
       `Elapsed since last dedicated Stats audit: ${entry.elapsedMonths} month(s) (baseline ${entry.baselineDate || "unknown"}).`,
       `CURRENT CANONICAL CUSTOM STATS:`,
       JSON.stringify(normalizeCustomStatValues(entry.previous?.customStats, definition, { partial: true })),
+      `HIDDEN BACKEND: ${statsBackendOf(entry.previous) ? JSON.stringify(statsBackendOf(entry.previous)) : "none yet"}`,
       `RECENT RELEVANT CAMPAIGN CONTEXT:`,
       normalizeString(entry.narrative) || "None.",
       "",
@@ -12190,10 +12211,11 @@ For each country include only values that genuinely changed.`;
       const entry = dueByKey.get(polity.toLocaleLowerCase());
       if (!entry) continue;
       const patchValues = normalizeCustomStatValues(update?.customStats, definition, { partial: true });
-      if (!Object.keys(patchValues).length) continue;
+      const backend = statsBackendPatch(update?.[STATS_BACKEND_FIELD]);
+      if (!Object.keys(patchValues).length && !Object.keys(backend).length) continue;
       const unknown = Object.keys(update?.customStats || {}).filter((key) => !keys.includes(key));
       if (unknown.length) continue;
-      const merged = mergeCountryStatPatch(entry.previous, { customStats: patchValues }, {
+      const merged = mergeCountryStatPatch(entry.previous, { ...(Object.keys(patchValues).length ? { customStats: patchValues } : {}), ...backend }, {
         continuity: {
           assessedDate: currentDate,
           assessedRound: Math.max(0, Math.trunc(Number(game?.round) || 0)),
@@ -12860,6 +12882,7 @@ export const maybeOpenScenarioFronts = async () => {
         notes: built.notes.length,
       }, { verbose: true });
     }
+    if (written) requestConflictSheets({ ...world, battlefields: built.battlefields }, bundle.game);
     return written ? true : null;
   } finally {
     endSimulation();
@@ -12868,9 +12891,15 @@ export const maybeOpenScenarioFronts = async () => {
 
 // Which of the routes drawn on a battlefield go into a country outside its
 // war (frontApply.js routesIntoOthers), for the war room to say so before time
-// passes. It reads the map and asks nobody: no request is made.
+// passes. It reads the map and asks nobody. A country such a route goes into
+// is one the player is about to be at war with: it is asked for its sheet, if
+// it has nothing the war can read (requestConflictSheets).
 export const warRoomRouteAttacks = ({ world, game, record } = {}) =>
-  routesIntoOthers({ world, game, record, campaignId: activeCampaignId(), loadRegions: createRenderedRegionsReader() });
+  routesIntoOthers({ world, game, record, campaignId: activeCampaignId(), loadRegions: createRenderedRegionsReader() }).then((found) => {
+    const attacked = [...found.values()].flat();
+    if (attacked.length > 0) requestConflictSheets(world, game, attacked);
+    return found;
+  });
 
 // The way each transporter deployed in the war room would take, before it has
 // set out (frontApply.js transportWaysFor): found from the map, with no request.
@@ -13484,7 +13513,10 @@ export const ensureIntelligenceRated = (target, { reason = "" } = {}) =>
 
 // `rateIntelligence`: a polity whose service is not rated either gets its rating
 // in the same request as the sheet (ensureCountryAssessed).
-export const ensureCountryStatSheet = (target, { reason = "", rateIntelligence = false } = {}) =>
+//   needBackend   the sheet is wanted for what the war reads (runtime/statsBackend.js): a
+//                 scenario's own sheet that is complete but was written before it kept a
+//                 backend is written again, once, with one
+export const ensureCountryStatSheet = (target, { reason = "", rateIntelligence = false, needBackend = false } = {}) =>
   firstReading("stat sheet", target, reason, async (name) => {
     const [world, definition] = await Promise.all([
       readWorldState({ force: false }).then(normalizeWorldState),
@@ -13496,7 +13528,7 @@ export const ensureCountryStatSheet = (target, { reason = "", rateIntelligence =
     const complete = definition.custom
       ? isCompleteCustomCountryStatSheet(persisted, statSheetKeys(definition))
       : isCompleteCountryStatSheet(persisted);
-    if (complete) return persisted;
+    if (complete && (!needBackend || hasStatsBackend(persisted))) return persisted;
     await waitForSimulationIdle();
     const rate = rateIntelligence && !isIntelligenceRated(world, name);
     const campaign = activeCampaignId();
@@ -13618,6 +13650,8 @@ ${dossier || "(nothing recorded)"}`,
         ? `PREVIOUS PERSISTENT CUSTOM STATS (campaign canon; preserve continuity unless supplied events justify change):
 ${JSON.stringify(previousValues)}`
         : "No previous custom Stats baseline exists; establish scenario-appropriate initial values from the supplied canon.",
+      // The layer under the scenario's own sheet (runtime/statsBackend.js).
+      statsBackendInstruction(statsBackendOf(previous)),
       rateIntelligence ? intelligenceRatingInstruction(target, currentDate) : "",
     ].filter(Boolean).join("\n\n"),
     variables: rateIntelligence ? { ...variables, statsRateIntelligence: true } : variables,
@@ -13632,7 +13666,8 @@ ${JSON.stringify(previousValues)}`
     throw new Error(`Scenario Stats generation omitted required value(s): ${missing.join(", ")}.`);
   }
 
-  const sheet = mergeCountryStatPatch(previous, { customStats }, {
+  // (A backend the answer left out, or wrote unusably, leaves the one the sheet had.)
+  const sheet = mergeCountryStatPatch(previous, { customStats, ...statsBackendPatch(payload?.[STATS_BACKEND_FIELD]) }, {
     continuity: {
       assessedDate: currentDate,
       assessedRound: currentRound,

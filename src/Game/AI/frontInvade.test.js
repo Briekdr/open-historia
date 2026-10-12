@@ -212,7 +212,8 @@ test("the war room is told what a route goes into as soon as it is drawn, from t
 test("the turn hands the engine's joinings to the war ledger, and the war room has the order and the warning", () => {
   const gameplay = read("gameplay.js");
   assert.match(gameplay, /updates: \[\.\.\.warUpdates, \.\.\.frontWarStarts\(turnFronts\), \.\.\.frontWarJoins\(turnFronts\)\],/);
-  assert.match(gameplay, /export const warRoomRouteAttacks = \(\{ world, game, record \} = \{\}\) =>\n {2}routesIntoOthers\(\{ world, game, record, campaignId: activeCampaignId\(\), loadRegions: createRenderedRegionsReader\(\) \}\);/);
+  // (And a country such a route goes into is asked for its sheet: runtime/statsBackend.test.js.)
+  assert.match(gameplay, /export const warRoomRouteAttacks = \(\{ world, game, record \} = \{\}\) =>\n {2}routesIntoOthers\(\{ world, game, record, campaignId: activeCampaignId\(\), loadRegions: createRenderedRegionsReader\(\) \}\)\.then\(\(found\) => \{/);
   assert.match(read("gameplayLazy.js"), /export const warRoomRouteAttacks = async \(\.\.\.args\) => \(await gameplay\(\)\)\.warRoomRouteAttacks\(\.\.\.args\);/);
   const panel = read("../GameUI/warRoom.jsx");
   // Troops picked out can be told to advance with no route drawn for them: a key on the tool rail, carried out by the panel.

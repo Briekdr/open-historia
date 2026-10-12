@@ -22,7 +22,9 @@ const findCustomStatsSchemas = (value, out = []) => {
 
 test("custom countryStatSheet tool exposes only the scenario's exact values", () => {
   const tool = getGameplayToolForCustomStatSheet("countryStatSheet", rows, { custom: true });
-  assert.deepEqual(Object.keys(tool.schema.properties), ["customStats"]);
+  // (And, beside them, the hidden backend the game's own arithmetic reads: runtime/statsBackend.js.
+  // It is one object of four figures, never the standard sheet's fields.)
+  assert.deepEqual(Object.keys(tool.schema.properties), ["customStats", "backend"]);
   const schema = tool.schema.properties.customStats;
   assert.deepEqual(Object.keys(schema.properties), ["timber", "silver", "grainYield"]);
   assert.deepEqual(schema.required, ["timber", "silver", "grainYield"]);
