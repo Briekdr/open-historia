@@ -21,7 +21,8 @@ import { describeBasisAction, sameRegionChange, screenTerritoryBasis } from "../
 import { PLAYER_GROUP_JUMP_RULE, describeGroupsForPrompt, describePlayerGroupForPrompt, normalizeGroupOp, withoutGroupOpsLines } from "../../runtime/groups.js";
 import { effectiveCityPopulation } from "../../runtime/cityPopulation.js";
 import { hostingSharedGame, humanCountriesOf } from "../../runtime/humanPolities.js";
-import { CONFLICT_SHEETS_AT_ONCE, STATS_BACKEND_FIELD, conflictSheetTargets, hasStatsBackend, statsBackendInstruction, statsBackendOf, statsBackendPatch } from "../../runtime/statsBackend.js";
+import { STATS_BACKEND_FIELD, conflictSheetTargets, hasStatsBackend, statsBackendInstruction, statsBackendOf, statsBackendPatch } from "../../runtime/statsBackend.js";
+import { CONFLICT_BACKENDS_MOST, conflictBackendsRequest, readConflictBackends } from "./conflictBackends.js";
 import {
   createApplicationReceipt,
   firstComplaintLine,
@@ -12096,16 +12097,18 @@ const requestTrackedBaseline = (pending, game) => {
 // either if you deploy a front on them, if you redirect a front to attack them
 // or anything else, so that the stats can be used." A country a person's own
 // is on a battlefield with, or that a route of its troops goes into, is asked
-// for its sheet if it has nothing the war can read (runtime/statsBackend.js
-// conflictSheetTargets): those it fights first. Each is a first reading like
-// any other (after the turn, never twice, one request), and no more than
-// CONFLICT_SHEETS_AT_ONCE are asked for at a time: the rest follow on the
-// turns after.
+// of if it has nothing the war can read (runtime/statsBackend.js
+// conflictSheetTargets): those it fights first.
+//
+// "Can't you merge both AI requests into one?" They are all asked of in ONE
+// request (ensureConflictBackends), which wants only the four figures the war
+// reads and not a whole sheet a country: up to CONFLICT_BACKENDS_MOST of them
+// at once, the rest on the turns after.
 const requestConflictSheets = (world, game, extra = []) => {
   if (!frontsOn()) return;
   const players = humanCountriesOf(game);
   const names = conflictSheetTargets(world, players, { extra });
-  for (const name of names.slice(0, CONFLICT_SHEETS_AT_ONCE)) void ensureCountryStatSheet(name, { reason: "in conflict with the player", needBackend: true });
+  if (names.length > 0) void ensureConflictBackends(names.slice(0, CONFLICT_BACKENDS_MOST), { reason: "in conflict with the player" });
 };
 
 const refreshTrackedCustomStatsIfDue = async ({ bundle, signal, definition, requests = null, replay = null } = {}) => {
@@ -13510,6 +13513,58 @@ export const ensureIntelligenceRated = (target, { reason = "" } = {}) =>
     if (isIntelligenceRated(world, name)) return intelligenceOf(world, name);
     return assessIntelligenceService(name, { requestKind: BACKGROUND_REQUEST });
   });
+
+// The backends of the countries a player has come into conflict with, in one
+// request (conflictBackends.js): a first reading like the others (background
+// AI, after whatever is running, one at a time a campaign, silent when it
+// fails), that asks of every country in `targets` which still has nothing the
+// war can read and keeps what it is told on each one's sheet. A country that
+// has been given its backend meanwhile is not asked of and not overwritten.
+export const ensureConflictBackends = (targets, { reason = "" } = {}) => {
+  const names = [...new Map(normalizeArray(targets).map(normalizeString).filter(Boolean).map((name) => [name.toLowerCase(), name])).values()].slice(0, CONFLICT_BACKENDS_MOST);
+  if (names.length === 0) return Promise.resolve(null);
+  return firstReading("backends", "the countries in conflict", reason, async () => {
+    const campaign = activeCampaignId();
+    await waitForSimulationIdle();
+    const bundle = await readGameStateBundle({ force: true });
+    const world = normalizeWorldState(bundle.world);
+    const sheetOf = (source, name) => source.countryStats?.[canonicalStatsPolity(name, source) || name];
+    const wanted = names.filter((name) => !hasStatsBackend(sheetOf(world, name)));
+    if (wanted.length === 0) return null;
+    const { systemPrompt, userMessage, asked } = conflictBackendsRequest({
+      date: normalizeString(bundle.game?.gameDate || bundle.game?.startDate),
+      rules: normalizeString(world.simulationRules),
+      player: normalizeString(bundle.game?.country),
+      countries: wanted.map((name) => ({ name, population: Number(world.polityOverrides?.[name]?.population) })),
+      known: Object.entries(world.countryStats || {}).map(([name, sheet]) => ({ name, backend: statsBackendOf(sheet) })).filter((entry) => entry.backend),
+    });
+    const response = await callAIWithTaskLimit(systemPrompt, [{ role: "user", parts: [{ text: userMessage }] }], {
+      reasoningEnabled: false,
+      taskKey: "countryStatSheet",
+      requestKind: BACKGROUND_REQUEST,
+    });
+    const rawText = typeof response === "string" ? response : normalizeString(response?.rawText);
+    const read = readConflictBackends(response?.toolInput ?? extractJsonPayload(rawText), asked);
+    if (read.length === 0) return null;
+    await beginStatsWrite(campaign);
+    try {
+      const kept = [];
+      await mutateWorldState((latest) => {
+        for (const { name, backend } of read) {
+          const key = canonicalStatsPolity(name, latest) || name;
+          if (hasStatsBackend(latest.countryStats?.[key])) continue;
+          applyCountryStatPatchToWorld(latest, key, statsBackendPatch(backend));
+          kept.push(key);
+        }
+        return kept.length > 0 ? latest : null;
+      }, { emitEvents: false });
+      if (kept.length > 0) logDebugEvent("turn", `Backends for ${kept.length} countr${kept.length === 1 ? "y" : "ies"} in conflict with the player were worked out in one request.`, { countries: kept });
+      return kept;
+    } finally {
+      endSimulation();
+    }
+  });
+};
 
 // `rateIntelligence`: a polity whose service is not rated either gets its rating
 // in the same request as the sheet (ensureCountryAssessed).
