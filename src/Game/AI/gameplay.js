@@ -3758,11 +3758,12 @@ const runJsonTask = async (taskKey, {
         idle.cancel();
         failureReason = normalizeString(error.message) || failureReason;
         const pauseMs = error.providerRefusal.busy ? BUSY_PROVIDER_TASK_PAUSE_MS : 0;
-        logDebugEvent("ai", `Task "${taskKey}" attempt 1 got no answer: the provider refused.`, {
+        // In every log: this is why the task makes a second request.
+        logDebugEvent("ai", `Task "${taskKey}": the first request got no answer (the provider refused it); asking once more.`, {
           provider: error.providerRefusal.detail || "(no message)",
           busy: error.providerRefusal.busy,
           retryInMs: pauseMs,
-        }, { verbose: true });
+        }, { problem: true });
         if (pauseMs) await abortableWait(pauseMs, controller.signal);
         continue;
       }
@@ -4230,6 +4231,16 @@ const runJsonTask = async (taskKey, {
       // its fallback (or the caller's hold) takes it from there.
       if (cutAtLimitUnusable) break;
       if (outputAttempt === 1 && !controller.signal.aborted) {
+        // Said in every log, in one line: a second request is the one thing a
+        // skip is not supposed to cost, and "used 2 requests" with no reason
+        // beside it is all a player's log had (2026-10-12).
+        logDebugEvent("ai", `Task "${taskKey}": the first answer could not be used (${validation.error}); asking once more.`, {
+          answerChars: rawText.length,
+          readFrom: response?.toolInput ? "tool call" : reasoningOnly ? "nothing: only reasoning came back" : rawText ? "text" : "nothing",
+          ...(reasoningText ? { reasoningChars: reasoningText.length } : {}),
+          passedTheSchema: schemaValid,
+          opens: rawText.slice(0, 160),
+        }, { problem: true });
         history.push({
           role: "model",
           // Tool-only answers have no rawText. Preserve the provider's ORIGINAL

@@ -719,6 +719,7 @@ The built-in map's codes are not all right, and an area is whatever they say: it
 
 **Reasoning is never the answer.** An OpenAI-compatible endpoint may return the model's thinking apart from its answer (`reasoning`, `reasoning_content`, or a `<think>` block). A reply in words with no content still falls back to it (#540). A structured task does not: `callOpenAICompatible` returns it as `reasoningText` beside an empty `rawText`, and `runJsonTask` reads it only for a complete answer the model wrote in the wrong place. With none, the failure is `REASONING_ONLY_MESSAGE` ("The model wrote only its reasoning and no answer."), the report prints the reasoning under `REASONING_ONLY_NOTE`, and the retry is sent "(No answer was written.)" in place of it. The same message is given when the content itself is more than 600 characters of prose with no object of the contract's in it.
 
+**Why a task asked twice is in every log.** `Task "<key>": the first answer could not be used (<reason>); asking once more.` is written at the ordinary level, with the answer's length, where it was read from, whether the schema passed and how it opens; so is the line for a first request the provider refused. Both were detailed-level only, which left "This time skip used 2 requests." with nothing beside it.
 
 ---
 
