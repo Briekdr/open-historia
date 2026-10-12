@@ -380,7 +380,14 @@ function stripThinking(value) {
     return out.trim();
 }
 
-function extractOpenAIMessageText(data) {
+// `reasoningFallback`: a reply in words whose content came back empty is given
+// its reasoning rather than an error (#540). A structured task is NOT: its
+// reasoning is the model planning, and handing that to the JSON reader as the
+// answer is how a time skip failed with "$.events is required." over thirty
+// thousand characters of thinking that had small JSON in it (a player's log,
+// 2026-10-12). Such a task gets the content alone, and the reasoning beside it
+// (extractOpenAIReasoning), marked as what it is.
+function extractOpenAIMessageText(data, { reasoningFallback = true } = {}) {
     const message = data?.choices?.[0]?.message;
     const raw = message?.content;
     let text = "";
@@ -399,8 +406,20 @@ function extractOpenAIMessageText(data) {
 
     text = stripThinking(text);
     // All reasoning, no answer (#540): fall back to the reasoning text rather than error.
-    if (!text) text = stripThinking(message?.reasoning);
+    if (!text && reasoningFallback) text = stripThinking(message?.reasoning);
     return text;
+}
+
+// What the model thought, where the provider returns it apart from the answer:
+// `reasoning` (OpenRouter and the gateways that follow it, and what a streamed
+// answer is assembled into, streamAssembly.js) or `reasoning_content`
+// (DeepSeek, GLM, llama.cpp), and a <think> block left in the content.
+function extractOpenAIReasoning(data) {
+    const message = data?.choices?.[0]?.message;
+    const apart = [message?.reasoning, message?.reasoning_content].find((value) => typeof value === "string" && value.trim()) ?? "";
+    const content = typeof message?.content === "string" ? message.content : "";
+    const inline = [...content.matchAll(/<think>([\s\S]*?)(?:<\/think>|$)/gi)].map((match) => match[1]).join("\n");
+    return [apart, inline].map((value) => String(value).trim()).filter(Boolean).join("\n");
 }
 
 function extractOpenAIToolInput(data, tool) {
@@ -1841,7 +1860,13 @@ async function callOpenAIStyleChatCompletions({
         onUsage?.(data);
         // The answer names its server: a KoboldCpp is remembered for one.
         noteKoboldCpp(endpoint, data);
-        const text = extractOpenAIMessageText(data);
+        // A structured task reads the answer and the reasoning apart (see
+        // extractOpenAIMessageText): `reasoningText` goes back with an answer
+        // that has no content, so the task can say the model wrote only its
+        // reasoning, and is never parsed as the answer itself.
+        const text = extractOpenAIMessageText(data, { reasoningFallback: !tool });
+        const reasoningText = tool && !text ? extractOpenAIReasoning(data) : "";
+        const thoughtOnly = reasoningText ? { reasoningText } : {};
 
         // Some gateways put "the request does not fit the context window" in a
         // 200 body as if it were the answer. It is not one, and no retry can help
@@ -1903,7 +1928,10 @@ async function callOpenAIStyleChatCompletions({
             // here, because it only advances on an HTTP 400/422 and this arrives
             // as a perfectly good 200 full of prose. Advance it on "no tool call"
             // too. Each rung transitions at most once, so this terminates.
-            if (looksLikeDeliberation(text) && canRetryBeforeDeadline(deadline, 0)) {
+            // Reasoning that came back alone is judged here as it was before it
+            // was read apart from the answer, so this step is taken when it
+            // always was and not more often.
+            if (looksLikeDeliberation(text || reasoningText) && canRetryBeforeDeadline(deadline, 0)) {
                 // The rung order lives in structuredMode.js, with the tests that
                 // pin it. Native OpenAI enforces tool_choice, so it never steps
                 // down out of tool mode - a deliberating model there is a
@@ -1925,7 +1953,10 @@ async function callOpenAIStyleChatCompletions({
                 }
             }
 
-            if (structuredMode === "tool") return { rawText: extractOpenAIToolRaw(data, tool) || text, toolInput: null };
+            if (structuredMode === "tool") {
+                const toolRaw = extractOpenAIToolRaw(data, tool);
+                return { rawText: toolRaw || text, toolInput: null, ...(toolRaw ? {} : thoughtOnly) };
+            }
             // Landed below where this call began, with something to show for it.
             // The ladder only steps down after a failure above, so arriving here
             // with content is the endpoint telling us which method it honours —
@@ -1933,7 +1964,7 @@ async function callOpenAIStyleChatCompletions({
             // rather than the game re-learning it on every call.
             if (text) noteStructuredModeLanding(observerKey, startedStructuredMode, structuredMode, configuredStructuredMode);
             if (structuredMode === "json_schema" && text) return { rawText: text, toolInput: null };
-            return { rawText: text, toolInput: null };
+            return { rawText: text, toolInput: null, ...thoughtOnly };
         }
         keepProseClosedEarly(data?.closedEarly, text, onUnmarkedEnd);
 

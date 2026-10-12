@@ -275,7 +275,7 @@ test("the task runner says when a call ended on the connection, on its result an
   assert.match(body, /transportFailure = connectionClosed \|\| isUnreachableError\(actualError\);/, "a server never reached, or a connection that closed mid-answer");
   assert.match(body, /payload: await fallback\(\),[^}]*\.\.\.\(transportFailure \? \{ transportFailure: true \} : \{\}\),\s*\};/, "beside the generation, which is written into the game's history");
   assert.match(body, /throw Object\.assign\(new Error\(`AI task "\$\{taskKey\}" failed: \$\{failureReason\}`\), transportFailure \? \{ transportFailure: true \} : \{\}\);/);
-  assert.match(gameplaySource, /import \{ OUTPUT_LIMIT_MESSAGE, isUnreachableError \} from "\.\/providerErrors\.js";/);
+  assert.match(gameplaySource, /import \{ OUTPUT_LIMIT_MESSAGE, [^}]*\bisUnreachableError \} from "\.\/providerErrors\.js";/);
 });
 
 test("the finish reads a folded skip's review off its own answer, and asks for one only when it was not folded", () => {

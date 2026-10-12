@@ -172,7 +172,7 @@ import { formalAgendaProposals } from "./formalAgenda.js";
 import { abandonWorkerJob, createWorkerFailureStreak } from "./statsWorkerJobs.js";
 import { chatParticipantKey, foldGeneratedChatsIntoStorage, isLifecycleNegotiationChat, logGeneratedChat } from "./chatFold.js";
 import { extractJsonPayload, parseWithoutTrailingFields, unwrapMimickedToolCall } from "./jsonSalvage.js";
-import { OUTPUT_LIMIT_MESSAGE, isUnreachableError } from "./providerErrors.js";
+import { OUTPUT_LIMIT_MESSAGE, REASONING_ONLY_MESSAGE, REASONING_ONLY_NOTE, isUnreachableError } from "./providerErrors.js";
 import { isCancelAllAbort } from "./aiRequestControl.js";
 import { isChatVisibleTo, withoutPlayerParticipant } from "./chatVisibility.js";
 import { SIMULATION_AUDIENCE, audienceSeesReport, audienceStoleReport, viewerAudience } from "./audience.js";
@@ -3774,11 +3774,18 @@ const runJsonTask = async (taskKey, {
       // Releases the last event, which a path stream holds back until the stream closes.
       eventReader?.finish();
       const rawText = typeof response === "string" ? response : normalizeString(response?.rawText);
+      // What the model thought, where the provider returned that apart from an
+      // answer it did not write (main.jsx extractOpenAIReasoning). Never the
+      // answer; kept for the report, labelled as what it is.
+      const reasoningText = typeof response === "string" ? "" : normalizeString(response?.reasoningText);
+      const reasoningOnly = !rawText && !response?.toolInput && Boolean(reasoningText);
       // A tool-call answer has no text of its own (Gemini sends the call with
       // no text parts), so the call's input IS the answer. Kept as such, or the
       // debug report the player copies says the provider produced nothing when
       // the model produced a whole turn that then failed validation.
-      lastRawText = rawText || (response?.toolInput ? JSON.stringify(response.toolInput) : "");
+      lastRawText = rawText
+        || (response?.toolInput ? JSON.stringify(response.toolInput) : "")
+        || (reasoningOnly ? `${REASONING_ONLY_NOTE}\n${reasoningText}` : "");
       sawResponseBody = true;
       logDebugEvent("ai", `Task "${taskKey}" attempt ${outputAttempt} answered.`, {
         responseChars: rawText.length,
@@ -3786,7 +3793,43 @@ const runJsonTask = async (taskKey, {
         ...(response?.answeredAsText ? { viaJsonText: true } : {}),
         elapsedMs: Date.now() - taskStartedAt,
       }, { verbose: true });
-      let parsed = response?.toolInput ?? unwrapMimickedToolCall(extractJsonPayload(rawText), tool?.name);
+      // The answer is the object the contract asks for, wherever it stands in
+      // what the model wrote, and never the first fragment that happens to
+      // parse (jsonSalvage.js extractJsonPayload).
+      const contractKeys = normalizeArray(tool?.schema?.required);
+      // Past this much text with no answer in it, what the model wrote was its
+      // planning (a refusal or an error is a line or two).
+      const PLANNING_PROSE_CHARS = 600;
+      // A value that passes the task's own schema check is the whole answer,
+      // and fits better than any count of keys: the tool may ask for a key the
+      // check does not insist on, and an answer without it is still complete.
+      const WHOLE_ANSWER = contractKeys.length + 1;
+      const contractFit = (value) => {
+        const shaped = normalizeGameplayPayload(taskKey, unwrapMimickedToolCall(value, tool?.name));
+        if (!shaped || typeof shaped !== "object" || Array.isArray(shaped)) return 0;
+        const held = contractKeys.filter((key) => shaped[key] !== undefined).length;
+        if (!held) return 0;
+        let whole = false;
+        try { whole = validateGameplayPayload(taskKey, shaped).valid === true; } catch { whole = false; }
+        return whole ? WHOLE_ANSWER : held;
+      };
+      const readAnswer = (text, options = {}) => (contractKeys.length
+        ? extractJsonPayload(text, { prefer: contractFit, fullFit: WHOLE_ANSWER, ...options })
+        : extractJsonPayload(text));
+      let parsed = response?.toolInput ?? unwrapMimickedToolCall(readAnswer(rawText), tool?.name);
+      // Only reasoning came back. It is not read as an answer, with one
+      // exception: an object in it that has everything the contract requires
+      // is the answer the model wrote in the wrong place, and is kept rather
+      // than paid for again. Anything less is planning.
+      if (!parsed && reasoningOnly && contractKeys.length) {
+        const written = unwrapMimickedToolCall(readAnswer(reasoningText, { minFit: WHOLE_ANSWER }), tool?.name);
+        if (written) {
+          parsed = written;
+          logDebugEvent("ai", `Task "${taskKey}" attempt ${outputAttempt}: the model wrote no answer outside its reasoning; the complete answer found inside the reasoning is used.`, {
+            reasoningChars: reasoningText.length,
+          }, { problem: true });
+        }
+      }
       // A time skip's answer ends with its riders, the agents' reports and the
       // history fold, each of which fails open by itself. One that broke the
       // JSON, or was cut off when the answer ran out of room, must not cost the
@@ -4035,7 +4078,15 @@ const runJsonTask = async (taskKey, {
         ? (taskKey === "countryStatSheet" && customFullStatSheet
           ? { valid: true, error: "" }
           : validateGameplayPayload(taskKey, parsed))
-        : { valid: false, error: cutAtLimitUnusable ? OUTPUT_LIMIT_MESSAGE : "Response did not contain parseable JSON or tool arguments." };
+        : {
+          valid: false,
+          // Reasoning and nothing else, whether the provider returned it apart
+          // or the model wrote its planning where the answer goes: long prose
+          // with no object of the contract's in it.
+          error: cutAtLimitUnusable ? OUTPUT_LIMIT_MESSAGE
+            : reasoningOnly || (contractKeys.length && rawText.length > PLANNING_PROSE_CHARS) ? REASONING_ONLY_MESSAGE
+              : "Response did not contain parseable JSON or tool arguments.",
+        };
       // The scenario's stats contract, once the schema passes (validateStatContract).
       if (validation.valid && parsed) {
         const contractError = validateStatContract(taskKey, parsed, statContract);
@@ -4183,8 +4234,9 @@ const runJsonTask = async (taskKey, {
           role: "model",
           // Tool-only answers have no rawText. Preserve the provider's ORIGINAL
           // tool arguments here, not a partially decoded/null intermediate, so
-          // the model can repair exactly what it actually sent.
-          parts: [{ text: rawText || JSON.stringify(response?.toolInput ?? parsed ?? null) }],
+          // the model can repair exactly what it actually sent. Reasoning is
+          // not sent back: it was never an answer, and it is long.
+          parts: [{ text: rawText || (reasoningOnly ? "(No answer was written.)" : JSON.stringify(response?.toolInput ?? parsed ?? null)) }],
         });
         // A model that answered with a tool call is told to call it again; one
         // that answered in prose (local models without tool support) is told to
