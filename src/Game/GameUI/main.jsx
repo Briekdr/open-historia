@@ -162,6 +162,22 @@ const WebGLWarningPopup = () => (
         Try enabling hardware acceleration in your browser settings, updating your graphics
         drivers, or switching to a WebGL-supported browser such as Chrome or Firefox.
       </p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        style={{
+          border: "1px solid #e94560",
+          borderRadius: "8px",
+          background: "#e94560",
+          color: "#fff",
+          padding: "0.55rem 1.2rem",
+          fontSize: "0.9rem",
+          fontWeight: 700,
+          cursor: "pointer",
+        }}
+      >
+        Reload
+      </button>
     </div>
   </div>
 );
@@ -263,8 +279,23 @@ const Main = ({
   const showApiPrompt = loaded && Boolean(activeGame?.id) && !mainMenuOpen && !providerReady
     && apiPromptAnsweredFor !== String(activeGame?.id) && !isSettingsOpen && !showGameLoading;
 
+  // Asked again while the warning is up. WebGL is refused for a moment while
+  // the system's graphics process is being started again (a laptop changing
+  // graphics card, a driver reset, a wake from sleep), and the one check made
+  // at start left the warning on a game that could draw its map a second later.
   useEffect(() => {
-    if (!checkWebGL()) setShowWebGLWarning(true);
+    if (checkWebGL()) return undefined;
+    setShowWebGLWarning(true);
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries += 1;
+      if (checkWebGL()) {
+        clearInterval(timer);
+        // The map was created without a context: only a fresh page gives it one.
+        window.location.reload();
+      } else if (tries >= 20) clearInterval(timer);
+    }, 1500);
+    return () => clearInterval(timer);
   }, []);
 
   // Where the player was looking, in detailed mode only.
