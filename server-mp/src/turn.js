@@ -1,8 +1,14 @@
 /*! Open Historia — short-lived TURN credentials for coturn © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
-// Every game connection goes through the TURN relay (coturn), so players never
-// learn each other's addresses. The relay must not be open to the world, and
-// the server must not keep a user list for it, so credentials follow coturn's
-// "TURN REST API" scheme (use-auth-secret):
+// Every connection made through this server goes through the TURN relay
+// (coturn), relay-only, so on this path the host and the players do not learn
+// each other's addresses. The relay does: it sees every client's address, and
+// coturn names them in its log unless told not to (ops/README.md, "Logs"). No
+// shipped build takes this path yet: private games (src/multiplayer/) connect
+// directly, and there the host and each player see each other's addresses.
+//
+// The relay must not be open to the world, and the server must not keep a user
+// list for it, so credentials follow coturn's "TURN REST API" scheme
+// (use-auth-secret):
 //
 //   username    "<expiry, unix seconds>:<random>"
 //   credential  base64(HMAC-SHA1(TURN_SECRET, username))

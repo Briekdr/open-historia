@@ -4,11 +4,14 @@
 // only, never in the local download. There is nothing to connect to first: the
 // map is part of the site.
 
+// Cinzel + EB Garamond from the bundle, as the loading screen has them
+// (StartupScreen.jsx): this screen used to add a Google Fonts stylesheet, which
+// told Google about every visit before the visitor had pressed anything.
+import "../../assets/fonts/fonts.css";
 import { isNativeApp } from "./nativeBoot.js";
 import { bootText, bootTranslated } from "./bootTexts.js";
 
 const ENTERED_KEY = "oh:entered";
-const FONTS_HREF = "https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap";
 
 // The independence notice, as it stands on the website: a legal text, shown as
 // written in every language.
@@ -153,9 +156,6 @@ const demoAcknowledged = () => {
 
       export const showHomePage = () => {
         if (typeof document === "undefined" || document.getElementById("oh-home-root")) return;
-        if (!document.getElementById("oh-home-fonts")) {
-          document.head.append(el("link", { id: "oh-home-fonts", rel: "stylesheet", href: FONTS_HREF }));
-        }
         document.head.append(el("style", { textContent: css }));
 
         const play = el("button", { className: "oh-btn primary", textContent: `⚔  ${bootText("homeEnter")}`, onclick: () => showDemoNotice(enter) });

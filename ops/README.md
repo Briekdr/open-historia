@@ -7,7 +7,7 @@ One VM runs everything public multiplayer needs, as three containers ([docker-co
 |---|---|---|
 | `caddy` | TLS (Let's Encrypt, renewed by itself). Passes `/ws` and `/api/*` to server-mp; everything else is a 404. | 80/tcp (certificates, redirect), 443/tcp |
 | `server-mp` | Signaling, the public listing and TURN credentials ([../server-mp](../server-mp/README.md)). Reachable only through Caddy, with no way out to the internet. | 8787, inside the compose network only |
-| `coturn` | The TURN relay every game connection goes through, so players never see each other's addresses. On the host's network. | 3478/udp+tcp, 5349/tcp (TLS), 49152-65535/udp (relay ports) |
+| `coturn` | The TURN relay every connection made through server-mp goes through, relay-only, so on this path the host and the players do not see each other's addresses. coturn sees them all, and names them in its log unless told not to (Logs, below). No shipped build takes this path yet: private games connect directly. On the host's network. | 3478/udp+tcp, 5349/tcp (TLS), 49152-65535/udp (relay ports) |
 
 The settings, and the one secret, are in `ops/.env` ([.env.example](.env.example)).
 

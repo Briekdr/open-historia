@@ -102,6 +102,8 @@ import { useIsMobile } from "../../runtime/useIsMobile.js";
 import { usePresenceLeaving } from "./presence.jsx";
 import { ESRI_BASEMAPS, isBuiltinBasemapId } from "../../runtime/assets.js";
 import { getDeviceProfileOverride, isConstrainedDevice, setDeviceProfileOverride } from "../../runtime/deviceProfile.js";
+import { presenceAvailable } from "../../runtime/discordPresence.js";
+import { setVisitConsent, useVisitConsent } from "../../runtime/visitConsent.js";
 import {
     APP_UPDATE_MANUAL_CHECK_RESULT_EVENT,
     appUpdateCheckDescription,
@@ -2223,8 +2225,69 @@ const ExperimentalPill = ({ children = "Experimental" }) => (
 
 const settingsHelper = { ...helperStyle, marginTop: "-0.55rem", marginBottom: "0.85rem" };
 
+// --- Privacy -------------------------------------------------------------------
+// The two things the game tells somebody else about the player that the player
+// can switch off, in one place, with the policy that describes the rest:
+// Discord's "Playing Open Historia" (runtime/discordPresence.js) and the visit
+// counters, whose answer public/consent.js keeps (runtime/visitConsent.js reads
+// it). Each row is shown only where the thing it switches exists: no Discord
+// row on the website or in the Android app, no visit row where nothing is
+// counted.
+
+// A link is not a button: on a touch screen it centres its own text in the
+// height the tap class gives it (as SocialLinks does).
+const PrivacyPolicyLink = () => {
+    const touch = useTouchPrimary();
+    return (
+        <a
+        href={PRIVACY_HREF}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="oh-tap-row"
+        style={{ background: "rgba(59,130,246,0.12)", border: "1px solid rgba(96,165,250,0.24)", borderRadius: "8px", color: "#bfdbfe", fontSize: "0.72rem", fontWeight: 750, padding: "0.45rem 0.65rem", textDecoration: "none", whiteSpace: "nowrap", ...(touch ? { alignItems: "center", display: "inline-flex" } : null) }}
+        >
+        {"Privacy policy"}
+        </a>
+    );
+};
+
+const PrivacySection = ({ discordPresenceOn, onToggleDiscordPresence }) => {
+    const visits = useVisitConsent();
+    const discord = presenceAvailable();
+    // On only after a yes: unanswered, and a no, both read off.
+    const counted = visits?.choice === "yes";
+    const toggleVisits = () => {
+        setVisitConsent(!counted);
+        logSettingChange("Count my visits", !counted);
+    };
+    // The browser's own signal stands in for an answer until the player gives one.
+    const signalNote = Boolean(visits?.refusedBySignal && visits.choice === "");
+    // The section ends on whichever line is last.
+    const lastHelper = { ...settingsHelper, marginBottom: 0 };
+    return (
+        <SettingsSection title="Privacy" description="What the game tells other services about you, and the switches for it." right={<PrivacyPolicyLink />}>
+            {discord && (
+                <>
+                <Toggle label="Show what I am playing on Discord" enabled={discordPresenceOn} onToggle={onToggleDiscordPresence} />
+                <div style={visits ? settingsHelper : lastHelper}>{"Discord shows the country you play, the scenario and the in-game date to people who can see your activity. Desktop app only."}</div>
+                </>
+            )}
+            {visits && (
+                <>
+                <Toggle label="Count my visits" enabled={counted} onToggle={toggleVisits} />
+                <div style={signalNote ? settingsHelper : lastHelper}>{"Lets Google Analytics and Umami count that you played and which version. Google Analytics sets cookies. Off unless you say yes."}</div>
+                {signalNote && <div style={lastHelper}>{"Your browser asks sites not to track you, so this is off."}</div>}
+                </>
+            )}
+            {!discord && !visits && (
+                <div style={{ ...helperStyle, marginTop: 0 }}>{"Nothing to switch off here: this build does not count visits and cannot reach Discord."}</div>
+            )}
+        </SettingsSection>
+    );
+};
+
 const SETTINGS_SECTIONS = [
-    { key: "general", label: "General", icon: "◫", description: "Language, display and accessibility" },
+    { key: "general", label: "General", icon: "◫", description: "Language, display, accessibility and privacy" },
     { key: "map", label: "Map", icon: "◇", description: "Basemap, labels, globe and camera" },
     { key: "ai", label: "AI", icon: "✦", description: "Models, backups, keys and reasoning" },
     { key: "advanced", label: "Advanced", icon: "⌘", description: "Per-task models and expert controls" },
@@ -2399,6 +2462,10 @@ const SettingsWorkspace = ({
                     />
                     {systemReducedMotion && <div style={{ ...helperStyle, marginTop: "-0.6rem", marginBottom: "0.6rem" }}>On, following your system setting for reduced motion.</div>}
                 </SettingsSection>
+                <PrivacySection
+                discordPresenceOn={mapSettings.discordPresence}
+                onToggleDiscordPresence={() => updateMapSetting("discordPresence", MAP_SETTING_KEYS.discordPresence, !mapSettings.discordPresence)}
+                />
                 </>
             )}
 
@@ -2705,6 +2772,8 @@ const SettingsMenu = ({
         liveSkipEvents: getMapSettingDefaultOn(MAP_SETTING_KEYS.liveSkipEvents),
         stopOnPlayerFailures: getMapSetting(MAP_SETTING_KEYS.stopOnPlayerFailures),
         batchBackgroundTasks: getMapSetting(MAP_SETTING_KEYS.batchBackgroundTasks),
+        // Ships ON as well: Discord's "Playing Open Historia" (General → Privacy).
+        discordPresence: getMapSettingDefaultOn(MAP_SETTING_KEYS.discordPresence),
     }));
 
     const updateMapSetting = (stateKey, settingKey, value) => {
@@ -2826,7 +2895,7 @@ const SettingsMenu = ({
         panelContent = (
             <QuickMenuPanel title="Settings" description="Jump straight into the options category you want.">
                 <div style={grid}>
-                    <QuickAction title="General" description="Language, display and accessibility" symbol="◫" tone="blue" onClick={() => openSettingsSection("general")} />
+                    <QuickAction title="General" description="Language, display, accessibility and privacy" symbol="◫" tone="blue" onClick={() => openSettingsSection("general")} />
                     <QuickAction title="Map" description="Basemap, labels, globe and camera" symbol="◇" tone="blue" onClick={() => openSettingsSection("map")} />
                     <QuickAction title="AI" description="Models, backups, keys and reasoning" symbol="✦" onClick={() => openSettingsSection("ai")} />
                     <QuickAction title="Advanced" description="Per-task models and expert controls" symbol="⌘" onClick={() => openSettingsSection("advanced")} />

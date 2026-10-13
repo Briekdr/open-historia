@@ -30,6 +30,9 @@ const SITE_ONLY = [
   "guides", "get-started", "how-to-play", "self-hosting", "pax-historia-alternative", "privacy",
   "sitemap.xml", "sitemap.txt", "robots.txt",
   "sw.js", "version.json",
+  // The gate that asks before the visit counters load. The app counts nothing
+  // and never adds it (src/runtime/visitCount.js), so it does not carry it.
+  "consent.js", "fonts",
 ];
 
 if (!existsSync(path.join(source, "index.html"))) {

@@ -41,3 +41,34 @@ test("Performance mode: the profile running, why, and what a reload would change
     assert.equal(localStorage.getItem("oh_device_profile"), null, "Auto removes the override");
     assert.equal(await line("Performance mode"), "Performance mode: full (memory not reported)");
 });
+
+test("Show what I am playing on Discord: the switch, and that it does nothing where Discord cannot be reached", async () => {
+    // On unless turned off. Node is not a build with a local server beside a
+    // Discord app, which is also what the website and the Android app are.
+    assert.equal(await line("Show what I am playing on Discord"), "Show what I am playing on Discord: on (inactive: this build cannot reach Discord)");
+    localStorage.setItem(MAP_SETTING_KEYS.discordPresence, "0");
+    assert.equal(await line("Show what I am playing on Discord"), "Show what I am playing on Discord: off (inactive: this build cannot reach Discord)");
+    localStorage.removeItem(MAP_SETTING_KEYS.discordPresence);
+});
+
+test("Count my visits: on only after a yes, and why it is off otherwise", async () => {
+    // No consent.js on the page (the Android app): nothing is counted.
+    assert.equal(await line("Count my visits"), "Count my visits: off (visits are not counted here)");
+    const answer = { choice: "", signal: false };
+    const priorWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    globalThis.window = {
+        ohConsent: { counted: () => true, get: () => answer.choice, refusedBySignal: () => answer.signal },
+    };
+    try {
+        assert.equal(await line("Count my visits"), "Count my visits: off (not answered)");
+        answer.signal = true;
+        assert.equal(await line("Count my visits"), "Count my visits: off (the browser asks not to be tracked)");
+        answer.choice = "yes";
+        assert.equal(await line("Count my visits"), "Count my visits: on");
+        answer.choice = "no";
+        assert.equal(await line("Count my visits"), "Count my visits: off");
+    } finally {
+        if (priorWindow) Object.defineProperty(globalThis, "window", priorWindow);
+        else delete globalThis.window;
+    }
+});
