@@ -6,6 +6,12 @@ This project is licensed under the terms of the GNU Affero General Public Licens
 
 Contributions are accepted under the [Contributor Copyright Assignment Agreement](CLA.md), which assigns the copyright in contributions to the Open Historia Organisation. CLA Assistant asks you to sign it on your first pull request; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Scenarios Are Public Domain
+
+The licence above covers the game's code. **Scenarios are different: every scenario made in Open Historia that is posted or shared in any way is public domain.** Whoever posts or shares one dedicates it to the public domain under the [Creative Commons CC0 1.0 Public Domain Dedication](https://creativecommons.org/publicdomain/zero/1.0/): anyone may copy, change, publish and use it, for any purpose, without asking and without giving credit. The same goes for changes suggested to a scenario on the [Scenario Hub](https://github.com/Open-Historia/Open-historia-scenarios).
+
+The game says so on the screens a scenario leaves it from, and writes it into every exported file (`PUBLIC-DOMAIN.txt` in a `.zip`, a `license` record in the scenario's JSON). It does not cover material that was never the poster's to give away, or a detailed map a scenario only names, which keeps the licence on its own post.
+
 ## Privacy
 
 What the game keeps on your device, what it sends and to whom, and what the project holds: see the [privacy policy](https://openhistoria.com/privacy/) (source: [public/privacy/index.html](public/privacy/index.html)).
