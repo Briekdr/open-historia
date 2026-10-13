@@ -19,6 +19,7 @@ import {
 const worldDirection = featureDefaults().worldDirection;
 const playerFocus = featureDefaults().playerFocus;
 const groups = featureDefaults().groups;
+const fronts = featureDefaults().fronts;
 const listenIn = featureDefaults().listenIn;
 const pregameHistory = featureDefaults().pregameHistory;
 
@@ -43,6 +44,7 @@ test("a scenario's configuration is made complete, with malformed values replace
     espionage: { enabled: false },
     idleDiplomacy: { enabled: true, averageMinutes: 8 },
     groups,
+    fronts,
     listenIn,
     pregameHistory,
     worldDirection,
@@ -53,6 +55,7 @@ test("a scenario's configuration is made complete, with malformed values replace
     espionage: { enabled: false },
     idleDiplomacy: { enabled: true, averageMinutes: 720 },
     groups,
+    fronts,
     listenIn,
     pregameHistory,
     worldDirection,

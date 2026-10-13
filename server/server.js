@@ -123,6 +123,7 @@ import { appendLog, clearLog, readLogSince } from "./logStore.js";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 import { DATA_DIR } from "./dataDir.js";
+import { appKindOf } from "./appKind.js";
 import { createDiscordPresence, DISCORD_APPLICATION_ID, normalizePresence } from "./discordPresence.js";
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -615,6 +616,14 @@ const discordPresence = createDiscordPresence({
 app.post("/api/presence", jsonParser, (req, res) => {
   if (isLoopbackAddress(req.socket?.remoteAddress)) discordPresence.update(normalizePresence(req.body));
   res.status(204).end();
+});
+
+// Which application this is: the desktop app (and whether it is the stable one,
+// the beta or the multiplayer build) or the server started by hand. Asked once by
+// the page's visit counter (src/runtime/visitCount.js), which counts each apart.
+// Nothing is looked up to answer it.
+app.get("/api/app-kind", (req, res) => {
+  res.json(appKindOf(process.versions, process.env));
 });
 
 const APP_UPDATE_TTL_MS = 3 * 60 * 1000;

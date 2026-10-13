@@ -1,11 +1,13 @@
 /*! Open Historia — portions (troop deployments + era troop types) © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 import { JSON_URLS, getPrimedScenarioRegionCatalog, loadTurnRestorePoint, primeJson, publishJsonWriteBatch, readJson, reportPerfOperation, writeJson } from "./assets.js";
 import { withMapClaims } from "./mapClaims.js";
+import { populationFigureOf } from "./populationFigure.js";
 import { MAX_GROUPS, applyGroupOps, canRenameGroup, findGroupKey, normalizeGroupAreas, normalizeGroupOp, normalizeGroups } from "./groups.js";
 import { enqueueEventStrings } from "./translator.js";
 import { normalizeTagList } from "./countryTags.js";
 import { MAX_PUPPETS as MAX_WORLD_PUPPETS, PUPPET_KINDS, PUPPET_SECRECY_LEVELS, PUPPET_STATUSES } from "./puppets.js";
 import { displayNameMigrations, renamePolityInColors, renamePolityInWorld, samePolityName } from "../../server/polityRename.js";
+import { renameInBattlefields, renameInTransports } from "../../server/battlefieldNames.js";
 import { advanceRecurringDate, canPlayerDirect, isMilestoneOutstanding, normalizeMilestoneRepeat } from "./projects.js";
 import { dedupeEventLog, eventCanonicalKey } from "./eventDedup.js";
 import { normalizeEventTags } from "./eventTags.js";
@@ -52,6 +54,10 @@ import {
   wrapLng,
 } from "./unitMotion.js";
 import { compareGameDates, normalizeGameDate } from "./gameDates.js";
+import { normalizeBattlefields } from "./fronts/record.js";
+import { normalizeTransports } from "./fronts/transports.js";
+import { normalizeStrikes } from "./strikes.js";
+import { battlefieldHeldClaimants } from "./fronts/heldRegions.js";
 
 export const GAME_DEFAULTS = {
   country: "",
@@ -241,6 +247,16 @@ export const WORLD_DEFAULTS = {
   // save's older treaty/alliance events, so that only ever happens once.
   diplomaticLedgerVersion: 0,
   wars: [],
+  // Where land wars are fought: two sides, the troops each has there, and the
+  // front line between what each holds (runtime/fronts/record.js). Written by
+  // the front engine and by nothing else.
+  battlefields: [],
+  // The transporters carrying troops to where their side holds no land
+  // (fronts/transports.js): ordered, under way, and those that ended last turn.
+  transports: [],
+  // The missiles and bombing runs the last turns' events told of, for the map
+  // to play (strikes.js). They change nothing by themselves.
+  strikes: [],
   // Subordinations: who directs whom. Directional, partly secret, and written
   // only through the diplomatic director's compact puppetUpdates lines — see
   // docs/adr/0004-puppet-ledger-and-secrecy.md.
@@ -1118,6 +1134,10 @@ const normalizeRegionControlOp = (entry) => {
       note,
       ...(basis ? { basis } : {}),
       ...(entry.wholeCountry === true ? { wholeCountry: true } : {}),
+      // A change the front engine worked out from where the line stands, not
+      // one the model wrote: a turn applied a second time takes these out and
+      // works them out afresh (AI/frontTurn.js).
+      ...(entry.by === "front" ? { by: "front" } : {}),
     };
   }
 
@@ -1241,6 +1261,11 @@ export const normalizeUnitEntry = (entry, index = 0) => {
     // war would have a counter (AI/nativeUnitDirector.js): it is disbanded when
     // that war ends. Absent on every other unit.
     ...(normalizeOptionalString(entry.raisedForWar) ? { raisedForWar: normalizeOptionalString(entry.raisedForWar) } : {}),
+    // The battlefield this formation is fighting on (runtime/fronts/). There it
+    // is one of its side's troops and the front engine moves it; the record
+    // here keeps its name and what it is, and takes its place and strength back
+    // when the battlefield closes. Absent on every other unit.
+    ...(normalizeOptionalString(entry.committedTo) ? { committedTo: normalizeOptionalString(entry.committedTo) } : {}),
     source: UNIT_SOURCE_SET.has(source) ? source : "scenario",
     orderId: normalizeOptionalString(entry.orderId),
     createdAt: normalizeOptionalString(entry.createdAt) || timestamp,
@@ -2710,6 +2735,30 @@ const reportUnitOpDrop = (entry, index, event) => {
   console.warn(`[ai] unitOps[${index}] dropped — ${describeUnitOpRejection(entry)}:`, entry);
 };
 
+// An op that names a place and has no coordinates yet is waiting to be placed,
+// not broken. Every event of a time skip looks like this while it is being
+// written: the panel shows the raw answer as it arrives ("Show time skip events
+// as they are written"), and the engine turns `at` into a point only when the
+// whole answer is validated (AI/gameplay.js resolvePlacements). A player's log
+// (2026-10-12) said two squadrons were "dropped — spawn has unusable
+// coordinates (lng=undefined, lat=undefined)" that were on the map a second
+// later. The pass that places them says so itself when it cannot.
+const awaitsPlacement = (entry) => {
+  if (!entry || typeof entry !== "object") return false;
+  const op = normalizeOptionalString(entry.op).toLowerCase();
+  const none = (...values) => values.every((value) => value === undefined || value === null || value === "");
+  if (op === "spawn") {
+    const unit = entry.unit && typeof entry.unit === "object" ? entry.unit : entry;
+    return none(unit.lng, unit.lon, unit.longitude, unit.lat, unit.latitude)
+      && Boolean(normalizeOptionalString(unit.at ?? entry.at) || normalizeOptionalString(unit.regionId ?? entry.regionId));
+  }
+  if (op === "move") {
+    return none(entry.toLng, entry.toLat, entry.lng, entry.lat)
+      && Boolean(normalizeOptionalString(entry.at) || normalizeOptionalString(entry.regionId));
+  }
+  return false;
+};
+
 const normalizeUnitOp = (entry) => {
   if (!entry || typeof entry !== "object") {
     return null;
@@ -3304,8 +3353,12 @@ export const enforceUnitVolume = (world, { playerCode = "", playerCodes = [] } =
     unit.source === "player" ||
     players.has(toCountryName(unit.ownerCode).toLowerCase());
 
-  const mine = units.filter(isPlayers);
-  const theirs = units.filter((unit) => !isPlayers(unit));
+  // A formation fighting on a battlefield is one of its side's troops there
+  // (runtime/fronts/): it is not scenery to thin out, and it takes none of its
+  // country's room on the map.
+  const exempt = (unit) => isPlayers(unit) || Boolean(unit.committedTo);
+  const mine = units.filter(exempt);
+  const theirs = units.filter((unit) => !exempt(unit));
   if (theirs.length === 0) return world;
 
   // A total order, so the same world always prunes to the same list — a rollback
@@ -3462,7 +3515,7 @@ const normalizeEventImpacts = (value, event = null) => {
     unitOps: normalizeArray(value.unitOps)
       .map((entry, index) => {
         const normalized = normalizeUnitOp(entry);
-        if (!normalized) reportUnitOpDrop(entry, index, event);
+        if (!normalized && !awaitsPlacement(entry)) reportUnitOpDrop(entry, index, event);
         return normalized;
       })
       .filter(Boolean),
@@ -3648,6 +3701,8 @@ const normalizePolityOverride = (key, value) => {
     ...(normalizeOptionalString(value.mapDistinctLabel) ? { mapDistinctLabel: normalizeOptionalString(value.mapDistinctLabel) } : {}),
     name: normalizeOptionalString(value.name || value.label),
     note: normalizeOptionalString(value.note),
+    // Its people when the scenario begins, where its author says (runtime/populationFigure.js).
+    ...(populationFigureOf(value) > 0 ? { population: populationFigureOf(value) } : {}),
     ...(POLITY_STATUS_SET.has(status) ? { status } : {}),
     ...(value.verbatim === true ? { verbatim: true } : {}),
   };
@@ -4358,6 +4413,11 @@ export const normalizeWorldState = (world) => {
       ? Math.max(0, Math.trunc(Number(nextWorld.diplomaticLedgerVersion)))
       : 0,
     wars: normalizeWorldWars(nextWorld.wars),
+    // Shape and length only: the engine wrote every record, and this runs on
+    // every read of the world.
+    battlefields: normalizeBattlefields(nextWorld.battlefields),
+    transports: normalizeTransports(nextWorld.transports),
+    strikes: normalizeStrikes(nextWorld.strikes),
     puppets: normalizeWorldPuppets(nextWorld.puppets, diplomaticIdentityWorld),
     storylines: normalizeWorldStorylines(nextWorld.storylines),
     simulationRules: normalizeOptionalString(nextWorld.simulationRules),
@@ -5174,6 +5234,28 @@ const settleRegionClaims = (world, regionId) => {
   if (!world.settledRegionClaims.includes(regionId)) world.settledRegionClaims.push(regionId);
 };
 
+// A world in which no region is disputed for being held on a battlefield
+// (fronts/heldRegions.js): the claimants a battlefield accounts for are taken
+// off the regions its sides have taken from each other. The world itself when
+// there is nothing to take off. For a game saved while such ground was still
+// drawn in stripes, when its next turn's land war is written.
+export const withoutBattlefieldDisputes = (world) => {
+  const changed = battlefieldHeldClaimants({
+    battlefields: world?.battlefields,
+    owners: world?.regionOwnershipOverrides,
+    sovereigns: world?.regionSovereigntyOverrides,
+    claimants: world?.regionClaimants,
+  });
+  if (changed.size === 0) return world;
+  const next = {
+    ...world,
+    regionClaimants: { ...world.regionClaimants },
+    settledRegionClaims: Array.isArray(world.settledRegionClaims) ? [...world.settledRegionClaims] : [],
+  };
+  for (const [regionId, kept] of changed) writeRegionClaimants(next, regionId, kept);
+  return next;
+};
+
 // Legal sovereignty is stored SPARSELY: an entry exists only while the lawful
 // sovereign differs from the polity administering the region (an occupation, a
 // displaced government's homeland). Normal territory has no row.
@@ -5327,9 +5409,21 @@ const applyPolityAndTerritoryImpacts = ({
       foundPolityIfUnknown(world, colors, toCode);
       world.regionOwnershipOverrides[regionId] = toCode;
       writeRegionSovereign(world, regionId, legalSovereign);
-      const claimants = existing.filter((name) => !samePolity(name, toCode));
-      if (currentController && !samePolity(currentController, toCode)) claimants.push(currentController);
-      if (legalSovereign && !samePolity(legalSovereign, toCode)) claimants.push(legalSovereign);
+      // Ground taken on a battlefield (the front engine's own operation, marked
+      // by: "front") is simply controlled by whoever took it. The lawful
+      // sovereign is recorded as for any occupation, so the region reads as
+      // held by one country and belonging to another; but it is not made a
+      // disputed region, which the map draws in stripes. Whoever just lost it,
+      // and whose it lawfully is, come OFF its claimants; a dispute it has with
+      // anybody else stands.
+      const fought = op.by === "front";
+      const claimants = existing.filter((name) => !samePolity(name, toCode)
+        && !(fought && (samePolity(name, currentController) || samePolity(name, legalSovereign))));
+      if (!fought) {
+        if (currentController && !samePolity(currentController, toCode)) claimants.push(currentController);
+        if (legalSovereign && !samePolity(legalSovereign, toCode)) claimants.push(legalSovereign);
+      }
+      if (fought && claimants.length === 0 && existing.length === 0) continue;
       writeRegionClaimants(world, regionId, claimants);
       continue;
     }
@@ -5666,6 +5760,11 @@ export const applyEventImpactsToWorld = ({
       nextWorld.groups = applied.groups;
       nextWorld.groupAreas = applied.groupAreas;
       for (const change of applied.changes) {
+        // A group that fights on a battlefield is named there as a side's member.
+        if (change.op === "rename") {
+          nextWorld.battlefields = renameInBattlefields(nextWorld.battlefields, change.from, change.name);
+          nextWorld.transports = renameInTransports(nextWorld.transports, change.from, change.name);
+        }
         if (change.op === "refused") console.warn(`[groups] "${change.name}" was not created on event "${event.title}": the ${MAX_GROUPS}-group limit is reached.`);
       }
     }

@@ -61,6 +61,9 @@ const withoutHints = (events) => asArray(events).map((event) => {
     return rest;
 });
 
+// `battlefieldRegions`: in a game that fights its land wars on battlefields,
+// how the territory Director learns which regions are the front engine's to
+// decide (nativeTerritoryDirector.js); null everywhere else.
 // -> { events, structureLinks }
 export const applyMapConsequences = async ({
     events = [],
@@ -70,6 +73,7 @@ export const applyMapConsequences = async ({
     analyze = {},
     findPlaces = null,
     resolveControl = async () => {},
+    battlefieldRegions = null,
     signal = null,
 } = {}) => {
     let current = asArray(events);
@@ -95,7 +99,7 @@ export const applyMapConsequences = async ({
     // a Scene trades by agreement arrives on the Scene outcome itself.
     if (typeof analyze.territory === "function") {
         try {
-            const marked = await directGeneratedTerritoryOps({ events: current, world, findPlaces, signal, analyzeBatch: asking(analyze.territory) });
+            const marked = await directGeneratedTerritoryOps({ events: current, world, findPlaces, signal, battlefieldRegions, analyzeBatch: asking(analyze.territory) });
             await resolveControl(marked.map((event, index) => ({ event, impacts: event?.impacts, path: `$.events[${index}].impacts` })));
             current = marked;
         } catch (error) {

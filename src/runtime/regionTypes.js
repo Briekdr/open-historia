@@ -9,7 +9,10 @@
 //     (regionTypeRenderStyles, regionTypeFeatureState; Nations.jsx);
 //   - the unit and structure directors are told a type's rules for moving
 //     and placing (regionTypeRules; gameplay.js), inside requests they make
-//     anyway.
+//     anyway;
+//   - a type that is WATER (isWaterType) is sea to the land war: transporters
+//     sail through its regions, no troop marches across them, and they are
+//     nobody's front (runtime/fronts/worldGrid.js, arena.js, engine.js).
 //
 // Only what differs from the Workshop's default Land type counts, so a map
 // whose types are left as they come looks and plays exactly as before. The
@@ -46,6 +49,21 @@ const rgb = (value) => (Array.isArray(value) && value.length >= 3 && value.slice
   ? value.slice(0, 3).map((c) => Math.round(Math.min(255, Math.max(0, Number(c)))))
   : null);
 const flag = (value, fallback) => (typeof value === "boolean" ? value : fallback);
+
+// A type whose regions are water: a sea, an ocean, a lake. The Workshop's
+// Water switch says so. A type nobody has set it on (every type made before
+// there was one) is water when its name says it is: "Sea", "Deep Ocean",
+// "Open Water", "Lakes". A map whose sea is drawn as regions (a pirate's
+// world, with every stretch of water a region somebody can hold) is then
+// sailed like any other, and its armies do not walk across it.
+const WATER_NAME = /(?:^|[^\p{L}])(?:oceans?|seas?|waters?|lakes?)(?:$|[^\p{L}])/iu;
+export const isWaterType = (type) => {
+  if (!type || typeof type !== "object") return false;
+  if (typeof type.water === "boolean") return type.water;
+  return WATER_NAME.test(text(type.name));
+};
+// The ids of the types that are water.
+export const waterTypeIds = (types) => new Set((Array.isArray(types) ? types : []).filter(isWaterType).map((type) => text(type?.id)).filter(Boolean));
 
 // The types as the Workshop keeps them, cleaned: each has an id (the first of
 // an id wins), a name, and every setting in range, missing ones at Land's
@@ -184,7 +202,10 @@ export const regionTypeFeatureState = (style, { owned = false, zoom = 0 } = {}) 
 export const regionTypeRuleText = (type) => {
   const rules = [];
   const speed = number(type?.pathfindingSpeed, 1, 0, 100);
-  if (type?.passable === false || speed === 0) {
+  if (isWaterType(type)) {
+    // (Whatever else it is set to: a sea made impassable to keep armies off it is still a sea to a fleet.)
+    rules.push("water: fleets and aircraft only; no land unit enters these regions and nothing is built in them");
+  } else if (type?.passable === false || speed === 0) {
     rules.push("impassable: no unit enters or crosses these regions, so route around them");
   } else if (speed !== 1) {
     rules.push(speed < 1

@@ -405,6 +405,15 @@ export const stoppedAtOutputLimit = (data) =>
 // What the player reads when such an answer could not be used.
 export const OUTPUT_LIMIT_MESSAGE = "The model stopped at its output limit before it finished its answer.";
 
+// What the player reads when a structured task's reply was the model's
+// reasoning and nothing else: no tool call, no content, and no answer anywhere
+// in what it thought. The reader used to be handed the reasoning as if it were
+// the answer, and the player was told "$.events is required."
+export const REASONING_ONLY_MESSAGE = "The model wrote only its reasoning and no answer.";
+// What stands above that reasoning where a report prints the rejected reply,
+// so nobody reads the model's planning as the answer it gave.
+export const REASONING_ONLY_NOTE = "(the model wrote no answer; this is its reasoning)";
+
 // The server never answered: nothing is listening at the address, the name
 // does not resolve, the connection was refused or reset. `server` is its
 // address as the player entered it and `reason` what the connection reported

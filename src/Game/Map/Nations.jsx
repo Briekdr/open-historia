@@ -41,6 +41,7 @@ import { toCountryName } from "../../runtime/ownerNames.js";
 import { summarizePolityLabelDiagnostics } from "./vnext/polityLabels.js";
 import { translateLabel } from "../../runtime/translator.js";
 import { MAP_SETTING_KEYS, reduceMotionEnabled, useMapSetting, useMapSettingValue } from "../../runtime/mapSettings.js";
+import { getFrontShownOwners, shownOwnerIds, subscribeFrontShownOwners, withShownOwners, withoutShownTransitions } from "./frontOwnership.js";
 import { useActiveFeatures } from "../../runtime/gameFeatures.js";
 import { getWorldStateSnapshot, useWorldState } from "./useWorldState.js";
 import { cityPopulationOverridesByTileName, effectiveCityPopulation } from "../../runtime/cityPopulation.js";
@@ -388,7 +389,7 @@ const WorldMap = ({ isGlobe = false }) => {
     worldState,
     worldKnown,
     customRegions: customFlag,
-    regionOwnershipOverrides,
+    regionOwnershipOverrides: worldRegionOwnershipOverrides,
     regionClaimants,
     polityOverrides,
     groups,
@@ -398,6 +399,26 @@ const WorldMap = ({ isGlobe = false }) => {
     labelHaloColor,
     labelTextColor,
   } = useWorldState();
+  // A region a battlefield has taken in name but not yet in full is DRAWN as
+  // its old holder's until all of it is held (frontOwnership.js). Everything
+  // below that follows ownership (fills, borders, labels) reads this, and so
+  // follows what is drawn; a click is still told whose a region really is.
+  const frontShownOwners = useSyncExternalStore(subscribeFrontShownOwners, getFrontShownOwners);
+  const regionOwnershipOverrides = useMemo(
+    () => withShownOwners(worldRegionOwnershipOverrides, frontShownOwners, polityOverrides),
+    [worldRegionOwnershipOverrides, frontShownOwners, polityOverrides],
+  );
+  const trueOwnershipRef = useRef(null);
+  trueOwnershipRef.current = { world: worldRegionOwnershipOverrides, shown: frontShownOwners };
+  // A change of what a battlefield draws is not swept across the map as a
+  // change of ownership is: the paint over the region has shown it changing
+  // hands already. These are the regions the last such change could touch.
+  const quietOwnershipIdsRef = useRef(new Set());
+  const lastShownOwnersRef = useRef(frontShownOwners);
+  if (lastShownOwnersRef.current !== frontShownOwners) {
+    quietOwnershipIdsRef.current = shownOwnerIds(lastShownOwnersRef.current, frontShownOwners);
+    lastShownOwnersRef.current = frontShownOwners;
+  }
   // Groups switched off for this game draw no area (server/gameFeatures.js);
   // the world keeps them for a game switched back on.
   const groupsOn = useActiveFeatures().groups?.enabled !== false;
@@ -988,7 +1009,11 @@ const WorldMap = ({ isGlobe = false }) => {
       const lookupOwner = ownerLookupRef.current.size
         ? ownerLookupRef.current.get(regionId)
         : undefined;
-      const owner = lookupOwner !== undefined ? lookupOwner : props.owner;
+      // Whose it IS, where a battlefield still draws it as another's.
+      const trueOwner = trueOwnershipRef.current?.shown?.[regionId] !== undefined
+        ? trueOwnershipRef.current.world?.[regionId]
+        : undefined;
+      const owner = trueOwner !== undefined ? trueOwner : lookupOwner !== undefined ? lookupOwner : props.owner;
       const gid0 = String(props.gid0 ?? props.GID_0 ?? "");
       return {
         props,
@@ -1648,8 +1673,9 @@ const WorldMap = ({ isGlobe = false }) => {
           || Number(snapshot.latestDesired?.revision) !== revision
         ) return;
 
-        const transitionData = result.ownershipTransitionData?.features?.length
-          ? result.ownershipTransitionData
+        const sweptData = withoutShownTransitions(result.ownershipTransitionData, quietOwnershipIdsRef.current);
+        const transitionData = sweptData?.features?.length
+          ? sweptData
           : EMPTY_FEATURE_COLLECTION;
         if (!transitionData.features.length) return;
 
@@ -1703,9 +1729,12 @@ const WorldMap = ({ isGlobe = false }) => {
 
       boundaryWorkerRestartCountRef.current = 0;
       const isOwnershipUpdate = request?.payload?.type === "update-ownership";
+      const sweepData = isOwnershipUpdate
+        ? withoutShownTransitions(result.ownershipTransitionData, quietOwnershipIdsRef.current)
+        : null;
       const hasOwnershipSweep = Boolean(
         isOwnershipUpdate
-        && result.ownershipTransitionData?.features?.length,
+        && sweepData?.features?.length,
       );
 
       if (hasOwnershipSweep) {
@@ -1718,7 +1747,7 @@ const WorldMap = ({ isGlobe = false }) => {
         // latency advantage.
         const { entry, added, publishNow } = ownershipPresentation.acceptCartography({
           revision: Number(request?.revision ?? result?.requestId ?? 0),
-          transitionData: result.ownershipTransitionData,
+          transitionData: sweepData,
           cartographyResult: {
             boundaryPatch: result.boundaryPatch,
             disputedData: result.disputedData,

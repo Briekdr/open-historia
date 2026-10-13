@@ -72,6 +72,9 @@ export const discardKeptTurn = hostOnly(async (...args) => (await gameplay()).di
 // backstory is the game's own record, so a page playing a shared game writes
 // none (as hostQuietly does, written out so this stays one plain forward).
 export const maybeGeneratePregameHistory = async (...args) => (inSharedGame() ? null : (await gameplay()).maybeGeneratePregameHistory(...args));
+// The fronts a scenario begins with, built when its game is first entered: the
+// game's own record, so a page playing a shared game builds none.
+export const maybeOpenScenarioFronts = async (...args) => (inSharedGame() ? null : (await gameplay()).maybeOpenScenarioFronts(...args));
 // A scenario's own pre-history, written in the Workshop: not the game being played.
 export const generateScenarioPrehistory = async (...args) => (await gameplay()).generateScenarioPrehistory(...args);
 
@@ -145,3 +148,14 @@ export const generateCountryStats = async (...args) => (await gameplay()).genera
 // It writes nothing to the game: asked with the player's own key, kept on the
 // player's own device, so a page playing a shared game asks it like any other.
 export const generateListenInFeed = async (...args) => (await gameplay()).generateListenInFeed(...args);
+// The war room: one request for what the player's generals answer
+// (warRoomContext.js). It writes nothing itself: what they said and the orders
+// they took are written by the caller through runtime/warRoomWrites.js, which
+// is where a shared game's rules apply.
+export const generateWarRoomReply = async (...args) => (await gameplay()).generateWarRoomReply(...args);
+// The war room: which routes drawn on a battlefield go into a country outside
+// its war. Read from the map, with no request made and nothing written.
+export const warRoomRouteAttacks = async (...args) => (await gameplay()).warRoomRouteAttacks(...args);
+// The war room: the way each transporter deployed there would take. Read from
+// the map, with no request made and nothing written.
+export const warRoomTransportWays = async (...args) => (await gameplay()).warRoomTransportWays(...args);

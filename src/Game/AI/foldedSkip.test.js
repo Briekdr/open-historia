@@ -275,7 +275,7 @@ test("the task runner says when a call ended on the connection, on its result an
   assert.match(body, /transportFailure = connectionClosed \|\| isUnreachableError\(actualError\);/, "a server never reached, or a connection that closed mid-answer");
   assert.match(body, /payload: await fallback\(\),[^}]*\.\.\.\(transportFailure \? \{ transportFailure: true \} : \{\}\),\s*\};/, "beside the generation, which is written into the game's history");
   assert.match(body, /throw Object\.assign\(new Error\(`AI task "\$\{taskKey\}" failed: \$\{failureReason\}`\), transportFailure \? \{ transportFailure: true \} : \{\}\);/);
-  assert.match(gameplaySource, /import \{ OUTPUT_LIMIT_MESSAGE, isUnreachableError \} from "\.\/providerErrors\.js";/);
+  assert.match(gameplaySource, /import \{ OUTPUT_LIMIT_MESSAGE, [^}]*\bisUnreachableError \} from "\.\/providerErrors\.js";/);
 });
 
 test("the finish reads a folded skip's review off its own answer, and asks for one only when it was not folded", () => {
@@ -312,6 +312,10 @@ test("nothing after a skip is a request of its own: no director, no agent, no at
   assert.match(requests, /createJumpBudget\(\{ cap: jumpRequestCap\(\{ segments: pieces \}\), only: SKIP_SPENDERS \}\);/);
   assert.equal(/\bunlimited\b/.test(gameplaySource), false);
   assert.match(requests, /budget\.reserve\("jump", pieces\);/, "every segment keeps its own request");
+  // Upkeep already due keeps its request, one at a time, the history first.
+  assert.ok(requests.includes('if (upkeep?.history) budget.reserve("history", 1);') && requests.includes('else if (upkeep?.stats) budget.reserve("stats", 1);'));
+  assert.equal(gameplaySource.split("upkeep: skipUpkeepDue(").length - 1, 4, "every budget a skip is given");
+  assert.ok(functionBody("trackedStatsPutOff").includes('requests?.budget.release?.("history");'));
   // The two that asked outside the list are told no before they build anything.
   assert.match(gameplaySource, /const insideSkip = Boolean\(requests\?\.budget\) && !requests\.budget\.allows\("geography"\);/);
   assert.match(functionBody("repairSkipStorylineMotion"), /const noRepairRequests = Boolean\(state\?\.requests\?\.budget\) && !state\.requests\.budget\.allows\("repair"\);/);

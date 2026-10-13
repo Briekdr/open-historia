@@ -26,9 +26,13 @@ import { difficultyPassage } from "../../runtime/difficulty.js";
 import { worldFileUrl } from "../../runtime/worldFiles.js";
 import { humanCountriesOf } from "../../runtime/humanPolities.js";
 import { SHARED_WORLD_TASKS, buildSharedGameDirective } from "./sharedGameDirective.js";
+import { unitsOffBattlefields } from "./frontsGate.js";
 
 const normalizeString = (value) => String(value ?? "").trim();
 const normalizeArray = (value) => (Array.isArray(value) ? value : []);
+
+// The tasks whose answer moves units: a time skip and the idle pulse.
+const UNIT_MOVING_TASKS = new Set(["jumpForward", "autoJumpForward", "idleDiplomacy"]);
 
 const joinWithinCharBudget = (
   items,
@@ -958,7 +962,7 @@ export const formatDateReadable = (value) => {
   return parsed.isValid() ? parsed.format("D MMMM YYYY") : normalizeString(value);
 };
 
-// Difficulty 2.0 (runtime/difficulty.js), as the templates carry it: the
+// The difficulty's longer directive (runtime/difficulty.js), as the templates carry it: the
 // leader's diplomacy directive, and the time skip's simulation one. Nothing
 // appends a second copy to those prompts.
 export const buildDifficultyGuidance = (difficulty, mode = "general") =>
@@ -2130,7 +2134,11 @@ export const buildPromptContext = async (bundle, {
   }
 
   if (wants("playerBattalionSummaries", "unitsSummary")) {
-    const unitsText = buildUnitsSummaryText(bundle.world, {
+    // A task that moves units is not shown the formations fighting on a
+    // battlefield: the front engine moves those, and a time skip reads of them
+    // under [Fronts] (frontsGate.js). Every other task's list is the whole map's.
+    const listedUnits = UNIT_MOVING_TASKS.has(taskKey) ? unitsOffBattlefields(bundle.world?.units) : bundle.world?.units;
+    const unitsText = buildUnitsSummaryText(listedUnits === bundle.world?.units ? bundle.world : { ...bundle.world, units: listedUnits }, {
       player: toCountryName(normalizeString(bundle.game?.country)),
       actions: bundle.actions,
       chats: bundle.chats,

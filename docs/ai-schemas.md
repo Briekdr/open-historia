@@ -46,6 +46,7 @@ Diplomatic speaker routing is deliberately absent from this table: one-on-one th
 | `idleDiplomacy` | `IDLE_DIPLOMACY_SCHEMA` | `submit_idle_diplomacy` | idle inbox drip |
 | `pregameHistory` | `PREGAME_HISTORY_SCHEMA` | `submit_pregame_history` | pre-game backstory |
 | `listenIn` | `LISTEN_IN_SCHEMA` | `submit_listen_in_feed` | `generateListenInFeed`: the Listen in phone's feed |
+| `warRoom` | `WAR_ROOM_SCHEMA` | `submit_war_room_reply` | `generateWarRoomReply`: what the player's generals answer in the war room. `{ lines[{ speaker, text, stance }], orders[{ command, order, objective }], generals[] }`; a general is named by his army ("1st Army"), never by an id. Read by `readWarRoomAnswer` (`warRoomContext.js`), which drops an order whose general's `stance` is `objects` and an objective that is not a city of the battlefield |
 
 `getGameplayTool` returns `null` for an unknown key; `validateGameplayPayload` returns `{ valid: false, error: "Unknown gameplay task key: …" }`.
 
@@ -494,6 +495,8 @@ When a model answers in prose instead of a tool call, `runJsonTask` must dig the
 3. **Any fenced block** — `` ```json ``, `` ```JSON ``, `` ```javascript ``, or bare `` ``` `` — parsed leniently.
 4. **`balancedJsonCandidates`** — a string-aware brace/bracket walker that extracts every balanced top-level `{…}`/`[…]`, sorted objects-first so a stray inline array in the model's commentary can't shadow the real object payload. Each candidate is parsed leniently; first object wins.
 5. Returns `null` if nothing parses → Layer 1 reports `"Response did not contain parseable JSON or tool arguments."`
+
+Steps 3 and 4 are what a caller with no contract gets. `runJsonTask` passes `prefer` (how well a value fits the tool's required keys, and whether it passes the task's schema), and then the best-fitting value is taken wherever it stands, never the first that parses; a small fragment in a long text is nothing, and the failure reads `"The model wrote only its reasoning and no answer."` (`REASONING_ONLY_MESSAGE`). Reasoning a provider returns apart from the answer is not put through this ladder as the answer. See `ai-overview.md`, "The answer is the object the contract asks for".
 
 This ladder is what lets local/self-hosted models without tool support still play; hosted providers normally return clean `toolInput` and skip it entirely.
 

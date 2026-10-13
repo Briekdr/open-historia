@@ -354,9 +354,11 @@ test("the placement pass sends a new fleet stranded in its own country to those 
     const rule = body.slice(body.indexOf("if (entry.atSea && gazetteer.regionAt([lng, lat]))"), body.indexOf("// Clear of everything else"));
     assert.match(
         rule,
-        /const ownWaters = !offshore && entry\.spawn && entry\.owner\s*&& gazetteer\.samePolity\(gazetteer\.regionAt\(\[lng, lat\]\)\?\.owner, entry\.owner\)\s*\? homeWaters\(entry\.owner, gazetteer, \{/,
+        /const inOwnCountry = Boolean\(entry\.owner\) && gazetteer\.samePolity\(holder, entry\.owner\);\s*const ownWaters = !offshore && entry\.spawn\s*\? \(inOwnCountry\s*\? homeWaters\(entry\.owner, gazetteer, \{/,
         "a spawn with no sea in reach, in its owner's own country; never a move",
     );
+    // In another power's country: that country's coast nearest the place, then the owner's.
+    assert.match(rule, /: \(holder \? homeWaters\(holder, gazetteer, \{ near: \[lng, lat\], seed: seaSeed \}\) : null\)\s*\?\? \(entry\.owner \? homeWaters\(entry\.owner, gazetteer,/);
     assert.match(rule, /near: \(homeland && !homeland\.error && gazetteer\.capitalOf\(entry\.owner\)\?\.point\) \|\| \[lng, lat\]/, "by the capital when it was given no place at all");
 });
 
@@ -606,7 +608,7 @@ test("the Workshop-free pipeline: a new formation nothing places is raised in it
     const source = readFileSync(new URL("./gameplay.js", import.meta.url), "utf8");
     const body = source.slice(source.indexOf("const resolvePlacements = async"), source.indexOf("// The system prompt a task is sent"));
     assert.ok(body.includes("owner: entry.owner"), "the unit's owner reaches the phrase reader");
-    assert.ok(body.includes("entry.spawn && entry.owner") && body.includes("resolvePlacement(entry.owner, gazetteer"), "a spawn with nowhere to go is raised at home");
+    assert.ok(body.includes("(entry.spawn || entry.build) && entry.owner") && body.includes("resolvePlacement(entry.owner, gazetteer"), "a spawn or a build with nowhere to go is raised at home");
     assert.ok(body.includes("rather than left off the map"), "and the receipt says where it went");
 });
 

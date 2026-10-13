@@ -51,6 +51,7 @@ import FeaturesSectionEditor from "./FeaturesSectionEditor.jsx";
 import StatsSheetEditor, { normalizeStatsEditorValue } from "./StatsSheetEditor.jsx";
 import InstitutionAuthoringPanel from "./InstitutionAuthoringPanel.jsx";
 import PrehistoryPanel from "./PrehistoryPanel.jsx";
+import ScenarioFrontsPanel from "./ScenarioFrontsPanel.jsx";
 const PoliticalWorldAuthoringPanel = lazy(() => import("./PoliticalWorldAuthoringPanel.jsx"));
 const PoliticalWorldGenerationPanel = lazy(() => import("./PoliticalWorldGenerationPanel.jsx"));
 import { isFeatureEnabled, normalizeFeatureOverrides, normalizeFeatureSettings } from "../../runtime/gameFeatures.js";
@@ -388,6 +389,7 @@ const editorSectionLabels = {
   assets: "Assets",
   bundles: "Bundles",
   features: "Features",
+  fronts: "Fronts",
   history: "Pre-history",
   overview: "Overview",
   politics: "Politics",
@@ -1637,7 +1639,7 @@ const EditorDrawer = ({
   const record = kind === "scenario" ? details.scenario : details.game;
   const visibleSections =
     kind === "scenario"
-      ? ["overview", "world", "history", "politics", "stats", "features", "prompts", "assets", "bundles"]
+      ? ["overview", "world", "history", "fronts", "politics", "stats", "features", "prompts", "assets", "bundles"]
       : ["overview", "world", "features", "prompts", "assets"];
   // Two fields to a row leave a phone under 140 px for each, too narrow for a
   // date or a font name, so there the fields stack.
@@ -1849,6 +1851,13 @@ const EditorDrawer = ({
 
       {editorSection === "history" && kind === "scenario" && (
         <PrehistoryPanel
+          details={details}
+          onDetailsChange={onDetailsChange}
+        />
+      )}
+
+      {editorSection === "fronts" && kind === "scenario" && (
+        <ScenarioFrontsPanel
           details={details}
           onDetailsChange={onDetailsChange}
         />

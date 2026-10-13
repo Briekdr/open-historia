@@ -149,7 +149,7 @@ const TOOLS = [
     { id: "reminders", title: "Simulation Reminders", subtitle: "Standing facts every AI in the game is told until you withdraw them — and what the next skip will hear", icon: "❖" },
     { id: "roll-back-turn", title: "Roll Back Turn", subtitle: "Restore the game to the start of an earlier turn", icon: "↶" },
     { id: "your-country", title: "Play As Country", subtitle: "Change which country you're currently controlling", icon: "♛" },
-    { id: "difficulty", title: "Difficulty", subtitle: "Tune simulation rigor without anti-player bias", icon: "◈" },
+    { id: "difficulty", title: "Difficulty", subtitle: "Decide how things tend to go for you", icon: "◈" },
     { id: "annex-country", title: "Annex Country", subtitle: "Transfer an entire country's mapped territory", icon: "⇢" },
     { id: "annex-regions", title: "Annex Regions", subtitle: "Transfer individual map regions to another country", icon: "⌖" },
     { id: "edit-country", title: "Country Editor", subtitle: "Edit a country's identity and properties", icon: "◆" },
@@ -4402,9 +4402,12 @@ const ToolView = ({ tool, header, busy, status, game, polities, refresh, runBusy
                     padding: "0.58rem 0.68rem",
                 }}>
                     <strong style={{ color: "#f4f4f5", display: "block", fontSize: "0.72rem", marginBottom: "0.12rem" }}>
-                        CAUSAL CHALLENGE · NOT RUBBER-BANDING
+                        HOW THINGS GO FOR YOU
                     </strong>
-                    Difficulty changes how uncertainty, weak plans, opposition, and bargaining are resolved. Higher levels mean less benefit of the doubt and more competent opponents — never secret anti-player knowledge, arbitrary bad luck, or a world that conspires against you.
+                    Difficulty decides how things tend to go for you. On the easy levels your orders usually succeed and luck breaks your way; on Medium the world is realistic; on the hard levels your orders fall short and luck breaks against you. At every level each outcome has a cause, and what you order is always attempted.
+                    <div style={{ marginTop: "0.32rem" }}>
+                        On battlefields the level is also a stated handicap. Medium is realistic and fair. Above it the armies fighting you fight harder, advance faster and are reinforced more, hugely so on Impossible. Below it they are the ones held back.
+                    </div>
                 </div>
 
                 <div style={{ display: "grid", gap: "0.42rem", gridTemplateColumns: "1fr 1fr" }}>

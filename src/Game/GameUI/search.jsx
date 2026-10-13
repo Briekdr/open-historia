@@ -19,7 +19,7 @@ import {
   searchLocalPlaces,
   subscribeWorldPlaceIndex,
 } from "../../runtime/placeSearch.js";
-import { BESIDE_DOCK_LEFT, DOCK_BOTTOM_REM, DOCK_BUTTON_BOTTOM, DOCK_HEIGHT_REM, DOCK_LEFT_REM } from "./hudDock.js";
+import { BESIDE_DOCK_LEFT, BESIDE_WAR_ROOM_LEFT, DOCK_BOTTOM_REM, DOCK_BUTTON_BOTTOM, DOCK_HEIGHT_REM, DOCK_LEFT_REM } from "./hudDock.js";
 
 // A small magnifier beside the launcher dock, not a fifth launcher: smaller
 // than the dock's buttons and sitting on the same baseline as their bottoms.
@@ -163,7 +163,9 @@ const localEntry = (place) => ({
   lookup: place.lookup,
 });
 
-const Search = memo(({ mapRef }) => {
+// `besideWarRoom`: the war room's button is standing beside the dock (main.jsx),
+// so Search begins beyond it. (Not on a phone, where that button is above the dock.)
+const Search = memo(({ mapRef, besideWarRoom = false }) => {
   const isMobile = useIsMobile();
   const isTouch = useTouchPrimary();
   const [expanded, setExpanded] = useState(false);
@@ -373,7 +375,7 @@ const Search = memo(({ mapRef }) => {
         bottom,
         // hudDock.js derives this from the dock's launcher count, so a new
         // launcher can't end up underneath it.
-        left: `calc(${phoneBar ? `${DOCK_LEFT_REM}rem` : BESIDE_DOCK_LEFT} + ${SAFE_LEFT})`,
+        left: `calc(${phoneBar ? `${DOCK_LEFT_REM}rem` : besideWarRoom && !isMobile ? BESIDE_WAR_ROOM_LEFT : BESIDE_DOCK_LEFT} + ${SAFE_LEFT})`,
         height: size,
         width: expanded ? (isMobile ? `calc(100vw - 1rem - ${SAFE_LEFT} - ${SAFE_RIGHT})` : "17rem") : size,
         overflow: "visible",

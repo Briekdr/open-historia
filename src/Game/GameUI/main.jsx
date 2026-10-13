@@ -7,6 +7,10 @@ import { LibraryTopBar, TOP_BAR_OFFSET, openLibraryTab, useMainMenuOpen } from "
 import { ApiSetupPrompt } from "./apiSetupPrompt.jsx";
 import { GameLoadingScreen, useGameLoading } from "./gameLoadingScreen.jsx";
 import { useLibraryState } from "../../runtime/library.js";
+import { useActiveFeatures, isActiveFeatureEnabled } from "../../runtime/gameFeatures.js";
+import { useRuntimeState } from "../../runtime/useRuntimeState.js";
+import { brushedMetalUrl } from "./brushedMetal.js";
+import { playerFrontsKey } from "./warRoomData.js";
 import { presenceFor, useDiscordPresence } from "../../runtime/discordPresence.js";
 import { DISCORD_URL, GITHUB_URL, REDDIT_URL } from "../../runtime/communityLinks.js";
 import { useCountryDisplayName } from "../../runtime/polityNames.js";
@@ -18,7 +22,9 @@ import { ForcesPanel } from "./forces";
 import { ADVISOR_SLIDE } from "./advisorSlide.js";
 import { useIsMobile } from "../../runtime/useIsMobile.js";
 import { useBackToClose } from "../../runtime/backToClose.js";
-import { MAP_CARD_OPENED, SAFE_BOTTOM, SAFE_RIGHT } from "../../runtime/mobileUi.js";
+import { MAP_CARD_OPENED, SAFE_BOTTOM, SAFE_LEFT, SAFE_RIGHT } from "../../runtime/mobileUi.js";
+import { BESIDE_DOCK_LEFT, DOCK_BOTTOM_REM, DOCK_HEIGHT_REM, DOCK_LEFT_REM, WAR_ROOM_BUTTON_REM } from "./hudDock.js";
+import { showEveryTroop } from "../Map/troopDetail.js";
 import { dismissRegionPopup } from "../Selection/Regions.jsx";
 import { dismissUnitPopup } from "../Selection/Units.jsx";
 import { dismissFeaturePopup } from "../Selection/Features.jsx";
@@ -97,6 +103,11 @@ const LazyAdvisorPanel = lazy(() =>
 const LazyCountryPanel = lazy(() =>
   import("./countryPanel.jsx").then((module) => ({ default: module.CountryPanel })),
 );
+// The war room (warRoom.jsx): nothing of it loads until there is a war and the
+// player opens it.
+const LazyWarRoomPanel = lazy(() =>
+  import("./warRoom.jsx").then((module) => ({ default: module.WarRoomPanel })),
+);
 const LazyCheatsPanel = lazy(() =>
   import("./cheats").then((module) => ({ default: module.CheatsPanel })),
 );
@@ -169,6 +180,22 @@ const WebGLWarningPopup = () => (
         Try enabling hardware acceleration in your browser settings, updating your graphics
         drivers, or switching to a WebGL-supported browser such as Chrome or Firefox.
       </p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        style={{
+          border: "1px solid #e94560",
+          borderRadius: "8px",
+          background: "#e94560",
+          color: "#fff",
+          padding: "0.55rem 1.2rem",
+          fontSize: "0.9rem",
+          fontWeight: 700,
+          cursor: "pointer",
+        }}
+      >
+        Reload
+      </button>
     </div>
   </div>
 );
@@ -206,6 +233,64 @@ const AdvisorButton = ({ isAdvisorOpen, dockStyle, onToggle }) => (
   </button>
 );
 
+// The war room's button: a disc of red metal brushed in circles
+// (brushedMetal.js), with crossed swords cut into it. It is on screen only
+// while the player's troops are on a battlefield, and stands beside the
+// launcher dock where Search otherwise is (Search moves over: hudDock.js). On
+// a phone there is no room beside the dock, so it stands above it.
+const WarRoomIcon = () => (
+  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {/* Cut into the metal: a pale lip under each stroke, the dark of the cut over it. */}
+    <g stroke="rgba(255,214,214,0.5)" strokeWidth="2.1" transform="translate(0.45 0.6)">
+      <path d="M5 4l12.5 12.5M16 19l3-3M18.2 17.8l2 2" />
+      <path d="M19 4L6.5 16.5M8 19l-3-3M5.8 17.8l-2 2" />
+    </g>
+    <g stroke="rgba(34,4,6,0.88)" strokeWidth="2.1">
+      <path d="M5 4l12.5 12.5M16 19l3-3M18.2 17.8l2 2" />
+      <path d="M19 4L6.5 16.5M8 19l-3-3M5.8 17.8l-2 2" />
+    </g>
+  </svg>
+);
+
+// How far in from the corner it stands while the war room is open: clear of the frame's strips.
+const WAR_ROOM_OPEN_INSET_REM = 1.1;
+const WarRoomButton = ({ open, isMobile, onToggle }) => (
+  <button
+    type="button"
+    title="War room"
+    aria-label="War room"
+    aria-pressed={open}
+    data-oh-war-room-button=""
+    onClick={onToggle}
+    style={{
+      ...baseStyle,
+      // While the war room is open the dock it stood beside is out of sight, so
+      // it goes to the corner of the screen, inside the frame round the map.
+      left: `calc(${open ? `${WAR_ROOM_OPEN_INSET_REM}rem` : isMobile ? `${DOCK_LEFT_REM}rem` : BESIDE_DOCK_LEFT} + ${SAFE_LEFT})`,
+      bottom: `calc(${open ? WAR_ROOM_OPEN_INSET_REM : isMobile ? DOCK_BOTTOM_REM + DOCK_HEIGHT_REM + 0.5 : DOCK_BOTTOM_REM}rem + ${SAFE_BOTTOM})`,
+      height: `${WAR_ROOM_BUTTON_REM}rem`, width: `${WAR_ROOM_BUTTON_REM}rem`,
+      borderRadius: "50%",
+      cursor: "pointer",
+      backdropFilter: "none",
+      backgroundColor: "#a8181e",
+      backgroundImage: `url(${brushedMetalUrl(160)})`,
+      backgroundSize: "cover",
+      border: "1px solid rgba(0,0,0,0.6)",
+      boxShadow: open
+        ? "0 0 0 2px rgba(255,255,255,0.85), 0 3px 12px rgba(0,0,0,0.55)"
+        : "0 3px 12px rgba(0,0,0,0.55)",
+      transition: "left 0.3s ease, bottom 0.3s ease, box-shadow 0.15s ease",
+    }}
+  >
+    <WarRoomIcon />
+  </button>
+);
+
+// The wrapper round the HUD's own controls: nothing of its own to lay out
+// while they show, and all of them gone with it while the war room is open.
+const HUD_IN_SIGHT = Object.freeze({ display: "contents" });
+const HUD_OUT_OF_SIGHT = Object.freeze({ display: "none" });
+
 const Main = ({
   mapRef,
   isGlobeEnabled,
@@ -226,6 +311,8 @@ const Main = ({
   const [isInteractiveOpen, setIsInteractiveOpen] = useState(false);
   const [isAdvisorOpen, setIsAdvisorOpen] = useState(false);
   const [isCountryOpen, setIsCountryOpen] = useState(false);
+  const [isWarRoomOpen, setIsWarRoomOpen] = useState(false);
+  const [shouldLoadWarRoom, setShouldLoadWarRoom] = useState(false);
   const [advisorWidth, setAdvisorWidth] = useState(readAdvisorWidth);
   // A starter message queued for the advisor's input box — set when something
   // OUTSIDE the advisor panel (the Actions panel's "Help brainstorm actions"
@@ -288,8 +375,23 @@ const Main = ({
     if (sharedRole) setIsCheatsOpen(false);
   }, [sharedRole]);
 
+  // Asked again while the warning is up. WebGL is refused for a moment while
+  // the system's graphics process is being started again (a laptop changing
+  // graphics card, a driver reset, a wake from sleep), and the one check made
+  // at start left the warning on a game that could draw its map a second later.
   useEffect(() => {
-    if (!checkWebGL()) setShowWebGLWarning(true);
+    if (checkWebGL()) return undefined;
+    setShowWebGLWarning(true);
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries += 1;
+      if (checkWebGL()) {
+        clearInterval(timer);
+        // The map was created without a context: only a fresh page gives it one.
+        window.location.reload();
+      } else if (tries >= 20) clearInterval(timer);
+    }, 1500);
+    return () => clearInterval(timer);
   }, []);
 
   // Where the player was looking, in detailed mode only.
@@ -475,7 +577,7 @@ const Main = ({
   const isMobile = useIsMobile();
   // (Either way it keeps clear of a notch or rounded corner on the right, like
   // the drawer; the inset is 0 on a desktop.)
-  const rightDrawerOpen = isAdvisorOpen || isCountryOpen;
+  const rightDrawerOpen = isAdvisorOpen || isCountryOpen || isWarRoomOpen;
   // The diplomacy toasts (chat.jsx) sit left of the open drawer rather than
   // over the reply the player is reading in it; following the width variable
   // keeps them there through a drag. Not on a phone, where the drawer is the
@@ -496,8 +598,23 @@ const Main = ({
   // The country badge opens the drawer; on a phone, where the badge is hidden,
   // the country name in the date widget does.
   const toggleCountry = () => {
+    setIsWarRoomOpen(false);
     setIsAdvisorOpen(false);
     setIsCountryOpen((open) => !open);
+  };
+  // The war room's button is there while the player's troops are on a
+  // battlefield where a war is being fought or is frozen by a ceasefire
+  // (warRoomData.js), and fronts are switched on for this game.
+  useActiveFeatures();
+  const playerCountry = activeGame?.country || "";
+  const warFronts = useRuntimeState("world", (world) => playerFrontsKey(world?.battlefields, playerCountry), playerCountry);
+  const atWar = Boolean(warFronts) && isActiveFeatureEnabled("fronts");
+  const closeWarRoomPanel = useCallback(() => setIsWarRoomOpen(false), []);
+  const toggleWarRoom = () => {
+    setShouldLoadWarRoom(true);
+    setIsAdvisorOpen(false);
+    setIsCountryOpen(false);
+    setIsWarRoomOpen((open) => !open);
   };
   const advisorDockStyle = useMemo(() => (isMobile
     ? { right: `calc(0.5rem + ${SAFE_RIGHT})`, transform: "none", transition: `transform ${ADVISOR_SLIDE}` }
@@ -512,11 +629,21 @@ const Main = ({
     ));
   }, []);
 
+  // While the Events panel is open the map shows every troop of a battlefield
+  // from far off, as the war room does (Map/troopDetail.js): what happened is
+  // read in the panel, and where it happened is looked for on the map.
+  const eventsOpen = activeBottomPanel === "history";
+  useEffect(() => {
+    showEveryTroop("events", eventsOpen);
+    return () => showEveryTroop("events", false);
+  }, [eventsOpen]);
+
   // On a phone, Back closes the panel on top instead of leaving the game
   // (runtime/backToClose.js; with a mouse nothing changes).
   useBackToClose(Boolean(activeBottomPanel), () => setActiveBottomPanel(null));
   useBackToClose(isAdvisorOpen, () => setIsAdvisorOpen(false));
   useBackToClose(isCountryOpen, () => setIsCountryOpen(false));
+  useBackToClose(isWarRoomOpen, () => setIsWarRoomOpen(false));
   useBackToClose(isForcesOpen, () => setIsForcesOpen(false));
   useBackToClose(isCheatsOpen, () => setIsCheatsOpen(false));
   useBackToClose(isDebugConsoleOpen, () => setIsDebugConsoleOpen(false));
@@ -567,50 +694,75 @@ const Main = ({
     return () => window.removeEventListener("oh:open-interactive-event", openInteractive);
   }, []);
 
+  // While the war room is open it is the whole of the screen's business: every
+  // other control is put out of sight, the bar across the top with the game's
+  // name and the way out of it, the date, the launchers, Search, the forces,
+  // the country badge, the advisor and the menu. Out of sight, not unmounted:
+  // the date widget goes on running the game. They come back when it is shut.
+  const warRoomShown = isWarRoomOpen && !mainMenuOpen && !hasNoGames;
+  const hudStyle = warRoomShown ? HUD_OUT_OF_SIGHT : HUD_IN_SIGHT;
+
   return (
     <>
       {showWebGLWarning && <WebGLWarningPopup />}
-      <LibraryTopBar onOpenSettings={() => {
-        setSettingsScope("app");
-        setSettingsInitialSection("general");
-        setIsSettingsOpen(true);
-      }} />
-      <DateWidget
-        activePanel={activeBottomPanel}
-        mapRef={mapRef}
-        onSetPanel={setActiveBottomPanel}
-        onTogglePanel={toggleBottomPanel}
-        dockStyle={advisorDockStyle}
-        topOffset={TOP_BAR_OFFSET}
-        onToggleCountry={toggleCountry}
-        countryOpen={isCountryOpen}
-      />
-      <Toolbar
-        onOpenAdvisor={openAdvisor}
-        activePanel={activeBottomPanel}
-        onTogglePanel={toggleBottomPanel}
-        mapRef={mapRef}
-      />
-      <Other
-        dockStyle={advisorDockStyle}
-        active={isCountryOpen}
-        onToggle={toggleCountry}
-      />
-      <Search mapRef={mapRef} />
-      <ForcesPanel
-        mapRef={mapRef}
-        topOffset={TOP_BAR_OFFSET}
-        open={isForcesOpen}
-        onToggle={() => setIsForcesOpen((v) => !v)}
-      />
-      <AdvisorButton
-        isAdvisorOpen={isAdvisorOpen}
-        dockStyle={advisorDockStyle}
-        onToggle={() => {
-          setIsCountryOpen(false);
-          setIsAdvisorOpen((open) => !open);
-        }}
-      />
+      <div data-oh-hud="" style={hudStyle}>
+        <LibraryTopBar onOpenSettings={() => {
+          setSettingsScope("app");
+          setSettingsInitialSection("general");
+          setIsSettingsOpen(true);
+        }} />
+        <DateWidget
+          activePanel={activeBottomPanel}
+          mapRef={mapRef}
+          onSetPanel={setActiveBottomPanel}
+          onTogglePanel={toggleBottomPanel}
+          dockStyle={advisorDockStyle}
+          topOffset={TOP_BAR_OFFSET}
+          onToggleCountry={toggleCountry}
+          countryOpen={isCountryOpen}
+        />
+        <Toolbar
+          onOpenAdvisor={openAdvisor}
+          activePanel={activeBottomPanel}
+          onTogglePanel={toggleBottomPanel}
+          mapRef={mapRef}
+        />
+        <Other
+          dockStyle={advisorDockStyle}
+          active={isCountryOpen}
+          onToggle={toggleCountry}
+        />
+        <Search mapRef={mapRef} besideWarRoom={atWar} />
+        <ForcesPanel
+          mapRef={mapRef}
+          topOffset={TOP_BAR_OFFSET}
+          open={isForcesOpen}
+          onToggle={() => setIsForcesOpen((v) => !v)}
+        />
+        <AdvisorButton
+          isAdvisorOpen={isAdvisorOpen}
+          dockStyle={advisorDockStyle}
+          onToggle={() => {
+            setIsWarRoomOpen(false);
+            setIsCountryOpen(false);
+            setIsAdvisorOpen((open) => !open);
+          }}
+        />
+      </div>
+      {(atWar || isWarRoomOpen) && (
+        <WarRoomButton open={warRoomShown} isMobile={isMobile} onToggle={toggleWarRoom} />
+      )}
+      <Suspense fallback={null}>
+        {shouldLoadWarRoom && (
+          <LazyWarRoomPanel
+            open={warRoomShown}
+            onClose={closeWarRoomPanel}
+            width={advisorCssWidth}
+            onResize={handleAdvisorResize}
+            onResizeEnd={handleAdvisorResizeEnd}
+          />
+        )}
+      </Suspense>
       <Suspense fallback={null}>
         {shouldLoadAdvisor && (
           <LazyAdvisorPanel
@@ -688,7 +840,7 @@ const Main = ({
       </Presence>
       <SettingsButton
         topOffset={TOP_BAR_OFFSET}
-        hidden={isSettingsOpen}
+        hidden={isSettingsOpen || warRoomShown}
         onToggle={() => {
           setSettingsScope("game");
           setSettingsInitialSection(null);

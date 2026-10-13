@@ -27,6 +27,7 @@ import { normalizeProjects } from "../../runtime/gameState.js";
 import { deployFor, disbandFor, revertOrderFor } from "./forces.js";
 import { agentOrderFor } from "./agents.js";
 import { acceptStructure, canSettleStructure, moveStructure } from "../../runtime/structurePlacement.js";
+import { applyWarRoomOp, cleanWarRoomOp } from "../../runtime/fronts/warRoomOps.js";
 
 export const MAX_ORDERS_PER_ROUND = 12;
 // Stat sheets a player may ask the host to write in one round: each is a
@@ -328,6 +329,27 @@ export const createGameHost = ({
         if (refusal) return null;
         const markers = move ? moveStructure(world.markers, found.id, { lng, lat }) : acceptStructure(world.markers, found.id);
         return { ...world, markers };
+      });
+      round.touch(seat.country);
+      return refusal;
+    },
+    // The war room (runtime/fronts/warRoomOps.js): what a player does on a
+    // battlefield its troops are on. The op says which battlefield and what;
+    // whose troops they are is the seat's country and nothing the op says.
+    // Nothing moves for it: the engine puts orders to the troops when the
+    // round is resolved, so it is taken whenever one is not being.
+    warroom: async (connection, { op }, seat) => {
+      if (round.status().phase === "resolving") return "The round is being resolved: the generals take orders once it has landed.";
+      const sent = cleanWarRoomOp(op);
+      if (!sent) return "Nothing was asked.";
+      let refusal = "";
+      await store.updateForces(({ world, game }) => {
+        const result = applyWarRoomOp(world?.battlefields, sent, { player: seat.country, date: clean(game?.gameDate), transports: world?.transports });
+        if (result.error) {
+          refusal = result.error;
+          return null;
+        }
+        return { world: { ...world, battlefields: result.battlefields, ...(result.transports ? { transports: result.transports } : null) } };
       });
       round.touch(seat.country);
       return refusal;

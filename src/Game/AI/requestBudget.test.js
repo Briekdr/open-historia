@@ -403,3 +403,47 @@ test("Settings lists today's requests by task, most first, under their names", (
     assert.deepEqual(requestsByTask(null), []);
     assert.deepEqual(requestsByTask({ toString: 3 }), [{ label: "toString", named: false, count: 3 }], "a key is never read off the prototype");
 });
+
+// A player's log, 2026-10-12: Stats last refreshed in 1921 with the date at
+// 1929. The model looked things up on every skip, the rounds used the budget,
+// and the refresh was put off on every skip for good.
+test("upkeep that is due keeps its request: function calling cannot starve it", () => {
+    const starved = createJumpBudget({ cap: jumpRequestCap({ segments: 1 }), only: SKIP_SPENDERS });
+    starved.reserve("jump", 1);
+    assert.equal(starved.take("jump"), true);
+    assert.equal(starved.take("jumpLookup"), true);
+    assert.equal(starved.take("jumpLookup"), true);
+    assert.equal(starved.take("stats"), false, "what happened on every skip before");
+
+    const kept = createJumpBudget({ cap: jumpRequestCap({ segments: 1 }), only: SKIP_SPENDERS });
+    kept.reserve("jump", 1);
+    kept.reserve("stats", 1);
+    assert.equal(kept.free, 1, "one request is still free for a lookup or for being asked again");
+    assert.equal(kept.take("jump"), true);
+    assert.equal(kept.take("jumpLookup"), true);
+    assert.equal(kept.take("jumpLookup"), false);
+    assert.equal(kept.take("stats"), true);
+    assert.equal(kept.spent, 3, "never past the cap");
+
+    // In segments too: four segments, the model looking up twice.
+    const segmented = createJumpBudget({ cap: jumpRequestCap({ segments: 4 }), only: SKIP_SPENDERS });
+    segmented.reserve("jump", 4);
+    segmented.reserve("stats", 1);
+    for (let index = 0; index < 4; index += 1) assert.equal(segmented.take("jump"), true);
+    assert.equal(segmented.take("jumpLookup"), true);
+    assert.equal(segmented.take("jumpLookup"), false);
+    assert.equal(segmented.take("stats"), true);
+});
+
+test("a request kept for the history fold and not needed goes to the Stats refresh", () => {
+    const budget = createJumpBudget({ cap: jumpRequestCap({ segments: 1 }), only: SKIP_SPENDERS });
+    budget.reserve("jump", 1);
+    budget.reserve("history", 1);
+    assert.equal(budget.take("jump"), true);
+    assert.equal(budget.take("jumpLookup"), true);
+    assert.equal(budget.take("stats"), false, "held for the history while it may still ask");
+    assert.equal(budget.release("history"), 1);
+    assert.equal(budget.release("history"), 0);
+    assert.equal(budget.take("stats"), true);
+    assert.equal(budget.spent, 3);
+});

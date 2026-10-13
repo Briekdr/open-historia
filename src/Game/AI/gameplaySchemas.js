@@ -1,4 +1,5 @@
 import { DEMAND_CHECK_OUTCOMES } from "../../runtime/demandCheck.js";
+import { STATS_BACKEND_FIELD, STATS_BACKEND_KEYS } from "../../runtime/statsBackend.js";
 import { EVENT_TAG_ENUM, MAX_EVENT_TAGS } from "../../runtime/eventTags.js";
 import { normalizeEventPresentation } from "../../runtime/eventQuote.js";
 import {
@@ -10,6 +11,8 @@ import { INSTITUTION_LIFECYCLE_DECISIONS } from "../../runtime/institutions.js";
 import { INSTITUTION_CHAT_ACTION_KINDS } from "./institutionChatActions.js";
 import { extractJsonArray } from "./jsonSalvage.js";
 import { LISTEN_IN_MAX_TRENDS } from "../../runtime/listenIn.js";
+import { WAR_ROOM_ORDERS, WAR_ROOM_STANCES } from "../../runtime/fronts/constants.js";
+import { FRONT_ORDERS_FIELD } from "./nativeFrontLedger.js";
 const textSchema = (description) => ({
   type: "string",
   description,
@@ -1293,6 +1296,13 @@ export const JUMP_FORWARD_SCHEMA = {
       type: "string",
       description: "Political claims; format in prompt. Empty if none.",
     },
+    // The battlefields' orders (nativeFrontLedger.js), the same kind of text
+    // transport. In the contract a skip is SENT only while the game fights its
+    // land wars on battlefields (withFrontOrders); the answer is read either way.
+    [FRONT_ORDERS_FIELD]: {
+      type: "string",
+      description: "Fronts; format in prompt. Empty if none.",
+    },
     // A folded skip's agents' reports (see "The folded time skip" above). Loose
     // here on purpose: each report is checked against the agents' own schema
     // (SPY_INTERCEPT_SCHEMA) when it is filed, so a malformed one costs that
@@ -1329,7 +1339,12 @@ export const AUTO_JUMP_FORWARD_SCHEMA = JUMP_FORWARD_SCHEMA;
 // The lean contract, which foldJumpTool adds to: the answer schema without the
 // board, the agents' reports and the history.
 const JUMP_FORWARD_LEAN_SCHEMA = (() => {
-  const { [AGENT_REPORTS_FIELD]: _agentReports, [HISTORY_FIELD]: _history, ...properties } = JUMP_FORWARD_SCHEMA.properties;
+  const {
+    [AGENT_REPORTS_FIELD]: _agentReports,
+    [HISTORY_FIELD]: _history,
+    [FRONT_ORDERS_FIELD]: _frontOrders,
+    ...properties
+  } = JUMP_FORWARD_SCHEMA.properties;
   return {
     ...JUMP_FORWARD_SCHEMA,
     properties: { ...properties, events: { ...properties.events, items: leanJumpEventSchema } },
@@ -3250,6 +3265,58 @@ const LISTEN_IN_SCHEMA = {
   additionalProperties: false,
 };
 
+// The war room (GameUI/warRoom.jsx): what the player's generals answer when he
+// speaks to them over a battlefield, the orders they took and, the first time,
+// what they are called. A general is named by his army ("1st Army"), never by
+// a number of the game's own. The lists carry no count to fail (and Gemini
+// refuses a bound on a list of objects): warRoomContext.js keeps what a turn
+// of talk holds.
+const WAR_ROOM_SCHEMA = {
+  type: "object",
+  description: "What the generals say to the commander now, and the orders they have accepted.",
+  properties: {
+    lines: {
+      type: "array",
+      description: "What is said, in the order it is said: one to three generals, each once.",
+      items: {
+        type: "object",
+        properties: {
+          speaker: nonEmptyTextSchema("The army whose general speaks, exactly as the prompt lists it: 1st Army."),
+          text: nonEmptyTextSchema("What he says: one to three sentences in his own voice."),
+          stance: {
+            type: "string",
+            enum: [...WAR_ROOM_STANCES],
+            description: "accepts: he takes an order he was just given. objects: he argues against an order he was just given; it is then no order yet and his army is left out of orders. speaks: anything else.",
+          },
+        },
+        required: ["speaker", "text", "stance"],
+        additionalProperties: false,
+      },
+    },
+    orders: {
+      type: "array",
+      description: "The orders the generals accepted in this exchange, one an army at most. Empty when nothing was ordered, or an order was argued against and not repeated.",
+      items: {
+        type: "object",
+        properties: {
+          command: nonEmptyTextSchema("The army ordered, exactly as the prompt lists it: 2nd Army."),
+          order: { type: "string", enum: [...WAR_ROOM_ORDERS], description: "What it is told to do." },
+          objective: textSchema("For an order aimed at a place: the place, as the prompt's list writes it (city: Kharkiv). Blank otherwise."),
+        },
+        required: ["command", "order"],
+        additionalProperties: false,
+      },
+    },
+    generals: {
+      type: "array",
+      description: "Only when the prompt asks for names: every general's rank and name, in the order the prompt lists the armies.",
+      items: textSchema("One general's rank and name, as that army writes them at this date."),
+    },
+  },
+  required: ["lines"],
+  additionalProperties: false,
+};
+
 // A first reading of a polity with neither a stat sheet nor a rated service asks
 // for both in ONE request (gameplay.js ensureCountryAssessed): the stat-sheet
 // tool, standard or scenario-defined, with the intelligence assessment's own
@@ -3296,10 +3363,32 @@ const dropGroupOps = (schema) => {
 };
 export const withoutGroupOps = (tool) => (tool?.schema ? { ...tool, schema: dropGroupOps(tool.schema) } : tool);
 
+// Fronts on for a game (AI/frontsGate.js): a time skip's tool with the
+// battlefields' orders in its contract. Any other tool, and a skip's tool that
+// already has the field, comes back as it was.
+export const withFrontOrders = (tool) => {
+  const properties = tool?.schema?.properties;
+  if (!properties?.events || !properties?.stopDate || properties[FRONT_ORDERS_FIELD]) return tool;
+  return {
+    ...tool,
+    schema: {
+      ...tool.schema,
+      properties: { ...properties, [FRONT_ORDERS_FIELD]: JUMP_FORWARD_SCHEMA.properties[FRONT_ORDERS_FIELD] },
+      // Required in what is SENT: an answer then always says what its
+      // battlefields were told, if only that nothing changed (""). A field a
+      // model may leave out is one a small model does leave out: a live skip
+      // with a battle in every other event came back without it. The answer
+      // is still read without the field (the task's own schema, above).
+      required: [...new Set([...(Array.isArray(tool.schema.required) ? tool.schema.required : []), FRONT_ORDERS_FIELD])],
+    },
+  };
+};
+
 export const GAMEPLAY_SCHEMAS = Object.freeze({
   spyIntercept: SPY_INTERCEPT_SCHEMA,
   intelligenceAssessment: INTELLIGENCE_ASSESSMENT_SCHEMA,
   listenIn: LISTEN_IN_SCHEMA,
+  warRoom: WAR_ROOM_SCHEMA,
   actions: ACTIONS_SCHEMA,
   jumpForward: JUMP_FORWARD_SCHEMA,
   autoJumpForward: AUTO_JUMP_FORWARD_SCHEMA,
@@ -3533,10 +3622,17 @@ export const LISTEN_IN_TOOL = makeTool(
   LISTEN_IN_SCHEMA,
 );
 
+export const WAR_ROOM_TOOL = makeTool(
+  "submit_war_room_reply",
+  "Submit what the generals say to the commander, and the orders they have accepted.",
+  WAR_ROOM_SCHEMA,
+);
+
 export const GAMEPLAY_TOOLS = Object.freeze({
   spyIntercept: SPY_INTERCEPT_TOOL,
   intelligenceAssessment: INTELLIGENCE_ASSESSMENT_TOOL,
   listenIn: LISTEN_IN_TOOL,
+  warRoom: WAR_ROOM_TOOL,
   actions: ACTIONS_TOOL,
   jumpForward: JUMP_FORWARD_TOOL,
   autoJumpForward: AUTO_JUMP_FORWARD_TOOL,
@@ -3634,6 +3730,28 @@ const statSchemaForDefinition = (row) => {
   return schema;
 };
 
+// The backend in a request's schema.
+export const STATS_BACKEND_SCHEMA = Object.freeze({
+  type: "object",
+  description: "Hidden engine figures the player never sees: what this polity's armies are raised from and paid with. Worked out first; the scenario's own values then say the same thing.",
+  properties: {
+    population: { type: "number", description: "Its people, as a plain count." },
+    gdp: { type: "number", description: "The size of its economy in a year, in one unit used for every polity of this world (any unit, as long as it is the same for all)." },
+    budgetBalance: { type: "number", description: "Its treasury's balance for the year as a percentage of that economy: above 0 a surplus, below 0 a deficit." },
+    publicDebt: { type: "number", description: "What its treasury owes, as a percentage of that economy." },
+  },
+  required: [...STATS_BACKEND_KEYS],
+  additionalProperties: false,
+});
+
+// The same in a patch a turn writes: whichever of the four changed.
+export const STATS_BACKEND_PATCH_SCHEMA = Object.freeze({
+  type: "object",
+  description: "The hidden backend under this polity's sheet, moved in the same patch when what happened also moved its people or its economy: only the figures that changed, as absolute values.",
+  properties: STATS_BACKEND_SCHEMA.properties,
+  additionalProperties: false,
+});
+
 const customStatsProperties = (rows) => Object.fromEntries(
   (Array.isArray(rows) ? rows : [])
     .map((row) => [String(row?.key || "").trim(), statSchemaForDefinition(row)])
@@ -3673,8 +3791,11 @@ export const getGameplayToolForCustomStatSheet = (taskKey, rows, { custom = fals
             maxProperties: keys.length,
             additionalProperties: false,
           },
+          // What the game's own arithmetic reads, which this scenario's player
+          // never sees (runtime/statsBackend.js): worked out with the sheet.
+          [STATS_BACKEND_FIELD]: STATS_BACKEND_SCHEMA,
         },
-        required: ["customStats"],
+        required: ["customStats", STATS_BACKEND_FIELD],
         additionalProperties: false,
       },
     };
@@ -3693,6 +3814,7 @@ export const getGameplayToolForCustomStatSheet = (taskKey, rows, { custom = fals
       `JSON array text for authoritative country Stats patches in this custom-sheet scenario. `
       + `Numeric Stats MUST be written only as patch.customStats using these exact machine keys: ${keyList}. `
       + `Do not use population, economy, indices, stability, or gdpBreakdown. `
+      + `The hidden backend the game's own arithmetic reads may be corrected in the same patch, as patch.${STATS_BACKEND_FIELD}: {"population":0,"gdp":0,"budgetBalance":0,"publicDebt":0}, any of the four. `
       + `Example: [{"country":"Full Polity Name","patch":{"customStats":{"${sampleKey}":1}},"eventIndexes":[],"reason":""}]. `
       + "Use only the requested customStats keys; values are absolute, not deltas.";
     const eventDescription =
@@ -3750,6 +3872,8 @@ export const getGameplayToolForCustomStatSheet = (taskKey, rows, { custom = fals
         additionalProperties: false,
         maxProperties: keys.length,
       };
+      // The layer under them, moved in the same patch (runtime/statsBackend.js).
+      keep[STATS_BACKEND_FIELD] = STATS_BACKEND_PATCH_SCHEMA;
       return { ...value, properties: keep, additionalProperties: false };
     }
 
@@ -3765,6 +3889,7 @@ export const getGameplayToolForCustomStatSheet = (taskKey, rows, { custom = fals
         additionalProperties: false,
         maxProperties: keys.length,
       };
+      keep[STATS_BACKEND_FIELD] = STATS_BACKEND_PATCH_SCHEMA;
       return { ...value, properties: keep, additionalProperties: false };
     }
 
@@ -4314,6 +4439,12 @@ export const extractPregameHistoryStableRetrySections = (value, { includeCanonic
   return sections;
 };
 
+// An event as a model writes one, told from any other object by its headline
+// and one of the two things every event has beside it.
+const looksLikeBareEvent = (entry) => isPlainRecord(entry)
+  && [entry.title, entry.headline].some((text) => typeof text === "string" && text.trim())
+  && [entry.description, entry.summary, entry.date].some((text) => typeof text === "string" && text.trim());
+
 export const normalizeGameplayPayload = (taskKey, value) => {
   if (taskKey === "chatActions") return normalizeChatActionsShape(value);
   if (taskKey === "pregameHistory") return normalizePregameHistoryShape(value);
@@ -4322,6 +4453,15 @@ export const normalizeGameplayPayload = (taskKey, value) => {
   if (taskKey === "countryStatSheet") return normalizeCountryStatSheetShape(value);
   if (taskKey === "listenIn") return normalizeListenInShape(value);
   if (taskKey !== "jumpForward" && taskKey !== "autoJumpForward") return value;
+  // A bare list of events where the contract wants { events: [...] }: the
+  // events, with the fields beside them empty. A player's log (2026-10-12) has
+  // a skip sent back for "an array instead of an object", and the second
+  // request it cost came back worse. The stop date is the last event's until
+  // the skip's own check sets it to the date that was asked for.
+  if (Array.isArray(value) && value.length > 0 && value.every(looksLikeBareEvent)) {
+    const lastDate = [...value].reverse().map((entry) => entry.date).find((date) => typeof date === "string" && date.trim()) ?? "";
+    value = { events: value, stopDate: lastDate, summary: "" };
+  }
   if (!isPlainRecord(value)) return value;
 
   let source = value;
