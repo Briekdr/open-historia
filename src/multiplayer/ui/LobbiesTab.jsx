@@ -91,7 +91,14 @@ const InviteBar = ({ onEnterGame }) => {
         </Field>
         <button type="submit" style={{ ...primary, minHeight: "2.75rem" }} disabled={!code.trim() || shared.mode !== "off"}>Join</button>
       </div>
-      <p style={note}>Your computer connects straight to the host&apos;s, so the host can see your IP address. Other players cannot.</p>
+      {/* Who learns a joiner's address, as the code has it: the host (the
+          connection is direct, transport/peer.js), the relays its page opens
+          sockets to and the two STUN servers it asks for its own address
+          (signaling/nostr.js, peer.js DEFAULT_ICE_SERVERS). Offers are sealed
+          with a key the invite code alone derives (invite.js), so a changed
+          game holding the code could read the addresses in them: the game
+          never shows them, and the code is the only thing in the way. */}
+      <p style={note}>{"The host and the services that connect you (public relay servers, and Google's and Cloudflare's address-lookup servers) see your network address. The game does not show it to other players, but anyone who has the invite code could find it out."}</p>
       {error ? <p style={errorText}>{error}</p> : null}
     </form>
   );
@@ -172,10 +179,9 @@ const HostPanel = ({ onClose, onEnterGame }) => {
             <input type="checkbox" checked={settings.allowMidGameJoin} onChange={update("allowMidGameJoin")} />
             Players may join a game already under way, taking a country the AI plays
           </label>
-          <p style={note}>
-            Until relays are available, players connect straight to your computer: you and each player can see each other&apos;s IP address.
-            Players never see one another&apos;s. Some strict networks (many mobile carriers) cannot connect this way.
-          </p>
+          {/* The same facts as the joiner's note above, from the host's side;
+              the host is the one who decides who gets the code. */}
+          <p style={note}>{"Players connect straight to your computer: you and each player see each other's network address, and so do the services that connect you (public relay servers, and Google's and Cloudflare's address-lookup servers). The game does not show a player's address to other players, but anyone you give the invite code to could find it out, so share the code only with people you trust. Some strict networks (many mobile carriers) cannot connect this way."}</p>
         </>
       )}
       <div style={{ display: "flex", gap: "0.6rem", marginTop: "1rem" }}>

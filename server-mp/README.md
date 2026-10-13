@@ -5,11 +5,13 @@ Open Historia's own server for public multiplayer games. It does three things:
 
 - **Listing.** Hosts register their games, and players browse and filter them.
 - **Signaling.** A player's WebRTC offer reaches a game's host, and the host's answer comes back.
-- **TURN credentials.** It hands out short-lived credentials for the coturn relay that every game connection goes through.
+- **TURN credentials.** It hands out short-lived credentials for the coturn relay that every connection made through this server goes through (with TURN on).
 
 It never sees a game. Once host and player are connected (through the relay, DTLS end to end), nothing passes through this server again, except to renew relay credentials.
 
-Private games don't need it: they use an invite token over public Nostr relays (`src/multiplayer/`). Nothing in the game uses this server until a build is given its URL (see [Pointing the game at it](#pointing-the-game-at-it)). Until then, the public-server browser shows "Coming soon".
+On this path, and only on it, the host and the players do not learn each other's network addresses: connections are relay-only, so each side sees the relay's address. The relay itself sees everyone's, and coturn names client addresses in its log unless told not to ([../ops/README.md](../ops/README.md), "Logs").
+
+No shipped build takes this path yet. Private games don't need this server: they use an invite token over public Nostr relays (`src/multiplayer/`) and connect directly, so there the host and each player do see each other's addresses, and anyone holding the invite token could read them out of the signaling. Nothing in the game uses this server until a build is given its URL (see [Pointing the game at it](#pointing-the-game-at-it)). Until then, the public-server browser shows "Coming soon".
 
 The package is self-contained, so it can be deployed on its own: one dependency (`ws`), and `node:crypto` for everything else. Deployment on an Oracle Cloud VM, next to coturn and Caddy, is in [../ops/README.md](../ops/README.md).
 
@@ -30,7 +32,7 @@ PORT=9000 ALLOWED_ORIGINS="http://localhost:*" npm start
 
 (In PowerShell: `$env:PORT = "9000"; npm start`.)
 
-A setting that makes no sense stops the start with a message naming it, for example `open-historia-mp-server: TURN_URLS is set but TURN_SECRET is empty…`. The server logs one line per event to stdout, and never an address: each client address is replaced by a keyed hash (`ip=#3f9a…`) whose key changes at every start. Nothing a player wrote is logged either.
+A setting that makes no sense stops the start with a message naming it, for example `open-historia-mp-server: TURN_URLS is set but TURN_SECRET is empty…`. The server logs one line per event to stdout, and never an address: each client address is replaced by a keyed hash (`ip=#3f9a…`) whose key changes at every start. Nothing a player wrote is logged either. That is this server's own log. coturn, deployed beside it, does name client addresses in its log, and a reverse proxy in front logs what it is told to ([../ops/README.md](../ops/README.md), "Logs").
 
 Node 20 or later. The tests are written for Node 22 (what the container runs); `npm test` relies on `node --test` expanding the glob itself, which needs Node 21 or later.
 

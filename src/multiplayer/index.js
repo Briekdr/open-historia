@@ -14,8 +14,12 @@
 //
 // The game is a star: every player connects to the host alone and never to
 // another player. Until the game has its own relay, connections are direct, so
-// the host and each player can see each other's IP address (players never see
-// each other's); the host's screen says so.
+// the host and each player can see each other's IP address, and so can the
+// public relays and the STUN servers each device talks to. The game shows no
+// player another's address, but that is not a secret kept from them: an offer
+// carries its sender's addresses and is sealed with a key the invite token
+// alone derives, so a changed game that holds the token could read every
+// joiner's. The host's and the joiner's screens say so (ui/LobbiesTab.jsx).
 
 export { createHostSession } from "./session/host.js";
 export { createClientSession } from "./session/client.js";

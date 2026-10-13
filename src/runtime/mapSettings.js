@@ -79,6 +79,12 @@ export const MAP_SETTING_KEYS = {
     // outcome, is held for the player to retry (AI/playerTurnFailures.js). OFF
     // by default: the skip lands and the orders carry over as overdue.
     stopOnPlayerFailures: "ai_stop_on_player_failures",
+    // Discord's "Playing Open Historia" with the country, the scenario and the
+    // in-game date under it (runtime/discordPresence.js; the desktop app and
+    // the local server only). ON by default — read with
+    // getMapSettingDefaultOn. Off, the page reports nothing and takes down
+    // what Discord is showing. Settings → General → Privacy.
+    discordPresence: "privacy_discord_presence",
 };
 
 // Families the label-font pickers suggest — Settings → Map and the game and
@@ -105,8 +111,9 @@ export function getMapSetting(key) {
 // A default-on setting CANNOT use getMapSetting above — an absent key reads as
 // "1" !== null, i.e. off — so every consumer of such a key must come through here.
 //
-// lookupFunctions and liveSkipEvents ship on; limitAiGeneration and
-// chunkLongJumps, which used to, went default-off in the beta.
+// lookupFunctions, liveSkipEvents and discordPresence ship on;
+// limitAiGeneration and chunkLongJumps, which used to, went default-off in the
+// beta.
 export function getMapSettingDefaultOn(key) {
     if (typeof localStorage === "undefined") return true;
     return localStorage.getItem(key) !== "0";
@@ -126,6 +133,7 @@ const SETTING_LABELS = {
     [MAP_SETTING_KEYS.liveSkipEvents]: "Show time skip events as they are written",
     [MAP_SETTING_KEYS.stopOnPlayerFailures]: "Stop when my events fail",
     [MAP_SETTING_KEYS.defaultBasemapOn]: "Use my default basemap",
+    [MAP_SETTING_KEYS.discordPresence]: "Show what I am playing on Discord",
 };
 
 export function setMapSetting(key, value) {

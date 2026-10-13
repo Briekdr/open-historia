@@ -38,6 +38,8 @@ import { requestDay, requestSettings } from "../Game/AI/requestBudget.js";
 import { deviceProfileForLog } from "./deviceProfile.js";
 import { GAME_BASEMAP_PICK_PREFIX } from "./basemapPick.js";
 import { DEFAULT_BASEMAP_ID } from "./assets.js";
+import { presenceAllowed, presenceAvailable } from "./discordPresence.js";
+import { describeVisitConsent, readVisitConsent } from "./visitConsent.js";
 
 const onOff = (value) => (value ? "on" : "off");
 
@@ -77,6 +79,21 @@ const gamesWithOwnBasemapPick = () => {
         return 0;
     }
 };
+
+// Stored on, Discord is still only told by the desktop app and the local server
+// (runtime/discordPresence.js); the website and the Android app cannot reach it,
+// so there the file says the switch does nothing.
+const discordPresenceState = () => {
+    const state = onOff(presenceAllowed());
+    return presenceAvailable() ? state : `${state} (inactive: this build cannot reach Discord)`;
+};
+
+registerSettingsSnapshot("Privacy", () => [
+    ["Show what I am playing on Discord", discordPresenceState()],
+    // The answer the visit counters wait for (visitConsent.js): on only after
+    // a yes, and every other state says why it is off.
+    ["Count my visits", describeVisitConsent(readVisitConsent())],
+]);
 
 registerSettingsSnapshot("Map", () => [
     // A game's own pick is kept per game (runtime/basemapPick.js): how many have one.

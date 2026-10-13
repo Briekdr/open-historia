@@ -18,7 +18,7 @@ import url from "node:url";
 export const ROOT_PAGES = [
   "guides", "get-started", "how-to-play", "ai-setup", "self-hosting",
   "pax-historia-alternative", "privacy", "sitemap",
-  "guides.css", "robots.txt", "sitemap.xml",
+  "guides.css", "consent.js", "fonts", "robots.txt", "sitemap.xml",
 ];
 
 // Image assets referenced with absolute "/…" paths by BOTH the root guide pages and
