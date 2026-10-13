@@ -66,6 +66,14 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
   "strikes",
   "seaBattles",
   "blockades",
+  // War weariness, peace and alliances coming due (Game/AI/warAndPeace.js):
+  // what every government would know of. Only the country an offer or a call
+  // is addressed to may answer it (host/gameHost.js).
+  "warWeariness",
+  "peaceOffers",
+  "reparations",
+  "peaceTreaties",
+  "callsToArms",
   // The stat sheets, and how each has moved: public figures (see the limits above).
   "countryStats", "countryStatsHistory",
 ]);

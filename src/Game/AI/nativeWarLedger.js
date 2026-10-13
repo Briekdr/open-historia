@@ -1700,7 +1700,7 @@ export const buildCanonicalWarContext = (world, { round = 0 } = {}) => {
     ),
     ...endedLines,
     "",
-    "This ledger is authoritative belligerency. A storyline, alliance, mobilization, historical expectation, or tense relationship does NOT itself create a war.",
+    "This ledger is authoritative belligerency. A storyline, mobilization, historical expectation, or tense relationship does NOT itself create a war; an alliance does only through the game, which enters in this ledger those bound to defend a country that is attacked.",
   ].join("\n");
 };
 

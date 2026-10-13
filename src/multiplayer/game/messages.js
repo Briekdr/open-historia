@@ -78,6 +78,11 @@ export const PLAYER_REQUESTS = Object.freeze({
   // A country's stat sheet, for the host to write when the player's Stats pane
   // has none to show (`fresh`: write it again although there is one).
   sheet: obj({ t: literal("sheet"), id: REQUEST_ID, country: COUNTRY, fresh: bool() }),
+  // War and peace (Game/AI/warAndPeace.js): the player's answer to an offer of
+  // peace ("accept", "decline") or to a call to arms ("honour", "refuse"), by
+  // its id; or terms of its own put to the other side of a war ("propose", by
+  // the war's id, with `terms`). Whose answer it is is the seat's country.
+  peace: obj({ t: literal("peace"), id: REQUEST_ID, op: str(8, { enum: ["accept", "decline", "honour", "refuse", "propose"] }), ref: str(160, { min: 1 }), terms: json(3) }),
   // Diplomacy: into a thread the player is in, or to open one with `to`.
   say: obj({
     t: literal("say"), id: REQUEST_ID, thread: str(120, { nullable: true }),

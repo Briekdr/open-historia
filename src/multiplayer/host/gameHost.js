@@ -28,6 +28,8 @@ import { deployFor, disbandFor, revertOrderFor } from "./forces.js";
 import { agentOrderFor } from "./agents.js";
 import { acceptStructure, canSettleStructure, moveStructure } from "../../runtime/structurePlacement.js";
 import { applyWarRoomOp, cleanWarRoomOp } from "../../runtime/fronts/warRoomOps.js";
+import { humanCountriesOf } from "../../runtime/humanPolities.js";
+import { playerDiplomacy } from "../../Game/AI/warAndPeace.js";
 
 export const MAX_ORDERS_PER_ROUND = 12;
 // Stat sheets a player may ask the host to write in one round: each is a
@@ -396,6 +398,29 @@ export const createGameHost = ({
       }
       round.touch(seat.country);
       return "";
+    },
+    // War and peace (Game/AI/warAndPeace.js): the seat's own answer to an
+    // offer of peace or a call to arms, or terms of its own put to an enemy
+    // nobody plays. Whose answer it is is the seat's country and nothing the
+    // message says. Not while a round is being resolved: the round would
+    // write over it.
+    peace: async (connection, { op, ref, terms }, seat) => {
+      if (round.status().phase === "resolving") return "The round is being resolved: answer once it has landed.";
+      let refusal = "";
+      await store.updateForces(({ world, game }) => {
+        const outcome = playerDiplomacy(world, { op, ref, terms, country: seat.country, players: humanCountriesOf(game), date: clean(game?.gameDate), round: game?.round });
+        if (outcome.error) {
+          refusal = outcome.error === "not-yours" ? "This is not yours to answer." : outcome.error === "played" ? "That side is led by another player: make peace with them in a chat." : "This is no longer open.";
+          return null;
+        }
+        if (op === "propose" && !outcome.accepted) {
+          refusal = "They refuse these terms.";
+          return null;
+        }
+        return { world: outcome.world };
+      });
+      round.touch(seat.country);
+      return refusal;
     },
     goal: async (connection, { text }, seat) => {
       // The game's own rule for a standing goal (runtime/playerGoal.js).
