@@ -455,6 +455,9 @@
         <a id="primaryDownload" class="btn btn-primary" href="#download">
           <span>⬇</span> <span id="primaryLabel">Download for Desktop</span>
         </a>
+        <a id="betaDownload" class="btn btn-ghost" href="#download">
+          <span>⬇</span> <span id="betaLabel">Download the Beta</span>
+        </a>
         <a class="btn btn-ghost" href="/play/"><span>▶</span> Demo in your browser</a>
       </div>
     </div>
@@ -691,6 +694,17 @@
            : (os === "windows") ? WIN
            : (os === "linux") ? LINUX
            : "#download";
+
+  // The beta sits beside it: the same platform's beta build, the newest features first.
+  var BETA = "https://github.com/Open-Historia/open-historia/releases/download/";
+  var betaLabel = { windows:"Beta for Windows", mac:"Beta for macOS", linux:"Beta for Linux",
+                    android:"Beta Android app", ios:"Download the Beta", desktop:"Download the Beta" }[os];
+  var betaHref = (os === "android") ? BETA + "android-beta/open-historia-beta.apk"
+               : (os === "windows") ? BETA + "desktop-beta/Open-Historia-Beta-Setup.exe"
+               : (os === "linux") ? BETA + "desktop-beta/Open-Historia-Beta-amd64.deb"
+               : "#download";
+  var btl = document.getElementById("betaLabel"); if (btl) btl.textContent = betaLabel;
+  var btd = document.getElementById("betaDownload"); if (btd) btd.href = betaHref;
 
   var pl = document.getElementById("primaryLabel"); if (pl) pl.textContent = label;
   var pd = document.getElementById("primaryDownload"); if (pd) pd.href = href;
