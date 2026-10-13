@@ -7,15 +7,21 @@
 // song plays ingame." "When in the war room or looking at a battlefield it
 // should play this." "Make it not be as dramatic when idle in the main menu
 // and ramp up dramaticism when loading." "Scenario creators should be able to
-// add different tracks and songs for different situations."
+// add different tracks and songs for different situations." And, of the first
+// version: "its abruptly cutting to another part of the song when you open a
+// new game"; "if you're in the menu for like 30 seconds it just fades out and
+// resets"; "if the game loads too fast it just abruptly stops the music".
 //
-// What is pinned: which piece sounds in which scene; that the menu never
-// leaves the quiet opening; where a game opening comes into the build, from
-// how long games take to open here, and how its loudness grows; the stop on a
-// hit; a scenario's lists in the place of the game's own pieces, track after
-// track, and the game's own piece back when none of a list can be played; that
-// a file is only asked for when it is about to play; and that Settings says
-// whose music it is, which is what the pieces' licence (CC BY 4.0) asks for.
+// What is pinned: which piece sounds in which scene; that the menu plays to
+// the lull before the build, levelled, and never into the build; that a game
+// opening is a crossing of two elements and never a cut on one; where the
+// build comes in, from how long games take to open here, and how its loudness
+// grows; that the music always reaches the big hit, unless that is far off,
+// when it fades out instead; a scenario's lists in the place of the game's own
+// pieces, track after track, and the game's own piece back when none of a
+// list can be played; that a file is only asked for when it is about to play
+// (but for the build, made ready on the menu); and that Settings says whose
+// music it is, which is what the pieces' licence (CC BY 4.0) asks for.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -34,9 +40,11 @@ import {
   PASSAGE_DRAMA,
   PASSAGE_LOADS,
   boostAt,
+  calmGainAt,
   createMusicDirector,
   cutTimeAfter,
   entryFor,
+  exitAfter,
   expectedLoadSeconds,
   getNowPlaying,
   holdMusic,
@@ -167,76 +175,143 @@ const remembering = (seconds = []) => {
 // A hub track as the director is handed it (scenarioMusic.js resolveScenarioPlaylists).
 const hubTrack = (id) => ({ id, src: `/hub/${id}.mp3`, name: `Track ${id}`, credit: `Track ${id} by Somebody (CC BY 4.0)`, source: `https://example.org/${id}` });
 
-test("the menu: nothing is made or fetched before the first click, then Passage Of Time from its start, quietly", () => {
+test("the menu: nothing is made or fetched before the first click, then Passage Of Time from its start, with the build held ready", () => {
   const { director, made, time, of, sounding } = stage();
   director.sync();
   director.setHidden(false);
   time.advance(2000);
   assert.equal(made.length, 0, "no element, so no request for a file");
   director.unlock();
-  assert.equal(made.length, 1, "only the piece that is about to play");
-  const audio = of("passage");
+  // Two elements of the one file: the menu's, playing, and the build's, ready.
+  assert.equal(made.length, 2);
+  const audio = of("calm");
   assert.deepEqual([audio.src, audio.loop, audio.preload, audio.paused], ["/audio/passage-of-time.mp3", true, "none", false]);
-  time.advance(2000);
-  assert.deepEqual(sounding(), ["passage"]);
-  assert.equal(audio.volume, 0.25);
-  assert.ok(audio.currentTime < 5, "from the quiet opening");
+  // The build: loaded, silent and paused at the entry the next game opening
+  // would use. With no game timed yet that is six seconds' worth: 161.20.
+  const ready = of("drama");
+  assert.notEqual(ready, audio);
+  assert.deepEqual([ready.src, ready.preload, ready.paused, ready.volume, ready.currentTime, ready.plays], ["/audio/passage-of-time.mp3", "auto", true, 0, 161.2, 0]);
+  assert.equal(director.readyAt, 161.2);
+  time.advance(3000);
+  assert.deepEqual(sounding(), ["calm"]);
+  // The opening is nearly inaudible as recorded: the menu turns it up.
+  near(audio.volume, 0.25 * PASSAGE_CALM.most, 1e-9);
+  assert.ok(audio.currentTime < 5, "from the opening");
+  assert.deepEqual([ready.paused, ready.volume, ready.currentTime, ready.plays], [true, 0, 161.2, 0], "and the build has not moved");
   // A second click does not start it again.
   director.unlock();
   assert.equal(audio.plays, 1);
+  assert.equal(made.length, 2);
 });
 
-test("the menu stays calm: only the quiet opening, faded out before the piece rises and started again", () => {
-  assert.deepEqual({ ...PASSAGE_CALM }, { fadeFrom: 63, end: 66, fadeIn: 2500 });
-  assert.ok(Object.isFrozen(PASSAGE_CALM));
+test("the menu levels the piece: the gain follows its own loudness, gliding, between a least and a most", () => {
+  assert.ok(Object.isFrozen(PASSAGE_CALM) && Object.isFrozen(PASSAGE_CALM.rms));
+  assert.deepEqual({ ...PASSAGE_CALM, rms: null }, { fadeFrom: 141.5, end: 143.5, limit: 144.5, fadeIn: 2500, step: 5, rms: null, level: 0.065, power: 0.75, least: 0.5, most: 1.6 });
+  // The piece's loudness for every five seconds from 0 to 140.
+  assert.deepEqual([...PASSAGE_CALM.rms], [
+    0.029, 0.033, 0.034, 0.035, 0.027, 0.050, 0.065, 0.044, 0.065, 0.051,
+    0.064, 0.063, 0.058, 0.079, 0.100, 0.103, 0.113, 0.093, 0.128, 0.135,
+    0.135, 0.132, 0.145, 0.127, 0.147, 0.104, 0.051, 0.066, 0.033,
+  ]);
+  // The opening (0.029) is turned up as far as it goes; a stretch as loud as
+  // the level is left alone; the plateau (0.145) is brought down to about half.
+  assert.equal(calmGainAt(2.5), 1.6);
+  near(calmGainAt(32.5), 1, 1e-12);
+  near(calmGainAt(112.5), (0.065 / 0.145) ** 0.75, 1e-12);
+  near(calmGainAt(112.5), 0.548, 0.001);
+  // Each figure stands for the middle of its five seconds, and the gain glides between them.
+  near(calmGainAt(40), (0.065 / ((0.044 + 0.065) / 2)) ** 0.75, 1e-12);
+  near(calmGainAt(68.75), (0.065 / (0.079 + (0.100 - 0.079) * 0.25)) ** 0.75, 1e-12);
+  // Before the middle of the first stretch and after the middle of the last, theirs.
+  assert.equal(calmGainAt(0), calmGainAt(2.5));
+  assert.equal(calmGainAt(-3), calmGainAt(2.5));
+  assert.equal(calmGainAt(143.5), calmGainAt(142.5));
+  assert.equal(calmGainAt(500), calmGainAt(142.5));
+  assert.equal(calmGainAt(Number.NaN), calmGainAt(0));
+  // The clamps: never over the most, never under the least.
+  const extremes = { ...PASSAGE_CALM, rms: [0.0001, 5] };
+  assert.equal(calmGainAt(2.5, extremes), 1.6);
+  assert.equal(calmGainAt(7.5, extremes), 0.5);
+  let least = 9;
+  let most = 0;
+  let steepest = 0;
+  for (let at = 0; at < PASSAGE_CALM.end; at += 0.2) {
+    const gain = calmGainAt(at);
+    least = Math.min(least, gain);
+    most = Math.max(most, gain);
+    steepest = Math.max(steepest, Math.abs(calmGainAt(at + 0.2) - gain) / gain);
+  }
+  assert.equal(most, 1.6);
+  assert.ok(least >= 0.5 && least < 0.56, `the loudest stretch is brought down to ${least}`);
+  // No audible steps: a look every 200 ms moves the gain by a few percent at most
+  // (3.5% is under a third of a decibel).
+  assert.ok(steepest < 0.035, `at most ${steepest} of itself a look`);
+});
+
+test("the menu plays to the lull before the build and starts again there, never fading in between", () => {
   const { director, time, of } = stage();
   director.unlock();
-  const audio = of("passage");
-  // At full (quiet) volume up to where the fade begins.
-  time.advance(62500);
-  near(audio.currentTime, 62.5, 0.02);
-  assert.equal(audio.volume, 0.25);
-  // Halfway through the fade it is at half; by its end it is silent.
-  time.advance(2000);
-  near(audio.currentTime, 64.5, 0.02);
-  near(audio.volume, 0.125, 0.005);
-  time.advance(1450);
-  assert.ok(audio.volume < 0.01, `nearly silent at ${audio.currentTime}: ${audio.volume}`);
+  const audio = of("calm");
+  const volumeAt = (at) => 0.25 * calmGainAt(at);
+  // Past the first minute and on, with no fade and no restart: only the levelling moves the volume.
+  let steepest = 0;
+  let before = audio.volume;
+  for (let ms = 0; ms < 141000; ms += 200) {
+    time.advance(200);
+    assert.equal(audio.paused, false);
+    if (ms >= 3000) {
+      near(audio.volume, volumeAt(audio.currentTime), 0.012);
+      steepest = Math.max(steepest, Math.abs(audio.volume - before) / before);
+    }
+    before = audio.volume;
+  }
+  near(audio.currentTime, 141, 0.02);
+  assert.ok(steepest < 0.045, `the volume moves by ${steepest} of itself a look at most`);
+  assert.equal(audio.plays, 1);
+  // The seam: from 141.5 it fades, by 143.5 it is silent.
+  time.advance(1500);
+  near(audio.currentTime, 142.5, 0.02);
+  near(audio.volume, volumeAt(142.5) / 2, 0.01);
+  time.advance(950);
+  assert.ok(audio.volume < 0.02, `all but silent at ${audio.currentTime}: ${audio.volume}`);
   assert.ok(audio.currentTime < PASSAGE_CALM.end);
   // From the top again, coming back in over two and a half seconds.
   time.advance(100);
-  assert.ok(audio.currentTime < 0.2, `started again: ${audio.currentTime}`);
+  assert.ok(audio.currentTime < 0.1, `started again: ${audio.currentTime}`);
   assert.ok(audio.volume < 0.02, "from silence");
   assert.equal(audio.paused, false);
   const startedAgain = time.now - audio.currentTime * 1000;
   time.advance(startedAgain + 1250 - time.now);
-  near(audio.volume, 0.125, 0.006);
+  near(audio.volume, volumeAt(1.25) / 2, 0.01);
   time.advance(1300);
-  assert.equal(audio.volume, 0.25);
+  near(audio.volume, volumeAt(2.55), 1e-9);
   assert.equal(audio.plays, 1, "the same element, never started twice");
 
-  // Left idling for minutes it never passes the end of the opening (66.0; the
-  // piece starts to rise at 67.4), goes silent every time, and goes round.
+  // Left idling for a quarter of an hour it goes round, silent at each seam,
+  // and is never found past the end of its part: the build starts at 145.45.
   let latest = 0;
   let rounds = 0;
-  let before = audio.currentTime;
-  for (let ms = 0; ms < 6 * 60 * 1000; ms += 5) {
+  let last = audio.currentTime;
+  for (let ms = 0; ms < 15 * 60 * 1000; ms += 5) {
     time.advance(5);
     latest = Math.max(latest, audio.currentTime);
-    if (audio.currentTime < before) {
+    if (audio.currentTime < last) {
       rounds += 1;
       assert.equal(audio.volume, 0, "silent as it goes back to the start");
     }
-    before = audio.currentTime;
+    last = audio.currentTime;
   }
-  assert.ok(latest <= PASSAGE_CALM.end, `never past the end of the quiet opening: ${latest}`);
-  assert.ok(latest > PASSAGE_CALM.end - 0.05, `and played right up to it: ${latest}`);
-  assert.ok(rounds >= 5, `${rounds} rounds`);
+  assert.ok(latest > PASSAGE_CALM.end - 0.02 && latest < PASSAGE_CALM.end + 0.02, `to the end of its part and no further: ${latest}`);
+  assert.ok(latest < PASSAGE_CALM.limit);
+  assert.ok(PASSAGE_CALM.limit < 145.45);
+  assert.equal(rounds, 6);
   assert.equal(audio.paused, false);
   assert.equal(director.inDrama, false);
+  // The build was held ready the whole time, and never sounded.
+  assert.deepEqual([of("drama").paused, of("drama").plays, of("drama").currentTime], [true, 0, 161.2]);
 });
 
-test("the menu is watched slowly, and the watch sees a changed volume through the fade", () => {
+test("the menu is watched slowly, and a changed volume is followed at once", () => {
   const { director, settings, time, of } = stage();
   director.unlock();
   time.advance(5000);
@@ -245,27 +320,30 @@ test("the menu is watched slowly, and the watch sees a changed volume through th
   time.advance(50000);
   assert.ok(time.asked - before < 300, `${time.asked - before} timers in 50 seconds`);
   assert.ok(time.asked - before > 200);
-  // The volume slider moved while the opening dies away: followed at once, at the fade's level.
+  // The volume slider moved: followed at once, at the level of where the music is.
   time.advance(9500);
-  near(of("passage").currentTime, 64.5, 0.02);
+  near(of("calm").currentTime, 64.5, 0.02);
   settings.volume = 50;
   director.sync();
-  near(of("passage").volume, 0.25, 0.01);
+  near(of("calm").volume, 0.5 * calmGainAt(64.5), 0.01);
 });
 
 test("where a game opening comes into the build: the latest phrase that still leaves the game time to be drawn", () => {
   // Phrase starts, each just before an accent, with their lead to the big hit.
-  assert.deepEqual([...PASSAGE_DRAMA.entries], [145.3, 149.75, 157.3, 161.2, 164.7, 166.9, 168.45]);
+  // Never later than 164.70: even a game that opens at once has four seconds of build.
+  assert.deepEqual([...PASSAGE_DRAMA.entries], [145.3, 149.75, 157.3, 161.2, 164.7]);
   assert.equal(PASSAGE_DRAMA.hit, 168.6);
-  assert.deepEqual(PASSAGE_DRAMA.entries.map((entry) => Math.round((PASSAGE_DRAMA.hit - entry) * 100) / 100), [23.3, 18.85, 11.3, 7.4, 3.9, 1.7, 0.15]);
-  for (const [expected, entry] of [[1, 166.9], [3, 164.7], [6, 161.2], [10, 157.3], [15, 149.75], [20, 145.3], [35, 145.3], [400, 145.3]]) {
+  assert.deepEqual(PASSAGE_DRAMA.entries.map((entry) => Math.round((PASSAGE_DRAMA.hit - entry) * 100) / 100), [23.3, 18.85, 11.3, 7.4, 3.9]);
+  for (const [expected, entry] of [[0, 164.7], [1, 164.7], [3, 164.7], [6, 161.2], [10, 157.3], [15, 149.75], [20, 145.3], [35, 145.3], [400, 145.3]]) {
     assert.equal(entryFor(expected), entry, `a game expected to take ${expected} s`);
   }
   // The lead is the load time and half a second: exactly enough is enough.
-  assert.equal(entryFor(1.2), 166.9);
-  assert.equal(entryFor(1.21), 164.7);
   assert.equal(entryFor(3.4), 164.7);
   assert.equal(entryFor(3.41), 161.2);
+  assert.equal(entryFor(6.9), 161.2);
+  assert.equal(entryFor(6.91), 157.3);
+  assert.equal(entryFor(22.8), 145.3);
+  assert.equal(entryFor(22.81), 145.3);
   // Nothing is known of the load: as six seconds.
   assert.equal(entryFor(Number.NaN), 161.2);
   assert.equal(entryFor(undefined), 161.2);
@@ -273,51 +351,97 @@ test("where a game opening comes into the build: the latest phrase that still le
 
 test("the build grows louder by where the music is: as the menu at the entry, the full boost at the big hit", () => {
   assert.equal(boostAt(161.2, 161.2), 1);
-  assert.equal(boostAt(150, 161.2), 1);
+  assert.equal(boostAt(160.3, 161.2), 1, "and no louder while it is still coming in under the menu's music");
   near(boostAt((161.2 + 168.6) / 2, 161.2), 1.3, 1e-9);
   near(boostAt(145.3 + (168.6 - 145.3) / 4, 145.3), 1.15, 1e-9);
   assert.equal(boostAt(168.6, 161.2), PASSAGE_DRAMA.boost);
   assert.equal(boostAt(200, 161.2), PASSAGE_DRAMA.boost);
-  // Just before the hit itself: there at once, as it always was.
-  assert.equal(boostAt(168.45, 168.45), 1);
-  assert.equal(boostAt(168.6, 168.45), PASSAGE_DRAMA.boost);
   // No entry (the loud stretch gone round again): the full boost.
   assert.equal(boostAt(170, null), PASSAGE_DRAMA.boost);
   assert.equal(boostAt(168.45, null), PASSAGE_DRAMA.boost);
   assert.equal(PASSAGE_DRAMA.boost, 1.6);
 });
 
-test("a game opening: the menu's music dips, comes back in the build, and grows to the big hit", () => {
-  const { director, time, of } = stage();
+test("a game opening: the build comes in under the menu's music and the two cross, with no silence between", () => {
+  assert.deepEqual([PASSAGE_DRAMA.crossfade, PASSAGE_DRAMA.lead], [1800, 0.9]);
+  const { director, made, time, of, sounding } = stage();
   director.unlock();
-  time.advance(3000);
-  const audio = of("passage");
-  director.setScene("loading");
-  // A short fade out of the menu's music, still in its opening.
-  time.advance(200);
-  near(audio.volume, 0.125, 0.02);
-  assert.ok(audio.currentTime < 5);
-  assert.equal(director.inDrama, false);
-  time.advance(200);
-  // With no game timed yet a game is expected to take six seconds: 161.20.
-  near(audio.currentTime, 161.2, 0.011);
-  assert.equal(director.inDrama, true);
-  assert.equal(audio.paused, false);
-  assert.ok(audio.volume < 0.03, "and in from silence");
-  // In over about 600 ms, no louder than the menu yet.
-  time.advance(600);
-  near(audio.volume, 0.25 * boostAt(audio.currentTime, 161.2), 0.002);
-  assert.ok(audio.volume < 0.27);
-  // Halfway to the hit, halfway to the boost.
-  time.advance((164.9 - audio.currentTime) * 1000);
-  near(audio.currentTime, 164.9, 0.011);
-  near(audio.volume, 0.25 * 1.3, 0.002);
-  // At the hit and after it: the full boost.
-  time.advance((168.6 - audio.currentTime) * 1000 + 30);
-  near(audio.volume, 0.25 * PASSAGE_DRAMA.boost, 1e-9);
   time.advance(5000);
-  near(audio.volume, 0.25 * PASSAGE_DRAMA.boost, 1e-9);
-  assert.equal(audio.plays, 1);
+  const calm = of("calm");
+  const drama = of("drama");
+  const calmLevel = 0.25 * calmGainAt(5);
+  near(calm.volume, calmLevel, 1e-9);
+  assert.deepEqual([drama.paused, drama.volume, drama.currentTime], [true, 0, 161.2]);
+
+  director.setScene("loading");
+  // The build starts 0.9 s before its entry, silent, with the menu's music still playing as it was.
+  near(drama.currentTime, 161.2 - 0.9, 1e-9);
+  assert.deepEqual([drama.paused, drama.volume, drama.plays], [false, 0, 1]);
+  assert.equal(calm.paused, false);
+  near(calm.volume, calmLevel, 1e-9);
+  assert.equal(director.inDrama, true);
+  // Through the crossing both are heard, and together they are as loud as
+  // either alone: one follows a sine, the other a cosine.
+  let quietest = 1;
+  for (let ms = 40; ms < 1800; ms += 40) {
+    time.advance(40);
+    assert.deepEqual(sounding(), ["calm", "drama"], `at ${ms} ms`);
+    const power = (calm.volume / calmLevel) ** 2 + (drama.volume / (0.25 * boostAt(drama.currentTime, 161.2))) ** 2;
+    near(power, 1, 0.02);
+    quietest = Math.min(quietest, calm.volume + drama.volume);
+    if (ms === 880) {
+      // The middle of it is the entry, and each is at seven tenths.
+      near(drama.currentTime, 161.2, 0.03);
+      near(drama.volume, 0.25 * Math.SQRT1_2, 0.01);
+      near(calm.volume, calmLevel * Math.SQRT1_2, 0.01);
+    }
+  }
+  assert.ok(quietest > 0.24, `never a dip: the two never fall under ${quietest}`);
+  // After it only the build sounds; the menu's music is paused, back at its start.
+  time.advance(60);
+  assert.deepEqual(sounding(), ["drama"]);
+  assert.deepEqual([calm.paused, calm.currentTime], [true, 0]);
+  near(drama.volume, 0.25 * boostAt(drama.currentTime, 161.2), 0.002);
+  assert.ok(drama.volume < 0.27, "no louder than the menu yet");
+  // Halfway to the hit, halfway to the boost.
+  time.advance((164.9 - drama.currentTime) * 1000);
+  near(drama.currentTime, 164.9, 0.011);
+  near(drama.volume, 0.25 * 1.3, 0.002);
+  // At the hit and after it: the full boost.
+  time.advance((168.6 - drama.currentTime) * 1000 + 30);
+  near(drama.volume, 0.25 * PASSAGE_DRAMA.boost, 1e-9);
+  time.advance(5000);
+  near(drama.volume, 0.25 * PASSAGE_DRAMA.boost, 1e-9);
+  assert.deepEqual([calm.plays, drama.plays, made.length], [1, 1, 2]);
+
+  // Given up for the menu: the menu's music comes in from its start over two
+  // and a half seconds while the build goes out, and the build is made ready again.
+  director.setScene("menu");
+  time.advance(450);
+  assert.deepEqual(sounding(), ["calm", "drama"]);
+  time.advance(2100);
+  assert.deepEqual(sounding(), ["calm"]);
+  near(calm.volume, 0.25 * PASSAGE_CALM.most, 1e-9);
+  near(calm.currentTime, 2.55, 0.02);
+  assert.deepEqual([drama.paused, drama.volume, drama.currentTime], [true, 0, 161.2]);
+});
+
+test("a game opened as the menu's music nears its seam: the menu's element still never plays past its part", () => {
+  const { director, time, of, sounding } = stage();
+  director.unlock();
+  time.advance(143000);
+  const calm = of("calm");
+  near(calm.currentTime, 143, 0.02);
+  director.setScene("loading");
+  let latest = 0;
+  for (let ms = 0; ms < 2000; ms += 5) {
+    time.advance(5);
+    latest = Math.max(latest, calm.currentTime);
+  }
+  assert.ok(latest < PASSAGE_CALM.end + 0.03, `stopped at the end of its part: ${latest}`);
+  assert.ok(latest < PASSAGE_CALM.limit);
+  assert.deepEqual([calm.paused, calm.currentTime], [true, 0]);
+  assert.deepEqual(sounding(), ["drama"]);
 });
 
 test("how long games take to open is learned: the last five, their median, kept between sessions", () => {
@@ -354,19 +478,28 @@ test("how long games take to open is learned: the last five, their median, kept 
   open(first.director, first.time, 300, "game");
   assert.deepEqual(memory.kept, [2, 3, 4]);
 
-  // The next session expects what the last one learned: three seconds, so 164.70.
+  // The next session expects what the last one learned: three seconds, so
+  // the build is held ready at 164.70, and comes in there.
   const second = stage({ memory });
   assert.equal(second.director.expectedLoad, 3);
   second.director.unlock();
+  assert.equal(second.of("drama").currentTime, 164.7);
+  second.time.advance(4000);
   second.director.setScene("loading");
-  second.time.advance(100);
-  near(second.of("passage").currentTime, 164.7 + 0.1, 0.011);
+  near(second.of("drama").currentTime, 164.7 - 0.9, 1e-9);
+  second.time.advance(1000);
+  near(second.of("drama").currentTime, 164.7 + 0.1, 0.011);
   // Only the last five are kept.
   second.director.setScene("game");
   for (const ms of [5000, 6000, 7000, 8000]) open(second.director, second.time, ms, "game");
   assert.deepEqual(memory.kept.slice(-4), [5, 6, 7, 8]);
   assert.equal(memory.kept.length, 5);
   assert.equal(second.director.expectedLoad, 6);
+  // Back on the menu with another load time expected: the build is aimed again.
+  second.time.advance(1500);
+  assert.deepEqual(second.sounding(), ["calm"]);
+  assert.deepEqual([second.of("drama").paused, second.of("drama").volume, second.of("drama").currentTime], [true, 0, 161.2]);
+  assert.equal(second.director.readyAt, 161.2);
 
   // A memory that cannot be read or written is no error: six seconds, learned again.
   const broken = stage({ memory: { read: () => { throw new Error("blocked"); }, write: () => { throw new Error("full"); } } });
@@ -394,24 +527,64 @@ test("the page keeps the load times in localStorage, and does without it when it
   assert.ok(read("src/runtime/ambientMusic.js").includes("memory: loadSecondsMemory(win),"));
 });
 
-test("the game is drawn: the music runs on to the next hit, lets it land, and stops dead", () => {
+test("how the loading music ends: on the big hit or a later one, or, with the hit far off, a fade on the build's next accent", () => {
+  // The big hit and the loud stretch's hits: never a stop before the big hit.
+  assert.deepEqual([...PASSAGE_DRAMA.cuts], [168.6, 174.3, 177.6, 186.4, 193.8, 198.1, 201.55, 206.9, 214.45, 222.05]);
+  assert.deepEqual([...PASSAGE_DRAMA.cuts].sort((a, b) => a - b), [...PASSAGE_DRAMA.cuts]);
+  assert.equal(PASSAGE_DRAMA.cuts[0], PASSAGE_DRAMA.hit);
+  assert.ok(PASSAGE_DRAMA.cuts.every((cut) => cut + PASSAGE_DRAMA.ring < PASSAGE_DRAMA.wrapAt));
+  // A hit rings 0.35 s, and then the music takes 150 ms to be gone.
+  assert.deepEqual([PASSAGE_DRAMA.ring, PASSAGE_DRAMA.stopFade], [0.35, 150]);
+  const stop = PASSAGE_DRAMA.hit + PASSAGE_DRAMA.ring;
+  for (const entry of PASSAGE_DRAMA.entries) assert.ok(cutTimeAfter(entry - PASSAGE_DRAMA.lead) >= stop, `from ${entry}`);
+  assert.equal(cutTimeAfter(145.3), stop);
+  assert.equal(cutTimeAfter(165.2), stop);
+  assert.equal(cutTimeAfter(PASSAGE_DRAMA.enter), stop);
+  assert.equal(cutTimeAfter(168.8), stop, "its ring is still to come");
+  assert.equal(cutTimeAfter(168.9), 174.3 + PASSAGE_DRAMA.ring);
+  assert.equal(cutTimeAfter(PASSAGE_DRAMA.cuts.at(-1) + 1), PASSAGE_DRAMA.wrapAt);
+
+  // The exception, for a guess that was badly wrong: the big hit more than 12 s away.
+  assert.deepEqual([...PASSAGE_DRAMA.accents], [149.9, 157.45]);
+  assert.deepEqual([PASSAGE_DRAMA.softBeyond, PASSAGE_DRAMA.softFade], [12, 1500]);
+  assert.deepEqual(exitAfter(144.4), { at: 149.9, soft: true });
+  assert.deepEqual(exitAfter(145.5), { at: 149.9, soft: true });
+  assert.deepEqual(exitAfter(149.9), { at: 149.9, soft: true });
+  assert.deepEqual(exitAfter(149.95), { at: 157.45, soft: true }, "the accent has passed: the next one");
+  assert.deepEqual(exitAfter(156.5), { at: 157.45, soft: true });
+  // Twelve seconds or less to the hit: it runs on to it.
+  assert.deepEqual(exitAfter(156.6), { at: stop, soft: false });
+  assert.deepEqual(exitAfter(157.5), { at: stop, soft: false });
+  assert.deepEqual(exitAfter(160.3), { at: stop, soft: false });
+  assert.deepEqual(exitAfter(165.2), { at: stop, soft: false });
+  assert.deepEqual(exitAfter(170), { at: 174.3 + PASSAGE_DRAMA.ring, soft: false });
+  assert.deepEqual(exitAfter(225), { at: PASSAGE_DRAMA.wrapAt, soft: false });
+  // Never a long wait either way: the music has begun to end within twelve and a half seconds.
+  for (let at = PASSAGE_DRAMA.entries[0] - PASSAGE_DRAMA.lead; at < PASSAGE_DRAMA.wrapAt; at += 0.05) assert.ok(exitAfter(at).at - at < 12.5, `from ${at}`);
+});
+
+test("the game is drawn: the music runs on to the big hit, lets it ring, and stops without a click", () => {
   const { director, time, of, sounding } = stage();
   director.unlock();
   director.setScene("loading");
-  // Loading takes 4 seconds: the music is past the first accents by then.
+  // Loading takes 4 seconds: the build is at 165.2 by then.
   time.advance(4000);
-  const audio = of("passage");
+  const audio = of("drama");
   const drawnAt = audio.currentTime;
+  near(drawnAt, 165.2, 0.011);
   director.setScene("game");
-  const hit = PASSAGE_DRAMA.cuts.find((cut) => cut + PASSAGE_DRAMA.ring > drawnAt + 0.1);
-  assert.equal(hit, 168.6, "from 165.2 the next stop is the big hit");
-  assert.equal(director.cutAt, hit + PASSAGE_DRAMA.ring);
+  const stop = PASSAGE_DRAMA.hit + PASSAGE_DRAMA.ring;
+  assert.deepEqual([director.cutAt, director.softExit], [stop, false]);
   assert.equal(audio.paused, false, "still playing: it does not stop the moment the game is drawn");
-  // Up to the hit, and a little into its ring; still growing louder on the way.
-  time.advance((hit + PASSAGE_DRAMA.ring - drawnAt) * 1000 - 100);
+  // Up to the hit, and into its ring; still growing louder on the way.
+  time.advance((stop - drawnAt) * 1000 - 100);
   assert.equal(audio.paused, false);
   near(audio.volume, 0.25 * PASSAGE_DRAMA.boost, 1e-9);
-  time.advance(400);
+  // Then gone over 150 ms: a fade, not a cut.
+  time.advance(100 + 80);
+  assert.equal(audio.paused, false);
+  assert.ok(audio.volume > 0.05 && audio.volume < 0.35, `going: ${audio.volume}`);
+  time.advance(120);
   assert.equal(audio.paused, true, "stopped");
   assert.deepEqual(sounding(), []);
   assert.deepEqual([director.cutAt, director.inDrama], [null, false]);
@@ -421,22 +594,68 @@ test("the game is drawn: the music runs on to the next hit, lets it land, and st
   assert.equal(MUSIC_TRACKS.game, null);
 });
 
-test("a game drawn early stops on an accent of the build, not at the big hit", () => {
+test("a game that opens fast is not cut off as the music began: the build carries on under it to the big hit", () => {
+  // Games open in a second here, so the build comes in at its last entry.
+  const { director, time, of, sounding } = stage({ memory: remembering([1, 1, 1]) });
+  director.unlock();
+  time.advance(4000);
+  const audio = of("drama");
+  assert.equal(audio.currentTime, 164.7);
+  director.setScene("loading");
+  // Drawn half a second after the entry, while the menu's music is still going out.
+  time.advance(1400);
+  near(audio.currentTime, 164.7 + 0.5, 0.011);
+  director.setScene("game");
+  const stop = PASSAGE_DRAMA.hit + PASSAGE_DRAMA.ring;
+  assert.deepEqual([director.cutAt, director.softExit], [stop, false]);
+  // It keeps playing, all the way to the hit and its ring: three and a half more seconds.
+  let heardUntil = 0;
+  while (audio.currentTime < stop - 0.02) {
+    time.advance(20);
+    assert.equal(audio.paused, false, `still playing at ${audio.currentTime}`);
+    assert.ok(audio.volume > 0.2, `and heard: ${audio.volume}`);
+    heardUntil = audio.currentTime;
+  }
+  assert.ok(heardUntil > PASSAGE_DRAMA.hit + 0.3, `to ${heardUntil}`);
+  near(audio.volume, 0.25 * PASSAGE_DRAMA.boost, 1e-9);
+  time.advance(250);
+  assert.equal(audio.paused, true);
+  assert.ok(audio.currentTime >= stop && audio.currentTime < stop + 0.25, `stopped at ${audio.currentTime}`);
+  assert.deepEqual(sounding(), []);
+});
+
+test("a game drawn while the big hit is still far off: the build fades out on its next accent instead", () => {
   // Games take long here, so this one came in at the start of the build.
-  const { director, time, of, sounding } = stage({ memory: remembering([25, 25, 25]) });
+  const { director, time, of, sounding } = stage({ memory: remembering([25, 25, 25]), tracks: { ...MUSIC_TRACKS, game: { file: "audio/in-game.mp3" } } });
   director.unlock();
   director.setScene("loading");
-  time.advance(1000);
-  const audio = of("passage");
-  near(audio.currentTime, 146.3, 0.011);
-  director.setScene("atWar");
-  assert.equal(director.cutAt, 149.9 + PASSAGE_DRAMA.ring);
-  time.advance((149.9 + PASSAGE_DRAMA.ring - audio.currentTime) * 1000 - 60);
-  assert.equal(audio.paused, false);
   time.advance(200);
-  assert.equal(audio.paused, true, "stopped just after the accent at 149.90");
+  const audio = of("drama");
+  near(audio.currentTime, 145.5, 0.011);
+  director.setScene("atWar");
+  assert.deepEqual([director.cutAt, director.softExit], [149.9, true]);
+  // Up to the accent it plays on as it was.
+  time.advance((149.9 - audio.currentTime) * 1000 - 50);
+  assert.equal(audio.paused, false);
+  const full = 0.25 * boostAt(149.85, 145.3);
+  near(audio.volume, full, 0.002);
+  // Then a second and a half of fading: half gone at the middle of it, never a stop.
+  time.advance(50 + 750);
+  assert.equal(audio.paused, false);
+  near(audio.volume, full / 2, 0.02);
+  time.advance(700);
+  assert.equal(audio.paused, false);
+  assert.ok(audio.volume > 0 && audio.volume < 0.03);
+  time.advance(100);
+  assert.equal(audio.paused, true);
   assert.deepEqual(sounding(), []);
-  assert.equal(audio.currentTime, 0, "and back at its start for the menu");
+  assert.deepEqual([director.cutAt, director.softExit, director.inDrama], [null, false, false]);
+  assert.ok(audio.currentTime > 151.3 && audio.currentTime < 151.6, `gone by ${audio.currentTime}, long before the big hit`);
+  // The breath, and then the game's own music, as after a stop.
+  time.advance(1300);
+  assert.deepEqual(sounding(), []);
+  time.advance(400);
+  assert.deepEqual(sounding(), ["game"]);
 });
 
 test("with an in-game piece, it comes in after a breath of silence", () => {
@@ -448,7 +667,7 @@ test("with an in-game piece, it comes in after a breath of silence", () => {
   director.setScene("game");
   // Run to the stop.
   time.advance(10000);
-  assert.equal(of("passage").paused, true);
+  assert.equal(of("drama").paused, true);
   assert.deepEqual(sounding(), ["game"]);
   assert.equal(of("game").src, "/audio/in-game.mp3");
   time.advance(4000);
@@ -462,32 +681,57 @@ test("with an in-game piece, it comes in after a breath of silence", () => {
   assert.equal(of("game").plays, plays);
 });
 
-test("a game still loading at the end of the loud stretch goes round it again; a stop past the last hit is at its end", () => {
+test("a game still loading at the end of the loud stretch goes round it again, as loud, and never into the build", () => {
   const { director, time, of } = stage();
   director.unlock();
   director.setScene("loading");
   time.advance((PASSAGE_DRAMA.wrapAt - 161.2 + 2) * 1000);
-  const audio = of("passage");
-  // Back to just before the big hit: the loud stretch only, never the build again, and as loud.
-  assert.equal(PASSAGE_DRAMA.enter, 168.45);
+  const audio = of("drama");
+  // Back to just before the big hit: the loud stretch only, and as loud.
+  assert.deepEqual([PASSAGE_DRAMA.enter, PASSAGE_DRAMA.wrapAt], [168.45, 226.4]);
   assert.ok(audio.currentTime >= PASSAGE_DRAMA.enter && audio.currentTime < PASSAGE_DRAMA.enter + 3, `went round: ${audio.currentTime}`);
   assert.equal(audio.paused, false);
   near(audio.volume, 0.25 * PASSAGE_DRAMA.boost, 1e-9);
-  time.advance(1000 * 60);
-  assert.ok(audio.currentTime >= PASSAGE_DRAMA.enter && audio.currentTime <= PASSAGE_DRAMA.wrapAt + 0.05, `and again: ${audio.currentTime}`);
-  near(audio.volume, 0.25 * PASSAGE_DRAMA.boost, 1e-9);
-  // The build's accents and the loud stretch's hits, in order, each reachable.
-  assert.deepEqual([...PASSAGE_DRAMA.cuts], [149.9, 157.45, 161.35, 168.6, 174.3, 177.6, 186.4, 193.8, 198.1, 201.55, 206.9, 214.45, 222.05]);
-  assert.deepEqual([...PASSAGE_DRAMA.cuts].sort((a, b) => a - b), [...PASSAGE_DRAMA.cuts]);
-  assert.ok(PASSAGE_DRAMA.cuts.every((cut) => cut > PASSAGE_DRAMA.entries[0] && cut + PASSAGE_DRAMA.ring < PASSAGE_DRAMA.wrapAt));
-  assert.equal(cutTimeAfter(PASSAGE_DRAMA.entries[0]), 149.9 + PASSAGE_DRAMA.ring);
-  // From 161.35 on (once its ring is past reaching), the next stop is the big hit.
-  assert.equal(cutTimeAfter(161.5), 161.35 + PASSAGE_DRAMA.ring);
-  assert.equal(cutTimeAfter(161.6), PASSAGE_DRAMA.hit + PASSAGE_DRAMA.ring);
-  assert.equal(cutTimeAfter(PASSAGE_DRAMA.enter), PASSAGE_DRAMA.hit + PASSAGE_DRAMA.ring);
-  assert.equal(cutTimeAfter(PASSAGE_DRAMA.cuts.at(-1) + 1), PASSAGE_DRAMA.wrapAt);
-  // Never a long wait: the music is gone within nine and a half seconds of the game being drawn.
-  for (let at = PASSAGE_DRAMA.entries[0]; at < PASSAGE_DRAMA.wrapAt; at += 0.05) assert.ok(cutTimeAfter(at) - at < 9.5, `from ${at}`);
+  let earliest = 999;
+  let latest = 0;
+  for (let ms = 0; ms < 3 * 60 * 1000; ms += 20) {
+    time.advance(20);
+    earliest = Math.min(earliest, audio.currentTime);
+    latest = Math.max(latest, audio.currentTime);
+    near(audio.volume, 0.25 * PASSAGE_DRAMA.boost, 1e-9);
+  }
+  assert.ok(earliest >= PASSAGE_DRAMA.enter, `never before the loud stretch: ${earliest}`);
+  assert.ok(latest <= PASSAGE_DRAMA.wrapAt + 0.05, `never past it: ${latest}`);
+  // Drawn at last: it stops on the next hit, as ever.
+  director.setScene("game");
+  assert.equal(director.cutAt, cutTimeAfter(audio.currentTime));
+  assert.equal(director.softExit, false);
+});
+
+test("a build found playing the piece's opening is put back where it belongs, and one that cannot be moved is left alone", () => {
+  // Some browsers do not keep where an element that has never played was told to start.
+  const { director, time, of } = stage();
+  director.unlock();
+  time.advance(3000);
+  director.setScene("loading");
+  const audio = of("drama");
+  audio.currentTime = 0;
+  time.advance(60);
+  assert.ok(audio.currentTime >= 161.2 && audio.currentTime < 161.3, `back at its entry: ${audio.currentTime}`);
+  // Three times at most in one loading: after that it plays from where it is.
+  for (const expected of [true, true, false]) {
+    audio.currentTime = 1;
+    time.advance(60);
+    assert.equal(audio.currentTime > 161, expected);
+  }
+  assert.equal(audio.paused, false);
+  // The next game opening starts the count again.
+  director.setScene("menu");
+  time.advance(3000);
+  director.setScene("loading");
+  audio.currentTime = 0;
+  time.advance(60);
+  assert.ok(audio.currentTime > 161);
 });
 
 test("the war room, or a battlefield shown: Legionnaire; back in the game it stops", () => {
@@ -510,20 +754,35 @@ test("the war room, or a battlefield shown: Legionnaire; back in the game it sto
   director.setScene("atWar");
   time.advance(1500);
   assert.deepEqual(sounding(), []);
-  // Opened while the loading music is still running to its hit: that music stops now.
+  // Opened while the loading music is still running to its hit: that music
+  // stops now, hit or no hit.
   director.setScene("loading");
   time.advance(1000);
   director.setScene("game");
   assert.notEqual(director.cutAt, null);
   director.setScene("war");
-  time.advance(1500);
-  assert.deepEqual(sounding(), ["war"]);
   assert.equal(director.cutAt, null);
+  time.advance(200);
+  assert.equal(of("drama").paused, true, "at once");
+  time.advance(1300);
+  assert.deepEqual(sounding(), ["war"]);
+  // Opened straight from a game still opening, in the middle of the crossing: both elements stop.
+  director.setScene("menu");
+  time.advance(4000);
+  director.setScene("loading");
+  time.advance(900);
+  assert.deepEqual(sounding(), ["calm", "drama"]);
+  director.setScene("war");
+  time.advance(200);
+  assert.deepEqual([of("calm").paused, of("drama").paused], [true, true]);
+  assert.equal(director.inDrama, false);
+  time.advance(1300);
+  assert.deepEqual(sounding(), ["war"]);
   // And the menu takes over from anything.
   director.setScene("menu");
-  time.advance(2500);
-  assert.deepEqual(sounding(), ["passage"]);
-  assert.ok(of("passage").currentTime < 5);
+  time.advance(3000);
+  assert.deepEqual(sounding(), ["calm"]);
+  assert.ok(of("calm").currentTime < 5);
 });
 
 test("the war room's music is a list of the game's own: Legionnaire, then Vanguard, then Legionnaire again", () => {
@@ -608,6 +867,8 @@ test("a war piece that cannot be played is passed over; with neither, the war ro
 test("switched off, it downloads nothing; the switch, the volume and a hidden page are followed at once", () => {
   const off = stage({ enabled: false });
   off.director.unlock();
+  off.time.advance(3000);
+  assert.equal(off.made.length, 0, "on the menu with the music off, not even the build is made ready");
   off.director.setScene("loading");
   off.director.setScene("game");
   off.director.setScene("war");
@@ -619,36 +880,55 @@ test("switched off, it downloads nothing; the switch, the volume and a hidden pa
   assert.deepEqual(off.sounding(), ["war"]);
   assert.equal(off.made.length, 1);
 
-  const on = stage({ volume: 60 });
+  const on = stage({ volume: 50 });
   on.director.unlock();
-  on.time.advance(2000);
-  assert.equal(on.of("passage").volume, 0.6);
+  on.time.advance(3000);
+  // The opening is turned up by the levelling: 50% times 1.6.
+  near(on.of("calm").volume, 0.8, 1e-9);
   on.settings.volume = 10;
   on.director.sync();
-  assert.equal(on.of("passage").volume, 0.1);
-  assert.equal(on.of("passage").plays, 1, "a change of volume does not start it again");
+  near(on.of("calm").volume, 0.16, 1e-9);
+  assert.equal(on.of("calm").plays, 1, "a change of volume does not start it again");
+  // Never past full volume, whatever the levelling asks.
+  on.settings.volume = 80;
+  on.director.sync();
+  assert.equal(on.of("calm").volume, 1);
   on.settings.volume = 0;
   on.director.sync();
-  assert.equal(on.of("passage").paused, true);
+  assert.equal(on.of("calm").paused, true);
   on.settings.volume = 40;
   on.director.sync();
-  assert.equal(on.of("passage").paused, false);
+  assert.equal(on.of("calm").paused, false);
   on.director.setHidden(true);
-  assert.equal(on.of("passage").paused, true);
+  assert.equal(on.of("calm").paused, true);
   on.director.setHidden(false);
-  assert.equal(on.of("passage").paused, false);
+  assert.equal(on.of("calm").paused, false);
   // While something else is listened to (a track tried out in the editor) it waits, and carries on after.
   on.director.setHeld(true);
-  assert.equal(on.of("passage").paused, true);
+  assert.equal(on.of("calm").paused, true);
   on.director.setHeld(false);
-  assert.equal(on.of("passage").paused, false);
+  assert.equal(on.of("calm").paused, false);
+  // The build held ready stayed silent and still through all of it.
+  assert.deepEqual([on.of("drama").paused, on.of("drama").plays, on.of("drama").volume, on.of("drama").currentTime], [true, 0, 0, 161.2]);
+
+  // A hidden page pauses both elements in the middle of their crossing, and both carry on after.
+  on.director.setScene("loading");
+  on.time.advance(900);
+  assert.deepEqual(on.sounding(), ["calm", "drama"]);
+  on.director.setHidden(true);
+  assert.deepEqual([on.of("calm").paused, on.of("drama").paused], [true, true]);
+  on.time.advance(100);
+  on.director.setHidden(false);
+  assert.deepEqual([on.of("calm").paused, on.of("drama").paused], [false, false]);
+  near(on.of("drama").currentTime, 161.2, 0.011);
   // The loud stretch never goes past full volume.
   on.settings.volume = 80;
-  on.director.setScene("loading");
-  on.time.advance(1000);
-  assert.ok(on.of("passage").volume > 0.79 && on.of("passage").volume < 0.86, `no louder than the menu at the entry: ${on.of("passage").volume}`);
+  on.director.sync();
+  on.time.advance(1100);
+  assert.deepEqual(on.sounding(), ["drama"]);
+  assert.ok(on.of("drama").volume > 0.79 && on.of("drama").volume < 0.9, `little louder than the player's volume near the entry: ${on.of("drama").volume}`);
   on.time.advance(8000);
-  assert.equal(on.of("passage").volume, 1);
+  assert.equal(on.of("drama").volume, 1);
 });
 
 test("a game opened before the first click starts in the right place at that click", () => {
@@ -656,17 +936,26 @@ test("a game opened before the first click starts in the right place at that cli
   loading.director.setScene("loading");
   assert.equal(loading.made.length, 0);
   loading.director.unlock();
+  // The build could not be made ready, and there is no menu music to cross
+  // with: it comes in from the entry itself, over the same 1.8 seconds.
+  assert.equal(loading.made.length, 1);
+  assert.deepEqual([loading.of("drama").currentTime, loading.of("drama").volume, loading.of("drama").paused], [161.2, 0, false]);
   loading.time.advance(300);
-  near(loading.of("passage").currentTime, 161.2 + 0.3, 0.011);
+  near(loading.of("drama").currentTime, 161.2 + 0.3, 0.011);
   assert.equal(loading.director.inDrama, true);
-  // A click late in the loading: the entry is for what is left of it, so the
-  // hit still lands as the game appears. 5.5 of the expected 6 seconds are gone.
+  assert.ok(loading.of("drama").volume > 0.03 && loading.of("drama").volume < 0.1, `coming in: ${loading.of("drama").volume}`);
+  loading.time.advance(1550);
+  near(loading.of("drama").volume, 0.25 * boostAt(loading.of("drama").currentTime, 161.2), 0.002);
+  assert.deepEqual(loading.sounding(), ["drama"]);
+  assert.equal(loading.of("calm"), null, "the menu's element was never needed");
+  // A click late in the loading: the entry is for what is left of it. 5.5 of
+  // the expected 6 seconds are gone, and the last entry is the latest there is.
   const lateClick = stage();
   lateClick.director.setScene("loading");
   lateClick.time.advance(5500);
   lateClick.director.unlock();
   lateClick.time.advance(100);
-  near(lateClick.of("passage").currentTime, 166.9 + 0.1, 0.011);
+  near(lateClick.of("drama").currentTime, 164.7 + 0.1, 0.011);
   // Already in the game by the first click: no loading music at all.
   const late = stage();
   late.director.setScene("loading");
@@ -674,6 +963,7 @@ test("a game opened before the first click starts in the right place at that cli
   late.director.unlock();
   late.time.advance(3000);
   assert.deepEqual(late.sounding(), []);
+  assert.equal(late.made.length, 0);
 });
 
 test("a browser that still refuses is asked again at the next click; a file that cannot play is left alone", async () => {
@@ -682,7 +972,7 @@ test("a browser that still refuses is asked again at the next click; a file that
   await settle();
   assert.equal(refused.director.unlocked, false);
   refused.director.unlock();
-  assert.equal(refused.of("passage").plays, 2);
+  assert.equal(refused.of("calm").plays, 2);
   const broken = stage({ refuse: "NotSupportedError" });
   broken.director.unlock();
   await settle();
@@ -788,8 +1078,8 @@ test("a scenario's list plays in the place of the game's piece: in order, the ne
   director.unlock();
   time.advance(2000);
   // The menu is never a scenario's.
-  assert.deepEqual(sounding(), ["passage"]);
-  assert.equal(made.length, 1, "and none of the scenario's files has been asked for");
+  assert.deepEqual(sounding(), ["calm"]);
+  assert.ok(made.every((element) => element.src === "/audio/passage-of-time.mp3"), "and none of the scenario's files has been asked for");
   assert.deepEqual(said, []);
 
   director.setScene("game");
@@ -811,7 +1101,7 @@ test("a scenario's list plays in the place of the game's piece: in order, the ne
   assert.equal(audio.src, "/hub/a.mp3");
   assert.equal(audio.paused, false);
   assert.deepEqual(said, ["a", "b", "c", "a"]);
-  assert.equal(made.length, 2, "one element for the list, whatever its length");
+  assert.equal(made.filter((element) => element.src.startsWith("/hub/")).length, 1, "one element for the list, whatever its length");
   assert.equal(director.nowPlaying.id, "a");
 
   // One track alone goes round by itself.
@@ -855,7 +1145,7 @@ test("leaving a situation fades its list out where it is, and coming back carrie
   // The menu and back again, the same.
   director.setScene("menu");
   time.advance(3000);
-  assert.deepEqual(sounding(), ["passage"]);
+  assert.deepEqual(sounding(), ["calm"]);
   const menuAt = audio.currentTime;
   director.setScene("game");
   time.advance(1500);
@@ -873,8 +1163,8 @@ test("a scenario's loading tracks replace the loading music altogether: no build
   assert.equal(director.inDrama, false);
   time.advance(1500);
   assert.deepEqual(sounding(), ["scenario:loading"]);
-  assert.equal(of("passage").paused, true, "the menu's music faded out");
-  assert.equal(of("passage").currentTime, 0, "and never went near its build");
+  assert.deepEqual([of("calm").paused, of("calm").currentTime], [true, 0], "the menu's music faded out");
+  assert.deepEqual([of("drama").paused, of("drama").plays], [true, 0], "and the build, held ready on the menu, was never played");
   time.advance(2500);
   // The game is drawn: it fades out, with no hit to wait for; and a game is quiet.
   director.setScene("game");
@@ -903,7 +1193,7 @@ test("a scenario's loading tracks replace the loading music altogether: no build
   none.director.unlock();
   none.director.setScene("loading");
   none.time.advance(500);
-  assert.deepEqual(none.sounding(), ["passage"]);
+  assert.deepEqual(none.sounding(), ["drama"]);
   assert.equal(none.director.inDrama, true);
   // And when its stop on a hit has landed and the breath is over, the game's list comes in.
   none.director.setScene("game");
@@ -1019,9 +1309,9 @@ test("a track that cannot be played is passed over; a list none of whose tracks 
   loading.director.setScene("loading");
   await settle();
   loading.time.advance(700);
-  assert.deepEqual(loading.sounding(), ["passage"]);
+  assert.deepEqual(loading.sounding(), ["drama"]);
   assert.equal(loading.director.inDrama, true);
-  assert.ok(loading.of("passage").currentTime > 161 && loading.of("passage").currentTime < 163);
+  assert.ok(loading.of("drama").currentTime > 161 && loading.of("drama").currentTime < 163);
   // At war, with its own list unplayable: the game's list.
   const war = stage({ broken: ["/hub/w.mp3"] });
   war.director.setPlaylists({ game: [hubTrack("a")], atWar: [hubTrack("w")] });
@@ -1080,12 +1370,12 @@ test("the lists can arrive, change and go while a game is open", () => {
   // loading music started, and gives way when the scenario's arrives.
   director.setScene("loading");
   time.advance(1000);
-  assert.deepEqual(sounding(), ["passage"]);
+  assert.deepEqual(sounding(), ["drama"]);
   director.setPlaylists({ loading: [hubTrack("intro")], game: [hubTrack("a"), hubTrack("b")] });
   assert.equal(director.inDrama, false);
   time.advance(1500);
   assert.deepEqual(sounding(), ["scenario:loading"]);
-  assert.equal(of("passage").currentTime, 0);
+  assert.equal(of("drama").paused, true);
   director.setScene("game");
   time.advance(5000);
   assert.deepEqual(sounding(), ["scenario:game"]);

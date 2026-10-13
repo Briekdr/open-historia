@@ -8,8 +8,8 @@ The files are the composer's own, unchanged.
 passage-of-time.mp3
     "Passage Of Time" by Scott Buckley
     https://www.scottbuckley.com.au/library/passage-of-time/
-    Its quiet opening plays on the menu, and its build and loud stretch
-    while a game opens.
+    Plays on the menu, as far as its build, and from its build on while a
+    game opens.
 
 legionnaire.mp3
     "Legionnaire (2022 Remaster)" by Scott Buckley
