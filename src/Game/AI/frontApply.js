@@ -26,6 +26,8 @@ import { noteReceipt } from "../../runtime/applicationReceipt.js";
 import { JSON_URLS, loadRegionCatalog, readJson } from "../../runtime/assets.js";
 import { citiesFollowing, cityPopulationKey, cityPopulationOverridesByTileName, countryPopulationMoves, effectiveCityPopulation } from "../../runtime/cityPopulation.js";
 import { frontCitiesOf, readFrontCities } from "../../runtime/frontCities.js";
+import { MAX_UNITS_GLOBAL, MAX_UNITS_PER_POLITY } from "../../runtime/gameState.js";
+import { buildSeasBlock } from "./navalPrompt.js";
 import { arenaFor } from "../../runtime/fronts/arena.js";
 import { decodeTroops } from "../../runtime/fronts/codec.js";
 import { projectorOf } from "../../runtime/fronts/frame.js";
@@ -189,6 +191,8 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
     tempoAllowance: (days) => (direction?.territoryTempo > 0 ? territoryTempoAllowance(direction.territoryTempo, Math.max(1, days)) : null),
     // The same turn of the same campaign is the same run, whoever applies it and how often.
     seed: `${clean(campaignId)}|${round}|${fromDate}`,
+    // What a fleet the war at sea commissions is held to (runtime/naval/engine.js).
+    unitCaps: { perCountry: MAX_UNITS_PER_POLITY, world: MAX_UNITS_GLOBAL },
     players: humanCountriesOf(game),
     // The difficulty weighs the land war for whoever fights a person's country (runtime/fronts/handicap.js).
     difficulty: normalizeDifficulty(game?.difficulty),
@@ -248,7 +252,7 @@ export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "
     });
     const days = Number(run?.stats?.days) || 0;
     const value = run?.battlefields && days > 0
-      ? { fromDate, toDate: target, days, battlefields: run.battlefields, news: asArray(run.news), flips: asArray(run.flips), transports: asArray(run.transports), voyages: asArray(run.voyages), ...(asArray(given).length ? { given: asArray(given) } : {}) }
+      ? { fromDate, toDate: target, days, battlefields: run.battlefields, news: asArray(run.news), flips: asArray(run.flips), transports: asArray(run.transports), voyages: asArray(run.voyages), sea: run.sea ?? null, ...(asArray(given).length ? { given: asArray(given) } : {}) }
       : null;
     foreseen = { key, value };
     if (value) {
@@ -644,8 +648,10 @@ export { scenarioFrontsPending };
 // stood, and a formation on a battlefield keeps no standing order of its own,
 // since the engine is what moves it now.
 export const withFrontUnits = (world, fronts) => {
-  if (!fronts || asArray(fronts.unitChanges).length === 0) return world;
-  const units = applyFrontUnitChanges(world?.units, fronts.unitChanges);
+  // (A fleet the war at sea commissioned for a country that had none is one of the world's formations from now.)
+  const commissioned = asArray(fronts?.sea?.commissioned).filter((unit) => clean(unit?.id) && !asArray(world?.units).some((entry) => clean(entry?.id) === clean(unit.id)));
+  if (!fronts || (asArray(fronts.unitChanges).length === 0 && commissioned.length === 0)) return world;
+  const units = [...applyFrontUnitChanges(world?.units, fronts.unitChanges), ...commissioned.map((unit) => ({ ...unit }))];
   const committed = new Set(units.filter((unit) => clean(unit?.committedTo)).map((unit) => unit.id));
   return {
     ...world,
@@ -660,7 +666,16 @@ export const withFrontUnits = (world, fronts) => {
 // prompt is then exactly what it was. `foreseen` is what forecastTurnFronts
 // gave for the turn, when it gave anything: the block then tells the
 // battlefields as the period leaves them and what happened on them.
-export const frontsLiveBlock = (world, game, foreseen = null) => (frontsOn()
+export const frontsLiveBlock = (world, game, foreseen = null) => [landBlock(world, game, foreseen), seasLiveBlock(world, game, foreseen)].filter(Boolean).join("\n\n");
+
+// What the skip is told of the war at sea (navalPrompt.js), after the land's:
+// the period's battles where the period was fought beforehand, else the fleets
+// of the countries at war as they stand. "" with fronts off or no such fleet.
+export const seasLiveBlock = (world, game, foreseen = null) => (frontsOn()
+  ? buildSeasBlock({ sea: foreseen?.sea ?? null, units: world?.units, wars: world?.wars, players: humanCountriesOf(game), date: clean(game?.gameDate || game?.startDate) })
+  : "");
+
+const landBlock = (world, game, foreseen = null) => (frontsOn()
   ? buildFrontsBlock({ battlefields: world?.battlefields, players: humanCountriesOf(game), period: foreseen, transports: world?.transports, difficulty: normalizeDifficulty(game?.difficulty), orderFunction: foreseen?.orderFunction === true })
   : "");
 

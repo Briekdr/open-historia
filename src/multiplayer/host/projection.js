@@ -64,6 +64,7 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
   "transports",
   // And what an event's strike looked like: every map plays it.
   "strikes",
+  "seaBattles",
   // The stat sheets, and how each has moved: public figures (see the limits above).
   "countryStats", "countryStatsHistory",
 ]);
@@ -71,7 +72,7 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
 // The narrator's and the engine's own. Never in any view.
 export const HOST_ONLY_WORLD_KEYS = Object.freeze([
   "actionSuggestions", "boardReviewedRound", "chargedRefusals", "chatKnowledgeCursors", "consolidatedHistory",
-  "gmAudit", "gmChanges", "historyDocument", "idlePulseTick", "lastJumpSummary", "notes",
+  "gmAudit", "gmChanges", "historyDocument", "idlePulseTick", "lastJumpSummary", "naviesRaised", "notes",
   "pendingEventOutreach", "politicalSimulation", "seatBoards", "simulationReminders",
   "storylines",
 ]);

@@ -2,6 +2,7 @@
 import { JSON_URLS, getPrimedScenarioRegionCatalog, loadTurnRestorePoint, primeJson, publishJsonWriteBatch, readJson, reportPerfOperation, writeJson } from "./assets.js";
 import { withMapClaims } from "./mapClaims.js";
 import { populationFigureOf } from "./populationFigure.js";
+import { normalizeNaviesRaised, normalizeSeaBattles } from "./naval/record.js";
 import { MAX_GROUPS, applyGroupOps, canRenameGroup, findGroupKey, normalizeGroupAreas, normalizeGroupOp, normalizeGroups } from "./groups.js";
 import { enqueueEventStrings } from "./translator.js";
 import { normalizeTagList } from "./countryTags.js";
@@ -257,6 +258,12 @@ export const WORLD_DEFAULTS = {
   // The missiles and bombing runs the last turns' events told of, for the map
   // to play (strikes.js). They change nothing by themselves.
   strikes: [],
+  // The battles the last turns' fleets fought (naval/record.js), for the map to
+  // mark. What a battle did to the fleets is on the fleets.
+  seaBattles: [],
+  // When each country was last given a navy by the game, or lost the last of
+  // one (naval/record.js): a navy sunk is not handed back the turn after.
+  naviesRaised: [],
   // Subordinations: who directs whom. Directional, partly secret, and written
   // only through the diplomatic director's compact puppetUpdates lines — see
   // docs/adr/0004-puppet-ledger-and-secrecy.md.
@@ -4418,6 +4425,8 @@ export const normalizeWorldState = (world) => {
     battlefields: normalizeBattlefields(nextWorld.battlefields),
     transports: normalizeTransports(nextWorld.transports),
     strikes: normalizeStrikes(nextWorld.strikes),
+    seaBattles: normalizeSeaBattles(nextWorld.seaBattles),
+    naviesRaised: normalizeNaviesRaised(nextWorld.naviesRaised),
     puppets: normalizeWorldPuppets(nextWorld.puppets, diplomaticIdentityWorld),
     storylines: normalizeWorldStorylines(nextWorld.storylines),
     simulationRules: normalizeOptionalString(nextWorld.simulationRules),

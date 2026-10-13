@@ -127,6 +127,12 @@ export const MAP_LAYER_ORDER = [
   "transports-icons",
   "transports-lost",
 
+  // Where the last turns' fleets fought (SeaBattleLayers.jsx): under the fleets
+  // themselves, which have counters.
+  "seabattles-ring",
+  "seabattles-mark",
+  "seabattles-label",
+
   // Unit counters are interactive operational objects and remain topmost.
   "units-fill",
   "units-icons",

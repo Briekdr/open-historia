@@ -34,6 +34,7 @@ import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts
 import { TRANSPORT_LOAD_USUAL, TRANSPORT_ORDERS, isUnderWay, normalizeTransports, orderTransport } from "../../runtime/fronts/transports.js";
 import { buildWorldGrid, distanceTo, seasOf, worldSheetKey } from "../../runtime/fronts/worldGrid.js";
 import { waterTypeIds } from "../../runtime/regionTypes.js";
+import { runNaval } from "../../runtime/naval/engine.js";
 import { STRIKES_PER_TURN_MOST, findStrikePlace, pickStrikeOrigin, seaLaunchPlace } from "../../runtime/strikes.js";
 
 export const FRONT_MARK = "front";
@@ -661,6 +662,8 @@ export const applyFrontUnitChanges = (units, changes) => {
       ...rest,
       ...(Number.isFinite(lng) && Number.isFinite(lat) ? { lng, lat } : {}),
       ...(Number.isFinite(strength) ? { strength: Math.max(1, Math.min(100, Math.round(strength))) } : {}),
+      // (A fleet that broke off a battle at sea is withdrawing: runtime/naval/engine.js.)
+      ...(clean(change.posture) ? { posture: clean(change.posture) } : {}),
       ...(clean(change.committedTo) ? { committedTo: clean(change.committedTo) } : {}),
     });
   }
@@ -821,6 +824,10 @@ export const runTurnFronts = async ({
   troops = 1,
   // false charges no country's people for the troops raised (runtime/fronts/manpower.js).
   manpower = true,
+  // false leaves the fleets alone: the war at sea is not fought (runtime/naval/engine.js).
+  naval = true,
+  // The most formations a country and the world may have, for a fleet the war at sea commissions.
+  unitCaps = null,
   difficulty = "",
   narratesCombat = null,
   // The fronts a scenario begins with (runtime/fronts/scenarioFronts.js), on
@@ -1036,6 +1043,46 @@ export const runTurnFronts = async ({
   // The map could not be read: the turn goes on without the engine.
   if (!result) return nothing(null);
 
+  // The war at sea (runtime/naval/engine.js): the fleets of the countries at
+  // war, over the same days. They are the world's own formations, so what it
+  // comes to is changes to those (a fleet worn down, moved, broken off, gone)
+  // and, for a country at war with a coast and no fleet, one commissioned. It
+  // is given the sheet of the whole map when one has been drawn or can be:
+  // without it nobody is commissioned and nobody closes, and fleets in reach
+  // of each other still fight.
+  let sea = null;
+  if (naval !== false && atWar && days > 0) {
+    try {
+      const water = waterTypeIds(regionTypes);
+      const key = worldSheetKey(clean(map?.key), water);
+      let sheet = clean(map?.key) && arenas ? arenas.get(key) ?? null : null;
+      if (!sheet) {
+        const shapes = await readRegions();
+        sheet = shapes ? buildWorldGrid(shapes, { flat: map?.flat === true, scale: map?.scale, water }) : null;
+        if (sheet && clean(map?.key) && arenas) arenas.set(key, sheet);
+      }
+      sea = runNaval({
+        fromDate,
+        days,
+        seed: `${seed}|sea`,
+        wars: stages[0],
+        units: asArray(world?.units),
+        strengthOf: readers.strengthOf,
+        controllerOf: readers.controllerOf,
+        grid: sheet,
+        cities: asArray(map?.cities),
+        seas: asArray(world?.seas).map((entry) => ({ name: clean(entry?.name), lng: Number(entry?.point?.[0] ?? entry?.lng), lat: Number(entry?.point?.[1] ?? entry?.lat) })),
+        flat: map?.flat === true,
+        scale: map?.scale,
+        caps: unitCaps ?? {},
+        raised: asArray(world?.naviesRaised),
+      });
+    } catch (error) {
+      console.warn("[naval] the war at sea could not be fought this turn; the fleets stand as they were.", error);
+      sea = null;
+    }
+  }
+
   // A battlefield an order names "border: A / B" is a border fortified in
   // peace, which the engine opens itself; one it does not know is not the
   // model's mistake to be told of. Nor is what it says of an order the turn
@@ -1126,7 +1173,10 @@ export const runTurnFronts = async ({
     battlefields: asArray(result.battlefields).map((record) => (settled?.has(foldBattlefieldName(record?.name)) && isRecord(record.brief)
       ? { ...record, brief: { ...record.brief, told: true } }
       : record)),
-    unitChanges: asArray(result.unitChanges),
+    // (A formation the land war took up this period is the land war's: the sea says nothing more of it.)
+    unitChanges: [...asArray(result.unitChanges), ...asArray(sea?.unitChanges).filter((change) => !asArray(result.unitChanges).some((entry) => clean(entry?.unitId) === clean(change?.unitId)))],
+    // What the period came to at sea: its battles, the fleets as it leaves them, and any commissioned (runtime/naval/engine.js).
+    sea: sea ? { battles: asArray(sea.battles), fleets: asArray(sea.fleets), commissioned: asArray(sea.commissioned), raised: asArray(sea.raised) } : null,
     notes,
     flips: asArray(result.flips),
     stats: result.stats ?? null,
