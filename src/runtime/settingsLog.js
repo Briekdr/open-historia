@@ -38,6 +38,7 @@ import { requestDay, requestSettings } from "../Game/AI/requestBudget.js";
 import { deviceProfileForLog } from "./deviceProfile.js";
 import { presenceAllowed, presenceAvailable } from "./discordPresence.js";
 import { describeVisitConsent, readVisitConsent } from "./visitConsent.js";
+import { musicEnabled, musicVolume } from "./ambientMusic.js";
 
 const onOff = (value) => (value ? "on" : "off");
 
@@ -77,6 +78,11 @@ const discordPresenceState = () => {
     const state = onOff(presenceAllowed());
     return presenceAvailable() ? state : `${state} (inactive: this build cannot reach Discord)`;
 };
+
+registerSettingsSnapshot("Sound", () => [
+    ["Music", onOff(musicEnabled())],
+    ["Music volume", `${musicVolume()}%`],
+]);
 
 registerSettingsSnapshot("Privacy", () => [
     ["Show what I am playing on Discord", discordPresenceState()],

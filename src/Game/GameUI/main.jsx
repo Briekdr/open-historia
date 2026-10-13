@@ -12,6 +12,8 @@ import { useRuntimeState } from "../../runtime/useRuntimeState.js";
 import { brushedMetalUrl } from "./brushedMetal.js";
 import { playerFrontsKey } from "./warRoomData.js";
 import { presenceFor, useDiscordPresence } from "../../runtime/discordPresence.js";
+import { musicSceneOf, setMusicScene } from "../../runtime/ambientMusic.js";
+import { useWarRoom } from "../Map/warRoomStore.js";
 import { DISCORD_URL, GITHUB_URL, REDDIT_URL } from "../../runtime/communityLinks.js";
 import { useCountryDisplayName } from "../../runtime/polityNames.js";
 import { DateWidget } from "./time";
@@ -355,6 +357,12 @@ const Main = ({
     scenarioName: runtimeScenario?.name || "",
     inMenu: mainMenuOpen || hasNoGames,
   }));
+  // The music follows where the player is (runtime/ambientMusic.js): the menu,
+  // a game opening under its cover, the game, and the war room or a
+  // battlefield being shown, which the war room's own store knows.
+  const battlefieldShown = useWarRoom((room) => room.open || Boolean(room.battlefield));
+  const musicScene = musicSceneOf({ inMenu: mainMenuOpen || hasNoGames, loading: showGameLoading, war: battlefieldShown });
+  useEffect(() => { setMusicScene(musicScene); }, [musicScene]);
   const providerReady = aiSetup.ready;
   const [apiPromptAnsweredFor, setApiPromptAnsweredFor] = useState(() => {
     try { return sessionStorage.getItem("oh:api-setup-answered") || ""; } catch { return ""; }

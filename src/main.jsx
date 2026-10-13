@@ -12,6 +12,7 @@ import {
 } from "./runtime/debugLog.js";
 import { buildLabel } from "./runtime/buildLabel.js";
 import { countVisit } from "./runtime/visitCount.js";
+import { startMusic } from "./runtime/ambientMusic.js";
 // Registers the Logging file's settings snapshot (every setting's current value).
 import "./runtime/settingsLog.js";
 import App from "./App.jsx";
@@ -75,6 +76,11 @@ logDebugEvent("app", "Open Historia started.");
 // waits for it, and a development run counts nothing. The Android app loads no
 // analytics: asked here, so that its build carries none of the counter.
 if (!import.meta.env.VITE_OH_NATIVE) void countVisit({ env: import.meta.env });
+
+// The music (runtime/ambientMusic.js): it waits for the player's first click
+// or key press, and asks for a file only when it is about to play and only
+// while music is on. The game's screen tells it where the player is.
+startMusic({ env: import.meta.env });
 
 // A shared game's documents are answered from the host's view
 // (multiplayer/client/remoteRuntime.js). Installed after the website's own /api

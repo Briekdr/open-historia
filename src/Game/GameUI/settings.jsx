@@ -103,6 +103,7 @@ import { usePresenceLeaving } from "./presence.jsx";
 import { ESRI_BASEMAPS, isBuiltinBasemapId } from "../../runtime/assets.js";
 import { getDeviceProfileOverride, isConstrainedDevice, setDeviceProfileOverride } from "../../runtime/deviceProfile.js";
 import { presenceAvailable } from "../../runtime/discordPresence.js";
+import { MUSIC_CREDIT, musicVolumeOf } from "../../runtime/ambientMusic.js";
 import { setVisitConsent, useVisitConsent } from "../../runtime/visitConsent.js";
 import {
     APP_UPDATE_MANUAL_CHECK_RESULT_EVENT,
@@ -2225,6 +2226,41 @@ const ExperimentalPill = ({ children = "Experimental" }) => (
 
 const settingsHelper = { ...helperStyle, marginTop: "-0.55rem", marginBottom: "0.85rem" };
 
+// --- Sound ---------------------------------------------------------------------
+// The music's switch and volume (runtime/ambientMusic.js), and whose music it
+// is: the pieces' licence asks for exactly that to be said.
+const SoundSection = ({ musicOn, onToggleMusic }) => {
+    const stored = useMapSettingValue(MAP_SETTING_KEYS.musicVolume, "");
+    const volume = musicVolumeOf(stored);
+    return (
+        <SettingsSection title="Sound" description="The game's music, and how loud it is.">
+            <Toggle label="Music" enabled={musicOn} onToggle={onToggleMusic} />
+            <label style={{ alignItems: "center", display: "flex", gap: "0.75rem", justifyContent: "space-between", marginBottom: "0.85rem", opacity: musicOn ? 1 : 0.5 }}>
+                <span style={{ fontSize: "0.9rem" }}>{"Music volume"}</span>
+                <span style={{ alignItems: "center", display: "flex", gap: "0.6rem" }}>
+                    <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={volume}
+                    disabled={!musicOn}
+                    onChange={(event) => setMapSettingValue(MAP_SETTING_KEYS.musicVolume, String(musicVolumeOf(event.target.value)))}
+                    aria-label="Music volume"
+                    style={{ accentColor: "#2bc1f3", width: "9rem" }}
+                    />
+                    <span data-no-translate style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.78rem", minWidth: "2.6rem", textAlign: "right" }}>{`${volume}%`}</span>
+                </span>
+            </label>
+            <div style={{ ...helperStyle, marginTop: 0, marginBottom: 0 }}>
+                <span>{"Music: “Passage Of Time” and “Legionnaire (2022 Remaster)” by Scott Buckley, released under CC BY 4.0."}</span>
+                {" "}
+                <a data-no-translate href={MUSIC_CREDIT.siteUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>{MUSIC_CREDIT.site}</a>
+            </div>
+        </SettingsSection>
+    );
+};
+
 // --- Privacy -------------------------------------------------------------------
 // The two things the game tells somebody else about the player that the player
 // can switch off, in one place, with the policy that describes the rest:
@@ -2287,7 +2323,7 @@ const PrivacySection = ({ discordPresenceOn, onToggleDiscordPresence }) => {
 };
 
 const SETTINGS_SECTIONS = [
-    { key: "general", label: "General", icon: "◫", description: "Language, display, accessibility and privacy" },
+    { key: "general", label: "General", icon: "◫", description: "Language, display, accessibility, sound and privacy" },
     { key: "map", label: "Map", icon: "◇", description: "Basemap, labels, globe and camera" },
     { key: "ai", label: "AI", icon: "✦", description: "Models, backups, keys and reasoning" },
     { key: "advanced", label: "Advanced", icon: "⌘", description: "Per-task models and expert controls" },
@@ -2462,6 +2498,10 @@ const SettingsWorkspace = ({
                     />
                     {systemReducedMotion && <div style={{ ...helperStyle, marginTop: "-0.6rem", marginBottom: "0.6rem" }}>On, following your system setting for reduced motion.</div>}
                 </SettingsSection>
+                <SoundSection
+                musicOn={mapSettings.ambientMusic}
+                onToggleMusic={() => updateMapSetting("ambientMusic", MAP_SETTING_KEYS.ambientMusic, !mapSettings.ambientMusic)}
+                />
                 <PrivacySection
                 discordPresenceOn={mapSettings.discordPresence}
                 onToggleDiscordPresence={() => updateMapSetting("discordPresence", MAP_SETTING_KEYS.discordPresence, !mapSettings.discordPresence)}
@@ -2774,6 +2814,8 @@ const SettingsMenu = ({
         batchBackgroundTasks: getMapSetting(MAP_SETTING_KEYS.batchBackgroundTasks),
         // Ships ON as well: Discord's "Playing Open Historia" (General → Privacy).
         discordPresence: getMapSettingDefaultOn(MAP_SETTING_KEYS.discordPresence),
+        // And the music (General → Sound).
+        ambientMusic: getMapSettingDefaultOn(MAP_SETTING_KEYS.ambientMusic),
     }));
 
     const updateMapSetting = (stateKey, settingKey, value) => {
@@ -2895,7 +2937,7 @@ const SettingsMenu = ({
         panelContent = (
             <QuickMenuPanel title="Settings" description="Jump straight into the options category you want.">
                 <div style={grid}>
-                    <QuickAction title="General" description="Language, display, accessibility and privacy" symbol="◫" tone="blue" onClick={() => openSettingsSection("general")} />
+                    <QuickAction title="General" description="Language, display, accessibility, sound and privacy" symbol="◫" tone="blue" onClick={() => openSettingsSection("general")} />
                     <QuickAction title="Map" description="Basemap, labels, globe and camera" symbol="◇" tone="blue" onClick={() => openSettingsSection("map")} />
                     <QuickAction title="AI" description="Models, backups, keys and reasoning" symbol="✦" onClick={() => openSettingsSection("ai")} />
                     <QuickAction title="Advanced" description="Per-task models and expert controls" symbol="⌘" onClick={() => openSettingsSection("advanced")} />
