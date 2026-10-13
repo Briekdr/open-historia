@@ -91,6 +91,10 @@ export const interveneAfterEvent = hostOnly(async (...args) => (await gameplay()
 // the record or set aside.
 export const createInteractive = hostOnly(async (...args) => (await gameplay()).createInteractive(...args));
 export const declineInteractiveOffer = hostOnly(async (...args) => (await gameplay()).declineInteractiveOffer(...args));
+// War and peace between turns (AI/warAndPeace.js): an offer of peace or a call
+// to arms answered, or terms put to an enemy. A guest's goes to the host as a
+// request (GameUI/warAndPeace.jsx).
+export const answerDiplomacy = hostOnly(async (...args) => (await gameplay()).answerDiplomacy(...args));
 export const advanceActiveInteractive = hostOnly(async (...args) => (await gameplay()).advanceActiveInteractive(...args));
 export const rewindActiveInteractive = hostOnly(async (...args) => (await gameplay()).rewindActiveInteractive(...args));
 export const endActiveInteractive = hostOnly(async (...args) => (await gameplay()).endActiveInteractive(...args));

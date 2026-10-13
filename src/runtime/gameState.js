@@ -4,6 +4,9 @@ import { withMapClaims } from "./mapClaims.js";
 import { populationFigureOf } from "./populationFigure.js";
 import { normalizeNaviesRaised, normalizeSeaBattles } from "./naval/record.js";
 import { normalizeBlockades } from "./naval/blockade.js";
+import { normalizeCallsToArms } from "./alliances.js";
+import { normalizePeaceOffers, normalizePeaceTreaties, normalizeReparations } from "./peaceTerms.js";
+import { normalizeWarWeariness } from "./warWeariness.js";
 import { MAX_GROUPS, applyGroupOps, canRenameGroup, findGroupKey, normalizeGroupAreas, normalizeGroupOp, normalizeGroups } from "./groups.js";
 import { enqueueEventStrings } from "./translator.js";
 import { normalizeTagList } from "./countryTags.js";
@@ -269,6 +272,17 @@ export const WORLD_DEFAULTS = {
   // country and how many days it has stood. Written by the war at sea; the
   // land war and the economy read them.
   blockades: [],
+  // How weary of war each country is, 0 to 100 (warWeariness.js): the game's
+  // own figure, moved every turn by what the turn did to it.
+  warWeariness: [],
+  // Peace (peaceTerms.js): the offers that wait for an answer or were given
+  // one, the reparations being paid, and the last peaces made on terms.
+  peaceOffers: [],
+  reparations: [],
+  peaceTreaties: [],
+  // Alliances coming due (alliances.js): who was called on to defend whom in
+  // which war, and what they answered.
+  callsToArms: [],
   // Subordinations: who directs whom. Directional, partly secret, and written
   // only through the diplomatic director's compact puppetUpdates lines — see
   // docs/adr/0004-puppet-ledger-and-secrecy.md.
@@ -4433,6 +4447,11 @@ export const normalizeWorldState = (world) => {
     seaBattles: normalizeSeaBattles(nextWorld.seaBattles),
     naviesRaised: normalizeNaviesRaised(nextWorld.naviesRaised),
     blockades: normalizeBlockades(nextWorld.blockades),
+    warWeariness: normalizeWarWeariness(nextWorld.warWeariness),
+    peaceOffers: normalizePeaceOffers(nextWorld.peaceOffers),
+    reparations: normalizeReparations(nextWorld.reparations),
+    peaceTreaties: normalizePeaceTreaties(nextWorld.peaceTreaties),
+    callsToArms: normalizeCallsToArms(nextWorld.callsToArms),
     puppets: normalizeWorldPuppets(nextWorld.puppets, diplomaticIdentityWorld),
     storylines: normalizeWorldStorylines(nextWorld.storylines),
     simulationRules: normalizeOptionalString(nextWorld.simulationRules),

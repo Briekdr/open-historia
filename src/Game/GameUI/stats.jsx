@@ -24,6 +24,8 @@ import COUNTRY_NAMES from "../../runtime/generated/countryNames.js";
 import { REGION_SELECTED_EVENT } from "../Selection/Regions.jsx";
 import { ensureCountryAssessed, ensureIntelligenceRated, generateCountryStatSheet, pendingCountryStatSheet, readOpenedIntercepts } from "../AI/gameplayLazy.js";
 import PoliticalOverview from "./PoliticalOverview.jsx";
+import { buildRanking, openingMetric, rankingMetricsFor } from "./countryRanking.js";
+import { PeaceControls, ReparationsNote } from "./warAndPeace.jsx";
 import { institutionPortfolioForPolity } from "../../runtime/institutionLifecycleCore.js";
 import { TURN_RUNNING_NOTE, isSimulationBusy } from "../AI/simulationStatus.js";
 import { useTurnRunning } from "./useTurnRunning.js";
@@ -835,6 +837,8 @@ const DiplomacySection = ({ world, identity, targetCountry, viewerPolity }) => {
                     {war.timelineIsFirst ? "See how it began on the timeline" : "See it on the timeline"}
                     </button>
                 ) : null}
+                {/* How weary each side is, and, in a war of the player's own, terms of their own (warAndPeace.jsx). */}
+                <PeaceControls war={war} world={world} viewer={viewerPolity} />
                 </div>
                 <span style={statusBadgeStyle(tone)}>{prettyToken(war.status || "active")}</span>
                 </div>
@@ -846,6 +850,7 @@ const DiplomacySection = ({ world, identity, targetCountry, viewerPolity }) => {
             </div>
         )}
         </div>
+        <ReparationsNote world={world} target={targetCountry} />
         </>
     );
 };
@@ -1654,6 +1659,131 @@ const HistoricalTrackingModal = ({
     );
 };
 
+// ---- the ranking ---------------------------------------------------------------------
+// "A cross-country ranking tab in Stats." The countries of the game ranked by
+// one figure at a time (countryRanking.js). A row opens that country in the
+// pane. A figure only an assessed country has leaves the rest out and says how
+// many: nothing is ranked on a guess.
+
+const RANKING_ROWS_FIRST = 25;
+
+const formatRankingValue = (metric, value) => {
+    if (metric.stat) return formatCustomStatValue(metric.stat, value);
+    if (metric.kind === "money") return formatEuroTotal(value);
+    if (metric.kind === "money each") return formatEuroPerCapita(value);
+    if (metric.kind === "index") return String(Math.round(value));
+    if (metric.kind === "weight") return (Math.round(value * 10) / 10).toLocaleString();
+    return formatCompactNumber(value);
+};
+
+const rankingMetricStyle = (selected, touch) => ({
+    backgroundColor: selected ? "rgba(43,193,243,0.16)" : "rgba(255,255,255,0.04)",
+    border: `1px solid ${selected ? "rgba(43,193,243,0.6)" : "rgba(255,255,255,0.1)"}`,
+    borderRadius: "999px",
+    color: selected ? "#e8f8fe" : "rgba(255,255,255,0.62)",
+    cursor: "pointer",
+    fontSize: "0.7rem",
+    fontWeight: 700,
+    minHeight: touch ? "2.4rem" : undefined,
+    padding: "0.3rem 0.65rem",
+});
+
+const rankingRowStyle = (open, mine) => ({
+    alignItems: "center",
+    backgroundColor: open ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.04)",
+    border: `1px solid ${mine ? "rgba(43,193,243,0.6)" : open ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.08)"}`,
+    borderRadius: "8px",
+    color: "#f4f4f5",
+    cursor: "pointer",
+    display: "grid",
+    gap: "0.15rem 0.5rem",
+    gridTemplateColumns: "1.7rem 1.5rem minmax(0, 1fr) auto",
+    padding: "0.4rem 0.55rem",
+    textAlign: "left",
+    width: "100%",
+});
+
+const RankingSection = ({ world, definition, index, playerCode, targetCountry, onPick, flags, touch }) => {
+    const [metricKey, setMetricKey] = useState("");
+    const [showAll, setShowAll] = useState(false);
+    const metrics = useMemo(
+        () => rankingMetricsFor({ definition, rows: definition?.custom ? flattenStatSheetRows(definition) : [], world }),
+        [definition, world],
+    );
+    const countries = useMemo(
+        () => buildHistoricalTrackingCandidateRows({ world: world ?? {}, playerCountry: playerCode, currentCountry: targetCountry, index, stockNames: STOCK_COUNTRY_NAMES }).rows,
+        [world, playerCode, targetCountry, index],
+    );
+    // (Until one is picked: the first figure a few countries have, so the tab does not open on an empty list.)
+    const opening = useMemo(
+        () => openingMetric({ world: world ?? {}, countries, metrics, catalog: getPrimedScenarioRegionCatalog() ?? [] }),
+        [world, countries, metrics],
+    );
+    const metric = metrics.find((entry) => entry.key === metricKey) ?? opening;
+    const ranking = useMemo(
+        () => (metric ? buildRanking({ world: world ?? {}, countries, metric, catalog: getPrimedScenarioRegionCatalog() ?? [] }) : null),
+        [world, countries, metric],
+    );
+    if (!metric || !ranking) return null;
+    const shown = showAll ? ranking.rows : ranking.rows.slice(0, RANKING_ROWS_FIRST);
+    return (
+        <div>
+            <div style={sectionTitleStyle}>Ranked by</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+                {metrics.map((entry) => (
+                    <button
+                        key={entry.key}
+                        type="button"
+                        aria-pressed={entry.key === metric.key}
+                        onClick={() => { setMetricKey(entry.key); setShowAll(false); }}
+                        style={rankingMetricStyle(entry.key === metric.key, touch)}
+                    >{entry.label}</button>
+                ))}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", marginTop: "0.75rem" }}>
+                {shown.map((row) => {
+                    const flagUrl = flags?.[row.key] || world?.polityOverrides?.[row.key]?.flag || flagImageUrlFromGid(row.key);
+                    const mine = Boolean(playerCode) && row.key === playerCode;
+                    const open = row.key === targetCountry;
+                    return (
+                        <button
+                            key={row.key}
+                            type="button"
+                            className="oh-tap-row"
+                            aria-current={open ? "true" : undefined}
+                            title={mine ? "Your country" : undefined}
+                            onClick={() => onPick(row.key)}
+                            style={rankingRowStyle(open, mine)}
+                        >
+                            <span data-no-translate style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.72rem", fontVariantNumeric: "tabular-nums", fontWeight: 800 }}>{row.rank}</span>
+                            <span style={{ backgroundColor: "rgba(255,255,255,0.08)", borderRadius: "3px", display: "block", height: "1rem", overflow: "hidden", width: "1.5rem" }}>
+                                {flagUrl ? <img alt="" src={bundledFlagUrl(flagUrl)} style={{ display: "block", height: "100%", objectFit: "cover", width: "100%" }} /> : null}
+                            </span>
+                            <span data-no-translate style={{ fontSize: "0.78rem", fontWeight: mine ? 800 : 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.label}</span>
+                            <span data-no-translate style={{ fontSize: "0.78rem", fontVariantNumeric: "tabular-nums", fontWeight: 800 }}>{formatRankingValue(metric, row.value)}</span>
+                            <span style={{ backgroundColor: "rgba(255,255,255,0.08)", borderRadius: "999px", gridColumn: "1 / -1", height: "3px", overflow: "hidden" }}>
+                                <span style={{ backgroundColor: "#2bc1f3", display: "block", height: "100%", width: `${ranking.most > 0 ? Math.max(2, Math.round((Math.abs(row.value) / ranking.most) * 100)) : 0}%` }} />
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+            {ranking.rows.length > shown.length && (
+                <button type="button" className="oh-tap-row" onClick={() => setShowAll(true)} style={{ ...refreshMenuButtonStyle, marginTop: "0.6rem", width: "100%" }}>Show every country</button>
+            )}
+            {ranking.rows.length === 0 && (
+                <p style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.76rem", marginTop: "0.8rem" }}>No country has this figure yet.</p>
+            )}
+            {ranking.unranked > 0 && (
+                <p style={{ color: "rgba(255,255,255,0.42)", fontSize: "0.7rem", lineHeight: 1.45, marginTop: "0.7rem" }}>
+                    {metric.sheet ? "Countries that have not been assessed are left out. Open a country's sheet, or track it, to add it here." : "Countries the game has no figure for are left out."}
+                    {" "}<span data-no-translate>({ranking.rows.length}/{ranking.total})</span>
+                </p>
+            )}
+        </div>
+    );
+};
+
 // `requestedTarget`: a polity to show instead of the player's own (a map card's
 // Stats button); `onConsumeTarget` is called once it has been taken.
 const StatsPaneBody = ({ active, mapRef, requestedTarget = "", onConsumeTarget }) => {
@@ -2201,6 +2331,9 @@ const StatsPaneBody = ({ active, mapRef, requestedTarget = "", onConsumeTarget }
             loadSheet().finally(() => {
                 if (!cancelled) void ensureIntelligenceRated(targetCountry, { reason: "stats pane" });
             });
+        } else if (statsView === "ranking") {
+            // (Going down a ranking is not asking for each country it lists to be assessed: no request is made.)
+            void loadSheet({ generate: false });
         } else {
             loadSheet({ generate: false }).finally(() => {
                 if (cancelled || generatingRef.current?.code === targetCountry) return;
@@ -2552,6 +2685,12 @@ const StatsPaneBody = ({ active, mapRef, requestedTarget = "", onConsumeTarget }
             onClick={() => setStatsView("economy")}
             style={statsSubtabStyle(statsView === "economy", touch)}
             >{statSheetDefinition.custom ? "📊 National" : "📈 Economy"}</button>
+            <button
+            type="button"
+            aria-pressed={statsView === "ranking"}
+            onClick={() => setStatsView("ranking")}
+            style={statsSubtabStyle(statsView === "ranking", touch)}
+            >🏆 Ranking</button>
             </div>
 
             {statsView === "politics" && (
@@ -2592,6 +2731,19 @@ const StatsPaneBody = ({ active, mapRef, requestedTarget = "", onConsumeTarget }
 
             {statsView === "diplomacy" && worldSnapshot && (
                 <DiplomacySection world={worldSnapshot} identity={polityIndex} targetCountry={targetCountry} viewerPolity={player.code} />
+            )}
+
+            {statsView === "ranking" && (
+                <RankingSection
+                    world={worldSnapshot}
+                    definition={statSheetDefinition}
+                    index={polityIndex}
+                    playerCode={player.code}
+                    targetCountry={targetCountry}
+                    onPick={setTargetCountry}
+                    flags={customFlags}
+                    touch={touch}
+                />
             )}
 
             {statsView === "diplomacy" && !worldSnapshot && (

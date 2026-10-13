@@ -297,6 +297,10 @@ test("every other place that applies events is one the engine has no part in", (
     // Game Master's Apply (no time passes: what it changes on a battlefield the
     // engine takes up at its next run) and the idle pulse (no time passes).
     "Game/AI/gameplay.js:3",
+    // A peace made on terms (makePeace): the ground the two sides hold of each
+    // other's is ceded or handed back. No time passes; the war it ends is
+    // closed on its battlefields by the engine at its next run.
+    "Game/AI/warAndPeace.js:1",
     // The Game Master's tools: no time passes.
     "Game/GameUI/cheats.jsx:4",
     // The reveal of a turn: the first events of a turn already applied, on its

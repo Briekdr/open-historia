@@ -42,6 +42,7 @@ import {
 } from "../AI/providerConfig.js";
 import { FallbackSwitchNotice } from "./fallbackSwitchNotice.jsx";
 import { BordersFallbackNotice } from "./bordersFallbackNotice.jsx";
+import { WarAndPeaceCards } from "./warAndPeace.jsx";
 import { PLAYER_ACTIVITY_EVENTS, createPlayerActivity } from "../../runtime/playerActivity.js";
 import { inSharedGame, sharedGameRole, subscribeSharedGameRole } from "../../multiplayer/client/sharedGameBridge.js";
 
@@ -920,6 +921,8 @@ const Main = ({
           passing fallback-switch notice draws over it, not under it. */}
       <BordersFallbackNotice />
       <FallbackSwitchNotice />
+      {/* An offer of peace or a call to arms that waits for the player's answer. */}
+      <WarAndPeaceCards />
     </>
   );
 };

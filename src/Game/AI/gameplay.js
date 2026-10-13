@@ -199,8 +199,10 @@ import {
   withoutGroupOps,
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
-import { applyTurnFronts, citiesFollowCountries, withFrontManpower, withBlockadeEconomy, turnBlockades, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { applyTurnFronts, citiesFollowCountries, withFrontManpower, withBlockadeEconomy, turnBlockades, regionHoldingsOf, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { withTurnStrikes } from "../../runtime/strikes.js";
+import { playerDiplomacy, turnDays, turnWarAndPeace } from "./warAndPeace.js";
+import { PEACE_BLOCK_HEADING, buildPeaceBlock } from "./peacePrompt.js";
 import { kmBetween } from "../../runtime/fronts/worldGrid.js";
 import { readWarRoomAnswer, warRoomRequest, warRoomStanding, warRoomVariables } from "./warRoomContext.js";
 import { bindFrontOrdersToEvents, describeDroppedFrontOrders, frontOrderProseLines, screenFrontOrders } from "./nativeFrontLedger.js";
@@ -620,7 +622,7 @@ const buildWarLedgerDirective = (variables) => {
   const canonicalWarContext = normalizeString(variables?.canonicalWarContext);
   return `[Wars]
 ${canonicalWarContext || "No wars are recorded."}
-Only this ledger makes polities belligerents — tension, an alliance or a mobilisation does not — and a war real history holds begins here only when you open it, with a warUpdates record and the event that starts it. Every battle, offensive, invasion, bombardment, siege or front carries event.warId and event.combatants naming both sides. If you write fighting, open the war in the same answer: a declaration, an entry, an exit, a ceasefire, a resumption or a peace each needs a warUpdates record and an event carrying the same warId, or the engine strips the war from the fighting and records peace. Two sides genuinely trading blows are at war; if you cannot say who is fighting whom, it is unrest, a raid or a deployment, so write it as that. A polity at peace does not live under war conditions — rationing, war taxes, mobilisation — because others are fighting, unless the war reaches it through something concrete (lost imports, refugees, sanctions). Nobody may join a war on ${playerName}'s behalf; another power declaring war on ${playerName} is that power's decision, and yours to write.
+Only this ledger makes polities belligerents: tension or a mobilisation does not, and an alliance does only through the game, which itself enters here those bound to defend a country that is attacked (see ${PEACE_BLOCK_HEADING} below). A war real history holds begins here only when you open it, with a warUpdates record and the event that starts it. Every battle, offensive, invasion, bombardment, siege or front carries event.warId and event.combatants naming both sides. If you write fighting, open the war in the same answer: a declaration, an entry, an exit, a ceasefire, a resumption or a peace each needs a warUpdates record and an event carrying the same warId, or the engine strips the war from the fighting and records peace. Two sides genuinely trading blows are at war; if you cannot say who is fighting whom, it is unrest, a raid or a deployment, so write it as that. A polity at peace does not live under war conditions — rationing, war taxes, mobilisation — because others are fighting, unless the war reaches it through something concrete (lost imports, refugees, sanctions). Nobody may join a war on ${playerName}'s behalf; another power declaring war on ${playerName} is that power's decision, and yours to write.
 warUpdates is one string, one record per line, fields separated by ~ (never inside a field): warId~op~actorsCSV~opponentsCSV~eventNumbersCSV~note. op is start, join-a, join-b, leave, ceasefire, resume or end; for start the actors are side A and the opponents side B; for join and leave the actors are the polities joining or leaving; eventNumbersCSV may be blank. A start's note may open with the war's name, as Title: <name>; then its cause. Give a war a stable id (war-france-germany-1914) and reuse it. An empty string when nothing changes.`;
 };
 
@@ -2831,6 +2833,9 @@ ${brief}`);
   // what happened on them by date.
   const fronts = frontsLiveBlock(world, game, variables.frontsForecast ?? null);
   if (fronts) blocks.push(fronts);
+  // What the game itself does about alliances, weariness, peace and reparations (peacePrompt.js): "" in a world with none of them.
+  const peace = buildPeaceBlock({ world, game, players: humanCountriesOf(game) });
+  if (peace) blocks.push(peace);
   // What agents have carried off of the players' planned movements there.
   const stolenPlans = await frontPlansBlock(world, game);
   if (stolenPlans) blocks.push(stolenPlans);
@@ -9333,6 +9338,22 @@ const applySimulationResult = async ({
   if (mandateUse.consumed.length || mandateUse.skipped.length) {
     logDebugEvent("turn", `Institutional mandates carried out: ${mandateUse.consumed.length}; citations not applied: ${mandateUse.skipped.length}.`, mandateUse, { verbose: true });
   }
+  // War weariness, alliances coming due, reparations and peace (warAndPeace.js):
+  // the game's own, on the ledgers as the turn's story left them. Reparations
+  // are paid; the wars that began this turn call on those bound to defend
+  // whoever was attacked; every country's weariness moves by what the turn did
+  // to it; two sides nobody plays settle when one is spent; and a country
+  // nobody plays that is weary or beaten offers a person peace.
+  worldWithImpacts = turnWarAndPeace({
+    world: worldWithImpacts,
+    baseWorld,
+    days: turnDays(baseGame, nextGame),
+    date: nextGame.gameDate,
+    round: nextGame.round,
+    players: humanCountriesOf(nextGame),
+    fronts: turnFronts,
+    held: await regionHoldingsOf(worldWithImpacts, nextGame, campaignId),
+  });
   // A war's end and a country's fall clear the map (nativeUnitDirector.js
   // pruneWarUnits): the counters raised for a war that has ended, and the units
   // of a power that held land when the turn began and holds none now.
@@ -15409,6 +15430,34 @@ export const declineInteractiveOffer = async () => {
   });
   if (declined) logDebugEvent("turn", "Interactive event let pass.");
   return { interactiveOffer: null };
+};
+
+// War and peace between turns (warAndPeace.js playerDiplomacy): the player's
+// answer to an offer of peace or to a call to arms, or terms of their own put
+// to an enemy nobody plays, which answers at once. Nothing is asked of a model.
+//   op    "accept" | "decline" | "honour" | "refuse" | "propose"
+//   ref   the offer's, the call's or (for "propose") the war's id
+// Resolves { ok, error, accepted, to }.
+export const answerDiplomacy = async ({ op = "", ref = "", terms = null } = {}) => {
+  if (isSimulationBusy()) throw new Error("A turn is being generated; wait for it to finish.");
+  const game = await readGameData();
+  const held = await regionHoldingsOf(await readWorldStateView(), game, activeCampaignId());
+  let outcome = { error: "unknown", accepted: false, to: "" };
+  await mutateWorldState((world) => {
+    outcome = playerDiplomacy(world, {
+      op,
+      ref,
+      terms,
+      country: game?.country,
+      players: humanCountriesOf(game),
+      date: normalizeString(game?.gameDate || game?.startDate),
+      round: game?.round,
+      held,
+    });
+    return outcome.error ? null : outcome.world;
+  });
+  if (!outcome.error) logDebugEvent("turn", `War and peace: ${op} ${ref}${op === "propose" ? (outcome.accepted ? " (taken)" : " (refused)") : ""}.`);
+  return { ok: !outcome.error, error: outcome.error || "", accepted: outcome.accepted === true, to: outcome.to || "" };
 };
 
 // A scene the player is in the middle of. A scene a time skip proposed before

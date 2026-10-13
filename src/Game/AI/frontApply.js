@@ -147,6 +147,29 @@ const warStagesOf = ({ wars, updates, events, stopDate, round }) => {
   return stages;
 };
 
+// How many regions each country holds now, counted on the map itself (every
+  // region it draws, by who the world says holds it, else who it was drawn as):
+  // Map of a name in lower case to the count. For what a war has cost a country
+  // of its own ground (warAndPeace.js). From the world alone when the map
+  // cannot be read.
+export const regionHoldingsOf = async (world, game, campaignId) => {
+  const held = new globalThis.Map();
+  const add = (name) => {
+    const key = fold(name);
+    if (key) held.set(key, (held.get(key) ?? 0) + 1);
+  };
+  try {
+    const front = await readFrontMap(world, game, campaignId);
+    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, regionIds: front.regionIds, groups: false });
+    for (const id of front.regionIds) add(readers.controllerOf(id));
+    if (held.size > 0) return held;
+  } catch (error) {
+    console.warn("[peace] the map's regions could not be counted; the world's own list is used.", error);
+  }
+  for (const holder of Object.values(world?.regionOwnershipOverrides && typeof world.regionOwnershipOverrides === "object" ? world.regionOwnershipOverrides : {})) add(holder);
+  return held;
+};
+
 // ---- a turn being applied --------------------------------------------------------------
 
 // The world a turn's run is to find: as it stands, with the plans of the turn
