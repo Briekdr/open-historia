@@ -12,6 +12,7 @@ import { DISCORD_URL, GITHUB_URL, REDDIT_URL } from "../../runtime/communityLink
 import { useCountryDisplayName } from "../../runtime/polityNames.js";
 import { DateWidget } from "./time";
 import { Other } from "./other";
+import { MapModeSelector } from "./MapModeSelector.jsx";
 import { Toolbar } from "./chat";
 import { Search } from "./search";
 import { ForcesPanel } from "./forces";
@@ -533,6 +534,7 @@ const Main = ({
         onTogglePanel={toggleBottomPanel}
         mapRef={mapRef}
       />
+      <MapModeSelector dockStyle={advisorDockStyle} />
       <Other dockStyle={advisorDockStyle} />
       <Search mapRef={mapRef} />
       <ForcesPanel

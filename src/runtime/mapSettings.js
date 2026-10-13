@@ -16,6 +16,7 @@ export const MAP_SETTING_KEYS = {
     // Empty/unset means "use the scenario author's basemap". A built-in ESRI
     // basemap id here is a local, reversible player override for this browser.
     basemapStyle: "map_basemap_style",
+    mapMode: "map_mode",
     // Empty/unset means "use the scenario author's label font" (world.labelFont,
     // itself defaulting to Georgia). A family name here is a local, reversible
     // player override, the same shape as basemapStyle above. It exists in
@@ -139,6 +140,7 @@ export function getMapSettingValue(key, fallback = "") {
 // them; an empty value is the scenario author's choice.
 const VALUE_SETTING_LABELS = {
     [MAP_SETTING_KEYS.basemapStyle]: "Basemap",
+    [MAP_SETTING_KEYS.mapMode]: "Map mode",
     [MAP_SETTING_KEYS.labelFont]: "Label font",
 };
 

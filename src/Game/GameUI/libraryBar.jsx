@@ -2757,6 +2757,8 @@ const LibraryTopBar = () => {
     }
   };
 
+  const importGameScenarioBundle = (b) => importScenarioBundle(b);
+
   const handleImportScenarioFile = async (event) => {
     const [file] = Array.from(event.target.files ?? []);
     event.target.value = "";
@@ -2784,7 +2786,7 @@ const LibraryTopBar = () => {
             const { bundle: gameBundle, scenarioBundle, snapshotsText } = await readGameZip(buffer);
             let scenarioId = gameBundle.scenarioRef?.scenarioId ?? "";
             if (scenarioBundle && !scenarios.some((entry) => entry.id === scenarioId)) {
-              const imported = await importScenarioBundle(scenarioBundle);
+              const imported = await importGameScenarioBundle(scenarioBundle);
               scenarioId = imported.scenario.id;
             }
             const details = await importGameBundle({
@@ -3789,7 +3791,7 @@ const LibraryTopBar = () => {
                     style={touchFit({
                       alignItems: "center",
                       background: activeTab === tab
-                        ? "linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.08) 100%)"
+                        ? "rgba(255, 255, 255, 0.14)"
                         : "transparent",
                       border: activeTab === tab
                         ? "1px solid rgba(255, 255, 255, 0.22)"

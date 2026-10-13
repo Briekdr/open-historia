@@ -33,13 +33,15 @@ import {
   holdUntilSourceLoaded,
 } from "./regionsSourceMemory.js";
 import { publishPolityIndex } from "../../runtime/placeSearch.js";
-import { toCountryName } from "../../runtime/ownerNames.js";
+import { ownerIdentityKey, toCountryName } from "../../runtime/ownerNames.js";
+import { useLibraryState } from "../../runtime/library.js";
 import {
   loadCountryLabelCollections,
   summarizePolityLabelDiagnostics,
 } from "../../runtime/countryLabels.js";
 import { translateLabel } from "../../runtime/translator.js";
 import { MAP_SETTING_KEYS, useMapSetting, useMapSettingValue } from "../../runtime/mapSettings.js";
+import { buildDiplomaticStanceMap, getDiplomaticOwnerColor } from "../../runtime/diplomaticStance.js";
 import { useWorldState } from "./useWorldState.js";
 
 import { buildProvinceOutlinePaint, PROVINCE_OUTLINE_MIN_ZOOM } from "./provinceOutlineStyle.js";
@@ -515,10 +517,15 @@ const WorldMap = ({ isGlobe = false }) => {
     polityOverrides,
     groups,
     groupAreas,
+    wars,
+    relations,
+    agreements,
     labelFont,
     labelHaloColor,
     labelTextColor,
   } = useWorldState();
+  const { activeGame } = useLibraryState();
+  const mapMode = useMapSettingValue(MAP_SETTING_KEYS.mapMode, "political");
   const mapDisplaySettings = {
     hideCountryLabels: useMapSetting(MAP_SETTING_KEYS.hideCountryLabels),
     disableCurvedCountryLabels: useMapSetting(MAP_SETTING_KEYS.disableCurvedCountryLabels),
@@ -1336,12 +1343,26 @@ const WorldMap = ({ isGlobe = false }) => {
     };
   }, [colorMap, polityOverrides]);
 
+  const diplomaticStanceMap = useMemo(() => {
+    if (mapMode !== "diplomatic") return null;
+    return buildDiplomaticStanceMap({
+      playerCountry: activeGame?.country || worldState?.country || "",
+      wars,
+      agreements,
+      relations,
+    });
+  }, [mapMode, activeGame?.country, worldState?.country, wars, agreements, relations]);
+
   const ownerColorCss = useCallback(
     (owner) => {
+      if (!owner) return NEUTRAL_LAND_COLOR;
+      if (mapMode === "diplomatic" && diplomaticStanceMap) {
+        return getDiplomaticOwnerColor(owner, diplomaticStanceMap);
+      }
       const rgb = normalizePoliticalRgb(resolveOwnerRgb(owner));
       return rgb ? `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})` : NEUTRAL_LAND_COLOR;
     },
-    [resolveOwnerRgb],
+    [mapMode, diplomaticStanceMap, resolveOwnerRgb],
   );
 
   const workerLabelNames = useMemo(() => {

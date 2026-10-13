@@ -1984,6 +1984,8 @@ const SettingsWorkspace = ({
     onToggleTerrain,
     mapSettings,
     updateMapSetting,
+    mapMode,
+    updateMapMode,
     basemapStyle,
     updateBasemapStyle,
     labelFont,
@@ -2090,7 +2092,20 @@ const SettingsWorkspace = ({
 
             {activeSection === "map" && (
                 <>
-                <SettingsSection title="Map presentation" description="Choose the visual base and which political labels are shown.">
+                <SettingsSection title="Map presentation" description="Choose the map mode, visual base and which political labels are shown.">
+                    <div style={fieldGroupStyle}>
+                        <label style={labelStyle} htmlFor="game-map-mode">Map mode</label>
+                        <select
+                            id="game-map-mode"
+                            style={inputStyle}
+                            value={mapMode || "political"}
+                            onChange={(event) => updateMapMode(event.target.value)}
+                        >
+                            <option value="political">Political (Countries and borders)</option>
+                            <option value="diplomatic">Diplomatic (Allies, enemies, trade partners)</option>
+                        </select>
+                        <div style={helperStyle}>Diplomatic mode highlights allies in green, war enemies in red, and friendly trade partners in blue.</div>
+                    </div>
                     <BasemapField value={basemapStyle} onChange={updateBasemapStyle} />
                     {/* Labels rasterize from the player's LOCAL fonts (the style
                         has no glyph server), so any installed family works - the
@@ -2375,6 +2390,8 @@ const SettingsMenu = ({
         setMapSetting(settingKey, value);
         setMapSettingsState((current) => ({ ...current, [stateKey]: value }));
     };
+    const mapMode = useMapSettingValue(MAP_SETTING_KEYS.mapMode, "political");
+    const updateMapMode = (value) => setMapSettingValue(MAP_SETTING_KEYS.mapMode, value);
     const updateBasemapStyle = (value) => setMapSettingValue(MAP_SETTING_KEYS.basemapStyle, value);
     const labelFont = useMapSettingValue(MAP_SETTING_KEYS.labelFont);
     // The field shows the keystrokes; the setting stores them trimmed. Storing
@@ -2448,6 +2465,8 @@ const SettingsMenu = ({
             onToggleTerrain={onToggleTerrain}
             mapSettings={mapSettings}
             updateMapSetting={updateMapSetting}
+            mapMode={mapMode}
+            updateMapMode={updateMapMode}
             basemapStyle={basemapStyle}
             updateBasemapStyle={updateBasemapStyle}
             labelFont={labelFontShown}

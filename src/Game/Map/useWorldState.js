@@ -14,6 +14,7 @@ import { normalizeGroupAreas, normalizeGroups } from "../../runtime/groups.js";
 
 const EMPTY_OBJECT = Object.freeze({});
 const EMPTY_MARKERS = Object.freeze([]);
+const EMPTY_ARRAY = Object.freeze([]);
 
 let sharedState = null;
 let publishedState = null;
@@ -166,6 +167,9 @@ const deriveMapState = (state) => ({
     return { groups, groupAreas: normalizeGroupAreas(state.groupAreas, groups) };
   })(),
   markers: Array.isArray(state?.markers) ? state.markers : EMPTY_MARKERS,
+  wars: Array.isArray(state?.wars) ? state.wars : EMPTY_ARRAY,
+  relations: Array.isArray(state?.relations) ? state.relations : EMPTY_ARRAY,
+  agreements: Array.isArray(state?.agreements) ? state.agreements : EMPTY_ARRAY,
   cityRenames: state?.cityRenames ?? EMPTY_OBJECT,
   cityPopulations: state?.cityPopulations ?? EMPTY_OBJECT,
   labelFont: state?.labelFont ?? "",
@@ -189,6 +193,9 @@ const sameMapState = (prev, next) =>
   prev.regionOwnershipOverrides === next.regionOwnershipOverrides &&
   prev.regionClaimants === next.regionClaimants &&
   prev.markers === next.markers &&
+  prev.wars === next.wars &&
+  prev.relations === next.relations &&
+  prev.agreements === next.agreements &&
   prev.cityRenames === next.cityRenames &&
   prev.cityPopulations === next.cityPopulations &&
   prev.groups === next.groups &&
@@ -217,6 +224,15 @@ const stabilizeMapStateReferences = (prev, next) => {
     markers: areEqualStructured(prev.markers, next.markers)
       ? prev.markers
       : next.markers,
+    wars: areEqualStructured(prev.wars, next.wars)
+      ? prev.wars
+      : next.wars,
+    relations: areEqualStructured(prev.relations, next.relations)
+      ? prev.relations
+      : next.relations,
+    agreements: areEqualStructured(prev.agreements, next.agreements)
+      ? prev.agreements
+      : next.agreements,
     cityRenames: areEqualStructured(prev.cityRenames, next.cityRenames)
       ? prev.cityRenames
       : next.cityRenames,
