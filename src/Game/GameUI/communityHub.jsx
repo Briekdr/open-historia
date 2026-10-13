@@ -78,12 +78,13 @@ const countPublishableFlags = async (flagsData) => {
 
 // Never wider than the phone it is on: at 320 px a 19rem card pushed the
 // search results sideways off the screen.
-const CARD_WIDTH = "min(19rem, calc(100vw - 2rem))";
+const CARD_WIDTH = "min(21rem, calc(100vw - 2rem))";
 
 const cardSurface = {
   background: "rgba(255,255,255,0.04)",
   border: "1px solid rgba(255,255,255,0.09)",
   borderRadius: "16px",
+  boxSizing: "border-box",
   color: "#fff",
   display: "flex",
   flexDirection: "column",
@@ -212,46 +213,91 @@ const ScenarioCard = ({ post, busy, onImport, onSelect, touch, isMobile }) => (
         </div>
       </div>
     </div>
-    <div style={{ color: "rgba(244,244,246,0.72)", flex: 1, fontSize: "0.8rem", lineHeight: 1.5 }}>
+    <div
+      style={{
+        color: "rgba(244,244,246,0.72)",
+        display: "-webkit-box",
+        fontSize: "0.8rem",
+        lineHeight: 1.45,
+        maxHeight: "2.35rem",
+        minHeight: "2.35rem",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        WebkitBoxOrient: "vertical",
+        WebkitLineClamp: 2,
+      }}
+    >
       {post.description || "No description."}
     </div>
-    {/* On a phone the card can be narrower than the counts and both pills,
-        so a pill that does not fit drops to a line of its own, on the right. */}
-    <div style={{ alignItems: "center", display: "flex", flexWrap: isMobile ? "wrap" : undefined, gap: "0.5rem", justifyContent: isMobile ? "flex-end" : undefined }}>
-      {post.installs != null && (
-        <span title="Times this scenario has been imported" style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.76rem" }}>⬇ {post.installs}</span>
-      )}
-      <span title="Liked (👍 reactions on the hub post)" style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.76rem" }}>👍 {post.upvotes}</span>
-      <span title="Comments on the hub post" style={{ color: "rgba(255,255,255,0.65)", fontSize: "0.76rem" }}>💬 {post.comments}</span>
-      <div style={{ flex: 1 }} />
-      <a
-        href={post.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="oh-tap-row"
-        onClick={(event) => event.stopPropagation()}
-        title="Open the GitHub post to 👍 like or 💬 comment"
-        style={touchFit({ ...pillButton, minHeight: "1.8rem", textDecoration: "none" }, touch)}
-      >
-        👍 Like ↗
-      </a>
-      <button
-        type="button"
-        className="oh-tap-row"
-        disabled={!post.bundleUrl || busy}
-        onClick={(event) => { event.stopPropagation(); onImport(post); }}
-        title={post.bundleUrl ? "Import into your Scenarios" : "This post has no scenario file attached"}
-        style={touchFit({
-          ...pillButton,
-          minHeight: "1.8rem",
-          background: post.bundleUrl ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.04)",
-          borderColor: post.bundleUrl ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.08)",
-          color: post.bundleUrl ? "#fff" : "rgba(255,255,255,0.35)",
-          cursor: post.bundleUrl && !busy ? "pointer" : "default",
-        }, touch)}
-      >
-        {busy ? "Importing…" : "Import"}
-      </button>
+    <div
+      style={{
+        alignItems: "center",
+        display: "flex",
+        flexWrap: "nowrap",
+        gap: "0.45rem",
+        justifyContent: "space-between",
+        marginTop: "auto",
+        minHeight: "1.85rem",
+        width: "100%",
+      }}
+    >
+      <div style={{ alignItems: "center", display: "inline-flex", flexShrink: 0, gap: "0.45rem", whiteSpace: "nowrap" }}>
+        {post.installs != null && (
+          <span title="Times this scenario has been imported" style={{ alignItems: "center", color: "rgba(255,255,255,0.65)", display: "inline-flex", fontSize: "0.76rem", gap: "0.2rem", lineHeight: 1 }}>⬇ {post.installs}</span>
+        )}
+        <span title="Liked (👍 reactions on the hub post)" style={{ alignItems: "center", color: "rgba(255,255,255,0.65)", display: "inline-flex", fontSize: "0.76rem", gap: "0.2rem", lineHeight: 1 }}>👍 {post.upvotes}</span>
+        <span title="Comments on the hub post" style={{ alignItems: "center", color: "rgba(255,255,255,0.65)", display: "inline-flex", fontSize: "0.76rem", gap: "0.2rem", lineHeight: 1 }}>💬 {post.comments}</span>
+      </div>
+      <div style={{ alignItems: "center", display: "inline-flex", flexShrink: 0, gap: "0.35rem", whiteSpace: "nowrap" }}>
+        <a
+          href={post.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="oh-tap-row"
+          onClick={(event) => event.stopPropagation()}
+          title="Open the GitHub post to 👍 like or 💬 comment"
+          style={touchFit({
+            ...pillButton,
+            boxSizing: "border-box",
+            flexShrink: 0,
+            fontSize: "0.76rem",
+            height: "1.85rem",
+            lineHeight: "1.85rem",
+            minHeight: "1.85rem",
+            padding: "0 0.65rem",
+            textDecoration: "none",
+            verticalAlign: "middle",
+            whiteSpace: "nowrap",
+          }, touch)}
+        >
+          👍 Like ↗
+        </a>
+        <button
+          type="button"
+          className="oh-tap-row"
+          disabled={!post.bundleUrl || busy}
+          onClick={(event) => { event.stopPropagation(); onImport(post); }}
+          title={post.bundleUrl ? "Import into your Scenarios" : "This post has no scenario file attached"}
+          style={touchFit({
+            ...pillButton,
+            boxSizing: "border-box",
+            background: post.bundleUrl ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.04)",
+            borderColor: post.bundleUrl ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.08)",
+            color: post.bundleUrl ? "#fff" : "rgba(255,255,255,0.35)",
+            cursor: post.bundleUrl && !busy ? "pointer" : "default",
+            flexShrink: 0,
+            fontSize: "0.76rem",
+            height: "1.85rem",
+            lineHeight: "1.85rem",
+            minHeight: "1.85rem",
+            padding: "0 0.65rem",
+            verticalAlign: "middle",
+            whiteSpace: "nowrap",
+          }, touch)}
+        >
+          {busy ? "Importing…" : "Import"}
+        </button>
+      </div>
     </div>
   </div>
 );
