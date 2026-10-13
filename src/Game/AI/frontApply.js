@@ -28,6 +28,7 @@ import { citiesFollowing, cityPopulationKey, cityPopulationOverridesByTileName, 
 import { frontCitiesOf, readFrontCities } from "../../runtime/frontCities.js";
 import { MAX_UNITS_GLOBAL, MAX_UNITS_PER_POLITY } from "../../runtime/gameState.js";
 import { buildSeasBlock } from "./navalPrompt.js";
+import { gdpUnderBlockade, withTurnBlockades } from "../../runtime/naval/blockade.js";
 import { arenaFor } from "../../runtime/fronts/arena.js";
 import { decodeTroops } from "../../runtime/fronts/codec.js";
 import { projectorOf } from "../../runtime/fronts/frame.js";
@@ -439,6 +440,39 @@ export const withFrontManpower = (world, fronts, patch) => {
   return changed ? next : world;
 };
 
+// A world with what the period's blockades cost the countries they were laid
+// on taken off their economies (runtime/naval/blockade.js): a share of its GDP
+// by how hard the blockade pressed and how long the period was, and what each
+// of its people has with it. A country with no economy on its sheet has none
+// to take it from and is left as it is. The same world when nobody was
+// blockaded.
+//   patch   (world, name, { economy: { gdp } }) => writes it (gameState.js applyCountryStatPatchToWorld)
+export const withBlockadeEconomy = (world, fronts, patch) => {
+  const days = Number(fronts?.sea?.days);
+  const laid = asArray(fronts?.sea?.blockades).filter((entry) => clean(entry?.country) && Number(entry.pressure) > 0);
+  if (laid.length === 0 || !(days > 0) || typeof patch !== "function" || !world || typeof world.countryStats !== "object" || !world.countryStats) return world;
+  const next = { ...world, countryStats: { ...world.countryStats } };
+  const keys = new Map(Object.keys(next.countryStats).map((key) => [fold(key), key]));
+  let changed = false;
+  for (const entry of laid) {
+    const key = keys.get(fold(entry.country));
+    const economy = next.countryStats[key]?.economy;
+    const gdp = Number(economy?.gdp);
+    if (!key || !(gdp > 0)) continue;
+    const after = Math.max(1, Math.round(gdpUnderBlockade(gdp, entry.pressure, days)));
+    if (!(after < gdp)) continue;
+    const head = Number(economy.gdpPerCapita);
+    patch(next, key, { economy: { gdp: after, ...(head > 0 ? { gdpPerCapita: Math.round(((head * after) / gdp) * 100) / 100 } : {}) } });
+    changed = true;
+  }
+  return changed ? next : world;
+};
+
+// The world's blockades after a turn (runtime/naval/blockade.js withTurnBlockades):
+// those the period pressed, each with the days it has now stood. [] when the
+// sea was not fought.
+export const turnBlockades = (world, fronts) => withTurnBlockades(world?.blockades, fronts?.sea?.blockades, fronts?.sea?.fromDate);
+
 // ---- a country troops were sent into --------------------------------------------------
 
 // The countries a turn's troops were sent into (runtime/fronts/invade.js), as
@@ -672,7 +706,7 @@ export const frontsLiveBlock = (world, game, foreseen = null) => [landBlock(worl
 // the period's battles where the period was fought beforehand, else the fleets
 // of the countries at war as they stand. "" with fronts off or no such fleet.
 export const seasLiveBlock = (world, game, foreseen = null) => (frontsOn()
-  ? buildSeasBlock({ sea: foreseen?.sea ?? null, units: world?.units, wars: world?.wars, players: humanCountriesOf(game), date: clean(game?.gameDate || game?.startDate) })
+  ? buildSeasBlock({ sea: foreseen?.sea ?? null, units: world?.units, wars: world?.wars, players: humanCountriesOf(game), date: clean(game?.gameDate || game?.startDate), blockades: world?.blockades })
   : "");
 
 const landBlock = (world, game, foreseen = null) => (frontsOn()

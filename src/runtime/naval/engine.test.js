@@ -56,7 +56,7 @@ test("fleets out of reach, fleets of countries at peace and fleets on a battlefi
   assert.deepEqual(peace.battles, []);
   assert.deepEqual(peace.fleets.map((entry) => entry.name), ["Grand Fleet"], "a fleet of a country at peace is no part of the war at sea");
   const ended = run([fleet("u1", "Grand Fleet", "Albion", 2, 56), fleet("u2", "High Seas Fleet", "Teutonia", 6, 55)], { wars: [war({ status: "ended" })] });
-  assert.deepEqual(ended, { battles: [], unitChanges: [], commissioned: [], fleets: [], raised: [] });
+  assert.deepEqual(ended, { battles: [], unitChanges: [], commissioned: [], fleets: [], raised: [], blockades: [] });
   const truce = run([fleet("u1", "Grand Fleet", "Albion", 2, 56), fleet("u2", "High Seas Fleet", "Teutonia", 6, 55)], { wars: [war({ status: "ceasefire" })] });
   assert.deepEqual(truce.battles, []);
   const committed = run([fleet("u1", "Grand Fleet", "Albion", 2, 56), fleet("u2", "High Seas Fleet", "Teutonia", 6, 55, { committedTo: "A front" })]);

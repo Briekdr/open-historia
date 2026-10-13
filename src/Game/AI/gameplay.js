@@ -199,7 +199,7 @@ import {
   withoutGroupOps,
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
-import { applyTurnFronts, citiesFollowCountries, withFrontManpower, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { applyTurnFronts, citiesFollowCountries, withFrontManpower, withBlockadeEconomy, turnBlockades, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { withTurnStrikes } from "../../runtime/strikes.js";
 import { kmBetween } from "../../runtime/fronts/worldGrid.js";
 import { readWarRoomAnswer, warRoomRequest, warRoomStanding, warRoomVariables } from "./warRoomContext.js";
@@ -9000,6 +9000,8 @@ const applySimulationResult = async ({
       // And the battles its fleets fought, for the map to mark (runtime/naval/record.js); those of older turns are let go.
       ...(turnFronts ? { seaBattles: withTurnSeaBattles(baseWorld?.seaBattles, turnFronts.sea?.battles, nextGame.round) } : null),
       ...(turnFronts?.sea ? { naviesRaised: turnFronts.sea.raised } : null),
+      // And the blockades that stand as the turn ends, each with the days it has stood (runtime/naval/blockade.js).
+      ...(turnFronts ? { blockades: turnBlockades(baseWorld, turnFronts) } : null),
       // Whatever comes through here ends a scene: a skip is refused while one is
       // in progress and clears a leftover one, and a scene resolving is this.
       activeInteractive: null,
@@ -9076,6 +9078,9 @@ const applySimulationResult = async ({
   // the men who came home (runtime/fronts/manpower.js): "military recruitment
   // directly draws from and reduces the available population pool."
   impactedWorld = withFrontManpower(impactedWorld, turnFronts, applyCountryStatPatchToWorld);
+  // And what a blockade cost the country it was laid on, off its economy
+  // (runtime/naval/blockade.js): "make blockades affect the economy".
+  impactedWorld = withBlockadeEconomy(impactedWorld, turnFronts, applyCountryStatPatchToWorld);
   // Ground a side has taken on a battlefield is controlled by it, not disputed:
   // the claimants an earlier turn wrote for such a region come off it
   // (runtime/fronts/heldRegions.js). Nothing is touched with fronts off.

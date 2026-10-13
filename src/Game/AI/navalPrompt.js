@@ -11,13 +11,15 @@
 //
 // Pure, and loads in plain Node.
 
+import { BLOCKADE_BITES_DAYS, normalizeBlockades } from "../../runtime/naval/blockade.js";
 import { NAVAL_REACH_KM } from "../../runtime/naval/engine.js";
 import { eraOf } from "../../runtime/unitMotion.js";
 
 export const SEAS_BLOCK_HEADING = "[Seas]";
-export const SEAS_BLOCK_MAX = 2600;
+export const SEAS_BLOCK_MAX = 3400;
 export const SEA_FLEETS_TOLD_MOST = 14;
 export const SEA_BATTLES_TOLD_MOST = 10;
+export const BLOCKADES_TOLD_MOST = 8;
 
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 const fold = (value) => clean(value).toLowerCase();
@@ -35,6 +37,17 @@ export const describeSeaBattle = (battle) => {
   const two = side(1);
   const verb = battle?.winner === 0 ? `${one.who} had the better of ${two.who}` : battle?.winner === 1 ? `${two.who} had the better of ${one.who}` : `${one.who} and ${two.who} fought with neither the better of it`;
   return `${clean(battle?.date)} ${clean(battle?.place) || "at sea"}: ${verb} (${one.told}; ${two.told}).`;
+};
+
+// A blockade in a line: who is blockaded by whom, how much of its trade by sea
+// is cut, and how long it has stood.
+//   days   how many days it has stood in all
+export const describeBlockade = (blockade, days) => {
+  const by = list(blockade?.by).map(clean).filter(Boolean).join(" and ");
+  const cut = Math.round((Number(blockade?.pressure) || 0) * 100);
+  const stood = Math.max(0, Math.round(Number(days) || 0));
+  const biting = stood >= BLOCKADE_BITES_DAYS ? "its armies are short of everything that came by sea" : "its armies are beginning to go short";
+  return `${clean(blockade?.country)} is blockaded${by ? ` by ${by}` : ""}: about ${cut}% of its trade is cut${stood > 0 ? `, day ${stood} of the blockade` : ""}; ${biting}.`;
 };
 
 // The fleets of the countries at war, from the world's formations: for a turn
@@ -56,11 +69,19 @@ const fleetsAtWar = (units, wars) => {
 //   wars      world.wars
 //   players   the countries people play
 //   date      the game's date, for how far a fleet reaches
-export const buildSeasBlock = ({ sea = null, units = [], wars = [], players = [], date = "", max = SEAS_BLOCK_MAX } = {}) => {
+//   blockades world.blockades as the period begins: what stood before it
+export const buildSeasBlock = ({ sea = null, units = [], wars = [], players = [], date = "", blockades = [], max = SEAS_BLOCK_MAX } = {}) => {
   const fought = Boolean(sea);
   const fleets = fought ? list(sea.fleets) : fleetsAtWar(units, wars);
   const battles = fought ? list(sea.battles) : [];
-  if (fleets.length === 0 && battles.length === 0) return "";
+  // The blockades to tell of: the period's own where it was fought, each with
+  // the days it stood before; else those standing as the turn begins.
+  const standing = normalizeBlockades(blockades);
+  const before = new Map(standing.map((record) => [fold(record.country), record.days]));
+  const laid = fought
+    ? list(sea.blockades).filter((entry) => clean(entry?.country)).map((entry) => ({ entry, days: (before.get(fold(entry.country)) ?? 0) + (Number(entry.days) || 0) }))
+    : standing.map((entry) => ({ entry, days: entry.days }));
+  if (fleets.length === 0 && battles.length === 0 && laid.length === 0) return "";
   const human = list(players).map(clean).filter(Boolean);
   const reach = NAVAL_REACH_KM[eraOf(date)];
   const rules = [
@@ -68,6 +89,7 @@ export const buildSeasBlock = ({ sea = null, units = [], wars = [], players = []
     "War at sea is decided by the game, as war on land is. A fleet is a formation of type naval: you move it with unitOps as before, and where it is and the posture it keeps are its orders. "
     + "assaulting: it seeks battle, and closes with the nearest hostile fleet it can reach. blockade: it closes an enemy's coast and fights whoever comes. patrol: it fights what it meets. holding: it keeps to its own waters, where it is seldom brought to battle. withdrawing: it avoids battle and makes for its own coast. "
     + `Fleets of countries at war that come within about ${reach} km of each other fight, and the game works out the battle: what each lost, which were destroyed, which broke off. A country at war that has a coast and no fleet is given one by the game; a navy that is destroyed is not replaced for years.`,
+    `A fleet in the blockade posture within about ${reach} km of a coast of a country it is at war with blockades it. The game works out how much of that country's trade is cut (by how much of its coast is closed, how strong the fleets are, and how much it can still trade over land), takes the cost off its economy itself, and leaves its armies short: slower to recover, with fewer reserves, the more so the longer it stands. It is lifted by driving the blockading fleets off. Tell what a blockade does to the people who live under it (shortages, prices, unrest) and move that country's other figures as the story warrants; do not change that country's GDP for it yourself.`,
     fought
       ? "It has ALREADY fought this period's battles, below: tell each as it happened, on its date, and write no unitOps that change those fleets' strength, destroy them or bring them back. To have fleets fight next period, move them to where the enemy is, in the posture that fits."
       : "It fights them when this period has been written: say only that fleets were sent, and their battles are told to you next period.",
@@ -85,6 +107,14 @@ export const buildSeasBlock = ({ sea = null, units = [], wars = [], players = []
       told += 1;
     }
     if (battles.length > told) lines.push(`(${battles.length - told} more were fought.)`);
+  }
+  if (laid.length > 0 && room() > 160) {
+    lines.push(fought ? "Blockades of this period:" : "Blockades standing:");
+    for (const { entry, days } of laid.slice(0, BLOCKADES_TOLD_MOST)) {
+      const line = `- ${describeBlockade(entry, days)}`;
+      if (line.length + 1 > room()) break;
+      lines.push(line);
+    }
   }
   for (const fleet of list(sea?.commissioned)) {
     const line = `- ${clean(fleet.ownerCode)} had no fleet and the game commissioned ${clean(fleet.name)} in its home waters.`;

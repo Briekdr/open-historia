@@ -65,6 +65,7 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
   // And what an event's strike looked like: every map plays it.
   "strikes",
   "seaBattles",
+  "blockades",
   // The stat sheets, and how each has moved: public figures (see the limits above).
   "countryStats", "countryStatsHistory",
 ]);

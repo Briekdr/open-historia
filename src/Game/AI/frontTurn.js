@@ -35,6 +35,7 @@ import { TRANSPORT_LOAD_USUAL, TRANSPORT_ORDERS, isUnderWay, normalizeTransports
 import { buildWorldGrid, distanceTo, seasOf, worldSheetKey } from "../../runtime/fronts/worldGrid.js";
 import { waterTypeIds } from "../../runtime/regionTypes.js";
 import { runNaval } from "../../runtime/naval/engine.js";
+import { normalizeBlockades, shortageOfBlockade } from "../../runtime/naval/blockade.js";
 import { STRIKES_PER_TURN_MOST, findStrikePlace, pickStrikeOrigin, seaLaunchPlace } from "../../runtime/strikes.js";
 
 export const FRONT_MARK = "front";
@@ -1005,6 +1006,8 @@ export const runTurnFronts = async ({
     });
 
   const allowance = typeof tempoAllowance === "function" ? tempoAllowance(days) : tempoAllowance;
+  // The countries under blockade as the period begins, and how short each is for it.
+  const short = new Map(naval === false ? [] : normalizeBlockades(world?.blockades).map((record) => [fold(record.country), shortageOfBlockade(record)]).filter(([, lacks]) => lacks > 0));
   const result = await runFrontTurn({
     createFrontRun,
     input: {
@@ -1029,6 +1032,9 @@ export const runTurnFronts = async ({
       // Who is played by a person: on a side of several countries nobody's order stands in for theirs.
       players: asArray(players).map(clean).filter(Boolean),
       difficulty: clean(difficulty),
+      // How short each country is of what comes by sea, by the blockades standing as the period begins
+      // (runtime/naval/blockade.js): the side it fights on is weighed for it (runtime/fronts/handicap.js).
+      ...(short.size > 0 ? { shortageOf: (name) => short.get(fold(name)) ?? 0 } : {}),
       ...(staff === false ? { staff: false } : {}),
       ...(Number(troops) > 0 && Number(troops) !== 1 ? { troops: Number(troops) } : {}),
       pace,
@@ -1077,6 +1083,8 @@ export const runTurnFronts = async ({
         caps: unitCaps ?? {},
         raised: asArray(world?.naviesRaised),
       });
+      // (How long the period was, for what its blockades cost: frontApply.js withBlockadeEconomy.)
+      sea.days = days;
     } catch (error) {
       console.warn("[naval] the war at sea could not be fought this turn; the fleets stand as they were.", error);
       sea = null;
@@ -1176,7 +1184,7 @@ export const runTurnFronts = async ({
     // (A formation the land war took up this period is the land war's: the sea says nothing more of it.)
     unitChanges: [...asArray(result.unitChanges), ...asArray(sea?.unitChanges).filter((change) => !asArray(result.unitChanges).some((entry) => clean(entry?.unitId) === clean(change?.unitId)))],
     // What the period came to at sea: its battles, the fleets as it leaves them, and any commissioned (runtime/naval/engine.js).
-    sea: sea ? { battles: asArray(sea.battles), fleets: asArray(sea.fleets), commissioned: asArray(sea.commissioned), raised: asArray(sea.raised) } : null,
+    sea: sea ? { battles: asArray(sea.battles), fleets: asArray(sea.fleets), commissioned: asArray(sea.commissioned), raised: asArray(sea.raised), blockades: asArray(sea.blockades), fromDate, days: sea.days } : null,
     notes,
     flips: asArray(result.flips),
     stats: result.stats ?? null,

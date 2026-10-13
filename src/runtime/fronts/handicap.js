@@ -14,7 +14,7 @@
 // people on both sides: nobody is handicapped against another player. The
 // countries that fight beside a person are given nothing either way.
 
-import { DIFFICULTY_EDGES } from "./constants.js";
+import { DIFFICULTY_EDGES, SHORTAGE_EDGE } from "./constants.js";
 
 const fold = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 
@@ -36,6 +36,39 @@ export const weighedSide = (sides, players) => {
   if (played.size === 0) return -1;
   const has = [0, 1].map((side) => (Array.isArray(sides?.[side]) ? sides[side] : []).some((member) => played.has(fold(member))));
   return has[0] === has[1] ? -1 : has[0] ? 1 : 0;
+};
+
+// A side's edge with what it is short of taken off (constants.js
+// SHORTAGE_EDGE): the edge itself where it is short of nothing.
+//   shortage   0 to 1
+export const shortEdge = (edge, shortage) => {
+  const short = Number(shortage);
+  if (!(short > 0)) return edge;
+  const by = short > 1 ? 1 : short;
+  return {
+    power: edge.power * (1 - SHORTAGE_EDGE.power * by),
+    pace: edge.pace * (1 - SHORTAGE_EDGE.pace * by),
+    reserves: edge.reserves * (1 - SHORTAGE_EDGE.reserves * by),
+    mend: edge.mend * (1 - SHORTAGE_EDGE.mend * by),
+  };
+};
+
+// How short a side is: its members' shortages, each by what it brings.
+//   members      who is fighting on it
+//   shortageOf   (name) => 0 to 1
+//   strengthOf   (name) => its weight
+export const sideShortage = (members, shortageOf, strengthOf) => {
+  if (typeof shortageOf !== "function") return 0;
+  let weight = 0;
+  let short = 0;
+  for (const member of Array.isArray(members) ? members : []) {
+    const brings = typeof strengthOf === "function" ? Number(strengthOf(member)) : 1;
+    const worth = brings > 0 ? brings : 1;
+    const lacks = Number(shortageOf(member));
+    weight += worth;
+    if (lacks > 0) short += worth * (lacks > 1 ? 1 : lacks);
+  }
+  return weight > 0 ? short / weight : 0;
 };
 
 // What a battlefield's sides are given: `side` is the one weighed (-1 for
