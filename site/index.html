@@ -248,6 +248,10 @@
   .btn-primary:hover{background:linear-gradient(180deg,#a12b3e,#7a1e2b)}
   .btn-ghost{background:var(--marble);border-color:var(--line2);color:var(--ink)}
   .btn-ghost:hover{background:var(--marble2)}
+  /* The beta's button: gold, so it stands beside the red one instead of behind it. */
+  .btn-beta,.hero-banner .btn-beta{background:var(--gold-l);border-color:#f3dc92;color:#2a1c05;
+    box-shadow:0 0 0 0.1875rem rgba(220,185,84,.22),0 0.75rem 1.875rem -0.75rem rgba(0,0,0,.8)}
+  .btn-beta:hover,.hero-banner .btn-beta:hover{background:#e8c967}
   .hero-note{font-size:.96rem;color:var(--sepia2);margin-top:0.5rem;font-style:italic}
   #heroNote{max-width:40rem;margin-left:auto;margin-right:auto}
   .hero-note a{color:var(--bronze);border-bottom:1px solid rgba(201,147,47,.45)}
@@ -465,7 +469,7 @@
         <a id="primaryDownload" class="btn btn-primary" href="#download">
           <span>⬇</span> <span id="primaryLabel">Download for Desktop</span>
         </a>
-        <a id="betaDownload" class="btn btn-ghost" href="#download">
+        <a id="betaDownload" class="btn btn-beta" href="#download">
           <span>⬇</span> <span id="betaLabel">Download the Beta</span>
         </a>
         <a class="btn btn-ghost" href="/play/"><span>▶</span> Demo in your browser</a>
