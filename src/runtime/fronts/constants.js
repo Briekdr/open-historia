@@ -364,6 +364,14 @@ export const DIFFICULTY_EDGES = Object.freeze({
   impossible: Object.freeze({ power: 1.75, pace: 1.4, reserves: 3, mend: 2.5 }),
 });
 
+// What a side loses of each of those when its countries are SHORT: cut off
+// from what comes by sea (a blockade that has stood for months, runtime/
+// naval/blockade.js). These are the shares taken off at a shortage of 1; a
+// side is short by its members' shortages, each by what it brings. Its troops
+// are brought back up to strength at half the pace and half the reserve comes
+// with them, and they fight and move a little worse.
+export const SHORTAGE_EDGE = Object.freeze({ power: 0.15, pace: 0.15, reserves: 0.5, mend: 0.5 });
+
 // The points of a 16-gon, written out so that no step of a day needs a sine:
 // a troop's slow drift of its own is one of them.
 export const COMPASS_16 = Object.freeze([

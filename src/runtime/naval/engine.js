@@ -34,6 +34,11 @@
 //   afterwards             a fleet beaten down to nothing is sunk and gone; a
 //                          side that lost, and a fleet badly mauled, breaks
 //                          off and withdraws
+//   blockade               a fleet in the posture of that name, not beaten
+//                          off, within reach of an enemy's coast presses on
+//                          that country: how hard is worked out for each day
+//                          (blockade.js), and what it costs the country's
+//                          economy and its armies is the turn's to apply
 //
 // It returns what the fleets became (their strength, where they are, a
 // posture changed, a fleet gone, a fleet commissioned) and the battles, for
@@ -43,6 +48,7 @@
 // from the run's seed), and it loads in plain Node.
 
 import { addGameDays, diffGameDays } from "../gameDates.js";
+import { BLOCKADE_LEAST, dayPressure, seaShareOf, stationsOf } from "./blockade.js";
 import { kmBetween } from "../fronts/worldGrid.js";
 import { eraOf } from "../unitMotion.js";
 
@@ -162,18 +168,36 @@ const besideOf = (grid, cell) => {
 
 // A country's coast, for every country asked of, in one pass over the sheet:
 // the cells of its land that are part water themselves or lie beside water.
-const coastsOf = (grid, wanted, controllerOf) => {
+// And, counted in the same pass, how many of its cells lie on a land border
+// with a country it is not at war with (`borders`): what it can still trade
+// over when its coast is closed (blockade.js seaShareOf).
+//   enemies   Map of a country to the set of those it is at war with
+const coastsOf = (grid, wanted, controllerOf, enemies = null) => {
   const coasts = new Map([...wanted].map((name) => [name, []]));
+  const borders = new Map([...wanted].map((name) => [name, 0]));
+  coasts.borders = borders;
   if (!grid || wanted.size === 0 || typeof controllerOf !== "function") return coasts;
   const holders = new Map();
+  const holderOf = (mark) => {
+    if (!holders.has(mark)) holders.set(mark, fold(controllerOf(grid.ids[mark])));
+    return holders.get(mark);
+  };
   for (let cell = 0; cell < grid.land.length; cell += 1) {
     const land = grid.land[cell];
     const mark = grid.region[cell];
     if (land === 0 || !mark) continue;
-    if (!holders.has(mark)) holders.set(mark, fold(controllerOf(grid.ids[mark])));
-    const cells = coasts.get(holders.get(mark));
+    const holder = holderOf(mark);
+    const cells = coasts.get(holder);
     if (!cells) continue;
-    if (land < grid.full || besideOf(grid, cell).some((next) => grid.land[next] < grid.full)) cells.push(cell);
+    let water = land < grid.full;
+    let open = false;
+    for (const next of besideOf(grid, cell)) {
+      if (grid.land[next] < grid.full) water = true;
+      const other = grid.land[next] > 0 && grid.region[next] ? holderOf(grid.region[next]) : "";
+      if (other && other !== holder && enemies?.get(holder)?.has(other) !== true) open = true;
+    }
+    if (water) cells.push(cell);
+    if (open) borders.set(holder, borders.get(holder) + 1);
   }
   return coasts;
 };
@@ -242,7 +266,10 @@ const placeOf = ({ lng, lat, seas, cities, km }) => {
 //   caps             { perCountry, world }: the most formations a country and the world may have
 //   raised           world.naviesRaised: [{ country, date }], when each country was last given
 //                    a navy or lost the last of one
-// Returns { battles, unitChanges, commissioned, fleets, raised }.
+// Returns { battles, unitChanges, commissioned, fleets, raised, blockades }.
+//   blockades   [{ country, by: [names], pressure, covered, days }]: each country a fleet
+//               pressed on in the period (blockade.js): the mean of its days, the share
+//               of its coast reached, and how many of the period's days it stood
 export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units = [], strengthOf = null, controllerOf = null, grid = null, cities = [], seas = [], flat = false, scale = undefined, caps = {}, raised = [] } = {}) => {
   const era = eraOf(fromDate);
   const reach = NAVAL_REACH_KM[era];
@@ -257,7 +284,7 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
   const clock = new Map();
   for (const entry of list(raised)) if (clean(entry?.country) && clean(entry?.date)) clock.set(fold(entry.country), { country: clean(entry.country), date: clean(entry.date) });
   const clockNow = () => [...clock.values()].slice(-NAVIES_KEPT_MOST);
-  const empty = { battles: [], unitChanges: [], commissioned: [], fleets: [], raised: clockNow() };
+  const empty = { battles: [], unitChanges: [], commissioned: [], fleets: [], raised: clockNow(), blockades: [] };
   if (enemies.size === 0) return empty;
 
   const all = list(units);
@@ -283,11 +310,11 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
   // ---- a navy to fight with ---------------------------------------------------------
   const commissioned = [];
   const belligerents = new Set(enemies.keys());
-  const coasts = grid ? coastsOf(grid, belligerents, controllerOf) : new Map();
+  const coasts = grid ? coastsOf(grid, belligerents, controllerOf, enemies) : new Map();
+  const names = new Map();
+  for (const war of list(wars)) for (const name of [...list(war?.sideA), ...list(war?.sideB)]) if (clean(name) && !names.has(fold(name))) names.set(fold(name), clean(name));
   if (grid && days >= 0) {
     const sailors = new Set(all.filter((unit) => fold(unit?.type) === "naval").map((unit) => fold(unit.ownerCode)));
-    const names = new Map();
-    for (const war of list(wars)) for (const name of [...list(war?.sideA), ...list(war?.sideB)]) if (clean(name) && !names.has(fold(name))) names.set(fold(name), clean(name));
     const atSea = (name) => sailors.has(name) || (coasts.get(name)?.length ?? 0) > 0;
     const perCountry = new Map();
     for (const unit of all) perCountry.set(fold(unit?.ownerCode), (perCountry.get(fold(unit?.ownerCode)) ?? 0) + 1);
@@ -330,7 +357,8 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
       fleets.push({ id: unit.id, name: unit.name, owner, key, strength, began: strength, posture: "patrol", lng: home[0], lat: home[1], at: [home[0], home[1]], ready: FITTING_OUT_DAYS + 1, broke: false, sunk: false, fresh: true });
     }
   }
-  if (fleets.length < 2 || days <= 0) return { ...empty, commissioned, raised: clockNow(), fleets: fleets.map(({ id, name, owner, strength, posture, lng, lat }) => ({ id, name, owner, strength: Math.round(strength), posture, lng, lat, place: placeOf({ lng, lat, seas, cities, km }) })) };
+  // (One fleet is enough to go on with: a blockade needs nobody to fight.)
+  if (fleets.length === 0 || days <= 0) return { ...empty, commissioned, raised: clockNow(), fleets: fleets.map(({ id, name, owner, strength, posture, lng, lat }) => ({ id, name, owner, strength: Math.round(strength), posture, lng, lat, place: placeOf({ lng, lat, seas, cities, km }) })) };
 
   // The water under each fleet's own coast nearest where it is as the period begins.
   for (const fleet of fleets) {
@@ -338,6 +366,15 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
     fleet.home = grid && cells.length > 0 ? homeWater(grid, cells, { lng: fleet.lng, lat: fleet.lat }) : null;
   }
   const shelterOf = (fleet) => ((fleet.posture === "withdrawing" || fleet.posture === "holding") && fleet.home && km(fleet.lng, fleet.lat, fleet.home[0], fleet.home[1]) <= HOME_WATERS_KM ? SHELTERED : 1);
+
+  // Where each country at war with a coast can be blockaded: the places its
+  // coast is read at, and how much of its trade goes by sea (blockade.js).
+  const posts = new Map();
+  for (const key of [...belligerents].sort()) {
+    const cells = coasts.get(key) ?? [];
+    if (!grid || cells.length === 0) continue;
+    posts.set(key, { stations: stationsOf(cells.map((cell) => grid.centreOf(cell))), seaShare: seaShareOf(cells.length, coasts.borders?.get(key) ?? 0), sum: 0, covered: 0, days: 0, by: new Set() });
+  }
 
   const battles = [];
   const live = (fleet) => !fleet.sunk && !fleet.broke;
@@ -438,6 +475,36 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
         winner: share >= 1 - LOST_UNDER ? 0 : share <= LOST_UNDER ? 1 : -1,
       });
     }
+
+    // ---- blockade --------------------------------------------------------------------
+    for (const [key, post] of posts) {
+      const blockaders = [];
+      for (const fleet of fleets) {
+        if (!live(fleet) || fleet.posture !== "blockade" || !hostile(fleet.key, key)) continue;
+        if (!post.stations.some(([lng, lat]) => km(lng, lat, fleet.lng, fleet.lat) <= reach)) continue;
+        // What it can put into the blockade: what it is, less what the fleets of its enemies in reach of it tie down.
+        const mine = fleet.strength * navyFactor(weightOf(fleet.owner));
+        let tied = 0;
+        for (const other of fleets) {
+          if (!live(other) || other.posture === "withdrawing" || !hostile(other.key, fleet.key)) continue;
+          if (km(other.lng, other.lat, fleet.lng, fleet.lat) <= reach) tied += other.strength * navyFactor(weightOf(other.owner)) * fightsOf(other.posture);
+        }
+        blockaders.push({ lng: fleet.lng, lat: fleet.lat, weight: mine > 0 ? (mine * mine) / (mine + tied) : 0, owner: fleet.owner });
+      }
+      const today = dayPressure({ stations: post.stations, blockaders, reach, km, seaShare: post.seaShare });
+      if (!(today.pressure > 0)) continue;
+      post.sum += today.pressure;
+      post.covered += today.covered;
+      post.days += 1;
+      for (const fleet of blockaders) post.by.add(fleet.owner);
+    }
+  }
+
+  const blockades = [];
+  for (const [key, post] of posts) {
+    const pressure = post.sum / days;
+    if (!(pressure >= BLOCKADE_LEAST)) continue;
+    blockades.push({ country: names.get(key) ?? key, by: [...post.by].sort(), pressure: Math.round(pressure * 1000) / 1000, covered: Math.round((post.covered / post.days) * 1000) / 1000, days: post.days });
   }
 
   const unitChanges = [];
@@ -478,6 +545,7 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
     unitChanges,
     commissioned,
     raised: clockNow(),
+    blockades,
     fleets: fleets.filter((fleet) => !fleet.sunk).map(({ id, name, owner, strength, posture, lng, lat }) => ({ id, name, owner, strength: Math.round(strength), posture, lng, lat, place: placeOf({ lng, lat, seas, cities, km }) })),
   };
 };

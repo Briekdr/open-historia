@@ -20,11 +20,12 @@ import { setActiveFeatures } from "../../runtime/gameFeatures.js";
 import { MAX_UNITS_GLOBAL, MAX_UNITS_PER_POLITY, normalizeWorldState } from "../../runtime/gameState.js";
 import { createFrontRun } from "../../runtime/fronts/engine.js";
 import { enlarge, syntheticMap } from "../../runtime/fronts/syntheticMap.js";
+import { BLOCKADE_BITES_DAYS, BLOCKADE_GDP_A_YEAR, gdpUnderBlockade } from "../../runtime/naval/blockade.js";
 import { NAVAL_REACH_KM } from "../../runtime/naval/engine.js";
 import { PUBLIC_WORLD_KEYS } from "../../multiplayer/host/projection.js";
-import { frontsLiveBlock, seasLiveBlock, withFrontUnits } from "./frontApply.js";
+import { frontsLiveBlock, seasLiveBlock, turnBlockades, withBlockadeEconomy, withFrontUnits } from "./frontApply.js";
 import { applyFrontUnitChanges, runTurnFronts } from "./frontTurn.js";
-import { SEAS_BLOCK_HEADING, SEAS_BLOCK_MAX, buildSeasBlock, describeSeaBattle } from "./navalPrompt.js";
+import { SEAS_BLOCK_HEADING, SEAS_BLOCK_MAX, buildSeasBlock, describeBlockade, describeSeaBattle } from "./navalPrompt.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const read = (relative) => fs.readFileSync(path.join(here, relative), "utf8").split("\r\n").join("\n");
@@ -165,9 +166,10 @@ test("the skip is told the rules of the sea, the battles already fought and the 
   assert.equal(lines[0], SEAS_BLOCK_HEADING);
   assert.ok(lines[1].startsWith("War at sea is decided by the game, as war on land is."));
   assert.ok(lines[1].includes(`within about ${NAVAL_REACH_KM[2]} km of each other fight`), "the reach of the game's own year");
-  assert.ok(lines[2].startsWith("It has ALREADY fought this period's battles, below: tell each as it happened, on its date, and write no unitOps that change those fleets' strength"));
-  assert.equal(lines[3], "Albion is played by a person: move its fleets only as an action of this turn orders.");
-  assert.deepEqual(lines.slice(4), [
+  assert.ok(lines[2].startsWith("A fleet in the blockade posture within about "), "what a blockade is, and what the game does with one");
+  assert.ok(lines[3].startsWith("It has ALREADY fought this period's battles, below: tell each as it happened, on its date, and write no unitOps that change those fleets' strength"));
+  assert.equal(lines[4], "Albion is played by a person: move its fleets only as an action of this turn orders.");
+  assert.deepEqual(lines.slice(5), [
     "Sea battles of this period:",
     "- 1914-08-12 off Heligoland: Albion had the better of Teutonia (Grand Fleet 100% to 88%; High Seas Fleet 70% to 41%, broke off).",
     "- Gallia had no fleet and the game commissioned Gallia Home Fleet in its home waters.",
@@ -197,7 +199,7 @@ test("a turn whose period was not fought beforehand is told the fleets as they s
   ];
   const block = buildSeasBlock({ units, wars: [WAR], players: [], date: "1914-08-01" });
   assert.ok(block.includes("It fights them when this period has been written: say only that fleets were sent, and their battles are told to you next period."));
-  assert.deepEqual(block.split("\n").slice(3), ["The fleets of the countries at war:", "- Grand Fleet (Albion): 100% strength, blockade", "- High Seas Fleet (Teutonia): 70% strength, patrol"]);
+  assert.deepEqual(block.split("\n").slice(4), ["The fleets of the countries at war:", "- Grand Fleet (Albion): 100% strength, blockade", "- High Seas Fleet (Teutonia): 70% strength, patrol"]);
   assert.equal(block.includes("played by a person"), false);
   assert.equal(buildSeasBlock({ units, wars: [{ ...WAR, status: "ended" }], date: "1914-08-01" }), "");
   assert.equal(buildSeasBlock({ units: units.slice(2), wars: [WAR], date: "1914-08-01" }), "");
@@ -240,9 +242,121 @@ test("the world keeps the turn's battles and when each navy was made or lost, an
   assert.ok(apply.includes("unitCaps: { perCountry: MAX_UNITS_PER_POLITY, world: MAX_UNITS_GLOBAL },"));
 });
 
+// ---- blockades ---------------------------------------------------------------------------
+// "Make blockades affect the economy and land war."
+
+const sheets = () => ({
+  Albion: { population: { total: 4e7 }, economy: { gdp: 2.4e11, gdpPerCapita: 6000 } },
+  Teutonia: { population: { total: 4e7 }, economy: { gdp: 2e11, gdpPerCapita: 5000 } },
+});
+const blockading = () => [fleet("u1", "Grand Fleet", "Albion", 6, 52, { posture: "blockade" })];
+// (Teutonia had a navy and lost it: nobody is commissioned one to contest the blockade.)
+const NO_NAVY = [{ country: "Teutonia", date: "1914-07-15" }];
+
+test("a turn works out the period's blockades, and the world keeps them with the days they have stood", async () => {
+  const map = sheet();
+  const world = worldOn(map, { units: blockading(), naviesRaised: NO_NAVY, countryStats: sheets() });
+  const run = await turn(map, world);
+  const [blockade] = run.sea.blockades;
+  assert.deepEqual([run.sea.blockades.length, blockade.country, blockade.by, blockade.days, blockade.covered], [1, "Teutonia", ["Albion"], 30, 1]);
+  assert.ok(blockade.pressure > 0.5, String(blockade.pressure));
+  assert.deepEqual([run.sea.fromDate, run.sea.days], ["1914-08-01", 30]);
+  // The world after the turn, and after the next: the days add up, and it is as old as the day it was laid.
+  const first = turnBlockades(world, run);
+  assert.deepEqual(first, [{ country: "Teutonia", by: ["Albion"], pressure: blockade.pressure, covered: 1, days: 30, since: "1914-08-01" }]);
+  const later = await turn(map, { ...world, blockades: first }, { fromDate: "1914-08-31", toDate: "1914-09-30" });
+  const second = turnBlockades({ ...world, blockades: first }, later);
+  assert.deepEqual([second[0].days, second[0].since], [60, "1914-08-01"]);
+  // The blockader sails home: the turn after, there is none.
+  const lifted = await turn(map, { ...world, blockades: second, units: [fleet("u1", "Grand Fleet", "Albion", 3.5, 52, { posture: "holding" })] }, { fromDate: "1914-09-30", toDate: "1914-10-30" });
+  assert.deepEqual(turnBlockades({ ...world, blockades: second }, lifted), []);
+  // Peace lifts it too, and a turn with fronts off (no run at all) is asked nothing.
+  assert.deepEqual(turnBlockades({ blockades: second }, { sea: null }), []);
+  assert.deepEqual(normalizeWorldState({ blockades: [...second, { country: "", pressure: 1 }, "x"] }).blockades, second);
+  assert.deepEqual(normalizeWorldState({}).blockades, []);
+  assert.ok(PUBLIC_WORLD_KEYS.includes("blockades"), "every player's map is given them");
+});
+
+test("a blockade is taken off the economy of the country it is laid on, by how hard it pressed and how long", async () => {
+  const map = sheet();
+  const world = worldOn(map, { units: blockading(), naviesRaised: NO_NAVY, countryStats: sheets() });
+  const run = await turn(map, world);
+  const [blockade] = run.sea.blockades;
+  const patched = [];
+  const patch = (next, name, change) => {
+    patched.push([name, change]);
+    next.countryStats[name] = { ...next.countryStats[name], economy: { ...next.countryStats[name].economy, ...change.economy } };
+  };
+  const after = withBlockadeEconomy(world, run, patch);
+  const expected = Math.round(gdpUnderBlockade(2e11, blockade.pressure, 30));
+  assert.deepEqual(patched, [["Teutonia", { economy: { gdp: expected, gdpPerCapita: Math.round(((5000 * expected) / 2e11) * 100) / 100 } }]]);
+  assert.ok(expected < 2e11 && expected > 2e11 * (1 - (BLOCKADE_GDP_A_YEAR * 30) / 365) - 1, `${expected}`);
+  assert.equal(after.countryStats.Albion, world.countryStats.Albion, "the blockader's own economy is not touched");
+  assert.equal(world.countryStats.Teutonia.economy.gdp, 2e11, "and the world handed in is not written to");
+  // The same turn applied again from the same world takes it off once.
+  assert.equal(withBlockadeEconomy(world, run, patch).countryStats.Teutonia.economy.gdp, expected);
+  // Nobody blockaded, no run, a country with no economy on its sheet: the world as it was.
+  assert.equal(withBlockadeEconomy(world, { sea: { blockades: [], days: 30 } }, patch), world);
+  assert.equal(withBlockadeEconomy(world, null, patch), world);
+  const bare = worldOn(map, { countryStats: { Teutonia: { population: { total: 4e7 } } } });
+  assert.equal(withBlockadeEconomy(bare, run, patch), bare);
+  // A year under the same blockade costs twelve times a month, as near as rounding goes.
+  const year = withBlockadeEconomy(world, { sea: { blockades: run.sea.blockades, days: 365 } }, patch).countryStats.Teutonia.economy.gdp;
+  assert.ok(Math.abs((2e11 - year) / (2e11 - expected) - 365 / 30) < 0.01, `${2e11 - year} / ${2e11 - expected}`);
+  // The turn writes both: what the blockade cost, and the record of it.
+  const gameplay = read("gameplay.js");
+  assert.ok(gameplay.includes("impactedWorld = withBlockadeEconomy(impactedWorld, turnFronts, applyCountryStatPatchToWorld);"));
+  assert.ok(gameplay.includes("...(turnFronts ? { blockades: turnBlockades(baseWorld, turnFronts) } : null),"));
+});
+
+test("the land war of a period is told who is short, by the blockades standing as it begins", async () => {
+  const source = read("frontTurn.js");
+  assert.ok(source.includes("const short = new Map(naval === false ? [] : normalizeBlockades(world?.blockades).map((record) => [fold(record.country), shortageOfBlockade(record)]).filter(([, lacks]) => lacks > 0));"));
+  assert.ok(source.includes("...(short.size > 0 ? { shortageOf: (name) => short.get(fold(name)) ?? 0 } : {}),"));
+  // The engine is handed it: a stand-in for the engine reads what the turn gave it.
+  const map = sheet();
+  // (Every run the turn makes of the engine is handed the same.)
+  const handed = async (world, extra = {}) => {
+    const seen = new Set();
+    const standIn = (input) => {
+      seen.add(JSON.stringify(typeof input.shortageOf === "function" ? ["Albion", "Teutonia", "teutonia"].map((name) => input.shortageOf(name)) : null));
+      return createFrontRun(input);
+    };
+    await turn(map, world, { createFrontRun: standIn, ...extra });
+    return [...seen];
+  };
+  const standing = [{ country: "Teutonia", by: ["Albion"], pressure: 0.8, covered: 1, days: BLOCKADE_BITES_DAYS / 2, since: "1914-06-01" }];
+  assert.deepEqual(await handed(worldOn(map, { units: fleets(), blockades: standing })), ["[0,0.4,0.4]"], "half its pressure after half the days it takes to bite");
+  assert.deepEqual(await handed(worldOn(map, { units: fleets() })), ["null"], "nothing with no blockade");
+  assert.deepEqual(await handed(worldOn(map, { units: fleets(), blockades: standing }), { naval: false }), ["null"], "nor with the sea switched off");
+});
+
+test("the skip is told of the blockades: who is cut off by whom, how much, for how long, and to leave the GDP to the game", () => {
+  assert.equal(describeBlockade({ country: "Teutonia", by: ["Albion", "Gallia"], pressure: 0.613 }, 12), "Teutonia is blockaded by Albion and Gallia: about 61% of its trade is cut, day 12 of the blockade; its armies are beginning to go short.");
+  assert.equal(describeBlockade({ country: "Teutonia", by: [], pressure: 1 }, BLOCKADE_BITES_DAYS), `Teutonia is blockaded: about 100% of its trade is cut, day ${BLOCKADE_BITES_DAYS} of the blockade; its armies are short of everything that came by sea.`);
+  const standing = [{ country: "Teutonia", by: ["Albion"], pressure: 0.6, covered: 1, days: 75, since: "1914-05-18" }];
+  // A period fought beforehand: its own blockade, counted from the day it was first laid.
+  const sea = { battles: [], commissioned: [], fleets: [{ name: "Grand Fleet", owner: "Albion", strength: 100, posture: "blockade", place: "off Heligoland" }], blockades: [{ country: "Teutonia", by: ["Albion"], pressure: 0.64, covered: 1, days: 30 }] };
+  const fought = buildSeasBlock({ sea, players: [], date: "1914-08-01", blockades: standing });
+  assert.ok(fought.includes("\nBlockades of this period:\n- Teutonia is blockaded by Albion: about 64% of its trade is cut, day 105 of the blockade; its armies are short of everything that came by sea.\n"));
+  assert.ok(fought.includes(`A fleet in the blockade posture within about ${NAVAL_REACH_KM[2]} km of a coast of a country it is at war with blockades it.`));
+  assert.ok(fought.includes("do not change that country's GDP for it yourself."));
+  assert.ok(fought.length <= SEAS_BLOCK_MAX);
+  // A turn whose period was not fought: those standing.
+  const live = buildSeasBlock({ units: fleets(), wars: [WAR], date: "1914-08-01", blockades: standing });
+  assert.ok(live.includes("\nBlockades standing:\n- Teutonia is blockaded by Albion: about 60% of its trade is cut, day 75 of the blockade; its armies are beginning to go short.\n"));
+  // And a blockade is told even where no fleet is left to list.
+  assert.ok(buildSeasBlock({ sea: { battles: [], fleets: [], commissioned: [], blockades: sea.blockades }, date: "1914-08-01" }).includes("Blockades of this period:"));
+  // The live block of a world carries its standing blockades.
+  const map = sheet();
+  assert.ok(seasLiveBlock(worldOn(map, { units: fleets(), blockades: standing }), { country: "Albion", gameDate: "1914-08-01", round: 1 }).includes("Blockades standing:\n- Teutonia is blockaded by Albion"));
+});
+
 test("the sea engine uses no arithmetic that differs between machines, and nothing but its seed for chance", () => {
-  const engine = fs.readFileSync(path.join(here, "../../runtime/naval/engine.js"), "utf8");
-  for (const word of ["Math.random", "Date.now", "new Date", "Math.sin", "Math.cos", "Math.tan", "Math.atan", "Math.pow", "Math.exp", "Math.log", "Math.hypot", "**"]) {
-    assert.equal(engine.includes(word), false, `${word} in runtime/naval/engine.js`);
+  for (const name of ["engine.js", "blockade.js"]) {
+    const engine = fs.readFileSync(path.join(here, "../../runtime/naval", name), "utf8");
+    for (const word of ["Math.random", "Date.now", "new Date", "Math.sin", "Math.cos", "Math.tan", "Math.atan", "Math.pow", "Math.exp", "Math.log", "Math.hypot", "**"]) {
+      assert.equal(engine.includes(word), false, `${word} in runtime/naval/${name}`);
+    }
   }
 });

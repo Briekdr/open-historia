@@ -44,7 +44,7 @@ import { nearestOnContour, openField, ownCell, packField, redistance, setGround,
 import { awayOf, downhill, measure } from "./ground.js";
 import { placeBehind } from "./move.js";
 import { readGenerals, readTalk } from "./command.js";
-import { FAIR_EDGE, handicapOf } from "./handicap.js";
+import { FAIR_EDGE, handicapOf, shortEdge, sideShortage } from "./handicap.js";
 import { standingOf } from "./orders.js";
 import { leftOnLeg } from "./way.js";
 import { draw, sideFormationsLeft } from "./manpower.js";
@@ -158,11 +158,11 @@ export const paintGround = (battle, run) => {
 // now and who is played by a person: read when the battle is made, and again
 // whenever a country comes into it or leaves.
 export const setHandicap = (battle, run) => {
-  battle.edge = handicapOf({
-    difficulty: run.input?.difficulty,
-    sides: battle.sides.map((members, side) => members.filter((member, at) => !battle.gone[side].has(at))),
-    players: run.input?.players,
-  }).edges;
+  const sides = battle.sides.map((members, side) => members.filter((member, at) => !battle.gone[side].has(at)));
+  const edges = handicapOf({ difficulty: run.input?.difficulty, sides, players: run.input?.players }).edges;
+  // And what a side is short of because its countries are cut off from the
+  // sea (handicap.js shortEdge): the same four figures, weighed down.
+  battle.edge = edges.map((edge, side) => shortEdge(edge, sideShortage(sides[side], run.shortageOf, run.strengthOf)));
 };
 
 const createBattle = (run, { name, warId, sides, frame, arena, openedDate, openedDay }) => ({

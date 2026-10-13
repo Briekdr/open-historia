@@ -148,6 +148,11 @@ const createRun = (input) => {
       const weight = Number(input?.strengthOf?.(name));
       return weight > 0 && Number.isFinite(weight) ? weight : 1;
     },
+    // How short a country is of what comes by sea, 0 to 1 (handicap.js shortEdge): 0 where nobody says.
+    shortageOf: (name) => {
+      const short = Number(input?.shortageOf?.(name));
+      return short > 0 && Number.isFinite(short) ? (short > 1 ? 1 : short) : 0;
+    },
     setController: (id, name) => controller.set(id, clean(name)),
     setGroup: (id, name) => group.set(id, clean(name)),
   };

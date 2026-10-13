@@ -3,6 +3,7 @@ import { JSON_URLS, getPrimedScenarioRegionCatalog, loadTurnRestorePoint, primeJ
 import { withMapClaims } from "./mapClaims.js";
 import { populationFigureOf } from "./populationFigure.js";
 import { normalizeNaviesRaised, normalizeSeaBattles } from "./naval/record.js";
+import { normalizeBlockades } from "./naval/blockade.js";
 import { MAX_GROUPS, applyGroupOps, canRenameGroup, findGroupKey, normalizeGroupAreas, normalizeGroupOp, normalizeGroups } from "./groups.js";
 import { enqueueEventStrings } from "./translator.js";
 import { normalizeTagList } from "./countryTags.js";
@@ -264,6 +265,10 @@ export const WORLD_DEFAULTS = {
   // When each country was last given a navy by the game, or lost the last of
   // one (naval/record.js): a navy sunk is not handed back the turn after.
   naviesRaised: [],
+  // The blockades that stand (naval/blockade.js): how hard each presses on its
+  // country and how many days it has stood. Written by the war at sea; the
+  // land war and the economy read them.
+  blockades: [],
   // Subordinations: who directs whom. Directional, partly secret, and written
   // only through the diplomatic director's compact puppetUpdates lines — see
   // docs/adr/0004-puppet-ledger-and-secrecy.md.
@@ -4427,6 +4432,7 @@ export const normalizeWorldState = (world) => {
     strikes: normalizeStrikes(nextWorld.strikes),
     seaBattles: normalizeSeaBattles(nextWorld.seaBattles),
     naviesRaised: normalizeNaviesRaised(nextWorld.naviesRaised),
+    blockades: normalizeBlockades(nextWorld.blockades),
     puppets: normalizeWorldPuppets(nextWorld.puppets, diplomaticIdentityWorld),
     storylines: normalizeWorldStorylines(nextWorld.storylines),
     simulationRules: normalizeOptionalString(nextWorld.simulationRules),
