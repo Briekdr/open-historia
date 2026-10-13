@@ -163,10 +163,12 @@ export const PASSAGE_DRAMA = Object.freeze({
   // game that opens fast has the build carry on under its first seconds and
   // end on the hit, rather than be cut off as it began.
   cuts: Object.freeze([168.6, 174.3, 177.6, 186.4, 193.8, 198.1, 201.55, 206.9, 214.45, 222.05]),
-  // How long a hit is let ring, in seconds, and how long the music then takes
-  // to be gone, in milliseconds: a stop, without the click of a cut.
-  ring: 0.35,
-  stopFade: 150,
+  // How long a hit is let ring at full, in seconds, and how long the music
+  // then takes to die away, in milliseconds (fast at first, then a long
+  // tail). It was 0.35 s and 150 ms, which the owner heard as the piece being
+  // cut off: an ending has to sound meant.
+  ring: 0.5,
+  stopFade: 3200,
   // For a guess that was badly wrong. A game drawn while the big hit is still
   // more than `softBeyond` seconds away does not run on for all that time: at
   // the next of the build's `accents` the music fades out over `softFade`
@@ -528,7 +530,8 @@ export const createMusicDirector = ({
   // already there is there at once. With `equalPower` the way up follows a
   // sine and the way down a cosine, so that two channels crossing are as loud
   // together, all the way, as either is alone: a straight line each would dip
-  // in the middle.
+  // in the middle. With "decay" the way down is fast at first and then long,
+  // as a struck note dies away: for the loading music's end.
   const fadeTo = (ch, gain, ms, then = null, equalPower = false) => {
     stopFade(ch);
     const from = ch.gain;
@@ -537,7 +540,8 @@ export const createMusicDirector = ({
     const step = () => {
       done += 1;
       const part = done / steps;
-      const shaped = !equalPower ? part : gain >= from ? Math.sin(part * Math.PI / 2) : 1 - Math.cos(part * Math.PI / 2);
+      const shaped = equalPower === "decay" ? 1 - (1 - part) ** 2
+        : !equalPower ? part : gain >= from ? Math.sin(part * Math.PI / 2) : 1 - Math.cos(part * Math.PI / 2);
       ch.gain = done < steps ? from + (gain - from) * shaped : gain;
       setVolume(ch);
       if (done < steps) { ch.fade = timers.set(step, FADE_STEP_MS); return; }
@@ -668,7 +672,7 @@ export const createMusicDirector = ({
         tick = timers.set(beat, TICK_MS);
         return;
       }
-      if (cutAt !== null && time >= cutAt) { leave(softExit ? drama.softFade : drama.stopFade); return; }
+      if (cutAt !== null && time >= cutAt) { leave(softExit ? drama.softFade : drama.stopFade, softExit ? false : "decay"); return; }
       // Still loading at the end of the loud stretch: round it again, as loud.
       if (time >= drama.wrapAt) { seek(loud, drama.enter); rampFrom = null; }
       const boost = boostAt(audio.currentTime, rampFrom, drama);
@@ -692,10 +696,11 @@ export const createMusicDirector = ({
     sound(voiceOf(scene));
   };
 
-  // The loading music ends: over `ms`, a moment for a stop after a hit has
-  // rung and longer for a soft exit. Then nothing, for a breath, and then the
-  // scene's own music.
-  const leave = (ms) => {
+  // The loading music ends: over `ms`, dying away after a hit has rung (a
+  // stop that was only a moment long sounded like the piece being cut off
+  // "at some point in the song", the owner's words), or evenly for a soft
+  // exit. Then nothing, for a breath, and then the scene's own music.
+  const leave = (ms, shape = false) => {
     cutAt = null;
     softExit = false;
     inDrama = false;
@@ -706,7 +711,7 @@ export const createMusicDirector = ({
       loud.boost = 1;
       refresh();
       breath = timers.set(() => { breath = null; settle(); }, FADE.breath);
-    });
+    }, shape);
   };
 
   const toMenu = () => {
@@ -808,8 +813,8 @@ export const createMusicDirector = ({
       rampFrom = null;
       stopTick();
     }
-    silence(loud, drama.stopFade);
-    silence(quiet, drama.stopFade, { rewind: true });
+    silence(loud, FADE.cross);
+    silence(quiet, FADE.cross, { rewind: true });
     settle();
   };
 

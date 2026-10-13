@@ -56,7 +56,8 @@ const buttonStyle = {
   padding: "0 0.8rem",
 };
 const iconButtonStyle = { ...buttonStyle, flex: "0 0 auto", minWidth: "2rem", padding: 0 };
-const primaryButtonStyle = { ...buttonStyle, background: "rgba(43,193,243,0.16)", borderColor: "rgba(43,193,243,0.4)", color: "#e0f6fe" };
+// A little brighter than its neighbours, and still grey: no blue buttons here.
+const primaryButtonStyle = { ...buttonStyle, background: "rgba(255,255,255,0.14)", borderColor: "rgba(255,255,255,0.3)", color: "#ffffff" };
 const inputStyle = {
   background: "rgba(255,255,255,0.04)",
   border: "1px solid rgba(255,255,255,0.1)",
@@ -246,7 +247,7 @@ const TrackPicker = ({ situation, list, full, preview, onAdd, onClose, touch }) 
                 aria-pressed={playing}
                 className="oh-tap"
                 onClick={() => preview.toggle(track)}
-                style={touchFit(playing ? { ...iconButtonStyle, background: "rgba(43,193,243,0.16)", borderColor: "rgba(43,193,243,0.4)", color: "#e0f6fe" } : iconButtonStyle, touch)}
+                style={touchFit(playing ? { ...iconButtonStyle, background: "rgba(255,255,255,0.2)", borderColor: "rgba(255,255,255,0.4)", color: "#ffffff" } : iconButtonStyle, touch)}
                 title={playing ? "Stop the preview" : "Play a preview"}
                 type="button"
               >

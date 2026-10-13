@@ -533,15 +533,15 @@ test("how the loading music ends: on the big hit or a later one, or, with the hi
   assert.deepEqual([...PASSAGE_DRAMA.cuts].sort((a, b) => a - b), [...PASSAGE_DRAMA.cuts]);
   assert.equal(PASSAGE_DRAMA.cuts[0], PASSAGE_DRAMA.hit);
   assert.ok(PASSAGE_DRAMA.cuts.every((cut) => cut + PASSAGE_DRAMA.ring < PASSAGE_DRAMA.wrapAt));
-  // A hit rings 0.35 s, and then the music takes 150 ms to be gone.
-  assert.deepEqual([PASSAGE_DRAMA.ring, PASSAGE_DRAMA.stopFade], [0.35, 150]);
+  // A hit rings half a second at full, and then the music dies away over 3.2 s.
+  assert.deepEqual([PASSAGE_DRAMA.ring, PASSAGE_DRAMA.stopFade], [0.5, 3200]);
   const stop = PASSAGE_DRAMA.hit + PASSAGE_DRAMA.ring;
   for (const entry of PASSAGE_DRAMA.entries) assert.ok(cutTimeAfter(entry - PASSAGE_DRAMA.lead) >= stop, `from ${entry}`);
   assert.equal(cutTimeAfter(145.3), stop);
   assert.equal(cutTimeAfter(165.2), stop);
   assert.equal(cutTimeAfter(PASSAGE_DRAMA.enter), stop);
   assert.equal(cutTimeAfter(168.8), stop, "its ring is still to come");
-  assert.equal(cutTimeAfter(168.9), 174.3 + PASSAGE_DRAMA.ring);
+  assert.equal(cutTimeAfter(169.05), 174.3 + PASSAGE_DRAMA.ring);
   assert.equal(cutTimeAfter(PASSAGE_DRAMA.cuts.at(-1) + 1), PASSAGE_DRAMA.wrapAt);
 
   // The exception, for a guess that was badly wrong: the big hit more than 12 s away.
@@ -580,12 +580,20 @@ test("the game is drawn: the music runs on to the big hit, lets it ring, and sto
   time.advance((stop - drawnAt) * 1000 - 100);
   assert.equal(audio.paused, false);
   near(audio.volume, 0.25 * PASSAGE_DRAMA.boost, 1e-9);
-  // Then gone over 150 ms: a fade, not a cut.
-  time.advance(100 + 80);
+  // Then it dies away over 3.2 s, fast at first and then a long tail: an
+  // ending, not the piece cut off "at some point in the song".
+  const full = 0.25 * PASSAGE_DRAMA.boost;
+  time.advance(100 + 800);
   assert.equal(audio.paused, false);
-  assert.ok(audio.volume > 0.05 && audio.volume < 0.35, `going: ${audio.volume}`);
-  time.advance(120);
-  assert.equal(audio.paused, true, "stopped");
+  assert.ok(audio.volume > full * 0.45 && audio.volume < full * 0.65, `a quarter of the way: ${audio.volume}`);
+  time.advance(800);
+  assert.equal(audio.paused, false);
+  assert.ok(audio.volume > full * 0.15 && audio.volume < full * 0.35, `half way: ${audio.volume}`);
+  time.advance(1300);
+  assert.equal(audio.paused, false, "still dying away after 2.9 s");
+  assert.ok(audio.volume > 0 && audio.volume < full * 0.05, `almost gone: ${audio.volume}`);
+  time.advance(450);
+  assert.equal(audio.paused, true, "gone");
   assert.deepEqual(sounding(), []);
   assert.deepEqual([director.cutAt, director.inDrama], [null, false]);
   // No in-game piece has been chosen yet: a game is quiet.
@@ -618,9 +626,9 @@ test("a game that opens fast is not cut off as the music began: the build carrie
   }
   assert.ok(heardUntil > PASSAGE_DRAMA.hit + 0.3, `to ${heardUntil}`);
   near(audio.volume, 0.25 * PASSAGE_DRAMA.boost, 1e-9);
-  time.advance(250);
+  time.advance(3400);
   assert.equal(audio.paused, true);
-  assert.ok(audio.currentTime >= stop && audio.currentTime < stop + 0.25, `stopped at ${audio.currentTime}`);
+  assert.ok(audio.currentTime >= stop + 3 && audio.currentTime < stop + 3.5, `died away by ${audio.currentTime}`);
   assert.deepEqual(sounding(), []);
 });
 
@@ -665,8 +673,8 @@ test("with an in-game piece, it comes in after a breath of silence", () => {
   director.setScene("loading");
   time.advance(1000);
   director.setScene("game");
-  // Run to the stop.
-  time.advance(10000);
+  // Run to the hit, through its dying away and the breath after it.
+  time.advance(14000);
   assert.equal(of("drama").paused, true);
   assert.deepEqual(sounding(), ["game"]);
   assert.equal(of("game").src, "/audio/in-game.mp3");
@@ -762,9 +770,10 @@ test("the war room, or a battlefield shown: Legionnaire; back in the game it sto
   assert.notEqual(director.cutAt, null);
   director.setScene("war");
   assert.equal(director.cutAt, null);
-  time.advance(200);
+  // It does not wait for a hit: it goes out as Legionnaire comes in.
+  time.advance(1000);
   assert.equal(of("drama").paused, true, "at once");
-  time.advance(1300);
+  time.advance(500);
   assert.deepEqual(sounding(), ["war"]);
   // Opened straight from a game still opening, in the middle of the crossing: both elements stop.
   director.setScene("menu");
@@ -773,10 +782,10 @@ test("the war room, or a battlefield shown: Legionnaire; back in the game it sto
   time.advance(900);
   assert.deepEqual(sounding(), ["calm", "drama"]);
   director.setScene("war");
-  time.advance(200);
+  time.advance(1000);
   assert.deepEqual([of("calm").paused, of("drama").paused], [true, true]);
   assert.equal(director.inDrama, false);
-  time.advance(1300);
+  time.advance(500);
   assert.deepEqual(sounding(), ["war"]);
   // And the menu takes over from anything.
   director.setScene("menu");
@@ -1197,7 +1206,7 @@ test("a scenario's loading tracks replace the loading music altogether: no build
   assert.equal(none.director.inDrama, true);
   // And when its stop on a hit has landed and the breath is over, the game's list comes in.
   none.director.setScene("game");
-  none.time.advance(10000);
+  none.time.advance(14000);
   assert.deepEqual(none.sounding(), ["scenario:game"]);
 });
 

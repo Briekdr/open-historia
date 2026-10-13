@@ -2407,7 +2407,7 @@ const SoundSection = ({ musicOn, onToggleMusic }) => {
                     disabled={!musicOn}
                     onChange={(event) => setMapSettingValue(MAP_SETTING_KEYS.musicVolume, String(musicVolumeOf(event.target.value)))}
                     aria-label="Music volume"
-                    style={{ accentColor: "#2bc1f3", width: "9rem" }}
+                    style={{ accentColor: "#d4d4d8", width: "9rem" }}
                     />
                     <span data-no-translate style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.78rem", minWidth: "2.6rem", textAlign: "right" }}>{`${volume}%`}</span>
                 </span>
@@ -2451,7 +2451,7 @@ const PrivacyPolicyLink = () => {
         target="_blank"
         rel="noopener noreferrer"
         className="oh-tap-row"
-        style={{ background: "rgba(59,130,246,0.12)", border: "1px solid rgba(96,165,250,0.24)", borderRadius: "8px", color: "#bfdbfe", fontSize: "0.72rem", fontWeight: 750, padding: "0.45rem 0.65rem", textDecoration: "none", whiteSpace: "nowrap", ...(touch ? { alignItems: "center", display: "inline-flex" } : null) }}
+        style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: "8px", color: "rgba(255,255,255,0.9)", fontSize: "0.72rem", fontWeight: 750, padding: "0.45rem 0.65rem", textDecoration: "none", whiteSpace: "nowrap", ...(touch ? { alignItems: "center", display: "inline-flex" } : null) }}
         >
         {"Privacy policy"}
         </a>
