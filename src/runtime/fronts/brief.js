@@ -210,7 +210,8 @@ export const describeSince = (record, { most = 4 } = {}) => {
   const lost = gains(1);
   if (took || lost) parts.push(`${lead[0]} took ${took || "none"}`, `lost ${lost || "none"}`);
   const pockets = (Array.isArray(brief.pockets) ? brief.pockets : []).slice(0, 2)
-    .map((pocket) => `${pocket.siege ? "Besieged" : "Pocket"}: ${lead[pocket.s]} at ${pocket.at}, ${pocket.days} days.`);
+    // (Who is shut in, and by whom: "Pocket: Mongolia at X" was read as Mongolia's doing.)
+    .map((pocket) => `${pocket.siege ? "Besieged" : "Surrounded"}: troops of ${lead[pocket.s]} are ${pocket.siege ? "shut in" : "cut off"} by ${lead[1 - pocket.s]} at ${pocket.at}, ${pocket.days} days.`);
   return {
     since: String(brief.since ?? ""),
     text: `${parts.join("; ")}.${pockets.length > 0 ? ` ${pockets.join(" ")}` : ""}`,

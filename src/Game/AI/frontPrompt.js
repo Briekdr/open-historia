@@ -93,10 +93,10 @@ const FRONT_RULES = [
 const FOUGHT_RULES = [
   FRONTS_BLOCK_HEADING,
   "Land war is fought on battlefields: one opens by itself wherever the two sides of a war hold land that touches, and there the game raises the troops, moves them and decides who holds the ground. It has ALREADY fought this period on every battlefield told in full below: what a battlefield's account says happened, happened, on the dates it gives. You tell that story, and give the orders for what comes next. On the battlefields below this replaces what the instructions above say of moving formations and taking regions: write no unitOps for their sides' land forces and no regionControlOps for their regions (the game changes the map itself, on the dates of the fighting). Fleets, air wings, garrisons, bases and land forces away from every battlefield move as before.",
-  "Tell the war. A battlefield where ground changed hands is among the first things this period is about, whoever is fighting on it: give it at least three events of this answer (two, where the answer has fewer than six), each on a date from its account and saying what the account says: the places that fell and to whom, the troops cut off or lost, how far the line went and where it stands now, and then what that did to the countries fighting and how others answered. Where an account says a side sent its troops into a country that was not in the war, that country is in the war against it from that date, and the game has entered it in that war already: tell it as the invasion it is, with what the country and the others did about it. Where an account also says what happened before this period and was not yet told, tell that too, early in the answer, as what the fighting had come to by then. A war that is only mentioned in passing has not been told. Nothing in any event goes against an account: a place it does not say fell did not fall, and a side it shows giving ground was not advancing.",
+  "Tell the war. A battlefield where ground changed hands is among the first things this period is about, whoever is fighting on it: give it at least three events of this answer (two, where the answer has fewer than six), each on a date from its account and saying what the account says: the places that fell and to whom, the troops cut off or lost, how far the line went and where it stands now, and then what that did to the countries fighting and how others answered. An account says who did what to whom: keep it that way round. Tell no encirclement, surrender, rout, breakthrough or ground retaken that the account does not give, and none with the two sides exchanged: a side the account shows taking ground was not stopped, trapped or thrown back anywhere the account does not say so, and a side it shows losing ground won no battle there. Where an account says a side sent its troops into a country that was not in the war, that country is in the war against it from that date, and the game has entered it in that war already: tell it as the invasion it is, with what the country and the others did about it. Where an account also says what happened before this period and was not yet told, tell that too, early in the answer, as what the fighting had come to by then. A war that is only mentioned in passing has not been told. Nothing in any event goes against an account: a place it does not say fell did not fall, and a side it shows giving ground was not advancing.",
   ...ORDER_LINES,
   "- eventNumbers: the events of this answer in which the order is given, counted from 1, with commas between; may be blank.",
-  "- objective (a place with its kind: `city: Kharkiv`), result (breakthrough | captured | repulsed | stalemate | collapse | surrender) and effort (token | limited | major | total) may be left off. A result is the story itself deciding what no account says (a garrison surrenders, an army collapses): it takes effect as the period ends.",
+  "- objective (a place with its kind: `city: Kharkiv`), result (breakthrough | captured | repulsed | stalemate | collapse | surrender) and effort (token | limited | major | total) may be left off. A result is the story itself deciding what no account says (a garrison surrenders, an army collapses): it takes effect as the period ends. A surrender is of a whole side, or of troops the account or the list below shows surrounded, and of nobody else: the game refuses any other.",
   "Eastern Ukraine~Russia~spearhead~north~2,3~city: Kharkiv~~major",
   "Eastern Ukraine~Ukraine~dig in~south~5",
   "An order written here is for what comes NEXT: it is put to the troops as this period ends and carried out in the one after, whose account you are given then. So, having told how the period went, write a line for each side nobody plays whose part in the war the story changes (it presses on, strikes somewhere else, digs in, falls back); a side with no line goes on under its standing orders, shown below, which is what a side does when nothing has changed for it, and an empty string means nothing changes. Only on a battlefield that first opens in this answer (a war begun here) is an order carried out from its event's date: of that fighting say only that it began, since its account comes next period. An event of this answer that ends a war, or halts it with a ceasefire, stops its battlefield on that date: tell nothing its account says happened after it.",
@@ -207,7 +207,14 @@ const byWeight = (records, players) => {
 // ---- a period that has been fought ---------------------------------------------------
 
 // What a happening of the engine's log is in words: `who` leads the side it
-// names, `at` is the place with its kind.
+// names, `at` is the place with its kind, `enemy` leads the other side.
+//
+// WHO DID IT TO WHOM IS SAID OUTRIGHT, the side that did it first. Troops cut
+// off used to read "troops of Mongolia cut off near Govi-Altay gave up", which
+// can be read two ways ("Mongolia's troops cut somebody off"), and a skip took
+// it the wrong way round: with China deep in Mongolia and Mongolian troops
+// surrounded, it wrote that Mongolian forces encircled a Chinese detachment
+// and took its surrender. So what one side did to the other names both, twice.
 const NEWS_WORDS = {
   // A country that was in nobody's war until a side's troops were sent into it.
   invaded: (who, at) => `${who} sent its troops into ${at}, which was not in the war and is at war with it from that day`,
@@ -227,9 +234,9 @@ const NEWS_WORDS = {
   taken: (who, at) => `${who} took ${at}`,
   destroyed: (who, at) => `${who} destroyed ${at}`,
   assault: (who, at) => `${who} was sent to storm ${at}`,
-  overrun: (who, at) => `troops of ${who} were overrun near ${at}`,
-  pocket: (who, at) => `troops of ${who} cut off near ${at} gave up`,
-  siege: (who, at) => `troops of ${who} were shut in at ${at}`,
+  overrun: (who, at, enemy) => `${enemy} overran troops of ${who} near ${at}: ${who} lost them`,
+  pocket: (who, at, enemy) => `${enemy} surrounded troops of ${who} near ${at}, and those troops of ${who} surrendered to ${enemy}`,
+  siege: (who, at, enemy) => `${enemy} shut troops of ${who} in at ${at} and is besieging them`,
 };
 // Which of many is told: a capital, then a large town, then troops cut off or
 // shut in, then what an assault took, then any other town, the larger first,
@@ -286,7 +293,7 @@ export const describePeriod = ({ record, before = null, news = [], most = PERIOD
   }
   for (let count = Math.min(most, told.length); count >= 1; count -= 1) {
     const chosen = new Set(told.map((entry, index) => ({ entry, index })).sort((a, b) => newsWeight(b.entry) - newsWeight(a.entry) || a.index - b.index).slice(0, count).map((item) => item.index));
-    const parts = told.filter((_, index) => chosen.has(index)).map((entry) => `${clean(entry.d)} ${NEWS_WORDS[entry.k](lead[entry.s], clean(entry.at))}`);
+    const parts = told.filter((_, index) => chosen.has(index)).map((entry) => `${clean(entry.d)} ${NEWS_WORDS[entry.k](lead[entry.s], clean(entry.at), lead[1 - entry.s])}`);
     const more = told.length - count;
     const text = `  This period, by date: ${parts.join("; ")}${more > 0 ? `; and ${more} more of the kind` : ""}.`;
     if (text.length + regions.length <= max || count === 1) {

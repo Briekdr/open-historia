@@ -384,7 +384,8 @@ test("a siege: a place a side is told to encircle is shut in and left alone, and
     assert.deepEqual(record.log.filter((entry) => entry.k === "siege"), [{ d: when, k: "siege", s: 1, at: "city: Brod" }]);
     assert.deepEqual(sieges(record), [{ s: 1, at: "city: Brod", days: day - closed + 1, siege: true }]);
   }
-  assert.match(describeBattlefield(days[closed + 12].battlefields[0]), /Besieged: Borduria at city: Brod, 13 days\./);
+  // (Who is shut in and by whom, said outright: "Besieged: Borduria at X" could be read as Borduria's doing.)
+  assert.match(describeBattlefield(days[closed + 12].battlefields[0]), /Besieged: troops of Borduria are shut in by Aland at city: Brod, 13 days\./);
   // Its garrison is alive, cut off, and has wasted by a point a day and nothing more: it is not assaulted.
   const first = roundTheTown(days[closed].battlefields[0], world).garrison;
   const last = roundTheTown(days[closed + 20].battlefields[0], world).garrison;

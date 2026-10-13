@@ -244,10 +244,10 @@ test("of many things that happened the largest are told, in the order they happe
   const all = describePeriod({ record, before, news });
   assert.equal(all, [
     "  It began the period with Aland at 120 formations and Borduria at 90.",
-    "  This period, by date: 2024-04-03 Aland took city: Hamlet; 2024-04-05 Aland took city: Mid; 2024-04-09 troops of Borduria cut off near city: Eastmark gave up; 2024-04-11 troops of Borduria were overrun near region: Eastmarch; 2024-04-20 Aland took city: Brod; 2024-04-21 Borduria took city: Hamlet. Regions that came wholly into a side's hands: Aland 2.",
+    "  This period, by date: 2024-04-03 Aland took city: Hamlet; 2024-04-05 Aland took city: Mid; 2024-04-09 Aland surrounded troops of Borduria near city: Eastmark, and those troops of Borduria surrendered to Aland; 2024-04-11 Aland overran troops of Borduria near region: Eastmarch: Borduria lost them; 2024-04-20 Aland took city: Brod; 2024-04-21 Borduria took city: Hamlet. Regions that came wholly into a side's hands: Aland 2.",
   ].join("\n"));
   // Room for three: the capital, the largest town, the troops that gave up; in the order they happened.
-  assert.equal(describePeriod({ record, news, most: 3 }), "  This period, by date: 2024-04-05 Aland took city: Mid; 2024-04-09 troops of Borduria cut off near city: Eastmark gave up; 2024-04-20 Aland took city: Brod; and 3 more of the kind. Regions that came wholly into a side's hands: Aland 2.");
+  assert.equal(describePeriod({ record, news, most: 3 }), "  This period, by date: 2024-04-05 Aland took city: Mid; 2024-04-09 Aland surrounded troops of Borduria near city: Eastmark, and those troops of Borduria surrendered to Aland; 2024-04-20 Aland took city: Brod; and 3 more of the kind. Regions that came wholly into a side's hands: Aland 2.");
   // Held to its length whatever happened.
   const many = Array.from({ length: 60 }, (_, index) => ({ d: "2024-04-10", k: "city", s: 0, at: `city: A Town With A Long Name Number ${index}`, size: index }));
   const held = describePeriod({ record, news: many, most: 40 });
@@ -257,6 +257,26 @@ test("of many things that happened the largest are told, in the order they happe
   assert.equal(describePeriod({ record, news: [] }), "  This period, by date: no town changed hands and nobody was cut off.");
   assert.equal(describePeriod({ record, news: [{ d: "2024-04-02", k: "whole", s: 1, at: "region: Westmarch" }] }), "  This period, by date: no town changed hands and nobody was cut off. Regions that came wholly into a side's hands: Borduria 1.");
   assert.equal(describePeriod({ record: { ...record, status: "standing" }, news }), "");
+});
+
+test("who surrounded whom is said outright, the side that did it first, so it cannot be told the other way round", () => {
+  // Seen in play: with China deep in Mongolia and Mongolian troops surrounded, the account read
+  // "troops of Mongolia cut off near Govi-Altay gave up", and the skip wrote that Mongolian forces
+  // had encircled a Chinese detachment and taken its surrender.
+  const record = { name: "The Gobi", status: "active", sides: [["China"], ["Mongolia"]] };
+  const told = (entry) => describePeriod({ record, news: [{ d: "2016-08-13", s: 1, at: "region: Govi-Altay", ...entry }] });
+  assert.equal(told({ k: "pocket" }), "  This period, by date: 2016-08-13 China surrounded troops of Mongolia near region: Govi-Altay, and those troops of Mongolia surrendered to China.");
+  assert.equal(told({ k: "siege" }), "  This period, by date: 2016-08-13 China shut troops of Mongolia in at region: Govi-Altay and is besieging them.");
+  assert.equal(told({ k: "overrun" }), "  This period, by date: 2016-08-13 China overran troops of Mongolia near region: Govi-Altay: Mongolia lost them.");
+  // The other way round when it IS the other way round.
+  assert.ok(told({ k: "pocket", s: 0 }).includes("Mongolia surrounded troops of China near region: Govi-Altay, and those troops of China surrendered to Mongolia."));
+  // Nothing is left that names only the side it happened to: the garden path is gone.
+  const source = fs.readFileSync(new URL("./frontPrompt.js", import.meta.url), "utf8");
+  for (const old of ["cut off near ${at} gave up", "were overrun near ${at}", "were shut in at ${at}"]) assert.equal(source.includes(old), false, old);
+  // And the skip is told to keep an account the way round it is given, and to invent no battle it does not have.
+  const fought = buildFrontsBlock({ battlefields: [record], period: { fromDate: "2016-08-12", toDate: "2016-08-19", days: 7, battlefields: [record], news: [] } });
+  assert.ok(fought.includes("An account says who did what to whom: keep it that way round. Tell no encirclement, surrender, rout, breakthrough or ground retaken that the account does not give, and none with the two sides exchanged:"));
+  assert.ok(fought.includes("A surrender is of a whole side, or of troops the account or the list below shows surrounded, and of nobody else: the game refuses any other."));
 });
 
 test("the skip fights its period before it asks, and the turn it writes says so", () => {
