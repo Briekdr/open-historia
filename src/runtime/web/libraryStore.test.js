@@ -1210,3 +1210,99 @@ test("emptying the trash, or an entry outliving it, leaves nothing of a deleted 
   assert.deepEqual([...db.get("covers").keys()], []);
   assert.deepEqual([...db.get("snapshots").keys()], []);
 });
+
+// ---- a scenario's music (server/scenarioMusic.js, shared with the desktop store) ----
+//
+// Which hub tracks a scenario plays, by situation: ids and versions only. Every
+// path a scenario's details take has to carry it here as it does on the
+// desktop (server/scenarioMusic.test.js): a save, the library's card and the
+// open game's scenario, an export, an import, a clone, and a hub Update, whose
+// own loop once dropped what it did not name.
+
+const MUSIC = {
+  loading: [{ id: "passage-of-time", version: 1 }],
+  game: [{ id: "quiet-fields", version: 2 }, { id: "long-road", version: 1 }],
+  atWar: [],
+  battle: [{ id: "legionnaire", version: 3 }],
+};
+
+test("a save keeps a scenario's music, a save that does not mention it leaves it, and null takes it away", async () => {
+  await reset();
+  const id = ok(await scenarios("POST", "", { name: "Scored" })).scenario.id;
+  const before = ok(await scenarios("GET", id)).scenario;
+  assert.equal("music" in before, false, "a scenario that never had music has no such field");
+
+  const saved = ok(await scenarios("PUT", id, { music: { ...MUSIC, loading: [{ id: "passage-of-time", version: 1, file: "https://evil.example/x.mp3" }, { id: "bad id" }, "text"], menu: [{ id: "never" }] } })).scenario;
+  assert.deepEqual(saved.music, MUSIC, "written in the one shape, the stranger's fields and entries dropped");
+  assert.deepEqual(db.get("scenarios").get(id).meta.music, MUSIC);
+  assert.deepEqual(ok(await scenarios("PUT", id, { name: "Scored again" })).scenario.music, MUSIC);
+  assert.deepEqual((await library()).scenarios.find((entry) => entry.id === id).music, MUSIC, "the library's card carries it");
+  // The open game's scenario is what the music reads.
+  ok(await games("POST", "", { name: "Campaign", scenarioId: id, setActive: true }));
+  assert.deepEqual((await library()).runtimeScenario.music, MUSIC);
+
+  const emptied = ok(await scenarios("PUT", id, { music: { loading: [], game: [], atWar: [], battle: [] } })).scenario;
+  assert.equal("music" in emptied, false, "four empty lists are no music at all");
+  ok(await scenarios("PUT", id, { music: MUSIC }));
+  const cleared = ok(await scenarios("PUT", id, { music: null })).scenario;
+  assert.equal("music" in cleared, false);
+  assert.equal("music" in db.get("scenarios").get(id).meta, false);
+});
+
+test("choosing music is an edit of a downloaded copy, like any other change to it", async () => {
+  await reset();
+  const id = ok(await scenarios("POST", "import", hubBundle("Hub Map"))).scenario.id;
+  assert.equal(ok(await scenarios("GET", id)).scenario.hubOrigin.editedAt, undefined);
+  const edited = ok(await scenarios("PUT", id, { music: MUSIC })).scenario;
+  assert.ok(edited.hubOrigin.editedAt, "so its Update asks before replacing the player's choice");
+  assert.deepEqual(edited.music, MUSIC);
+});
+
+test("a bundle carries the music out and back in, a clone keeps it, and a bundle without any has no such field", async () => {
+  await reset();
+  const id = ok(await scenarios("POST", "", { name: "Scored", music: MUSIC })).scenario.id;
+  const bundle = ok(await scenarios("GET", `${id}/export`));
+  assert.deepEqual(bundle.scenario.music, MUSIC);
+  const imported = ok(await scenarios("POST", "import", bundle)).scenario;
+  assert.notEqual(imported.id, id);
+  assert.deepEqual(imported.music, MUSIC);
+  assert.deepEqual(ok(await scenarios("GET", `${imported.id}/export`)).scenario.music, MUSIC, "export, import, export again: the same record");
+  const cloned = ok(await scenarios("POST", "", { name: "Clone", seedScenarioId: id })).scenario;
+  assert.deepEqual(cloned.music, MUSIC, "a clone is a copy of the scenario, its music with it");
+  assert.equal("music" in ok(await scenarios("POST", "", { name: "Fresh" })).scenario, false, "a scenario made from scratch has none");
+
+  ok(await scenarios("PUT", id, { music: null }));
+  const plain = ok(await scenarios("GET", `${id}/export`));
+  assert.equal("music" in plain.scenario, false, "omitted from the file altogether when every list is empty");
+  assert.equal("music" in ok(await scenarios("POST", "import", plain)).scenario, false);
+  // A bundle's music is read as a stranger's.
+  const hostile = ok(await scenarios("POST", "import", {
+    ...plain,
+    scenario: { ...plain.scenario, music: { game: [{ id: "x", version: 1, file: "https://evil.example/x.mp3" }, "y", { id: "bad id" }], menu: [{ id: "m" }] } },
+  })).scenario;
+  assert.deepEqual(hostile.music, { loading: [], game: [{ id: "x", version: 1 }], atWar: [], battle: [] });
+});
+
+test("a hub Update takes the new version's music, and takes the old away when the new version has none", async () => {
+  await reset();
+  const version = (name, music, file) => {
+    const bundle = hubBundle(name, file);
+    return { ...bundle, scenario: { ...bundle.scenario, ...(music ? { music } : {}) } };
+  };
+  const id = ok(await scenarios("POST", "import", version("Hub Map", MUSIC, 1))).scenario.id;
+  assert.deepEqual(ok(await scenarios("GET", id)).scenario.music, MUSIC);
+
+  const second = ok(await scenarios("PUT", `${id}/import`, version("Hub Map v2", { game: [{ id: "new-theme", version: 4 }] }, 2))).scenario;
+  assert.equal(second.name, "Hub Map v2");
+  assert.deepEqual(second.music, { loading: [], game: [{ id: "new-theme", version: 4 }], atWar: [], battle: [] }, "the new version's lists, none of the old");
+  assert.equal(second.hubOrigin.bundleUrl, HUB_FILE(2));
+  assert.equal(second.hubOrigin.editedAt, undefined, "still the post's copy, unedited");
+  // Everything else an Update carries still arrives beside it.
+  assert.deepEqual(await scenarioAsset(id, "regionsGeojson"), REGIONS);
+
+  const third = ok(await scenarios("PUT", `${id}/import`, version("Hub Map v3", null, 3))).scenario;
+  assert.equal(third.name, "Hub Map v3");
+  assert.equal("music" in third, false, "a version that dropped its music does not go on playing the old one's");
+  assert.equal("music" in db.get("scenarios").get(id).meta, false);
+  assert.equal("music" in ok(await scenarios("GET", `${id}/export`)).scenario, false);
+});

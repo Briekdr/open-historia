@@ -51,6 +51,8 @@ import StatsSheetEditor, { normalizeStatsEditorValue } from "./StatsSheetEditor.
 import InstitutionAuthoringPanel from "./InstitutionAuthoringPanel.jsx";
 import PrehistoryPanel from "./PrehistoryPanel.jsx";
 import ScenarioFrontsPanel from "./ScenarioFrontsPanel.jsx";
+import ScenarioMusicPanel, { ScenarioMusicCredits } from "./ScenarioMusicPanel.jsx";
+import { normalizeScenarioMusic } from "../../runtime/scenarioMusic.js";
 const PoliticalWorldAuthoringPanel = lazy(() => import("./PoliticalWorldAuthoringPanel.jsx"));
 const PoliticalWorldGenerationPanel = lazy(() => import("./PoliticalWorldGenerationPanel.jsx"));
 import { isFeatureEnabled, normalizeFeatureOverrides, normalizeFeatureSettings } from "../../runtime/gameFeatures.js";
@@ -391,6 +393,7 @@ const editorSectionLabels = {
   features: "Features",
   fronts: "Fronts",
   history: "Pre-history",
+  music: "Music",
   overview: "Overview",
   politics: "Politics",
   prompts: "Prompts",
@@ -417,6 +420,8 @@ const buildScenarioEditorState = (details) => {
     heroSubtitle: scenario.heroSubtitle ?? "",
     heroTitle: scenario.heroTitle ?? "",
     language: game.language ?? world.language ?? "English",
+    // The hub tracks it plays, by situation (the Music tab), or null for none.
+    music: normalizeScenarioMusic(scenario.music),
     name: scenario.name ?? "",
     prompts,
     labelFont: world.labelFont ?? "",
@@ -1639,7 +1644,7 @@ const EditorDrawer = ({
   const record = kind === "scenario" ? details.scenario : details.game;
   const visibleSections =
     kind === "scenario"
-      ? ["overview", "world", "history", "fronts", "politics", "stats", "features", "prompts", "assets", "bundles"]
+      ? ["overview", "world", "history", "fronts", "politics", "stats", "features", "prompts", "assets", "music", "bundles"]
       : ["overview", "world", "features", "prompts", "assets"];
   // Two fields to a row leave a phone under 140 px for each, too narrow for a
   // date or a font name, so there the fields stack.
@@ -2014,6 +2019,15 @@ const EditorDrawer = ({
             })}
           </div>
         </div>
+      )}
+
+      {/* The hub tracks the scenario plays in each situation of a game
+          (ScenarioMusicPanel.jsx). Part of the form: Save below writes them. */}
+      {editorSection === "music" && kind === "scenario" && (
+        <ScenarioMusicPanel
+          music={formState.music}
+          onChange={(next) => onChange("music", next)}
+        />
       )}
 
       {editorSection === "bundles" && kind === "scenario" && (
@@ -3118,6 +3132,8 @@ const LibraryTopBar = ({ onOpenSettings }) => {
           },
           heroSubtitle: editorState.heroSubtitle,
           heroTitle: editorState.heroTitle,
+          // null (no track in any situation) takes the scenario's music away.
+          music: editorState.music ?? null,
           name: editorState.name,
           prompts,
           subtitle: editorState.subtitle,
@@ -4201,6 +4217,11 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                 <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.75rem", margin: "0.15rem 0 0.6rem" }}>
                   Starting “{countryPicker.name}”
                 </div>
+                {/* Whose music the scenario plays, where it has tracks of its
+                    own from the community hub: their licences ask for it to be
+                    said, and this is where a player reads about a scenario
+                    before starting it. */}
+                <ScenarioMusicCredits music={countryPicker.music} style={{ flex: "0 0 auto", fontSize: "0.72rem", marginBottom: "0.6rem", maxHeight: "5.5rem", overflowY: "auto" }} />
                 {/* Refining an existing game (Apply-&-Play) only swaps the country;
                     inventing a faction is a fresh-game concern, so the tabs show
                     only for a true new game. */}

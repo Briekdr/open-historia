@@ -19,6 +19,7 @@
 // makes explicit, a border cleanup's hairline changes — is not a change.
 
 import { FEATURE_DEFINITIONS, normalizeFeatureSettings } from "../../server/gameFeatures.js";
+import { normalizeScenarioMusic } from "../../server/scenarioMusic.js";
 import { PROMPT_GUIDANCE, normalizePackGuidance } from "../Game/AI/promptGuidance.js";
 import { normalizeGroups } from "./groups.js";
 import { isCurrentCanonWorld } from "./scenarioCanon.js";
@@ -569,6 +570,9 @@ export const buildScenarioSnapshot = (bundle) => {
   return {
     meta: metaOf(scenario),
     features: normalizeFeatureSettings(scenario.features),
+    // Which hub tracks it plays, by situation (server/scenarioMusic.js), or
+    // null when it names none: read as the stores read it.
+    music: normalizeScenarioMusic(scenario.music),
     game: Object.fromEntries(GAME_FIELDS.map((key) => [key, clean(game[key])])),
     world: Object.fromEntries(WORLD_DETAIL_FIELDS.map((key) => [key, key === "allowedUnitTypes"
       ? (Array.isArray(world[key]) ? [...new Set(world[key].map(clean).filter(Boolean))].sort() : [])
@@ -788,6 +792,11 @@ const diffDetails = (base, next, changes) => {
   }
   if (!sameValue(base.institutionLogos, next.institutionLogos)) {
     changes.push({ id: "institutionLogos", area: "details", kind: "institutionLogos", from: base.institutionLogos, to: next.institutionLogos });
+  }
+  // The music is one change, whichever situations it touches: its lists were
+  // chosen together, and an author takes or leaves them together.
+  if (!sameValue(base.music, next.music)) {
+    changes.push({ id: "music", area: "details", kind: "music", from: base.music ?? null, to: next.music ?? null });
   }
   if ((base.cover?.hash || "") !== (next.cover?.hash || "")) {
     changes.push({
@@ -1254,6 +1263,7 @@ export const summarizeChangesForComment = (changes, { maxLines = 14 } = {}) => {
   if (list.some((change) => change.kind === "history" && change.part === "setup")) lines.push("Pre-history summary or Day-one facts changed");
   if (byKind.stats) lines.push("Stats sheet changed");
   if (byKind.institutionLogos) lines.push("Institution logos changed");
+  if (byKind.music) lines.push("Music changed");
   if (byKind.cover) lines.push("New cover image");
   if (byKind["region-owner"]) lines.push(`${plural(byKind["region-owner"], "region changes", "regions change")} owner`);
   if (byKind.borders) lines.push(`${plural(byKind.borders, "border change", "border changes")}`);
