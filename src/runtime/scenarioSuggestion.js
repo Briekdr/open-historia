@@ -43,7 +43,7 @@ export const suggestionFileName = (scenarioName) => `${slug(scenarioName)}-sugge
 // in a file is dropped on reading, so a file from a newer or a broken build
 // shows what this build can apply and nothing it would misread.
 export const KNOWN_KINDS = new Set([
-  "field", "politics", "history", "stats", "institutionLogos", "cover",
+  "field", "politics", "history", "stats", "institutionLogos", "music", "cover",
   "region-owner", "region-name", "region-type", "region-claims", "region-group", "borders",
   "polity-add", "polity-remove", "polity-change", "polity-rename",
   "group-add", "group-remove", "group-change",
@@ -79,6 +79,9 @@ const validChange = (change) => isRecord(change)
   && (change.kind !== "field" || isDetailFieldPath(change.path))
   && (change.kind !== "politics" || validPoliticsChange(change))
   && (change.kind !== "history" || ((change.part === "event" || change.part === "setup") && safeEntryKey(change.entry)))
+  // The music is a record of lists or nothing; what is in it is read track by
+  // track when it is shown and when it is applied (server/scenarioMusic.js).
+  && (change.kind !== "music" || ((change.to ?? null) === null || isRecord(change.to)))
   && (change.kind !== "borders" || Array.isArray(change.regions))
   && (change.kind !== "projection" || (isRecord(change.to) && typeof change.to.type === "string"))
   && (!OWN_BASEMAP_KINDS.has(change.kind) || validOwnBasemapKey(change.key))

@@ -1,5 +1,5 @@
 /*! Open Historia — portions (reasoning toggle + small-screen menu) © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
-import React, { Suspense, lazy, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, lazy, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { APP_HEIGHT, SAFE_BOTTOM, SAFE_LEFT, SAFE_RIGHT, SAFE_TOP, useTouchPrimary } from "../../runtime/mobileUi.js";
 import { useBackToClose } from "../../runtime/backToClose.js";
 import { createPortal } from "react-dom";
@@ -114,7 +114,8 @@ import { detailedMapOffers, detailedMapsDownloadLine, lookUpDetailedMaps } from 
 import DetailedMapsInstallOffer from "../Map/DetailedMapsInstallOffer.jsx";
 import { getDeviceProfileOverride, isConstrainedDevice, setDeviceProfileOverride } from "../../runtime/deviceProfile.js";
 import { presenceAvailable } from "../../runtime/discordPresence.js";
-import { MUSIC_CREDIT, musicVolumeOf } from "../../runtime/ambientMusic.js";
+import { MUSIC_CREDIT, getNowPlaying, musicVolumeOf, subscribeNowPlaying } from "../../runtime/ambientMusic.js";
+import { creditSiteOf } from "../../runtime/scenarioMusic.js";
 import { setVisitConsent, useVisitConsent } from "../../runtime/visitConsent.js";
 import {
     APP_UPDATE_MANUAL_CHECK_RESULT_EVENT,
@@ -2383,10 +2384,14 @@ const settingsHelper = { ...helperStyle, marginTop: "-0.55rem", marginBottom: "0
 
 // --- Sound ---------------------------------------------------------------------
 // The music's switch and volume (runtime/ambientMusic.js), and whose music it
-// is: the pieces' licence asks for exactly that to be said.
+// is: the pieces' licence asks for exactly that to be said. A scenario's own
+// track comes from the community hub's list, and its licence asks the same:
+// the one sounding now is credited under the game's own, in the hub's words.
 const SoundSection = ({ musicOn, onToggleMusic }) => {
     const stored = useMapSettingValue(MAP_SETTING_KEYS.musicVolume, "");
     const volume = musicVolumeOf(stored);
+    const nowPlaying = useSyncExternalStore(subscribeNowPlaying, getNowPlaying, getNowPlaying);
+    const nowPlayingSite = creditSiteOf(nowPlaying?.source);
     return (
         <SettingsSection title="Sound" description="The game's music, and how loud it is.">
             <Toggle label="Music" enabled={musicOn} onToggle={onToggleMusic} />
@@ -2408,10 +2413,21 @@ const SoundSection = ({ musicOn, onToggleMusic }) => {
                 </span>
             </label>
             <div style={{ ...helperStyle, marginTop: 0, marginBottom: 0 }}>
-                <span>{"Music: “Passage Of Time” and “Legionnaire (2022 Remaster)” by Scott Buckley, released under CC BY 4.0."}</span>
+                <span>{"Music: “Passage Of Time”, “Legionnaire (2022 Remaster)” and “Vanguard” by Scott Buckley, released under CC BY 4.0."}</span>
                 {" "}
                 <a data-no-translate href={MUSIC_CREDIT.siteUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>{MUSIC_CREDIT.site}</a>
             </div>
+            {nowPlaying?.credit && (
+                <div style={{ ...helperStyle, marginTop: "0.45rem", marginBottom: 0, overflowWrap: "anywhere" }}>
+                    <span>{"Now playing:"}</span>
+                    {" "}
+                    <span data-no-translate>{nowPlaying.credit}</span>
+                    {nowPlayingSite && " "}
+                    {nowPlayingSite && (
+                        <a data-no-translate href={nowPlaying.source} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>{nowPlayingSite}</a>
+                    )}
+                </div>
+            )}
         </SettingsSection>
     );
 };

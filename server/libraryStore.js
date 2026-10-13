@@ -38,6 +38,7 @@ import {
   pickHubProvenance,
 } from "./hubProvenance.js";
 import { planRestorePointSlots, publicRestorePointIndex } from "./restorePoints.js";
+import { scenarioMusicField } from "./scenarioMusic.js";
 const SCENARIOS_DIR = path.join(SERVER_DATA_DIR, "scenarios");
 const GAMES_DIR = path.join(SERVER_DATA_DIR, "games");
 const SCENARIO_MANIFEST_PATH = path.join(SERVER_DATA_DIR, "scenario-manifest.json");
@@ -891,6 +892,9 @@ const readScenarioMeta = (scenarioId) => {
     hubUnlinked: normalizeHubUnlinked(raw?.hubUnlinked),
     id: scenarioId,
     ...missingBasemapField(raw?.missingBasemap),
+    // The hub tracks the scenario plays, by situation (scenarioMusic.js). Only
+    // there while it names one.
+    ...scenarioMusicField(raw?.music),
     name,
     playCount: normalizePlayCount(raw?.playCount),
     subtitle,
@@ -938,6 +942,10 @@ const writeScenarioMeta = (scenarioId, updates, { touch = true } = {}) => {
   Object.assign(next, missingBasemapField(
     Object.prototype.hasOwnProperty.call(updates ?? {}, "missingBasemap") ? updates.missingBasemap : current.missingBasemap,
   ));
+  // A write that carries the music replaces it, read as strictly as a bundle's
+  // (null, or four empty lists, takes it away); any other write keeps it.
+  delete next.music;
+  Object.assign(next, scenarioMusicField(updates?.music !== undefined ? updates.music : current.music));
 
   writeJsonFile(getScenarioMetaPath(scenarioId), next);
   return next;
@@ -2209,6 +2217,7 @@ const createScenario = ({
   heroSubtitle,
   heroTitle,
   id,
+  music,
   name,
   seedScenarioId,
   setActive,
@@ -2281,6 +2290,8 @@ const createScenario = ({
                 String(name ?? "").trim() ||
                 sourceScenario?.heroTitle ||
                 DEFAULT_SCENARIO_META.heroTitle,
+                // A bundle's music, or the music of the scenario this one is a copy of.
+                ...scenarioMusicField(music !== undefined ? music : sourceScenario?.music),
                 name: String(name ?? "").trim() || "Custom Scenario",
                 subtitle:
                 String(subtitle ?? "").trim() ||
@@ -2450,6 +2461,7 @@ const updateScenario = (scenarioId, body = {}) => {
     gamePatch,
     heroSubtitle,
     heroTitle,
+    music,
     name,
     prompts,
     promptsPatch,
@@ -2469,7 +2481,7 @@ const updateScenario = (scenarioId, body = {}) => {
   // updatedAt, and must not mark a downloaded copy as changed.
   const provenance = pickHubProvenance(body);
   const edits = [accentColor, countryNameOverrides, description, eyebrow, features, game, gamePatch, heroSubtitle,
-    heroTitle, name, prompts, promptsPatch, storage, subtitle, world, worldPatch].some((value) => value !== undefined);
+    heroTitle, music, name, prompts, promptsPatch, storage, subtitle, world, worldPatch].some((value) => value !== undefined);
   if (Object.keys(provenance).length && !edits) {
     writeScenarioMeta(scenarioId, provenance, { touch: false });
     if (setActive) setSelectedScenario(scenarioId);
@@ -2489,6 +2501,8 @@ const updateScenario = (scenarioId, body = {}) => {
                     heroSubtitle:
                     String(heroSubtitle ?? currentMeta.heroSubtitle).trim() || currentMeta.heroSubtitle,
                     heroTitle: String(heroTitle ?? currentMeta.heroTitle).trim() || currentMeta.heroTitle,
+                    // null takes the music away; a save that does not mention it keeps it.
+                    ...(music !== undefined ? { music } : {}),
                     name: String(name ?? currentMeta.name).trim() || currentMeta.name,
                     subtitle: String(subtitle ?? currentMeta.subtitle).trim() || currentMeta.subtitle,
   });
@@ -4156,6 +4170,9 @@ const exportScenarioBundle = (scenarioId) => {
       heroSubtitle: summary.heroSubtitle,
       heroTitle: summary.heroTitle,
       id: summary.id,
+      // Which hub tracks it plays (ids and versions only): left out of the
+      // file altogether when it names none.
+      ...scenarioMusicField(summary.music),
       name: summary.name,
       subtitle: summary.subtitle,
     },
@@ -4223,6 +4240,9 @@ const importScenarioBundle = (bundle, { setSelected = true } = {}) => {
     heroSubtitle: scenario.heroSubtitle,
     heroTitle: scenario.heroTitle,
     id: scenario.id,
+    // null rather than nothing for a bundle without any: an import is a copy
+    // of the bundle, never of another scenario.
+    music: scenario.music ?? null,
     name: scenario.name,
     setActive: false,
     subtitle: scenario.subtitle,
@@ -4344,6 +4364,9 @@ const updateScenarioFromBundle = (scenarioId, bundle) => {
   if (scenario.features && typeof scenario.features === "object") {
     metaPatch.features = normalizeFeatureSettings(scenario.features);
   }
+  // The new version's music, or none: a version that dropped its music must
+  // not go on playing the old version's.
+  metaPatch.music = scenario.music ?? null;
   writeScenarioMeta(scenarioId, metaPatch);
 
   // A community basemap the game could not download arrives as its reference

@@ -278,6 +278,20 @@ export const requireReleaseCopy = async (fileUrl) => {
 
 const proxied = (url) => fetch(`/api/hub/file?url=${encodeURIComponent(url)}`);
 
+// The same route as an address, for what loads a file itself rather than
+// through fetch(): an <audio> playing a hub track (hubMusic.js). In the desktop
+// app that is the local server's proxy, which keeps the file in its hub cache.
+// On the website and in the Android app /api/hub/file exists only inside the
+// page's fetch (web/router.js hands it to the hub proxy), and an element's own
+// request never passes through that: so there the address is the hub proxy's
+// own, the one the router would have asked. "" where no proxy is configured.
+export const hubFileAddress = (url, env = import.meta.env ?? {}) => {
+  const query = `?url=${encodeURIComponent(url)}`;
+  if (!env.VITE_OH_WEB) return `/api/hub/file${query}`;
+  const base = String(env.VITE_OH_HUB_URL || "").replace(/\/$/, "");
+  return base ? `${base}/hub/file${query}` : "";
+};
+
 // A hub file's Response, through the /api/hub/file proxy (GitHub's files send
 // no CORS headers): its checked copy in the hub's releases, always. A file
 // with no copy is not fetched from its post instead: the call fails, with a

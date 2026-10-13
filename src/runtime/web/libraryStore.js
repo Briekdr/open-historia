@@ -28,7 +28,7 @@ import {
   normalizeRuntimeWorld, COUNTRY_NAME_REGISTRY, normalizeHubOrigin,
   fetchableHubOrigin, hubLinksAfterWrite, hubOriginForUpdate, normalizeHubReviews, pickHubProvenance,
   GAME_BUNDLE_SCHEMA, ACCEPTED_GAME_BUNDLE_SCHEMAS, GAME_BUNDLE_DATA_KEYS,
-  OPTIONAL_GAME_BUNDLE_KEYS, BUILT_IN_SCENARIO_IDS, missingBasemapField,
+  OPTIONAL_GAME_BUNDLE_KEYS, BUILT_IN_SCENARIO_IDS, missingBasemapField, scenarioMusicField,
 } from "./models.js";
 import { normalizeFeatureOverrides, normalizeFeatureSettings } from "../../../server/gameFeatures.js";
 // Imported, not mirrored: server/ownerMigration.js is pure ESM with no node
@@ -46,7 +46,7 @@ import { onMemoryPressure } from "../memoryPressure.js";
 
 const SCENARIO_MANIFEST_KEY = "scenario-manifest";
 const GAME_MANIFEST_KEY = "game-manifest";
-const META_KEYS = ["accentColor", "countryNameOverrides", "description", "eyebrow", "features", "heroSubtitle", "heroTitle", "name", "subtitle"];
+const META_KEYS = ["accentColor", "countryNameOverrides", "description", "eyebrow", "features", "heroSubtitle", "heroTitle", "music", "name", "subtitle"];
 
 // --- Record accessors -----------------------------------------------------
 // scenario record: { id, meta, json:{7}, colors?, geojson:{...}, pmtiles:{...}, cover?:{contentType,byteLength,key} }
@@ -321,6 +321,11 @@ const writeScenarioMeta = (record, updates = {}, { touch = true } = {}) => {
   Object.assign(next, missingBasemapField(
     Object.prototype.hasOwnProperty.call(updates, "missingBasemap") ? updates.missingBasemap : current.missingBasemap,
   ));
+  // A write that carries the music replaces it, read as strictly as a bundle's
+  // (null, or four empty lists, takes it away); any other write keeps it
+  // (server twin).
+  delete next.music;
+  Object.assign(next, scenarioMusicField(updates.music !== undefined ? updates.music : current.music));
   record.meta = next;
   return next;
 };
@@ -1214,6 +1219,8 @@ const createScenario = async (body = {}) => {
     heroSubtitle: trimmed(body.heroSubtitle) || trimmed(body.description) || trimmed(body.subtitle) || sourceSummary?.heroSubtitle || DEFAULT_SCENARIO_META.heroSubtitle,
     heroTitle: trimmed(body.heroTitle) || trimmed(body.name) || sourceSummary?.heroTitle || DEFAULT_SCENARIO_META.heroTitle,
     id,
+    // A bundle's music, or the music of the scenario this one is a copy of.
+    ...scenarioMusicField(body.music !== undefined ? body.music : sourceSummary?.music),
     name: trimmed(body.name) || "Custom Scenario",
     subtitle: trimmed(body.subtitle) || trimmed(body.description) || sourceSummary?.subtitle || DEFAULT_SCENARIO_META.subtitle,
     updatedAt: createdAt,
@@ -1745,8 +1752,10 @@ const exportScenarioBundle = async (id) => {
   }
   return {
     schema: SCENARIO_BUNDLE_SCHEMA, version: SCENARIO_BUNDLE_VERSION, mode: "full", exportedAt: nowIso(),
+    // Its music (which hub tracks, by id and version) is left out of the file
+    // altogether when it names none (server twin).
     scenario: { accentColor: meta.accentColor, countryNameOverrides: meta.countryNameOverrides, features: meta.features, description: meta.description,
-      eyebrow: meta.eyebrow, heroSubtitle: meta.heroSubtitle, heroTitle: meta.heroTitle, id: meta.id, name: meta.name, subtitle: meta.subtitle },
+      eyebrow: meta.eyebrow, heroSubtitle: meta.heroSubtitle, heroTitle: meta.heroTitle, id: meta.id, ...scenarioMusicField(meta.music), name: meta.name, subtitle: meta.subtitle },
     data, assets,
   };
 };
@@ -1794,7 +1803,9 @@ const importScenarioBundle = async (bundle) => {
   // Hub provenance the community tab attaches to a direct import — stamped
   // LAST so the import's own meta writes don't clear it.
   const hubOrigin = normalizeHubOrigin(bundle.hubOrigin);
-  const created = await createScenario({ ...(bundle.scenario ?? {}), setActive: false });
+  // Its music with the rest of the bundle's `scenario` (null for a bundle
+  // without any: an import is a copy of the bundle, never of another scenario).
+  const created = await createScenario({ ...(bundle.scenario ?? {}), music: bundle.scenario?.music ?? null, setActive: false });
   const newId = created.scenario.id;
   // Server coerces missing bundle data to empty ({} / []) which then OVERWRITES
   // the seeded default (updateScenario's `game && typeof===object` guard), so a
@@ -1856,6 +1867,9 @@ const updateScenarioFromBundleNow = async (scenarioId, bundle) => {
   if (scenario.features && typeof scenario.features === "object") {
     metaPatch.features = normalizeFeatureSettings(scenario.features);
   }
+  // The new version's music, or none: a version that dropped its music must
+  // not go on playing the old version's (server twin).
+  metaPatch.music = scenario.music ?? null;
   // A community basemap the game could not download arrives as its reference:
   // keep the basemap this scenario already has, and the world's note of its
   // kind (server twin: updateScenarioFromBundle).

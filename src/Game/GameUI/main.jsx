@@ -13,6 +13,7 @@ import { brushedMetalUrl } from "./brushedMetal.js";
 import { playerFrontsKey } from "./warRoomData.js";
 import { presenceFor, useDiscordPresence } from "../../runtime/discordPresence.js";
 import { musicSceneOf, setMusicScene } from "../../runtime/ambientMusic.js";
+import { followScenarioMusic } from "../../runtime/scenarioMusic.js";
 import { useWarRoom } from "../Map/warRoomStore.js";
 import { DISCORD_URL, GITHUB_URL, REDDIT_URL } from "../../runtime/communityLinks.js";
 import { useCountryDisplayName } from "../../runtime/polityNames.js";
@@ -358,12 +359,6 @@ const Main = ({
     scenarioName: runtimeScenario?.name || "",
     inMenu: mainMenuOpen || hasNoGames,
   }));
-  // The music follows where the player is (runtime/ambientMusic.js): the menu,
-  // a game opening under its cover, the game, and the war room or a
-  // battlefield being shown, which the war room's own store knows.
-  const battlefieldShown = useWarRoom((room) => room.open || Boolean(room.battlefield));
-  const musicScene = musicSceneOf({ inMenu: mainMenuOpen || hasNoGames, loading: showGameLoading, war: battlefieldShown });
-  useEffect(() => { setMusicScene(musicScene); }, [musicScene]);
   const providerReady = aiSetup.ready;
   const [apiPromptAnsweredFor, setApiPromptAnsweredFor] = useState(() => {
     try { return sessionStorage.getItem("oh:api-setup-answered") || ""; } catch { return ""; }
@@ -618,6 +613,20 @@ const Main = ({
   const playerCountry = activeGame?.country || "";
   const warFronts = useRuntimeState("world", (world) => playerFrontsKey(world?.battlefields, playerCountry), playerCountry);
   const atWar = Boolean(warFronts) && isActiveFeatureEnabled("fronts");
+  // The music plays the open game's scenario's own tracks where the scenario
+  // names any (runtime/scenarioMusic.js). Told again only when the record
+  // itself changes, since the library hands out a new object on every refresh;
+  // and told before the scene below, so a game opening starts on the right
+  // music rather than changing to it.
+  const scenarioMusicKey = JSON.stringify((activeGame?.id && runtimeScenario?.music) || null);
+  useEffect(() => { followScenarioMusic(JSON.parse(scenarioMusicKey)); }, [scenarioMusicKey]);
+  // And it follows where the player is (runtime/ambientMusic.js): the menu, a
+  // game opening under its cover, the game, the game with the player at war,
+  // and the war room or a battlefield being shown, which the war room's own
+  // store knows.
+  const battlefieldShown = useWarRoom((room) => room.open || Boolean(room.battlefield));
+  const musicScene = musicSceneOf({ inMenu: mainMenuOpen || hasNoGames, loading: showGameLoading, atWar, war: battlefieldShown });
+  useEffect(() => { setMusicScene(musicScene); }, [musicScene]);
   const closeWarRoomPanel = useCallback(() => setIsWarRoomOpen(false), []);
   const toggleWarRoom = () => {
     setShouldLoadWarRoom(true);

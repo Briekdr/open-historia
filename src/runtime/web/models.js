@@ -18,6 +18,7 @@ import {
   normalizeMissingBasemap,
   pickHubProvenance,
 } from "../../../server/hubProvenance.js";
+import { scenarioMusicField } from "../../../server/scenarioMusic.js";
 import {
   BUILT_IN_SCENARIO_DEFAULT_DATE,
   DEFAULT_GAME_META,
@@ -248,6 +249,9 @@ export const readScenarioMeta = (scenarioId, raw = {}) => {
     hubUnlinked: normalizeHubUnlinked(raw?.hubUnlinked),
     id: scenarioId,
     ...missingBasemapField(raw?.missingBasemap),
+    // Server twin: the hub tracks the scenario plays, by situation
+    // (server/scenarioMusic.js). Only there while it names one.
+    ...scenarioMusicField(raw?.music),
     name,
     playCount: normalizePlayCount(raw?.playCount),
     subtitle,
@@ -261,6 +265,10 @@ export const missingBasemapField = (raw) => {
   const missingBasemap = normalizeMissingBasemap(raw);
   return missingBasemap ? { missingBasemap } : {};
 };
+
+// A scenario's music as its details and its bundle carry it, shared with the
+// desktop store so the two never differ.
+export { scenarioMusicField };
 
 export const readGameMeta = (gameId, raw = {}) => {
   const name = String(raw?.name ?? "").trim() || DEFAULT_GAME_META.name;

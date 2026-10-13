@@ -45,6 +45,7 @@ import { FEATURE_DEFINITIONS } from "../../../server/gameFeatures.js";
 import { PROMPT_EDITOR_SECTIONS } from "../AI/gameplayPrompts.js";
 import { guidanceSegmentsFor } from "../AI/promptGuidance.js";
 import { REVIEW_SECTIONS, sectionOfChange } from "../../runtime/suggestionSections.js";
+import { MUSIC_SITUATION_LABELS, SCENARIO_MUSIC_SITUATIONS, normalizeScenarioMusic } from "../../runtime/scenarioMusic.js";
 
 // ---- looks (the library's own) -------------------------------------------------
 
@@ -175,6 +176,7 @@ const describeDetailChange = (change) => {
   }
   if (change.kind === "stats") return { tab: "Stats", title: "National Stats sheet", detail: "" };
   if (change.kind === "institutionLogos") return { tab: "Politics", title: "Institution logos", detail: "" };
+  if (change.kind === "music") return { tab: "Music", title: "Scenario music", detail: "" };
   if (change.kind === "cover") return { tab: "Assets", title: "Cover Image", detail: "" };
   return { tab: "", title: change.kind, detail: "" };
 };
@@ -268,6 +270,28 @@ const DetailValue = ({ change, coverBefore }) => {
     );
   }
   if (change.kind === "institutionLogos") return <div style={quietTextStyle}>Changed</div>;
+  if (change.kind === "music") {
+    // Each situation whose list changed: the tracks it had, then the tracks
+    // suggested, by their ids on the hub's list. Read as the stores would keep
+    // them, since a suggestion is a file.
+    const before = normalizeScenarioMusic(change.from);
+    const after = normalizeScenarioMusic(change.to);
+    const idsOf = (music, situation) => (music?.[situation] ?? []).map((entry) => entry.id).join(", ");
+    const changed = SCENARIO_MUSIC_SITUATIONS.filter((situation) => JSON.stringify(before?.[situation] ?? []) !== JSON.stringify(after?.[situation] ?? []));
+    return (
+      <div style={{ display: "grid", gap: "0.2rem" }}>
+        {changed.map((situation) => (
+          <div key={situation} style={{ fontSize: "0.76rem", lineHeight: 1.45, overflowWrap: "anywhere" }}>
+            <span style={{ color: "rgba(255,255,255,0.55)" }}>{MUSIC_SITUATION_LABELS[situation]}</span>
+            <span data-no-translate style={{ color: "rgba(255,255,255,0.55)" }}>{": "}</span>
+            <span data-no-translate style={{ color: "#fecaca", textDecoration: "line-through" }}>{idsOf(before, situation) || "—"}</span>
+            <span data-no-translate style={{ color: "rgba(255,255,255,0.5)" }}>{" → "}</span>
+            <span data-no-translate style={{ color: "#bbf7d0" }}>{idsOf(after, situation) || "—"}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
   const color = /^#[0-9a-f]{6}$/i;
   return (
     <div data-no-translate style={{ alignItems: "center", display: "flex", flexWrap: "wrap", fontSize: "0.8rem", gap: "0.45rem" }}>
