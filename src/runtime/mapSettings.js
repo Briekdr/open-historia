@@ -85,6 +85,12 @@ export const MAP_SETTING_KEYS = {
     // getMapSettingDefaultOn. Off, the page reports nothing and takes down
     // what Discord is showing. Settings → General → Privacy.
     discordPresence: "privacy_discord_presence",
+    // The game's music (runtime/ambientMusic.js). ON by default — read with
+    // getMapSettingDefaultOn. Settings → General → Sound.
+    ambientMusic: "audio_ambient_music",
+    // Its volume, 0 to 100, as the slider shows it; absent is the default
+    // (ambientMusic.js DEFAULT_MUSIC_VOLUME).
+    musicVolume: "audio_music_volume",
 };
 
 // Families the label-font pickers suggest — Settings → Map and the game and
@@ -111,7 +117,7 @@ export function getMapSetting(key) {
 // A default-on setting CANNOT use getMapSetting above — an absent key reads as
 // "1" !== null, i.e. off — so every consumer of such a key must come through here.
 //
-// lookupFunctions, liveSkipEvents and discordPresence ship on;
+// lookupFunctions, liveSkipEvents, discordPresence and ambientMusic ship on;
 // limitAiGeneration and chunkLongJumps, which used to, went default-off in the
 // beta.
 export function getMapSettingDefaultOn(key) {
@@ -134,6 +140,7 @@ const SETTING_LABELS = {
     [MAP_SETTING_KEYS.stopOnPlayerFailures]: "Stop when my events fail",
     [MAP_SETTING_KEYS.defaultBasemapOn]: "Use my default basemap",
     [MAP_SETTING_KEYS.discordPresence]: "Show what I am playing on Discord",
+    [MAP_SETTING_KEYS.ambientMusic]: "Music",
 };
 
 export function setMapSetting(key, value) {
@@ -161,6 +168,7 @@ const VALUE_SETTING_LABELS = {
     [MAP_SETTING_KEYS.defaultBasemap]: "Default basemap",
     [MAP_SETTING_KEYS.labelFont]: "Label font",
     [MAP_SETTING_KEYS.scenarioTerrain]: "Scenario terrain",
+    [MAP_SETTING_KEYS.musicVolume]: "Music volume",
 };
 
 export function setMapSettingValue(key, value) {

@@ -12,6 +12,10 @@ The licence above covers the game's code. **Scenarios are different: every scena
 
 The game says so on the screens a scenario leaves it from, and writes it into every exported file (`LICENSE.txt` in a `.zip`, a `license` record in the scenario's JSON). It does not cover material that was never the poster's to license, or a detailed map or a music track a scenario only names, each of which keeps the licence on its own post.
 
+## Music
+
+The game's music is by Scott Buckley ([www.scottbuckley.com.au](https://www.scottbuckley.com.au/)): "Passage Of Time" and "Legionnaire (2022 Remaster)", both released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The files are in [public/audio](public/audio), unchanged, with their credits beside them; that licence, not the game's, covers them.
+
 ## Privacy
 
 What the game keeps on your device, what it sends and to whom, and what the project holds: see the [privacy policy](https://openhistoria.com/privacy/) (source: [public/privacy/index.html](public/privacy/index.html)).
