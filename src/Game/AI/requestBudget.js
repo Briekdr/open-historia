@@ -330,6 +330,15 @@ export const createJumpBudget = ({ cap = JUMP_REQUEST_CAP, only = null, state = 
             if (added) reservations.set(key, (reservations.get(key) || 0) + added);
             return reservations.get(key) || 0;
         },
+        // Give back a slot that was kept and turned out not to be needed, so the
+        // next in line may have it (the history fold the skip's own answer
+        // carried leaves its request to the Stats refresh).
+        release: (spender) => {
+            const key = String(spender || "other");
+            const held = reservations.get(key) || 0;
+            reservations.delete(key);
+            return held;
+        },
         // May this spender make one request? Recorded either way, so the turn's
         // log can say what was skipped to stay inside the cap, and what was not
         // asked because a skip does not spend on it.

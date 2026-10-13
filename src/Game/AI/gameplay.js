@@ -12171,6 +12171,9 @@ const sanitizeTrackedStatsPatch = (value, statIndexRows = DEFAULT_STAT_INDEX_ROW
 // (createJumpRequests), on both paths — the standard sheet and a scenario's own.
 // Refused, the refresh stays due for the next skip. No skip, no budget.
 const trackedStatsPutOff = (requests, due) => {
+  // The history pass runs before this one: a request kept for it and not used
+  // (the skip's own answer carried the fold) is the refresh's to take.
+  requests?.budget.release?.("history");
   if (!requests || requests.budget.take("stats")) return false;
   logDebugEvent("turn", `Tracked Stats refresh put off: this time skip has used its ${requests.budget.cap} requests. It is due again next skip.`, {
     countries: due.map((entry) => entry.polity),
@@ -16716,18 +16719,64 @@ const runJumpSegments = async ({ context, onEvents, onProgress, signal, state })
 // Each segment's own request is reserved before anything else can ask, so a
 // round of function calling or a retry in one segment never costs a later
 // segment its skip.
-const createJumpRequests = ({ segments = 1, reserveInstitutionBallot = false } = {}) => {
+//
+// Upkeep that is already due when the skip starts keeps its one request too
+// (skipUpkeepDue). Without that a model that looks things up on every skip
+// spent the whole budget on function calling, and the automatic Stats refresh
+// and an overgrown history were put off on every skip for good (a player's
+// log, 2026-10-12: Stats last refreshed in 1921, the date 1929). One at a
+// time, the history first, so a skip always keeps a request for a lookup or
+// for being asked again.
+const createJumpRequests = ({ segments = 1, reserveInstitutionBallot = false, upkeep = null } = {}) => {
   const saving = savingRequests();
   const pieces = Math.max(1, Math.round(Number(segments) || 1));
   const budget = createJumpBudget({ cap: jumpRequestCap({ segments: pieces }), only: SKIP_SPENDERS });
   budget.reserve("jump", pieces);
   if (reserveInstitutionBallot) budget.reserve("institutionBallots", 1);
+  if (upkeep?.history) budget.reserve("history", 1);
+  else if (upkeep?.stats) budget.reserve("stats", 1);
   return {
     saving,
     budget,
     used: 0,
     refused: 0,
   };
+};
+
+// What upkeep a skip ending on `date` owes before it has asked anything:
+//   history  the pile of unfolded events is already past the size at which the
+//            fold is asked for on its own (compactHistoryIfNeeded);
+//   stats    the automatic Stats refresh will be due for a tracked country
+//            that has a sheet (refreshTrackedCountryStatsIfDue decides which).
+// Read from the save alone, so it costs nothing and never fails a skip.
+const skipUpkeepDue = (bundle, date) => {
+  const upkeep = { history: false, stats: false };
+  try {
+    upkeep.history = planHistoryConsolidation(bundle).unconsolidatedEvents.length > HISTORY_CONSOLIDATION.ownRequestThreshold;
+  } catch { /* nothing kept */ }
+  try {
+    const game = normalizeGameData(bundle?.game);
+    const world = bundle?.world ?? {};
+    const endDate = normalizeString(date) || normalizeString(game?.gameDate || game?.startDate);
+    const tracking = normalizeCountryStatsTracking(world?.countryStatsTracking, { playerCountry: game?.country });
+    const intervalMonths = Number(tracking.intervalMonths) || 0;
+    if (intervalMonths && parseIsoDate(endDate)) {
+      const waiting = new Set(normalizeArray(tracking.pendingBaselinePolities).map((entry) => normalizeString(entry)));
+      upkeep.stats = tracking.trackedPolities.slice(0, COUNTRY_STATS_TRACKING_MAX_POLITIES).some((rawPolity) => {
+        const polity = canonicalStatsPolity(rawPolity, world) || normalizeString(rawPolity);
+        const sheet = world?.countryStats?.[polity];
+        if (!sheet || waiting.has(polity)) return false;
+        const lastAuto = normalizeString(tracking.lastAutoRefreshByPolity?.[polity]);
+        const assessed = normalizeString(sheet?.continuity?.assessedDate);
+        const baselineDate = (parseIsoDate(lastAuto) && lastAuto)
+          || (parseIsoDate(assessed) && assessed)
+          || trackedStatsLatestHistoryDate(world, polity)
+          || normalizeString(game?.startDate);
+        return countryStatsTrackingMonthsElapsed(baselineDate, endDate) >= intervalMonths;
+      });
+    }
+  } catch { /* nothing kept */ }
+  return upkeep;
 };
 
 const jumpTaskOptions = (requests, spender) => (requests ? {
@@ -17723,6 +17772,7 @@ export const simulateTimelineJump = async ({ days, mode = "jump", onEvents, onPr
     requests: createJumpRequests({
       segments: segmentCount,
       reserveInstitutionBallot: collectAutonomousInstitutionBallotWork(bundle.world, bundle.game?.country || "", { maxInstitutions: 1 }).length > 0,
+      upkeep: skipUpkeepDue(bundle, targetDate),
     }),
     phases,
   };
@@ -17758,6 +17808,7 @@ export const retryPendingJumpSegment = async ({ onEvents, onProgress, signal } =
       ...createJumpRequests({
         segments: Math.max(1, context.segmentDays.length - state.nextSegment),
         reserveInstitutionBallot: collectAutonomousInstitutionBallotWork(context.bundle?.world, context.bundle?.game?.country || "", { maxInstitutions: 1 }).length > 0,
+        upkeep: skipUpkeepDue(context.bundle, context.targetDate),
       }),
       used: spentSoFar.used,
       refused: spentSoFar.refused,
@@ -17799,6 +17850,7 @@ export const retryPendingChecksJump = async ({ onProgress, signal, withoutFailed
       ...createJumpRequests({
         segments: 1,
         reserveInstitutionBallot: collectAutonomousInstitutionBallotWork(context.bundle?.world, context.bundle?.game?.country || "", { maxInstitutions: 1 }).length > 0,
+        upkeep: skipUpkeepDue(context.bundle, context.targetDate),
       }),
       used: spentSoFar.used,
       refused: spentSoFar.refused,
@@ -17901,6 +17953,7 @@ export const retryHeldPlayerEvents = async ({ keep = false, onEvents, onProgress
       ...createJumpRequests({
         segments: 1,
         reserveInstitutionBallot: collectAutonomousInstitutionBallotWork(context.bundle?.world, context.bundle?.game?.country || "", { maxInstitutions: 1 }).length > 0,
+        upkeep: skipUpkeepDue(context.bundle, context.targetDate),
       }),
       used: spentSoFar.used,
       refused: spentSoFar.refused,
