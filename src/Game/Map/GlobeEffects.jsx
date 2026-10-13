@@ -30,9 +30,8 @@ const INTERACTION_GRACE_MS = 3000;
 // 60 times a second, forever, even with the phone just sitting on a table.
 const CELESTIAL_FRAME_MS_ACTIVE = 1000 / 25;
 const CELESTIAL_FRAME_MS_IDLE = 1000 / 15;
-// Redraw lighting on every frame during camera movement to avoid visible lag.
-// Uses the cheap immediate: true draw path during interaction, throttling only when idle.
-const LIGHTING_FRAME_MS_ACTIVE = 0;
+// Redraw lighting during camera movement throttled to 30fps to avoid blocking MapLibre.
+const LIGHTING_FRAME_MS_ACTIVE = 1000 / 30;
 // Except on a phone (runtime/deviceProfile.js): there each of those redraws is
 // a 48,000-pixel shade on the main thread (globeCanvasLighting.js), and a
 // minute of dragging the globe was the steadiest heat source on the device.

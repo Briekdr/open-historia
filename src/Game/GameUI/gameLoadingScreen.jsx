@@ -46,13 +46,16 @@ export const useGameLoading = () => {
     const check = () => {
       if (settled || !knownRef.current) return;
       if (politiesSettled()) finish();
-      else if (politiesReady()) setPhase((current) => (current === "done" ? current : "settling"));
+      else if (politiesReady()) {
+        setPhase((current) => (current === "done" ? current : "settling"));
+        later(check, 180);
+      }
     };
     // The status line moves on its own after a moment; the world read is quick.
     // Armed on every opening, so a redraw (the globe switched) gets its own
     // ceiling rather than whatever was left of the first one's.
     const arm = () => {
-      later(() => setPhase((current) => (current === "world" ? "polities" : current)), 1200);
+      later(() => setPhase((current) => (current === "world" ? "polities" : current)), 600);
       later(finish, LOADING_CEILING_MS);
     };
     const reopen = () => {

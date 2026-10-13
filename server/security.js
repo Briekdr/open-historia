@@ -59,9 +59,13 @@ export const crossOriginWriteAllowed = ({ method, origin, host, remoteAddress, a
   } catch {
     return { allowed: false, reason: "invalid-origin" };
   }
-  return originHost === host
-    ? { allowed: true, reason: "same-origin" }
-    : { allowed: false, reason: "cross-origin" };
+  if (originHost === host) {
+    return { allowed: true, reason: "same-origin" };
+  }
+  if (isLoopbackAddress(remoteAddress) && /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(originHost)) {
+    return { allowed: true, reason: "loopback-dev" };
+  }
+  return { allowed: false, reason: "cross-origin" };
 };
 
 // Parse an HTTP Range header against a file of totalSize bytes. Returns
@@ -182,7 +186,10 @@ export const allowedCorsOrigin = (origin, host, { allowAll = false } = {}) => {
   if (!origin) return null;
   if (APP_SHELL_ORIGINS.has(String(origin).toLowerCase())) return origin;
   try {
-    return new URL(origin).host === host ? origin : null;
+    const originHost = new URL(origin).host;
+    if (originHost === host) return origin;
+    if (/^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(originHost)) return origin;
+    return null;
   } catch {
     return null;
   }

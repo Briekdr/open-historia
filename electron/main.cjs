@@ -624,6 +624,7 @@ const createMainWindow = () => {
     autoHideMenuBar: true,
     backgroundColor: "#131315",
     show: false,
+    fullscreen: true,
     title: IS_BETA ? BETA_APP_NAME : "Open Historia",
     // Explicit even though it's already Electron's default — the whole reason
     // this window needs a context menu at all is to surface what this enables.

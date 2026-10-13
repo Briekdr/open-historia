@@ -2778,7 +2778,27 @@ const LibraryTopBar = () => {
       if (looksLikeZip(new Uint8Array(buffer))) {
         const zip = await unzipBundle(buffer);
         const scenarioText = await zip.text("scenario.json");
-        if (!scenarioText) throw new Error("That .zip is missing scenario.json.");
+        if (!scenarioText) {
+          const gameText = await zip.text("game.json");
+          if (gameText) {
+            const { bundle: gameBundle, scenarioBundle, snapshotsText } = await readGameZip(buffer);
+            let scenarioId = gameBundle.scenarioRef?.scenarioId ?? "";
+            if (scenarioBundle && !scenarios.some((entry) => entry.id === scenarioId)) {
+              const imported = await importScenarioBundle(scenarioBundle);
+              scenarioId = imported.scenario.id;
+            }
+            const details = await importGameBundle({
+              ...gameBundle,
+              scenarioRef: { ...(gameBundle.scenarioRef ?? {}), scenarioId },
+            });
+            if (snapshotsText) await writeGameSnapshotsText(details.game.id, snapshotsText);
+            await refreshLibraryCatalog({ force: true });
+            setActiveTab("games");
+            setMenuOpen(true);
+            return;
+          }
+          throw new Error("That .zip is missing scenario.json (or game.json).");
+        }
         bundle = await restoreBundleFiles(JSON.parse(scenarioText), zip);
         const imageName = zip.names().find((n) => /(^|\/)basemap\.(png|jpe?g|webp|gif|svg)$/i.test(n));
         if (imageName) {
@@ -3679,29 +3699,59 @@ const LibraryTopBar = () => {
           <div
             style={{
               alignItems: "center",
-              borderBottom: "1px solid rgba(255,255,255,0.08)",
               display: "grid",
               flexShrink: 0,
-              gap: isMobile ? "0.4rem" : "0.9rem",
-              // Three columns keeps the tabs optically centred on a desktop. A
-              // phone has room for the three tabs and nothing more: the logo —
-              // decorative, and its wordmark already hidden there — gives up its
-              // space, and the tab's own actions move down to head the page,
-              // where they have room for their names (below).
+              gap: isMobile ? "0.4rem" : "1.2rem",
               gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) auto minmax(0, 1fr)",
-              // Clear of a status bar the page draws under, and of a notch at
-              // the side in landscape; every inset is 0 on a desktop.
               height: `calc(${BAR_HEIGHT}px + ${SAFE_TOP})`,
-              padding: `${SAFE_TOP} calc(${isMobile ? "0.5rem" : "1rem"} + ${SAFE_RIGHT}) 0 calc(${isMobile ? "0.5rem" : "1rem"} + ${SAFE_LEFT})`,
+              padding: `${SAFE_TOP} calc(${isMobile ? "0.5rem" : "1.4rem"} + ${SAFE_RIGHT}) 0 calc(${isMobile ? "0.5rem" : "1.4rem"} + ${SAFE_LEFT})`,
+              background: "transparent",
             }}
           >
             {!isMobile && (
-              <div style={{ alignItems: "center", display: "flex", gap: "0.8rem", minWidth: 0 }}>
-                <div style={{ alignItems: "center", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", display: "flex", flexShrink: 0, height: "2.65rem", justifyContent: "center", overflow: "hidden", width: "2.65rem" }}>
-                  <img alt="Open Historia" src="/logo.png" style={{ height: "1.7rem", width: "1.7rem" }} />
-                </div>
-                <div style={{ color: "#fff", fontSize: "1.05rem", fontWeight: 800, letterSpacing: "-0.03em" }}>
-                  Open Historia
+              <div style={{ alignItems: "center", display: "flex", minWidth: 0 }}>
+                <div
+                  style={{
+                    alignItems: "center",
+                    background: "rgba(255, 255, 255, 0.04)",
+                    backdropFilter: "blur(20px)",
+                    WebkitBackdropFilter: "blur(20px)",
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    borderRadius: "999px",
+                    boxShadow: "0 6px 20px -2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)",
+                    display: "inline-flex",
+                    gap: "0.75rem",
+                    padding: "0.32rem 1.15rem 0.32rem 0.42rem",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  <div
+                    style={{
+                      alignItems: "center",
+                      background: "rgba(255, 255, 255, 0.08)",
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      borderRadius: "999px",
+                      display: "flex",
+                      flexShrink: 0,
+                      height: "2.1rem",
+                      justifyContent: "center",
+                      overflow: "hidden",
+                      width: "2.1rem",
+                    }}
+                  >
+                    <img alt="Open Historia" src="/logo.png" style={{ height: "1.4rem", width: "1.4rem" }} />
+                  </div>
+                  <div
+                    style={{
+                      color: "#fff",
+                      fontSize: "0.96rem",
+                      fontWeight: 800,
+                      letterSpacing: "-0.025em",
+                      userSelect: "none",
+                    }}
+                  >
+                    Open Historia
+                  </div>
                 </div>
               </div>
             )}
@@ -3709,8 +3759,7 @@ const LibraryTopBar = () => {
             <div
               style={{
                 alignItems: "center",
-                display: "flex",
-                gap: "0.55rem",
+                display: "inline-flex",
                 justifyContent: isMobile ? "flex-start" : "center",
                 justifySelf: "center",
                 minWidth: 0,
@@ -3718,34 +3767,98 @@ const LibraryTopBar = () => {
                 scrollbarWidth: "none",
               }}
             >
-              {["games", "scenarios", "community"].map((tab) => (
-                <button
-                  key={tab}
-                  className="oh-tap-row"
-                  onClick={() => setActiveTab(tab)}
-                  style={touchFit({
-                    ...actionButtonStyle,
-                    background: activeTab === tab ? "rgba(0,0,0,0.42)" : "rgba(255,255,255,0.05)",
-                    borderColor: activeTab === tab ? "rgba(255,255,255,0.19)" : "rgba(255,255,255,0.08)",
-                    minWidth: isMobile ? "0" : "6.6rem",
-                    padding: isMobile ? "0.55rem 0.6rem" : undefined,
-                  }, touch)}
-                  type="button"
-                >
-                  {tab === "games" ? "Games" : tab === "scenarios" ? "Scenarios" : "Community"}
-                </button>
-              ))}
+              <div
+                style={{
+                  alignItems: "center",
+                  background: "rgba(255, 255, 255, 0.04)",
+                  backdropFilter: "blur(20px)",
+                  WebkitBackdropFilter: "blur(20px)",
+                  border: "1px solid rgba(255, 255, 255, 0.1)",
+                  borderRadius: "999px",
+                  boxShadow: "0 6px 20px -2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)",
+                  display: "inline-flex",
+                  gap: "0.3rem",
+                  padding: "0.3rem 0.35rem",
+                }}
+              >
+                {["games", "scenarios", "community"].map((tab) => (
+                  <button
+                    key={tab}
+                    className="oh-tap-row"
+                    onClick={() => setActiveTab(tab)}
+                    style={touchFit({
+                      alignItems: "center",
+                      background: activeTab === tab
+                        ? "linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.08) 100%)"
+                        : "transparent",
+                      border: activeTab === tab
+                        ? "1px solid rgba(255, 255, 255, 0.22)"
+                        : "1px solid transparent",
+                      borderRadius: "999px",
+                      boxShadow: activeTab === tab
+                        ? "0 3px 12px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2)"
+                        : "none",
+                      color: activeTab === tab ? "#ffffff" : "rgba(255, 255, 255, 0.62)",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      fontSize: "0.85rem",
+                      fontWeight: activeTab === tab ? 700 : 600,
+                      justifyContent: "center",
+                      minHeight: "2rem",
+                      minWidth: isMobile ? "0" : "6.6rem",
+                      padding: isMobile ? "0.45rem 0.75rem" : "0.45rem 1.15rem",
+                      transition: "all 0.18s cubic-bezier(0.4, 0, 0.2, 1)",
+                      userSelect: "none",
+                    }, touch)}
+                    type="button"
+                  >
+                    {tab === "games" ? "Games" : tab === "scenarios" ? "Scenarios" : "Community"}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {!isMobile && (
               <div style={{ alignItems: "center", display: "flex", flexShrink: 0, gap: "0.55rem", justifyContent: "flex-end" }}>
-                {tabActions.map(({ label, run }) => (
-                  // padding: undefined leaves these the browser's own padding in
-                  // place of the pill's, as they have always had.
-                  <button key={label} className="oh-tap-row" onClick={run} style={touchFit({ ...actionButtonStyle, flexShrink: 0, padding: undefined }, touch)} type="button">
-                    {label}
-                  </button>
-                ))}
+                {tabActions.length > 0 && (
+                  <div
+                    style={{
+                      alignItems: "center",
+                      background: "rgba(255, 255, 255, 0.04)",
+                      backdropFilter: "blur(20px)",
+                      WebkitBackdropFilter: "blur(20px)",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      borderRadius: "999px",
+                      boxShadow: "0 6px 20px -2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)",
+                      display: "inline-flex",
+                      gap: "0.35rem",
+                      padding: "0.3rem 0.35rem",
+                    }}
+                  >
+                    {tabActions.map(({ label, run }) => (
+                      <button
+                        key={label}
+                        className="oh-tap-row"
+                        onClick={run}
+                        style={touchFit({
+                          ...actionButtonStyle,
+                          background: "transparent",
+                          border: "1px solid transparent",
+                          borderRadius: "999px",
+                          color: "rgba(255, 255, 255, 0.8)",
+                          flexShrink: 0,
+                          fontSize: "0.82rem",
+                          fontWeight: 600,
+                          minHeight: "2rem",
+                          padding: "0 0.85rem",
+                        }, touch)}
+                        type="button"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -3762,6 +3875,39 @@ const LibraryTopBar = () => {
                     {phoneLabel || label}
                   </button>
                 ))}
+              </div>
+            )}
+            {editorError && !editorDetails && (
+              <div
+                style={{
+                  alignItems: "center",
+                  background: "rgba(239, 68, 68, 0.15)",
+                  border: "1px solid rgba(239, 68, 68, 0.35)",
+                  borderRadius: "14px",
+                  color: "#fca5a5",
+                  display: "flex",
+                  fontSize: "0.88rem",
+                  gap: "0.75rem",
+                  justifyContent: "space-between",
+                  marginBottom: "1rem",
+                  padding: "0.75rem 1rem",
+                }}
+              >
+                <div>{editorError}</div>
+                <button
+                  onClick={() => setEditorError(null)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "rgba(255, 255, 255, 0.7)",
+                    cursor: "pointer",
+                    fontSize: "1.1rem",
+                    padding: "0 0.3rem",
+                  }}
+                  type="button"
+                >
+                  ✕
+                </button>
               </div>
             )}
             {activeTab !== "community" && (

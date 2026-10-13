@@ -543,7 +543,8 @@ export const installPerformanceWatchdog = () => {
   let longTaskObserver = null;
 
   const noteInput = (event) => {
-    lastInput = { type: event?.type || "input", at: perfNow() };
+    lastInput.type = event?.type || "input";
+    lastInput.at = perfNow();
   };
   const onMapMotion = (event) => {
     mapMoving = Boolean(event?.detail?.active);

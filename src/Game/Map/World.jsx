@@ -709,13 +709,13 @@ function World({ mapRef, projection: requestedProjection, terrainEnabled, onInit
   // the player has the setting enabled.
   const terrain = useMemo(
     () =>
-      terrainEnabled && online && !effectiveCustomBg && !effectiveBgDeclared
+      terrainEnabled && online && !isGlobe && !effectiveCustomBg && !effectiveBgDeclared
         ? {
             source: "terrain-source",
-            exaggeration: 15,
+            exaggeration: 3,
           }
         : null,
-    [terrainEnabled, online, effectiveCustomBg, effectiveBgDeclared],
+    [terrainEnabled, online, isGlobe, effectiveCustomBg, effectiveBgDeclared],
   );
   // R5.1: use one renderer density for the entire session.
   // R5.0 switched between 1x and native DPR around z4.5/z5.0.
@@ -852,14 +852,14 @@ function World({ mapRef, projection: requestedProjection, terrainEnabled, onInit
   const handleSourceData = useCallback((event) => {
     const sourceId = String(event?.sourceId ?? event?.source?.id ?? "");
     if (!sourceId) return;
-    recordMapTrace("map:sourcedata", {
-      sourceId,
-      sourceDataType: event?.sourceDataType ?? "",
-      loaded: event?.isSourceLoaded === true,
-    });
     if (sourceReadyRef.current.has(sourceId) || event?.isSourceLoaded !== true) return;
     const now = typeof performance !== "undefined" ? performance.now() : Date.now();
     sourceReadyRef.current.set(sourceId, Math.round((now - mapMountedAtRef.current) * 10) / 10);
+    recordMapTrace("map:sourcedata", {
+      sourceId,
+      sourceDataType: event?.sourceDataType ?? "",
+      loaded: true,
+    });
   }, []);
   const handleIdle = useCallback(() => {
     recordMapTrace("map:idle");
@@ -1104,13 +1104,15 @@ function World({ mapRef, projection: requestedProjection, terrainEnabled, onInit
         dragRotate={false}
         touchPitch={false}
         pitchWithRotate={false}
-        dragPan
+        dragPan={{
+          linearity: 0.1,
+          maxSpeed: 2400,
+          deceleration: 5000,
+        }}
+        pixelRatio={1}
         fadeDuration={0}
         collectResourceTiming={false}
-        // R5.0 keeps the original cross-source collision policy for visual fidelity.
-        // The performance win comes from collapsing the country-label layer fanout,
-        // not from allowing city/country labels to overlap while the camera moves.
-        crossSourceCollisions={true}
+        crossSourceCollisions={false}
         // A map that does not repeat (world.projection.wrap === false) draws one
         // world, and MapLibre then keeps the camera on it: with no copies it holds
         // the centre between the two edges by itself. (Bounds of -180..180 given
@@ -1126,7 +1128,7 @@ function World({ mapRef, projection: requestedProjection, terrainEnabled, onInit
         // (dynamic size there is well under 256). In-view tiles live in a separate
         // structure and are never evicted by this, so it never re-fetches what's on
         // screen. Orthogonal to the fixed R5.1 framebuffer density.
-        maxTileCacheSize={256}
+        maxTileCacheSize={128}
         projection={mapProjection}
         terrain={terrain}
         mapStyle={worldStyle}

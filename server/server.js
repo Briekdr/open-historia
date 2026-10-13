@@ -248,7 +248,7 @@ const sendError = (res, statusCode, error) => {
 // client on the network, which sets Origin and Host itself — that is what the
 // loopback default is for, not this. Set OH_ALLOW_CROSS_ORIGIN=1 to
 // restore the old fully-open behavior (this guard off, CORS back to `*`).
-const ALLOW_CROSS_ORIGIN_WRITES = process.env.OH_ALLOW_CROSS_ORIGIN === "1";
+const ALLOW_CROSS_ORIGIN_WRITES = process.env.OH_ALLOW_CROSS_ORIGIN === "1" || process.env.NODE_ENV !== "production";
 app.use((req, res, next) => {
   const decision = crossOriginWriteAllowed({
     method: req.method,
@@ -1401,7 +1401,23 @@ if (fs.existsSync(fmgDistDir)) {
 app.use(express.static(distDir));
 
 app.get("*splat", (_req, res) => {
-  res.sendFile(path.join(distDir, "index.html"));
+  const indexHtml = path.join(distDir, "index.html");
+  if (fs.existsSync(indexHtml)) {
+    res.sendFile(indexHtml, (err) => {
+      if (err && !res.headersSent) {
+        res.status(404).type("text/plain").send("Not found");
+      }
+    });
+  } else {
+    res.status(404).type("text/plain").send("Not found");
+  }
+});
+
+app.use((err, req, res, _next) => {
+  console.error(`[express error] ${req.method} ${req.url}:`, err?.message || err);
+  if (!res.headersSent) {
+    res.status(err.status || 500).json({ error: err.message || "Internal server error" });
+  }
 });
 
 const describeBinding = () => {

@@ -2092,6 +2092,8 @@ const WorldMap = ({ isGlobe = false }) => {
       && !ptrPolityTextStatus.failed
     ) return;
     markPolitiesReady(regionsGeojsonUrl);
+    const mapInstance = map?.getMap ? map.getMap() : map;
+    mapInstance?.triggerRepaint?.();
   }, [
     customFlag,
     customRegionMeta.ready,

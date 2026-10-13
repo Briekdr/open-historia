@@ -602,6 +602,20 @@ const StructuredModeSelect = ({ onChange, value }) => {
     );
 };
 
+const EyeIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const EyeOffIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+    <line x1="1" y1="1" x2="23" y2="23" />
+  </svg>
+);
+
 const SettingsInput = ({
     label,
     value,
@@ -610,12 +624,14 @@ const SettingsInput = ({
     type = "text",
     helperText,
     multiline = false,
-    // Optional datalist entries (the provider's recent models): a hint, never a
-    // constraint — the field still accepts anything typed.
     suggestions = null,
 }) => {
     const listId = useId();
     const list = Array.isArray(suggestions) && suggestions.length ? suggestions : null;
+    const [revealed, setRevealed] = useState(false);
+    const isPassword = type === "password";
+    const effectiveType = isPassword ? (revealed ? "text" : "password") : type;
+
     return (
         <div style={fieldGroupStyle}>
         <label style={labelStyle}>
@@ -631,6 +647,56 @@ const SettingsInput = ({
             spellCheck={false}
             style={{ ...inputStyle, fontFamily: "monospace", resize: "vertical" }}
             />
+        ) : isPassword ? (
+            <div style={{ alignItems: "center", display: "flex", position: "relative" }}>
+                <input
+                type={effectiveType}
+                value={value}
+                onChange={(event) => onChange(event.target.value)}
+                placeholder={placeholder}
+                autoComplete="off"
+                spellCheck={false}
+                list={list ? listId : undefined}
+                style={{ ...inputStyle, paddingRight: "2.5rem" }}
+                />
+                <button
+                  type="button"
+                  className="oh-tap"
+                  onClick={() => setRevealed((v) => !v)}
+                  title={revealed ? "Hide API key" : "Show API key"}
+                  aria-label={revealed ? "Hide API key" : "Show API key"}
+                  style={{
+                    alignItems: "center",
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: "6px",
+                    color: revealed ? "#38bdf8" : "inherit",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    height: "2rem",
+                    justifyContent: "center",
+                    opacity: revealed ? 1 : 0.65,
+                    padding: "0",
+                    position: "absolute",
+                    right: "0.35rem",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    transition: "opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease",
+                    width: "2.1rem",
+                    zIndex: 20,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.opacity = "1";
+                    e.currentTarget.style.background = "rgba(128, 128, 128, 0.18)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = revealed ? "1" : "0.65";
+                    e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  {revealed ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
+                </button>
+            </div>
         ) : (
             <input
             type={type}
