@@ -1,6 +1,7 @@
 /*! Open Historia — Map Mode Selector & Legend © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 import React, { memo, useState } from "react";
 import { MAP_SETTING_KEYS, setMapSettingValue, useMapSettingValue } from "../../runtime/mapSettings.js";
+import { DIPLO_COLORS } from "../../runtime/diplomaticStance.js";
 import { SAFE_BOTTOM } from "../../runtime/mobileUi.js";
 import { useIsMobile } from "../../runtime/useIsMobile.js";
 
@@ -23,11 +24,11 @@ const DiplomaticIcon = () => (
 );
 
 const LEGEND_ITEMS = [
-  { label: "You", color: "rgb(37, 99, 235)" },
-  { label: "Allies", color: "rgb(34, 197, 94)" },
-  { label: "At War", color: "rgb(239, 68, 68)" },
-  { label: "Friendly / Trade", color: "rgb(56, 189, 248)" },
-  { label: "Neutral", color: "rgb(100, 116, 139)" },
+  { label: "You", color: DIPLO_COLORS.player },
+  { label: "Allies", color: DIPLO_COLORS.ally },
+  { label: "At War", color: DIPLO_COLORS.enemy },
+  { label: "Friendly / Trade", color: DIPLO_COLORS.friendly },
+  { label: "Neutral", color: DIPLO_COLORS.neutral },
 ];
 
 export const MapModeSelector = memo(function MapModeSelector({ dockStyle = DEFAULT_DOCK_STYLE }) {

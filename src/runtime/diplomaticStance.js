@@ -5,9 +5,9 @@ export const NEUTRAL_LAND_COLOR = "rgb(88, 98, 110)";
 
 export const DIPLO_COLORS = Object.freeze({
   player: "rgb(37, 99, 235)",      // #2563eb royal blue
-  ally: "rgb(34, 197, 94)",        // #22c55e emerald green
+  ally: "rgb(56, 189, 248)",        // #38bdf8 sky blue
   enemy: "rgb(239, 68, 68)",       // #ef4444 red
-  friendly: "rgb(56, 189, 248)",   // #38bdf8 sky blue
+  friendly: "rgb(34, 197, 94)",    // #22c55e emerald green
   hostile: "rgb(220, 38, 38)",     // #dc2626 darker red
   neutral: "rgb(100, 116, 139)",   // #64748b slate grey
 });

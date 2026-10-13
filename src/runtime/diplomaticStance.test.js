@@ -30,7 +30,7 @@ test("identifies war enemies and colors them red", () => {
   assert.equal(getDiplomaticOwnerColor("United Kingdom", stance), DIPLO_COLORS.ally);
 });
 
-test("identifies allies via mutual defense and alliance agreements (green)", () => {
+test("identifies allies via mutual defense and alliance agreements (sky blue)", () => {
   const agreements = [
     {
       status: "active",
@@ -48,7 +48,7 @@ test("identifies allies via mutual defense and alliance agreements (green)", () 
   assert.equal(getDiplomaticOwnerColor("Netherlands", stance), DIPLO_COLORS.ally);
 });
 
-test("identifies trade and friendly partners (sky blue)", () => {
+test("identifies trade and friendly partners (green)", () => {
   const agreements = [
     {
       status: "active",
