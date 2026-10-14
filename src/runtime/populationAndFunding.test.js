@@ -64,6 +64,11 @@ test("the Workshop has the field for a country and for a group, and the figure i
   // A country's record keeps it through the game's own reading of the world, and whoever writes its statistics is told it.
   assert.ok(read("./gameState.js").includes("...(populationFigureOf(value) > 0 ? { population: populationFigureOf(value) } : {}),"));
   assert.ok(read("../Game/AI/countryStatsWorkerKernel.js").includes("Population when the scenario begins, as its author gives it: ${Math.round(Number(polity.population))}. Take that as given, and move it only by what has happened since."));
+  // Beside it, each one's own military figures (Editor/MilitaryFields.jsx), kept the same way.
+  assert.ok(polities.includes("onChange={(military) => upsertPolity?.(current.key, { military: military ?? undefined })}"));
+  assert.ok(groups.includes("onChange={(military) => patchRecord(current, { military: military ?? undefined })}"));
+  assert.ok(read("./gameState.js").includes("...(normalizeMilitaryStats(value.military) ? { military: normalizeMilitaryStats(value.military) } : {}),"));
+  assert.deepEqual(normalizeGroups({ "The Watch": { military: { manpowerShare: "60", quality: 300 } } })["The Watch"].military, { quality: 100, manpowerShare: 60 });
 });
 
 test("the game takes a country's and a group's people from its scenario until a sheet of statistics says otherwise", () => {

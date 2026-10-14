@@ -233,6 +233,24 @@ test("undoing a rename puts back the country's own colour, flag, tags and record
   assert.equal(mapChangeStatus(rename, ctx), "open", "the row is open again, not quietly changed");
 });
 
+// A country's own military figures (runtime/militaryStats.js) are a field of
+// its record the comparison calls "extra" (scenarioChanges.js polityView), as
+// its population is: accepting the change writes them, and a country the
+// suggestion adds comes with its own.
+test("a country's military figures in a suggestion are accepted with its record, and Undo takes them back", () => {
+  const { state, ctx } = setup();
+  const military = { quality: 80, sea: 0, muster: [[0.5, 14], [1, 60]] };
+  const change = { id: "polity-change:Alpha", area: "map", kind: "polity-change", key: "Alpha", name: "Alpha", fields: { extra: { from: null, to: canonicalJson({ military }) } }, record: { name: "Alpha", aliases: [], military } };
+  assert.equal(mapChangeStatus(change, ctx), "open");
+  const undo = applyMapChange(change, ctx);
+  assert.deepEqual(state.doc.polities.Alpha.military, military);
+  undo();
+  assert.equal(state.doc.polities.Alpha.military, undefined);
+  const add = { id: "polity-add:Gamma", area: "map", kind: "polity-add", key: "Gamma", record: { name: "Gamma", military: { manpowerShare: 60 } }, color: null, flag: null, tags: null };
+  applyMapChange(add, ctx);
+  assert.deepEqual(state.doc.polities.Gamma.military, { manpowerShare: 60 });
+});
+
 test("undoing a country's removal brings its puppet rows back and keeps a puppet accepted since", () => {
   const { state, d, ctx } = setup();
   d.setPuppets(() => [

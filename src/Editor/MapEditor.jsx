@@ -1501,6 +1501,9 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
           }}
           puppets={d.puppets}
           setPuppets={d.setPuppets}
+          // What its Military fields stand for left empty: the scenario's war
+          // settings and era (libraryBar.jsx); none for a map opened on its own.
+          militaryDefaults={initialMap?.militaryDefaults ?? null}
           importPolityRoster={d.importPolityRoster}
           setColorOverride={d.setColorOverride}
           setTags={d.setTags}
@@ -1521,6 +1524,7 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
           setGroups={d.setGroups}
           selection={d.selection}
           regionEpoch={regionEpoch}
+          militaryDefaults={initialMap?.militaryDefaults ?? null}
           onClose={() => setOpenPanel(null)}
         />
       )}

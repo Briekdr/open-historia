@@ -52,6 +52,9 @@ import StatsSheetEditor, { normalizeStatsEditorValue } from "./StatsSheetEditor.
 import InstitutionAuthoringPanel from "./InstitutionAuthoringPanel.jsx";
 import PrehistoryPanel from "./PrehistoryPanel.jsx";
 import ScenarioFrontsPanel from "./ScenarioFrontsPanel.jsx";
+import ScenarioWarSettings from "./ScenarioWarSettings.jsx";
+import { compactWarSettings } from "./scenarioWarSettings.js";
+import { militaryDefaultsFor } from "../../Editor/militaryForm.js";
 import ScenarioMusicPanel, { ScenarioMusicCredits } from "./ScenarioMusicPanel.jsx";
 import { normalizeScenarioMusic } from "../../runtime/scenarioMusic.js";
 const PoliticalWorldAuthoringPanel = lazy(() => import("./PoliticalWorldAuthoringPanel.jsx"));
@@ -551,6 +554,9 @@ const buildScenarioEditorState = (details) => {
     simulationRules: world.simulationRules ?? "",
     startingTimelineText: world.startingTimelineText ?? "",
     subtitle: scenario.subtitle ?? "",
+    // How its wars are fought (the Fronts tab: ScenarioWarSettings.jsx), compact:
+    // null for a scenario that sets nothing (scenarioWarSettings.js).
+    warSettings: compactWarSettings(world.warSettings),
   };
 };
 
@@ -1982,6 +1988,17 @@ const EditorDrawer = ({
         />
       )}
 
+      {/* How its wars are fought (ScenarioWarSettings.jsx): part of the form,
+          which Save below writes. Then the fronts it begins with, which have
+          a Save of their own. */}
+      {editorSection === "fronts" && kind === "scenario" && (
+        <ScenarioWarSettings
+          value={formState.warSettings ?? null}
+          gameDate={formState.gameDate}
+          onChange={(next) => onChange("warSettings", next)}
+        />
+      )}
+
       {editorSection === "fronts" && kind === "scenario" && (
         <ScenarioFrontsPanel
           details={details}
@@ -2934,6 +2951,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     try {
       const details = await loadScenarioDetails(scenarioId);
       openMapEditorFor(details.scenario, details.data?.world ?? {}, {
+        gameDate: details.data?.game?.gameDate ?? "",
         review: {
           suggestion,
           decisions: { accepted: [...decisions.accepted], rejected: [...decisions.rejected] },
@@ -3286,6 +3304,12 @@ const LibraryTopBar = ({ onOpenSettings }) => {
             language: editorState.language,
             simulationRules: editorState.simulationRules,
             startingTimelineText: editorState.startingTimelineText,
+            // How its wars are fought (runtime/warSettings.js). A scenario that
+            // never set any is written none; one whose author took every
+            // setting back has its old ones cleared.
+            ...(editorState.warSettings || currentWorld.warSettings !== undefined
+              ? { warSettings: compactWarSettings(editorState.warSettings) }
+              : {}),
           },
         });
         if (editorStatsFailed) {
@@ -3543,7 +3567,10 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   // palette) so it edits that map instead of the default world. Assets stream
   // in async; the editor hydrates the moment they arrive. `review` puts a
   // suggestion's map changes beside it (src/Editor/SuggestionReviewPanel.jsx).
-  const openMapEditorFor = (scenario, world = {}, { review = null } = {}) => {
+  // `gameDate` and `warSettings` are the scenario's as its editor holds them,
+  // saved or not (the world's settings where it holds none): what a country's
+  // military figures left empty stand for in the Workshop.
+  const openMapEditorFor = (scenario, world = {}, { review = null, gameDate = "", warSettings } = {}) => {
     const isCurrent = mapEditorRequest.begin();
     setMapEditorScenario(scenario);
     setMapEditorSeed(null);
@@ -3617,6 +3644,10 @@ const LibraryTopBar = ({ onOpenSettings }) => {
         // Its region types, for the Region Types panel; null for a scenario
         // saved before they were, which opens with the default Land and Coastal.
         regionTypes: Array.isArray(world.regionTypes) && world.regionTypes.length ? world.regionTypes : null,
+        // What a country's or a group's military figures left empty stand for
+        // here, for the Countries and Groups panels: the era its wars are
+        // fought in, and the scenario's own settings (militaryForm.js).
+        militaryDefaults: militaryDefaultsFor(warSettings === undefined ? world.warSettings : warSettings, gameDate),
       });
     }).catch((error) => {
       if (!isCurrent()) return;
@@ -4918,7 +4949,10 @@ const LibraryTopBar = ({ onOpenSettings }) => {
           setEditorDetails(nextDetails);
           setEditorState((current) => current ? { ...current } : current);
         }}
-        onOpenMapEditor={() => openMapEditorFor(editorDetails?.scenario || null, editorDetails?.data?.world ?? {})}
+        onOpenMapEditor={() => openMapEditorFor(editorDetails?.scenario || null, editorDetails?.data?.world ?? {}, {
+          gameDate: editorState?.gameDate ?? editorDetails?.data?.game?.gameDate ?? "",
+          warSettings: editorState?.warSettings,
+        })}
         communityCard={drawerScenario ? (
           <ScenarioCommunityCard
             scenario={drawerScenario}
