@@ -21,7 +21,8 @@ and on 2026-10-14:
 - Two kinds of network have been trained by self-play against each other and against the engine's scripted staff. The first orders a side's whole line, with one of four words. The second orders **every troop by itself**, with one of nine orders.
 - Both beat the scripted staff by a wide margin. **Neither beats the plain habit of always advancing along the whole line.** The troop-by-troop champion is level with it: −3.0 a war, with a standard error of 4.8, over 150 wars it never saw.
 - So no "strategic master" came out of this. What did come out is a fact about the engine. In it, attacking everywhere is as good as any plan these networks could find. Holding or digging in is very much worse, even for the weaker side. Section 4 says what that means and what would change it.
-- The troop-by-troop champion is shipped in this branch behind the lab's switch, which is off by default.
+- **On the Wars and Fronts Pt.2 engine** (troops that tire, each country's own figures, levies over weeks, weather, hard ground, fortified lines, air wings: branch `feature/wars-and-fronts-2`), a third network was trained for two hours. It beats the scripted staff (+12.8 a war, standard error 5.2) and is **worse than always advancing** (−14.5, standard error 4.9), over 150 wars it never saw. It pushed with 98% of its orders. Section 3 has the figures.
+- On the Pt.2 branch **nothing is shipped**: the earlier champion was made for a troop's 28 numbers and a troop is now shown 34, and the new one is not level with plain advancing. The lab's switch does nothing there.
 
 ## 1. The reward (as of 2026-10-14)
 
@@ -120,6 +121,30 @@ It was then tested on 150 wars nobody trained on, each fought twice with the tea
 
 **Over the run**, its margin over always advancing in the trials moved between −22 and +28 on 24 wars, without a trend upward. The league found variations on pushing that are as good as pushing, and none that is better.
 
+### On the Wars and Fronts Pt.2 engine (2026-10-14, evening)
+
+The Pt.2 update changed what a war is in the engine (`docs/world-state.md`, "Wars and Fronts Pt.2"): a troop tires as it marches and fights and recovers at rest; each country fights by its own quality, technology, arms and unit mix; a war's levies come in over weeks along a mustering curve; seasons and weather slow, chill and ground aircraft; ground can be hard to cross; fortified lines must be broken through; air wings fight over the battlefield. The arena fights its wars with all of it on, drawing each country's figures, a unit mix, a mustering curve, a start month, now and then a band of hard ground or a fortified line, and air wings after 1914.
+
+- **What a troop is shown** grew from 28 numbers to 34: its fatigue, the nearest standing enemy wall ahead (how far, how strong), the day's weather's pace, and who holds the sky over it.
+- **Two more orders**: *rest* (fall back a little and recover) and *breach* (go at the nearest wall, siege first). Eleven in all.
+- **The league**: 121 minutes, 212 rounds, 1,226 networks (`runs/pt2/log.jsonl`), the same gatekeepers as before less the earlier champions, whose shape no longer fits. The champion is from round 75; in the trials it was +28 over the scripted staff, −23 against always advancing and +87 over going for the cities, on 24 wars each, and no later trial came near it.
+
+Tested on 150 wars nobody trained on, each fought twice with the teams exchanged (`runs/pt2/evaluation.json`):
+
+| the network against | margin a war | standard error | better / level / worse |
+|---|---|---|---|
+| the scripted staff | +12.8 | 5.2 | 88 / 1 / 61 |
+| always advancing | **−14.5** | 4.9 | 59 / 1 / 90 |
+| always holding | +165.8 | 6.3 | 150 / 0 / 0 |
+| always digging in | +183.8 | 6.9 | 150 / 0 / 0 |
+| going for the cities, troop by troop | +33.5 | 6.2 | 108 / 1 / 41 |
+| the first league's champion (orders the whole side) | −13.0 | 4.6 | 58 / 1 / 91 |
+| *(always advancing against the scripted staff)* | *+29.5* | *7.0* | *97 / 0 / 53* |
+
+- **What it told its troops**: push 98%, dig in 1%, strike 1%; rest and breach never. It learnt to push, as the others did, and pushes a little worse than the plain habit.
+- **What Pt.2 changed**: always advancing still wins, but by less. Its margin over the scripted staff fell from +48.9 a war on the old engine to +29.5 on this one: tired troops, walls and weather do cost an attacker who pushes everywhere, just not enough for any other plan the league found to pay more.
+- Not shipped: it is not level with always advancing, which was the bar.
+
 ### The first league (2026-10-13), ordering the whole side
 
 The first league ran under the older reward: shares of the enemy's home ground, towns weighed by share, a capital counting three. Its runs (`runs/first`, `runs/lean`, `runs/league`) cannot be re-run with the arena as it now is.
@@ -153,7 +178,7 @@ The first league ran under the older reward: shares of the enemy's home ground, 
 
 ## Trying it in a game
 
-The troop-by-troop champion is shipped in this branch (`src/runtime/fronts/mind/weights.js`) behind a switch that is off. In the lab build, in the browser's console:
+On the Wars and Fronts Pt.2 branch nothing is shipped (`src/runtime/fronts/mind/weights.js` holds none), and the switch below changes nothing there. On `experiment/strategy-nn` the troop-by-troop champion is shipped (`src/runtime/fronts/mind/weights.js`) behind a switch that is off. In that lab build, in the browser's console:
 
 ```js
 localStorage.setItem("oh:strategyNet", "1")   // on: sides nobody plays are led by the network, troop by troop
@@ -174,6 +199,8 @@ node tools/strategy-nn/peek.mjs 1 8                                     # a look
 node tools/strategy-nn/league.mjs --name troops --minutes 120 --workers 12
 node tools/strategy-nn/league.mjs --name side --kind side --minutes 40  # the kind that orders the whole side
 node tools/strategy-nn/evaluate.mjs --name troops --wars 150 --workers 12
+node tools/strategy-nn/league.mjs --name pt2 --minutes 120 --workers 10 --trial 15   # the Pt.2 run
+node tools/strategy-nn/evaluate.mjs --name pt2 --wars 150 --workers 12
 node tools/strategy-nn/export.mjs --name troops                         # ship a champion behind the switch
 node tools/strategy-nn/export.mjs --none                                # take it out again
 node --test src/runtime/fronts/mind/mind.test.js
