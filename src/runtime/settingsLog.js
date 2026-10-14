@@ -65,6 +65,7 @@ registerSettingsSnapshot("Display", () => [
     ["UI language", languageDisplayName(getStoredLanguage())],
     ["AI chat language", languageDisplayName(getStoredChatLanguage())],
     ["Fullscreen", onOff(typeof document !== "undefined" && document.fullscreenElement)],
+    ["Vault door at start", onOff(getMapSettingDefaultOn(MAP_SETTING_KEYS.vaultDoor))],
     // The umbrella switch: on exactly when both of the map's motion switches are.
     ["Reduce motion", onOff(getMapSetting(MAP_SETTING_KEYS.disableIdleRotation) && getMapSetting(MAP_SETTING_KEYS.disableEventCamera))],
     // The OS setting, which holds all three motion switches on while it is.

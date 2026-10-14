@@ -23,6 +23,7 @@ import { ensureLibraryCatalog, useLibraryState } from "./runtime/library.js";
 import { hasEnteredGame, useGameEntered } from "./runtime/gameEntry.js";
 import { VaultDoor } from "./Game/GameUI/VaultDoor.jsx";
 import { holdMusicBehindDoor } from "./runtime/ambientMusic.js";
+import { vaultDoorEnabled } from "./runtime/mapSettings.js";
 import { announceMapRerender } from "./runtime/mapReadiness.js";
 import { prefetchGameplay } from "./Game/AI/gameplayLazy.js";
 import { isConstrainedDevice } from "./runtime/deviceProfile.js";
@@ -71,8 +72,11 @@ function GameApp() {
   // What the player meets once the startup screen is done: a vault door, shut
   // over the main menu, to be opened by its wheel (GameUI/VaultDoor.jsx). The
   // menu's music waits behind it and begins as the leaves part. Once a page:
-  // going back to the menu from a game does not shut it again.
+  // going back to the menu from a game does not shut it again. The player may
+  // turn the door off (Settings → General → Display): then the app opens
+  // straight onto the menu, and its music is not held.
   const [doorShut, setDoorShut] = useState(() => {
+    if (!vaultDoorEnabled()) return false;
     holdMusicBehindDoor(true);
     return true;
   });
