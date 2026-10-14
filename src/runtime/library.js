@@ -164,13 +164,28 @@ const requestJson = async (pathname, { body, method = "GET" } = {}) => {
 let sharedGameEntry = null; // { gameId, country, currentDate }
 let lastCatalog = null;
 
+// Which country a game is played as is in the game's own record (game.json),
+// and the library's list has it as it stood when the list was last read. It
+// changes in play, and the list is not read again for that: the Play As
+// Country cheat wrote the record and everything that reads the record (the AI
+// first of all) took the player for the new country, while everything that
+// reads the list (the country in the game's bar, its drawer, the war room's
+// button, the music) kept the old one, or none. So while a game is open its
+// entry names the country its own record names (setOpenGameCountry, told by
+// the game's screen). A shared game's entry, above, is the view's and wins.
+let openGameCountry = null; // { gameId, country }
+
+const withOpenGameCountry = (game) => (openGameCountry && game?.id === openGameCountry.gameId && game.country !== openGameCountry.country
+  ? { ...game, country: openGameCountry.country }
+  : game);
+
 const withSharedGameEntry = (game) => (sharedGameEntry && game?.id === sharedGameEntry.gameId
   ? { ...game, country: sharedGameEntry.country, currentDate: sharedGameEntry.currentDate || game.currentDate }
   : game);
 
 const applyLibraryCatalog = (catalog) => {
   lastCatalog = catalog;
-  const games = Array.isArray(catalog?.games) ? catalog.games.map(withSharedGameEntry) : [];
+  const games = Array.isArray(catalog?.games) ? catalog.games.map((game) => withSharedGameEntry(withOpenGameCountry(game))) : [];
   const scenarios = Array.isArray(catalog?.scenarios) ? catalog.scenarios : [];
   const activeGameId = catalog?.activeGameId ?? games[0]?.id ?? null;
   const selectedScenarioId = catalog?.selectedScenarioId ?? scenarios[0]?.id ?? null;
@@ -248,6 +263,20 @@ export const setSharedGameEntry = (entry) => {
   if (lastCatalog) applyLibraryCatalog(lastCatalog);
 };
 
+// The country the open game's own record names, or (no game id) nothing. The
+// library's listeners are woken only when that changes what an entry shows.
+export const setOpenGameCountry = (gameId, country) => {
+  const next = gameId ? { gameId: String(gameId), country: String(country ?? "").trim() } : null;
+  if (JSON.stringify(next) === JSON.stringify(openGameCountry)) return;
+  // What every entry of the list names, before and after: the game it was
+  // about and the game it is about now may both change.
+  const named = () => (Array.isArray(lastCatalog?.games)
+    ? lastCatalog.games.map((game) => withSharedGameEntry(withOpenGameCountry(game))?.country ?? "").join("\n")
+    : "");
+  const before = named();
+  openGameCountry = next;
+  if (lastCatalog && named() !== before) applyLibraryCatalog(lastCatalog);
+};
 
 export const getLibraryState = () => libraryState;
 

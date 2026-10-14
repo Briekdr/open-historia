@@ -56,8 +56,10 @@
 //            the menu's are so that it stays in the background. A game
 //            drawn while the big hit is still far off does not wait for it:
 //            the build fades out on its next accent (exitAfter).
-//   atWar    in the game, with the player's troops on a battlefield. Whatever
-//            the game plays, unless the scenario has music of its own for it.
+//   atWar    in the game, with the player's country at war. The war room's
+//            pieces ("when in war, it doesnt play the war song"), carried on
+//            into the war room and out of it without a break; unless the
+//            scenario has music of its own for it, or for the game.
 //   war      the war room is open, or a battlefield is shown. Legionnaire,
 //            and Vanguard (MUSIC_WAR_PIECES), one after the other as a list
 //            plays; which of them a game's war room starts on is picked
@@ -590,7 +592,8 @@ export const createMusicDirector = ({
     const own = where === "loading" ? lists.loading : where === "war" ? lists.battle : where === "atWar" ? lists.atWar : lists.game;
     if (usable(own)) return own;
     if (where === "atWar" && usable(lists.game)) return lists.game;
-    return where === "loading" ? loud : where === "war" ? channels.war : channels.game;
+    // At war, with no music of the scenario's: the war pieces, as in the war room.
+    return where === "loading" ? loud : where === "war" || where === "atWar" ? channels.war : channels.game;
   };
 
   // Tells whoever shows it which hub track is sounding now, when that changed.
