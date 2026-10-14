@@ -69,7 +69,8 @@ test("a figure from a country's sheet ranks the countries that have one and coun
   assert.equal(rankingMetricsFor({ world: world(weary) }).some((entry) => entry.key === "weariness"), true);
 });
 
-test("military weight is the figure the land war itself uses, and every country with people or land has one", () => {
+test("military power is the land war's own weight at the figures every country has, and every country with people or land has one", () => {
+  assert.equal(metric("military").label, "Military power");
   const ranking = rank("military");
   assert.equal(ranking.unranked, 0);
   const of = (key) => ranking.rows.find((row) => row.key === key).value;
@@ -80,6 +81,23 @@ test("military weight is the figure the land war itself uses, and every country 
   assert.equal(of("Dorland"), Math.round(countryWeight({ regions: 1 }) * 10) / 10, "else the land it holds");
   assert.deepEqual(ranking.rows.map((row) => row.key), ["Borduria", "Aland", "Cisland", "Dorland"]);
   assert.equal(rankingValue(metric("military"), {}, "Nowhere", { regions: new Map() }), null, "nothing known of it: no figure");
+});
+
+test("a country's own military figures move its power: quality, technology, its share of people, weariness and its arms", () => {
+  const figures = (military) => ({ polityOverrides: { Cisland: { name: "Cisland", population: 12e6, military } } });
+  const of = (extra, key = "Cisland") => rank("military", extra).rows.find((row) => row.key === key)?.value;
+  const usual = countryWeight({ population: 12e6 });
+  assert.equal(of(figures({ quality: 100 })), Math.round(usual * 1.5 * 10) / 10);
+  assert.equal(of(figures({ technology: 0 })), Math.round(usual * 0.7 * 10) / 10);
+  assert.equal(of(figures({ manpowerShare: 48 })), Math.round(countryWeight({ population: 48e6 }) * 10) / 10, "four times the share, twice the weight");
+  assert.equal(of(figures({ sea: 0 })), Math.round(usual * 0.75 * 10) / 10, "no navy");
+  assert.equal(of(figures({ land: 0, sea: 0, air: 0 })), 0, "no forces at all");
+  assert.equal(of({ warWeariness: [{ country: "Borduria", value: 100 }] }, "Borduria"), Math.round(countryWeight({ population: 90e6 }) * 0.6 * 10) / 10);
+  // A scenario that does not count countries' own figures ranks them as before.
+  assert.equal(of({ ...figures({ quality: 100 }), warSettings: { mechanics: { military: false } } }), Math.round(usual * 10) / 10);
+  // Figures of its own reorder the list: an elite army outranks a bigger levy.
+  const elite = rank("military", { polityOverrides: { Cisland: { name: "Cisland", population: 12e6, military: { quality: 100, technology: 100, land: 100 } } } });
+  assert.deepEqual(elite.rows.map((row) => row.key), ["Borduria", "Cisland", "Aland", "Dorland"]);
 });
 
 test("countries level on a figure share a rank, and a country is listed once", () => {

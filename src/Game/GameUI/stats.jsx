@@ -24,7 +24,8 @@ import COUNTRY_NAMES from "../../runtime/generated/countryNames.js";
 import { REGION_SELECTED_EVENT } from "../Selection/Regions.jsx";
 import { ensureCountryAssessed, ensureIntelligenceRated, generateCountryStatSheet, pendingCountryStatSheet, readOpenedIntercepts } from "../AI/gameplayLazy.js";
 import PoliticalOverview from "./PoliticalOverview.jsx";
-import { buildRanking, openingMetric, rankingMetricsFor } from "./countryRanking.js";
+import { buildRanking, openingMetric, rankingMetricsFor, regionCountsOf } from "./countryRanking.js";
+import { MANPOWER_PERCENT, militaryProfile } from "../../runtime/militaryPower.js";
 import { PeaceControls, ReparationsNote } from "./warAndPeace.jsx";
 import { institutionPortfolioForPolity } from "../../runtime/institutionLifecycleCore.js";
 import { TURN_RUNNING_NOTE, isSimulationBusy } from "../AI/simulationStatus.js";
@@ -391,6 +392,85 @@ const IntelligenceServiceCard = ({ value, style }) => (
         <Bar value={value} color="#38bdf8" />
     </div>
 );
+
+// ---- the Military card ---------------------------------------------------------------
+// "All 4 of these backend stats (quality, technology, manpower share,
+// weariness) should decide what the country's overall frontend military power
+// is", and land, sea and air are "ANOTHER set of stats that affect the overall
+// front end military strength". The card shows the power (runtime/
+// militaryPower.js, the figure the Ranking tab ranks by) and the figures it is
+// read from, each as a bar with a mark where every country stands: a figure
+// of the country's own (its scenario's author's, its sheet's) in the accent,
+// one it shares with every country in grey, and any weariness in amber.
+
+const MILITARY_FIGURE_LABELS = Object.freeze({
+    quality: "Troop quality",
+    technology: "Technology",
+    manpowerShare: "Manpower share",
+    weariness: "War weariness",
+    land: "Land",
+    sea: "Sea",
+    air: "Air",
+});
+const MILITARY_FIGURE_ORDER = Object.freeze(["quality", "technology", "manpowerShare", "weariness", "land", "sea", "air"]);
+const MILITARY_OWN_COLOR = "#2bc1f3";
+const MILITARY_SHARED_COLOR = "rgba(255,255,255,0.32)";
+const MILITARY_WEARY_COLOR = "#f59e0b";
+
+// Where every country stands on each figure, for the hairline on its bar (none
+// for weariness: every country begins a war at none).
+const MILITARY_FIGURE_MARKS = Object.freeze({ quality: 50, technology: 50, manpowerShare: MANPOWER_PERCENT, land: 50, sea: 50, air: 50 });
+
+// A figure's bar, 0 to 100, and a hairline where every country stands.
+const MilitaryBar = ({ value, mark, color }) => (
+    <div style={{ backgroundColor: "rgba(255,255,255,0.1)", borderRadius: "999px", height: "6px", overflow: "hidden", position: "relative" }}>
+    <div style={{ backgroundColor: color, borderRadius: "999px", height: "100%", width: `${clamp01(value)}%` }} />
+    {mark !== undefined && <div style={{ backgroundColor: "rgba(255,255,255,0.55)", height: "100%", left: `${clamp01(mark)}%`, position: "absolute", top: 0, width: "1px" }} />}
+    </div>
+);
+
+const MilitaryCard = ({ world, country, style }) => {
+    const profile = useMemo(() => {
+        if (!world || !country) return null;
+        const regions = regionCountsOf(getPrimedScenarioRegionCatalog() ?? [], world).get(cleanText(country).toLowerCase()) ?? 0;
+        return militaryProfile(world, country, { regions });
+    }, [world, country]);
+    if (!profile) return null;
+    const { figures, own } = profile;
+    const power = profile.power === null ? "—" : (Math.round(profile.power * 10) / 10).toLocaleString();
+    return (
+        <div style={{ ...cardStyle, ...style }}>
+            <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between", marginBottom: "0.2rem" }}>
+                <span style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                    Military power
+                </span>
+                <span data-no-translate style={{ fontSize: "1.05rem", fontWeight: 800 }}>{power}</span>
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.42)", fontSize: "0.64rem", lineHeight: 1.4, marginBottom: "0.55rem" }}>
+                What it weighs in a land war, by its people or its land and what it pays for its forces, through the figures below.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                {MILITARY_FIGURE_ORDER.map((key) => {
+                    const value = figures[key];
+                    const color = key === "weariness" && value > 0 ? MILITARY_WEARY_COLOR : own[key] ? MILITARY_OWN_COLOR : MILITARY_SHARED_COLOR;
+                    const text = key === "manpowerShare" ? `${Math.round(value * 10) / 10}%` : `${Math.round(value)}/100`;
+                    return (
+                        <div key={key} style={{ alignItems: "center", display: "grid", gap: "0.5rem", gridTemplateColumns: "6.4rem minmax(0, 1fr) 3.2rem" }}>
+                            <span style={{ color: own[key] ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.6)", fontSize: "0.72rem" }}>{MILITARY_FIGURE_LABELS[key]}</span>
+                            <MilitaryBar value={value} mark={MILITARY_FIGURE_MARKS[key]} color={color} />
+                            <span data-no-translate style={{ fontSize: "0.72rem", fontVariantNumeric: "tabular-nums", fontWeight: 800, textAlign: "right" }}>{text}</span>
+                        </div>
+                    );
+                })}
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.38)", fontSize: "0.62rem", lineHeight: 1.4, marginTop: "0.55rem" }}>
+                {profile.counted
+                    ? "In colour: its own figures. In grey: what every country has. The mark on a bar is where every country stands."
+                    : "This scenario does not count countries' own military figures: every country fights with the same."}
+            </div>
+        </div>
+    );
+};
 
 const stabilityColor = (value) => (value < 40 ? "#ef4444" : value < 70 ? "#f59e0b" : "#22c55e");
 
@@ -2865,6 +2945,16 @@ const StatsPaneBody = ({ active, mapRef, requestedTarget = "", onConsumeTarget }
                 ))}
                 </div>
                 </div>
+                    </>
+                )}
+
+                {/* Its military power and the figures it is read from, on the
+                    standard sheet and on a scenario's own alike: the game works
+                    them out for every country (MilitaryCard). */}
+                {worldSnapshot && (
+                    <>
+                    <div style={sectionTitleStyle}>⚔ Military</div>
+                    <MilitaryCard world={worldSnapshot} country={resolvedTargetKey || targetCountry} />
                     </>
                 )}
 
