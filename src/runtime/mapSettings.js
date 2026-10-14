@@ -95,6 +95,13 @@ export const MAP_SETTING_KEYS = {
     // straight onto the main menu (the owner, 2026-10-14: "make a setting to
     // turn off the opening doors animation"). Settings → General → Display.
     vaultDoor: "vault_door_at_start",
+    // With the door on, whether it shows every time the game opens. OFF by
+    // default — read with getMapSetting (vaultDoorAlways): off, the door shows
+    // the first time the game opens after an update (runtime/vaultDoorDue.js;
+    // the owner, 2026-10-14: "vault door by default only after a new update,
+    // setting to make it always when opening game"). Settings → General →
+    // Display, under the door's own switch.
+    vaultDoorAlways: "vault_door_every_time",
 };
 
 // Families the label-font pickers suggest — Settings → Map and the game and
@@ -139,6 +146,16 @@ export const vaultDoorEnabled = () => {
     }
 };
 
+// Whether the door shows every time the game opens rather than the first time
+// after an update (off unless the player turned it on).
+export const vaultDoorAlways = () => {
+    try {
+        return getMapSetting(MAP_SETTING_KEYS.vaultDoorAlways);
+    } catch {
+        return false;
+    }
+};
+
 // Storage keys are what the game persists; they are not what a maintainer wants
 // to read in a bug report. Kept beside MAP_SETTING_KEYS so a new setting that
 // forgets to add a name still logs its key rather than nothing.
@@ -156,6 +173,9 @@ const SETTING_LABELS = {
     [MAP_SETTING_KEYS.ambientMusic]: "Music",
     [MAP_SETTING_KEYS.soundEffects]: "Sound effects",
     [MAP_SETTING_KEYS.vaultDoor]: "Vault door at start",
+    // "Every time the game opens" in the panel, under the door's switch; named
+    // in full here, where the log line stands alone.
+    [MAP_SETTING_KEYS.vaultDoorAlways]: "Vault door every time the game opens",
 };
 
 export function setMapSetting(key, value) {

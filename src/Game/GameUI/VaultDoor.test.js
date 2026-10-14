@@ -115,16 +115,26 @@ test("with Reduce motion on nothing shakes, turns or slides: a click fades the d
 });
 
 test("the app shows the door once the startup screen is done, over the menu, and takes it away when it has opened", () => {
-  assert.match(app, /\{isReady && doorShut && \(\s+<DoorFrame onFailed=\{doorGone\}>\s+<VaultDoor onOpening=\{letMusicIn\} onOpened=\{doorGone\} \/>/);
+  assert.match(app, /\{menuReady && door === "shut" && \(\s+<DoorFrame onFailed=\{doorGone\}>\s+<VaultDoor onOpening=\{letMusicIn\} onOpened=\{doorOpened\} \/>/);
   // The menu is already there behind it.
-  assert.ok(app.indexOf("{isReady && (\r\n      <UI") > 0 || app.indexOf("{isReady && (\n      <UI") > 0);
+  assert.ok(app.indexOf("{menuReady && (\r\n      <UI") > 0 || app.indexOf("{menuReady && (\n      <UI") > 0);
+  // Whether this opening shows the door is decided before the startup screen
+  // ends, so the menu never shows for a moment before a door shuts over it.
+  assert.match(app, /const menuReady = isReady && door !== "deciding";/);
+  assert.match(app, /\{!menuReady && <StartupScreen \{\.\.\.startupState\} \/>\}/);
+  assert.match(app, /decideVaultDoor\(\{\s+always: vaultDoorAlways\(\),\s+resolveBuild: \(\) => appBuildId\(\{ env: import\.meta\.env \}\),\s+\}\)/);
   // The menu's music waits behind the door and begins as it opens; with the
-  // door turned off there is no door, and nothing waits.
-  assert.match(app, /useState\(\(\) => \{\s+if \(!vaultDoorEnabled\(\)\) return false;\s+holdMusicBehindDoor\(true\);\s+return true;\s+\}\)/);
+  // door turned off, or not shown this time, there is no door and nothing waits.
+  assert.match(app, /useState\(\(\) => \{\s+if \(!vaultDoorEnabled\(\)\) return "open";\s+holdMusicBehindDoor\(true\);\s+return "deciding";\s+\}\)/);
+  assert.match(app, /if \(!show\) holdMusicBehindDoor\(false\);\s+setDoor\(show \? "shut" : "open"\);/);
   assert.match(app, /const letMusicIn = useCallback\(\(\) => holdMusicBehindDoor\(false\), \[\]\);/);
   // A door that cannot be drawn does not shut the menu in.
   assert.match(app, /componentDidCatch\(error\) \{[\s\S]+?this\.props\.onFailed\?\.\(\);/);
-  assert.match(app, /const doorGone = useCallback\(\(\) => \{\s+holdMusicBehindDoor\(false\);\s+setDoorShut\(false\);/);
+  assert.match(app, /const doorGone = useCallback\(\(\) => \{\s+holdMusicBehindDoor\(false\);\s+setDoor\("open"\);/);
+  // Only a door that opened is remembered, with the build it was shown for: one
+  // that could not be drawn, or a page closed before it opened, shows again.
+  assert.match(app, /const doorOpened = useCallback\(\(\) => \{\s+rememberVaultDoorBuild\(doorBuildRef\.current\);\s+doorGone\(\);\s+\}, \[doorGone\]\);/);
+  assert.equal(app.match(/rememberVaultDoorBuild\(/g)?.length, 1);
 });
 
 test("the same steel every time", () => {
@@ -270,5 +280,24 @@ test("the vault door can be turned off: on by default, in Settings â†’ General â
   assert.match(display, /<Toggle\s+label="Vault door at start"\s+enabled=\{mapSettings\.vaultDoor\}\s+onToggle=\{\(\) => updateMapSetting\("vaultDoor", MAP_SETTING_KEYS\.vaultDoor, !mapSettings\.vaultDoor\)\}/);
   assert.match(display, /\{"Off, the game opens straight onto the main menu\."\}/);
   assert.match(settings, /vaultDoor: getMapSettingDefaultOn\(MAP_SETTING_KEYS\.vaultDoor\),/);
-  assert.match(app, /import \{ vaultDoorEnabled \} from "\.\/runtime\/mapSettings\.js";/);
+  assert.match(app, /import \{ vaultDoorAlways, vaultDoorEnabled \} from "\.\/runtime\/mapSettings\.js";/);
+});
+
+// "vault door by default only after a new update, setting to make it always
+// when opening game" (the owner, 2026-10-14). When it is due is
+// runtime/vaultDoorDue.test.js; this is the switch.
+test("a second switch shows the door every time the game opens: off by default, under the door's own", () => {
+  const settings = read("./settings.jsx");
+  const mapSettings = read("../../runtime/mapSettings.js");
+  assert.match(mapSettings, /vaultDoorAlways: "vault_door_every_time",/);
+  assert.match(mapSettings, /export const vaultDoorAlways = \(\) => \{\s+try \{\s+return getMapSetting\(MAP_SETTING_KEYS\.vaultDoorAlways\);\s+\} catch \{\s+return false;/);
+  assert.match(mapSettings, /\[MAP_SETTING_KEYS\.vaultDoorAlways\]: "Vault door every time the game opens",/);
+  const display = settings.slice(settings.indexOf('<SettingsSection title="Display"'), settings.indexOf('<SettingsSection title="Accessibility"'));
+  // Under the door's switch, and held where it is while the door is off.
+  assert.ok(display.indexOf('label="Vault door at start"') < display.indexOf('label="Every time the game opens"'));
+  assert.match(display, /<Toggle\s+label="Every time the game opens"\s+enabled=\{mapSettings\.vaultDoorAlways\}\s+disabled=\{!mapSettings\.vaultDoor\}\s+onToggle=\{\(\) => updateMapSetting\("vaultDoorAlways", MAP_SETTING_KEYS\.vaultDoorAlways, !mapSettings\.vaultDoorAlways\)\}/);
+  assert.match(display, /\{"Off, the door shows only the first time the game opens after an update\."\}/);
+  assert.match(settings, /vaultDoorAlways: getMapSetting\(MAP_SETTING_KEYS\.vaultDoorAlways\),/);
+  // The Logging file says how it is set, by the panel's name for it.
+  assert.match(read("../../runtime/settingsLog.js"), /\["Every time the game opens", onOff\(getMapSetting\(MAP_SETTING_KEYS\.vaultDoorAlways\)\)\],/);
 });

@@ -23,7 +23,9 @@ import { ensureLibraryCatalog, useLibraryState } from "./runtime/library.js";
 import { hasEnteredGame, useGameEntered } from "./runtime/gameEntry.js";
 import { VaultDoor } from "./Game/GameUI/VaultDoor.jsx";
 import { holdMusicBehindDoor } from "./runtime/ambientMusic.js";
-import { vaultDoorEnabled } from "./runtime/mapSettings.js";
+import { vaultDoorAlways, vaultDoorEnabled } from "./runtime/mapSettings.js";
+import { decideVaultDoor, rememberVaultDoorBuild } from "./runtime/vaultDoorDue.js";
+import { appBuildId } from "./runtime/buildId.js";
 import { announceMapRerender } from "./runtime/mapReadiness.js";
 import { prefetchGameplay } from "./Game/AI/gameplayLazy.js";
 import { isConstrainedDevice } from "./runtime/deviceProfile.js";
@@ -72,19 +74,52 @@ function GameApp() {
   // What the player meets once the startup screen is done: a vault door, shut
   // over the main menu, to be opened by its wheel (GameUI/VaultDoor.jsx). The
   // menu's music waits behind it and begins as the leaves part. Once a page:
-  // going back to the menu from a game does not shut it again. The player may
-  // turn the door off (Settings → General → Display): then the app opens
-  // straight onto the menu, and its music is not held.
-  const [doorShut, setDoorShut] = useState(() => {
-    if (!vaultDoorEnabled()) return false;
+  // going back to the menu from a game does not shut it again.
+  //
+  // It shows the first time the game opens after an update, or at every
+  // opening with Every time the game opens on (runtime/vaultDoorDue.js), so
+  // whether this opening is one is decided first ("deciding"): the running
+  // build is asked of the desktop app's own server (runtime/buildId.js), and
+  // the music is held meanwhile. The player may turn the door off altogether
+  // (Settings → General → Display): then the app opens straight onto the menu
+  // and its music is not held.
+  const [door, setDoor] = useState(() => {
+    if (!vaultDoorEnabled()) return "open";
     holdMusicBehindDoor(true);
-    return true;
+    return "deciding";
   });
+  // The build the door is shown for, kept when it has opened.
+  const doorBuildRef = useRef("");
+  useEffect(() => {
+    if (door !== "deciding") return undefined;
+    let live = true;
+    decideVaultDoor({
+      always: vaultDoorAlways(),
+      resolveBuild: () => appBuildId({ env: import.meta.env }),
+    })
+      .catch(() => ({ show: false, build: "" }))
+      .then(({ show, build }) => {
+        if (!live) return;
+        doorBuildRef.current = build;
+        // Not this time: there is nothing for the music to wait behind.
+        if (!show) holdMusicBehindDoor(false);
+        setDoor(show ? "shut" : "open");
+      });
+    return () => {
+      live = false;
+    };
+  }, [door]);
   const letMusicIn = useCallback(() => holdMusicBehindDoor(false), []);
   const doorGone = useCallback(() => {
     holdMusicBehindDoor(false);
-    setDoorShut(false);
+    setDoor("open");
   }, []);
+  // Opened: not shown again for this build. A door that could not be drawn,
+  // or a page closed before the door opened, is shown again next time.
+  const doorOpened = useCallback(() => {
+    rememberVaultDoorBuild(doorBuildRef.current);
+    doorGone();
+  }, [doorGone]);
   const [isGlobeEnabled, setIsGlobeEnabled] = useState(() => {
     const saved = localStorage.getItem("Globe");
     return saved !== null ? JSON.parse(saved) : false;
@@ -165,6 +200,12 @@ function GameApp() {
     });
   }, [gameEntered]);
 
+  // The startup screen waits for the door to be decided as well, so the menu
+  // never shows for a moment before a door shuts over it. The decision takes
+  // no time on the website and in the Android app, and one request to this
+  // computer's own server in the desktop app (at most a second and a half).
+  const menuReady = isReady && door !== "deciding";
+
   const handleFirstWorldIdle = () => {
     if (worldIdleRef.current) return;
     worldIdleRef.current = true;
@@ -189,7 +230,7 @@ function GameApp() {
       </Suspense>
     )}
     </div>
-    {isReady && (
+    {menuReady && (
       <UI
       key={`ui-${activeGameId || "default"}`}
       isGlobeEnabled={isGlobeEnabled}
@@ -199,12 +240,12 @@ function GameApp() {
       setIsTerrainEnabled={setIsTerrainEnabled}
       />
     )}
-    {isReady && doorShut && (
+    {menuReady && door === "shut" && (
       <DoorFrame onFailed={doorGone}>
-      <VaultDoor onOpening={letMusicIn} onOpened={doorGone} />
+      <VaultDoor onOpening={letMusicIn} onOpened={doorOpened} />
       </DoorFrame>
     )}
-    {!isReady && <StartupScreen {...startupState} />}
+    {!menuReady && <StartupScreen {...startupState} />}
     </>
   );
 }

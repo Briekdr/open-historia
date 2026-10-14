@@ -2572,6 +2572,16 @@ const SettingsWorkspace = ({
                     onToggle={() => updateMapSetting("vaultDoor", MAP_SETTING_KEYS.vaultDoor, !mapSettings.vaultDoor)}
                     />
                     <div style={{ ...helperStyle, marginTop: "-0.6rem", marginBottom: "0.6rem" }}>{"Off, the game opens straight onto the main menu."}</div>
+                    {/* The door shows the first time the game opens after an
+                        update (runtime/vaultDoorDue.js); this shows it at every
+                        opening. Held where it is while the door itself is off. */}
+                    <Toggle
+                    label="Every time the game opens"
+                    enabled={mapSettings.vaultDoorAlways}
+                    disabled={!mapSettings.vaultDoor}
+                    onToggle={() => updateMapSetting("vaultDoorAlways", MAP_SETTING_KEYS.vaultDoorAlways, !mapSettings.vaultDoorAlways)}
+                    />
+                    <div style={{ ...helperStyle, marginTop: "-0.6rem", marginBottom: "0.6rem" }}>{"Off, the door shows only the first time the game opens after an update."}</div>
                 </SettingsSection>
                 <SettingsSection title="Accessibility" description="Reduce automatic camera motion and map animations without changing simulation behavior.">
                     <Toggle
@@ -2910,6 +2920,9 @@ const SettingsMenu = ({
         soundEffects: getMapSettingDefaultOn(MAP_SETTING_KEYS.soundEffects),
         // And the vault door the app opens on (General → Display).
         vaultDoor: getMapSettingDefaultOn(MAP_SETTING_KEYS.vaultDoor),
+        // Off by default: the door shows the first time the game opens after
+        // an update, unless this asks for every time.
+        vaultDoorAlways: getMapSetting(MAP_SETTING_KEYS.vaultDoorAlways),
     }));
 
     const updateMapSetting = (stateKey, settingKey, value) => {
