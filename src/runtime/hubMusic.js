@@ -11,8 +11,13 @@
 // releases:
 //
 //   { schema: "open-historia-music-index/1", updated, tracks: [ { id, name,
-//     artist, licence, source, credit, fits[], version, file, type, bytes,
-//     sha256, seconds, post, postedBy, removed } ] }
+//     artist, licence, source, credit, fits[], genres[], moods[],
+//     instruments[], version, file, type, bytes, sha256, seconds, post,
+//     postedBy, removed } ] }
+//
+// A track's genres, moods and instruments are names from the hub's own lists
+// (the ones Scott Buckley's library sorts its music by): what scenario makers
+// find tracks by. A list written before the hub had them simply has none.
 //
 // It is read from raw.githubusercontent.com, which answers any origin and is
 // not counted against a player's API requests, and it is read as a stranger's
@@ -37,6 +42,8 @@ export const HUB_MUSIC_URL = `https://raw.githubusercontent.com/${HUB_OWNER}/${H
 export const HUB_MUSIC_SCHEMA = "open-historia-music-index/1";
 // What a track may be said to suit: the menu, and a scenario's four situations.
 export const HUB_MUSIC_FITS = Object.freeze(["menu", "loading", "game", "atWar", "battle"]);
+// What a track can be found by, as the list names the fields.
+export const HUB_MUSIC_TAG_KINDS = Object.freeze(["genres", "moods", "instruments"]);
 
 // What a player reads where the list would be. In a *_TEXTS table because the
 // string extractor reads those (scripts/i18n/).
@@ -59,12 +66,18 @@ const MAX_CREDIT = 600;
 const MAX_ADDRESS = 600;
 const MAX_LOGIN = 100;
 const MAX_SECONDS = 24 * 60 * 60;
+// Far above the hub's lists too (14 genres, 46 moods, 35 instruments).
+const MAX_TAGS = 40;
+const MAX_TAG = 60;
 const SOURCE_ADDRESS = /^https:\/\/[^\s"'<>\\]+$/i;
 
 const record = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : null);
 const cut = (value, max) => (typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "");
 const positiveWhole = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);
 const dateText = (value) => (typeof value === "string" && value.length <= 40 && !Number.isNaN(Date.parse(value)) ? value : "");
+// A track's genres, moods or instruments: names, each once, or [] when the
+// list says none (or something that is not a list of names).
+const tagsOf = (value) => [...new Set((Array.isArray(value) ? value : []).map((tag) => cut(tag, MAX_TAG)).filter(Boolean))].slice(0, MAX_TAGS);
 
 // One track of the list, or null for an entry that is none: no id, or no name
 // to show it by.
@@ -84,6 +97,9 @@ const normalizeTrack = (raw) => {
     source: page.length <= MAX_ADDRESS && SOURCE_ADDRESS.test(page) ? page : "",
     credit: cut(source.credit, MAX_CREDIT),
     fits: [...new Set((Array.isArray(source.fits) ? source.fits : []).filter((fit) => HUB_MUSIC_FITS.includes(fit)))],
+    genres: tagsOf(source.genres),
+    moods: tagsOf(source.moods),
+    instruments: tagsOf(source.instruments),
     version: positiveWhole(source.version) ?? 1,
     // In the hub's own releases, or nowhere: whatever the list says, nothing
     // else is ever played. A track taken down has no file.
@@ -138,6 +154,18 @@ export const trackById = (list, id) => {
 
 // The tracks a scenario's author may choose from: every one still on the hub.
 export const offeredTracks = (list) => (Array.isArray(list?.tracks) ? list.tracks.filter((track) => !track.removed && track.file) : []);
+
+// The tracks that have every one of the names asked for: `wanted` is
+// { genres, moods, instruments }, each a name or "" for any.
+export const tracksWithTags = (tracks, wanted = {}) => (Array.isArray(tracks) ? tracks : []).filter((track) => HUB_MUSIC_TAG_KINDS.every((kind) => !wanted[kind] || (track[kind] ?? []).includes(wanted[kind])));
+
+// The names of one kind that `tracks` have, each with how many of them have
+// it: [[name, count]], the most used first, then by name.
+export const tagCounts = (tracks, kind) => {
+  const counts = new Map();
+  for (const track of Array.isArray(tracks) ? tracks : []) for (const tag of track?.[kind] ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "en", { sensitivity: "base" }));
+};
 
 // The address an <audio> plays a track from, or "" when it must not be played:
 // taken down, or its file is not in the hub's own releases. The route every

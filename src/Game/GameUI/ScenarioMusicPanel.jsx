@@ -10,8 +10,10 @@
 //
 // Each situation has its list, in the order it plays (move up, move down,
 // remove), and "Add a track" opens the hub's list under it: searched by name
-// or composer, the tracks said to suit the situation first, each with a
-// preview. A preview plays from the address the game itself would play the
+// or composer, narrowed by genre, mood and instrument (the owner, 2026-10-14:
+// "make it so users can also pick catagories to easily find songs that they
+// need for their scenario"), the tracks said to suit the situation first, each
+// with a preview. A preview plays from the address the game itself would play the
 // track from, one at a time, and the game's own music waits while it does.
 //
 // Nothing is saved from here: the lists are part of the editor's form, and its
@@ -20,7 +22,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { DEFAULT_MUSIC_VOLUME, holdMusic, musicVolume } from "../../runtime/ambientMusic.js";
-import { HUB_MUSIC_TEXTS, offeredTracks, trackById } from "../../runtime/hubMusic.js";
+import { HUB_MUSIC_TAG_KINDS, HUB_MUSIC_TEXTS, offeredTracks, tagCounts, trackById, tracksWithTags } from "../../runtime/hubMusic.js";
 import { keptMusicAddress, releaseMusicAddress } from "../../runtime/keptMusic.js";
 import { useTouchPrimary } from "../../runtime/mobileUi.js";
 import {
@@ -111,6 +113,18 @@ const PlayGlyph = ({ playing }) => (
 const lengthOf = (seconds) => (seconds ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : "");
 // Composer, licence and length on one line: names and numbers, never translated.
 const detailOf = (track) => [track.artist, track.licence, lengthOf(track.seconds)].filter(Boolean).join(" · ");
+// Its genres and its first moods on one line: the hub's names, never translated.
+const tagLineOf = (track) => [(track.genres ?? []).join(", "), (track.moods ?? []).slice(0, 4).join(", ")].filter(Boolean).join(" · ");
+
+// The three menus that narrow the hub's list: each one's name, and what it
+// says while it narrows nothing. In a *_TEXTS table so the string extractor
+// reads them (scripts/i18n/).
+const TAG_FILTER_TEXTS = Object.freeze({
+  genres: Object.freeze({ label: "Genre", any: "Any genre" }),
+  moods: Object.freeze({ label: "Mood", any: "Any mood" }),
+  instruments: Object.freeze({ label: "Instrument", any: "Any instrument" }),
+});
+const NO_TAGS = Object.freeze({ genres: "", moods: "", instruments: "" });
 
 // One track tried out at a time, on an <audio> of its own, played from the
 // address the game plays the track from: the copy kept on this device
@@ -233,13 +247,24 @@ const ChosenRow = ({ entry, index, count, track, listed, onMove, onRemove, touch
 // The hub's tracks, under the situation a track is being added to.
 const TrackPicker = ({ situation, list, full, preview, onAdd, onClose, touch }) => {
   const [query, setQuery] = useState("");
-  const tracks = useMemo(() => {
+  // A genre, a mood and an instrument, each a name or "" for any.
+  const [tags, setTags] = useState(NO_TAGS);
+  const searched = useMemo(() => {
     const wanted = query.trim().toLowerCase();
-    const found = offeredTracks(list).filter((track) => !wanted || `${track.name} ${track.artist}`.toLowerCase().includes(wanted));
+    return offeredTracks(list).filter((track) => !wanted || `${track.name} ${track.artist}`.toLowerCase().includes(wanted));
+  }, [list, query]);
+  const tracks = useMemo(() => {
+    const found = tracksWithTags(searched, tags);
     // The tracks said to suit this situation first, each group in the hub's order.
     return [...found.filter((track) => track.fits.includes(situation)), ...found.filter((track) => !track.fits.includes(situation))];
-  }, [list, query, situation]);
+  }, [searched, situation, tags]);
+  // Each menu offers the names the tracks found by the other two (and the
+  // search) have, with how many have each: a choice never leads to nothing.
+  const choices = useMemo(() => Object.fromEntries(HUB_MUSIC_TAG_KINDS.map((kind) => [kind, tagCounts(tracksWithTags(searched, { ...tags, [kind]: "" }), kind)])), [searched, tags]);
   const offered = offeredTracks(list).length;
+  // A list that names none (a hub from before these) shows no menus.
+  const sorted = useMemo(() => offeredTracks(list).some((track) => HUB_MUSIC_TAG_KINDS.some((kind) => track[kind]?.length)), [list]);
+  const narrowed = HUB_MUSIC_TAG_KINDS.some((kind) => tags[kind]);
 
   return (
     <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", display: "grid", gap: "0.45rem", marginTop: "0.7rem", paddingTop: "0.7rem" }}>
@@ -253,9 +278,30 @@ const TrackPicker = ({ situation, list, full, preview, onAdd, onClose, touch }) 
         />
         <button className="oh-tap-row" onClick={onClose} style={touchFit(buttonStyle, touch)} type="button">{"Close"}</button>
       </div>
+      {sorted ? (
+        <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.45rem" }}>
+          {HUB_MUSIC_TAG_KINDS.map((kind) => (
+            <select
+              aria-label={TAG_FILTER_TEXTS[kind].label}
+              key={kind}
+              onChange={(event) => setTags((now) => ({ ...now, [kind]: event.target.value }))}
+              style={{ ...inputStyle, cursor: "pointer", flex: "1 1 9rem", minWidth: 0, width: "auto" }}
+              value={tags[kind]}
+            >
+              <option value="">{TAG_FILTER_TEXTS[kind].any}</option>
+              {/* The hub's own names, never translated, with how many tracks have each. */}
+              {tags[kind] && !choices[kind].some(([name]) => name === tags[kind]) ? <option data-no-translate value={tags[kind]}>{tags[kind]}</option> : null}
+              {choices[kind].map(([name, count]) => (
+                <option data-no-translate key={name} value={name}>{`${name} (${count})`}</option>
+              ))}
+            </select>
+          ))}
+          {narrowed ? <button className="oh-tap-row" onClick={() => setTags(NO_TAGS)} style={touchFit(buttonStyle, touch)} type="button">{"Clear filters"}</button> : null}
+        </div>
+      ) : null}
       {full ? <div style={{ ...quietStyle, color: "#fde68a" }}>{"A situation holds at most 12 tracks."}</div> : null}
       {offered === 0 ? <div style={quietStyle}>{"The hub's music list has no tracks yet."}</div> : null}
-      {offered > 0 && tracks.length === 0 ? <div style={quietStyle}>{"No track matches the search."}</div> : null}
+      {offered > 0 && tracks.length === 0 ? <div style={quietStyle}>{narrowed ? "No track matches the search and filters." : "No track matches the search."}</div> : null}
       <div style={{ display: "grid", gap: "0.35rem", maxHeight: "18rem", overflowY: "auto" }}>
         {tracks.slice(0, PICKER_ROWS).map((track) => {
           const playing = preview.playingId === track.id;
@@ -275,6 +321,7 @@ const TrackPicker = ({ situation, list, full, preview, onAdd, onClose, touch }) 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div data-no-translate style={trackNameStyle}>{track.name}</div>
                 {detailOf(track) ? <div data-no-translate style={trackDetailStyle}>{detailOf(track)}</div> : null}
+                {tagLineOf(track) ? <div data-no-translate style={trackDetailStyle}>{tagLineOf(track)}</div> : null}
                 {preview.failedId === track.id ? <div style={{ color: "#fecaca", fontSize: "0.72rem" }}>{"This track could not be played."}</div> : null}
               </div>
               <button className="oh-tap-row" disabled={full} onClick={() => onAdd(track)} style={touchFit({ ...primaryButtonStyle, opacity: full ? 0.55 : 1 }, touch)} type="button">{"Add"}</button>
