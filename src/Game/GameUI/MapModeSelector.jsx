@@ -49,7 +49,7 @@ export const MapModeSelector = memo(function MapModeSelector({ dockStyle = DEFAU
       style={{
         ...dockStyle,
         position: "fixed",
-        bottom: `calc(7.9rem + ${SAFE_BOTTOM})`,
+        bottom: `calc(9.25rem + ${SAFE_BOTTOM})`,
         zIndex: 9997,
         display: "flex",
         flexDirection: "column",
