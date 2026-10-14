@@ -23,6 +23,7 @@ import { WEATHER_STATES } from "../runtime/fronts/weather.js";
 import { TERRAIN_LEVEL_MOST, WALL_LEVEL_LEAST, WALL_LEVEL_MOST } from "../runtime/warGeography.js";
 import { isGameDate, normalizeGameDate } from "../runtime/gameDates.js";
 import { CLIMATE_PRESETS, DAYS_IN_MONTH, monthDayOf, monthDayParts, newClimateEvent, newSeason, seasonsOfClimate } from "./warGeographyDoc.js";
+import { WORLD_CLIMATE_ZONES, WORLD_TERRAIN_AREAS } from "../runtime/worldGeographyDefaults.js";
 
 const TABS = [
   { id: "terrain", label: "Terrain" },
@@ -101,7 +102,9 @@ const tabButton = (active) => ({
 });
 const hint = { fontSize: 11.5, lineHeight: 1.45, color: "rgba(255,255,255,0.55)" };
 const dim = { fontSize: 10.5, color: "rgba(255,255,255,0.5)" };
-const card = { border: "1px solid rgba(255,255,255,0.1)", borderRadius: 9, overflow: "hidden" };
+// (Never shrunk by the panel's column to fit it: the panel scrolls instead.
+// A card clips its corners, and a clipped box would otherwise be squashed.)
+const card = { border: "1px solid rgba(255,255,255,0.1)", borderRadius: 9, overflow: "hidden", flexShrink: 0 };
 const cardHead = {
   display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 9px", cursor: "pointer",
   background: "rgba(255,255,255,0.04)", border: "none", color: "white", textAlign: "left", fontSize: 12.5, fontWeight: 600,
@@ -494,6 +497,32 @@ const ShapeSummary = ({ kind, row, ownerName }) => {
   );
 };
 
+// A start from the real world's own (runtime/worldGeographyDefaults.js): the
+// climates and the hard ground a scenario on the built-in basemaps is fought
+// on where its author painted none, put into this scenario to be changed.
+const WorldStart = ({ tab, count, onStart }) => {
+  const climate = tab === "climate";
+  return (
+    <div style={{ ...card, padding: "9px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={hint}>
+        {climate
+          ? "With no zones of its own, a scenario on the built-in basemaps has the real world's: Siberia's long winter, the monsoon, the Sahara's heat. Painting a zone of its own replaces them all."
+          : "With no hard ground of its own, a scenario on the built-in basemaps has the real world's: the great mountain ranges, the marshes, the jungles and the sand seas. The game's map never shows it: it slows troops. Painting an area of its own replaces it all."}
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          if (count > 0 && !window.confirm(climate ? "Replace this scenario's climate zones with the real world's?" : "Replace this scenario's terrain with the real world's?")) return;
+          onStart();
+        }}
+        style={{ ...pillButton(false), alignSelf: "flex-start" }}
+      >
+        {climate ? "Start from the real world's climates" : "Start from the real world's hard ground"}
+      </button>
+    </div>
+  );
+};
+
 const WarMapPanel = ({
   tab,
   onTab,
@@ -524,7 +553,7 @@ const WarMapPanel = ({
   const patch = (id, fields) => setters[tab]?.((rows) => (rows || []).map((row) => (row.id === id ? withFields(row, fields) : row)));
 
   return (
-    <Panel title="War map" icon="mountain" onClose={onClose} width={380}>
+    <Panel title="War map" icon="mountain" onClose={onClose} width={420}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {TABS.map((entry) => (
           <button key={entry.id} type="button" onClick={() => onTab(entry.id)} style={tabButton(tab === entry.id)}>
@@ -572,6 +601,13 @@ const WarMapPanel = ({
               </div>
             ))}
           </div>
+          {(tab === "climate" || tab === "terrain") && (
+            <WorldStart
+              tab={tab}
+              count={list.length}
+              onStart={() => setters[tab]?.(() => JSON.parse(JSON.stringify(tab === "climate" ? WORLD_CLIMATE_ZONES : WORLD_TERRAIN_AREAS)))}
+            />
+          )}
           {tab === "climate" && (
             <>
               <div style={{ fontSize: 12, color: "rgba(255,255,255,0.75)" }}>
