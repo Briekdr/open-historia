@@ -23,6 +23,8 @@ import { effectiveCityPopulation } from "../../runtime/cityPopulation.js";
 import { hostingSharedGame, humanCountriesOf } from "../../runtime/humanPolities.js";
 import { withTurnSeaBattles } from "../../runtime/naval/record.js";
 import { withFrontFortifications } from "../../runtime/warGeography.js";
+import { militaryLookup } from "../../runtime/militaryStats.js";
+import { warSettingsOf } from "../../runtime/warSettings.js";
 import { STATS_BACKEND_FIELD, conflictSheetTargets, hasStatsBackend, statsBackendInstruction, statsBackendOf, statsBackendPatch, statsBackendTurnRule } from "../../runtime/statsBackend.js";
 import { CONFLICT_BACKENDS_MOST, conflictBackendsRequest, readConflictBackends } from "./conflictBackends.js";
 import {
@@ -9009,6 +9011,8 @@ const applySimulationResult = async ({
       ...(turnFronts?.sea ? { naviesRaised: turnFronts.sea.raised } : null),
       // And the walls as the fighting left them: their breaches and wear (runtime/fronts/walls.js).
       ...(turnFronts?.fortifications?.length ? { fortifications: withFrontFortifications(baseWorld?.fortifications, turnFronts.fortifications) } : null),
+      // And the water frozen this turn, for the map to show as ice (runtime/fronts/climate.js).
+      ...(turnFronts ? { frozenRegions: normalizeArray(turnFronts.frozen) } : null),
       // And the blockades that stand as the turn ends, each with the days it has stood (runtime/naval/blockade.js).
       ...(turnFronts ? { blockades: turnBlockades(baseWorld, turnFronts) } : null),
       // Whatever comes through here ends a scene: a skip is refused while one is
@@ -13679,11 +13683,16 @@ export const ensureConflictBackends = (targets, { reason = "" } = {}) => {
       ? normalizeCustomStatValues(normalizeCountryStatSheet(sheetOf(source, name))?.customStats, definition, { partial: true })
       : null);
     const currentDate = normalizeString(bundle.game?.gameDate || bundle.game?.startDate);
+    // Weighing countries' own military figures (runtime/warSettings.js), the same request rates those of a
+    // country that has none, from its author or its sheet (runtime/militaryStats.js).
+    const rateMilitary = warSettingsOf(world).mechanics.military;
+    const figuresOf = militaryLookup(world);
     const { systemPrompt, userMessage, asked } = conflictBackendsRequest({
       date: currentDate,
       rules: normalizeString(world.simulationRules),
       player: normalizeString(bundle.game?.country),
-      countries: wanted.map((name) => ({ name, population: Number(world.polityOverrides?.[name]?.population), values: ownSheet(world, name) })),
+      military: rateMilitary,
+      countries: wanted.map((name) => ({ name, population: Number(world.polityOverrides?.[name]?.population), values: ownSheet(world, name), rated: Boolean(figuresOf(name)) })),
       known: Object.entries(world.countryStats || {}).map(([name, sheet]) => ({ name, backend: statsBackendOf(sheet) })).filter((entry) => entry.backend),
       sheet: definition.custom ? { description: describeStatSheetDefinition(definition), keys } : null,
     });
@@ -13699,13 +13708,15 @@ export const ensureConflictBackends = (targets, { reason = "" } = {}) => {
     try {
       const kept = [];
       await mutateWorldState((latest) => {
-        for (const { name, backend, customStats } of read) {
+        for (const { name, backend, customStats, military } of read) {
           const key = canonicalStatsPolity(name, latest) || name;
           if (hasStatsBackend(latest.countryStats?.[key])) continue;
           // The scenario's own sheet with it, where the answer wrote the whole of one and the country has none.
           const values = definition.custom && customStats && !ownSheet(latest, name) ? normalizeCustomStatValues(customStats, definition) : null;
           const whole = values && keys.every((stat) => Object.prototype.hasOwnProperty.call(values, stat));
-          applyCountryStatPatchToWorld(latest, key, { ...(whole ? { customStats: values } : {}), ...statsBackendPatch(backend) }, whole
+          // Its military figures, where it was rated and has none of its own yet.
+          const rated = rateMilitary && military && !militaryLookup(latest)(name) ? { military } : {};
+          applyCountryStatPatchToWorld(latest, key, { ...(whole ? { customStats: values } : {}), ...statsBackendPatch(backend), ...rated }, whole
             ? { continuity: { assessedDate: currentDate, assessedRound: Math.max(0, Math.trunc(Number(bundle.game?.round) || 0)) } }
             : {});
           kept.push(key);

@@ -120,5 +120,31 @@ test("in a scenario with a sheet of its own the one request writes both layers: 
   const turn = read("gameplay.js");
   assert.ok(turn.includes("sheet: definition.custom ? { description: describeStatSheetDefinition(definition), keys } : null,"));
   assert.ok(turn.includes("const values = definition.custom && customStats && !ownSheet(latest, name) ? normalizeCustomStatValues(customStats, definition) : null;"));
-  assert.ok(turn.includes("applyCountryStatPatchToWorld(latest, key, { ...(whole ? { customStats: values } : {}), ...statsBackendPatch(backend) }, whole"));
+  assert.ok(turn.includes("applyCountryStatPatchToWorld(latest, key, { ...(whole ? { customStats: values } : {}), ...statsBackendPatch(backend), ...rated }, whole"));
+});
+
+test("weighing countries' military figures, the same request rates those of a country that has none, and they are kept on its sheet", () => {
+  const request = conflictBackendsRequest({
+    date: "1914-08-01",
+    military: true,
+    countries: [{ name: "Serbia" }, { name: "Austria-Hungary", rated: true }],
+  });
+  assert.match(request.userMessage, /- Serbia; and its military/);
+  assert.doesNotMatch(request.userMessage, /Austria-Hungary; and its military/);
+  assert.match(request.systemPrompt, /quality: how well its soldiers fight/);
+  assert.match(request.systemPrompt, /"military":\{"quality":50/);
+  assert.deepEqual(request.rated, ["Serbia"]);
+  // Off, or nobody without figures: nothing of it is asked.
+  assert.doesNotMatch(conflictBackendsRequest({ countries: [{ name: "Serbia" }] }).systemPrompt, /military/);
+  assert.doesNotMatch(conflictBackendsRequest({ military: true, countries: [{ name: "Serbia", rated: true }] }).systemPrompt, /and its military/);
+  // The answer's figures are read, held in range, and merged onto the sheet beside its backend.
+  const [read] = readConflictBackends({ countries: [{ country: "Serbia", population: 4500000, gdp: 1, budgetBalance: 0, publicDebt: 40, military: { quality: 62, technology: 140, sea: 0, cavalryShare: 0.08, bogus: 1 } }] }, ["Serbia"]);
+  assert.deepEqual(read.military, { quality: 62, technology: 100, sea: 0, cavalryShare: 0.08 });
+  const sheet = mergeCountryStatPatch({}, { ...statsBackendPatch(read.backend), military: read.military });
+  assert.deepEqual(sheet.military, read.military);
+  assert.deepEqual(mergeCountryStatPatch(sheet, { military: { quality: 70 } }).military, { ...read.military, quality: 70 }, "a later patch moves only what it names");
+  // In the game: rated only where the scenario weighs military figures and the country has none.
+  const gameplay = fs.readFileSync(path.join(here, "gameplay.js"), "utf8");
+  assert.ok(gameplay.includes("const rateMilitary = warSettingsOf(world).mechanics.military;"));
+  assert.ok(gameplay.includes("const rated = rateMilitary && military && !militaryLookup(latest)(name) ? { military } : {};"));
 });

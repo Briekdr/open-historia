@@ -999,6 +999,10 @@ export const mergeCountryStatPatch = (
     };
   }
 
+  // Its military figures in the backend (militaryStats.js), field by field over what it had.
+  const militaryPatch = normalizeMilitaryStats(patch.military);
+  if (militaryPatch) merged.military = { ...(base.military || {}), ...militaryPatch };
+
   // Full native Stats generation attaches the scenario's exact index key list.
   // Preserve that metadata on first persistence so completeness checks do not
   // silently fall back to the stock modern six for custom-era scenarios. It also
