@@ -20,7 +20,7 @@
 //   menPerCounter                         the men one of its counters stands for
 //   muster                                its own mustering curve (warSettings.js normalizeMusterPoints)
 
-import { normalizeMusterPoints } from "./warSettings.js";
+import { normalizeMusterPoints, warSettingsOf } from "./warSettings.js";
 
 export const MILITARY_STAT_FIELDS = Object.freeze(["quality", "technology", "land", "sea", "air", "weariness", "manpowerShare", "cavalryShare", "siegeShare", "menPerCounter", "muster"]);
 const RANGES = Object.freeze({
@@ -73,4 +73,13 @@ export const militaryLookup = (world) => {
   for (const [key, record] of Object.entries(isRecord(world?.groups) ? world.groups : {})) add(key, normalizeMilitaryStats(record?.military));
   for (const [key, sheet] of Object.entries(isRecord(world?.countryStats) ? world.countryStats : {})) add(key, normalizeMilitaryStats(sheet?.military));
   return (name) => found.get(fold(name)) ?? null;
+};
+
+// How weary of war each country goes to war (warWeariness.js wearinessGoingIn),
+// where the scenario weighs its countries' military figures (warSettings.js):
+// (name) => 0 to 100, or null where nobody gave it one. Null when it has them off.
+export const startingWearinessOf = (world) => {
+  if (warSettingsOf(world).mechanics.military !== true) return null;
+  const lookup = militaryLookup(world);
+  return (name) => lookup(name)?.weariness ?? null;
 };

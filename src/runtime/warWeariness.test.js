@@ -21,6 +21,7 @@ import {
   normalizeWarWeariness,
   shortagesTogether,
   wearinessAfter,
+  wearinessGoingIn,
   wearinessOf,
   wearinessWord,
   wearyShortage,
@@ -90,6 +91,20 @@ test("a turn moves every country's weariness: those at war by what the turn did 
   assert.deepEqual([...countriesAtWar([{ ...WAR, status: "ceasefire" }]).keys()], []);
   assert.deepEqual([...countriesAtWar([WAR]).values()], ["Aland", "Borduria", "Cisland"]);
   assert.deepEqual(withTurnWeariness(undefined, {}), []);
+});
+
+test("a country that goes to war with no weariness in the game goes as weary as its own figures say", () => {
+  const own = { aland: 40, borduria: 70, cisland: 0, neutralia: 60 };
+  const startOf = (name) => own[name.toLowerCase()] ?? null;
+  // Aland has a figure in the game already, and it stands; Borduria goes in at its own 70; Cisland's own is
+  // no weariness at all; Neutralia is at peace.
+  const going = wearinessGoingIn([{ country: "Aland", value: 12 }], { wars: [WAR], startOf });
+  assert.deepEqual(going, [{ country: "Aland", value: 12 }, { country: "Borduria", value: 70 }]);
+  // Nobody's figures (or the scenario has them off): what the game holds, as it holds it.
+  assert.deepEqual(wearinessGoingIn([{ country: "Aland", value: 12 }], { wars: [WAR] }), [{ country: "Aland", value: 12 }]);
+  assert.deepEqual(wearinessGoingIn(undefined, { wars: [WAR], startOf: () => "x" }), []);
+  // The period is counted from there.
+  near(wearinessOf(withTurnWeariness(going, { days: 30, wars: [WAR] }), "Borduria"), Math.round((70 + (WEARINESS_A_YEAR * 30) / 365) * 10) / 10);
 });
 
 test("what the world keeps is a country once, a figure from 0 to 100, and nothing at nothing", () => {

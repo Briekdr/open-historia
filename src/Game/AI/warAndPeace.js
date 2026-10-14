@@ -49,8 +49,9 @@ import {
   withTurnPeaceOffers,
   wouldAccept,
 } from "../../runtime/peaceTerms.js";
+import { startingWearinessOf } from "../../runtime/militaryStats.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
-import { normalizeWarWeariness, wearinessOf, withTurnWeariness } from "../../runtime/warWeariness.js";
+import { normalizeWarWeariness, wearinessGoingIn, wearinessOf, withTurnWeariness } from "../../runtime/warWeariness.js";
 import { applyWarUpdates } from "./nativeWarLedger.js";
 
 const clean = (value, most = 160) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, most).trim();
@@ -334,7 +335,8 @@ export const turnWarAndPeace = ({ world = {}, baseWorld = {}, days = 0, date = "
   next = { ...next, callsToArms: due.calls };
 
   // ---- weariness ----
-  const weariness = withTurnWeariness(before, {
+  // (A country that goes to war with none yet goes as weary as its own military figures say.)
+  const weariness = withTurnWeariness(wearinessGoingIn(before, { wars: next.wars, startOf: startingWearinessOf(next) }), {
     days,
     wars: next.wars,
     manpower: fronts?.manpower,

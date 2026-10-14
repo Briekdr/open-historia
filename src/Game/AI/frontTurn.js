@@ -44,7 +44,7 @@ import { buildWorldGrid, distanceTo, seasOf, worldSheetKey } from "../../runtime
 import { waterTypeIds } from "../../runtime/regionTypes.js";
 import { runNaval } from "../../runtime/naval/engine.js";
 import { normalizeBlockades, shortageOfBlockade } from "../../runtime/naval/blockade.js";
-import { normalizeWarWeariness, shortagesTogether, wearyShortage } from "../../runtime/warWeariness.js";
+import { shortagesTogether, wearinessGoingIn, wearyShortage } from "../../runtime/warWeariness.js";
 import { STRIKES_PER_TURN_MOST, findStrikePlace, pickStrikeOrigin, seaLaunchPlace } from "../../runtime/strikes.js";
 
 export const FRONT_MARK = "front";
@@ -1057,7 +1057,8 @@ export const runTurnFronts = async ({
   // The countries under blockade as the period begins, and how short each is for it.
   const short = new Map(naval === false ? [] : normalizeBlockades(world?.blockades).map((record) => [fold(record.country), shortageOfBlockade(record)]).filter(([, lacks]) => lacks > 0));
   // And a country weary of its war keeps its armies up no better than one cut off (runtime/warWeariness.js): the two together.
-  for (const entry of normalizeWarWeariness(world?.warWeariness)) {
+  // One the game holds no weariness for yet goes to war as weary as its military figures say, where the scenario weighs them.
+  for (const entry of wearinessGoingIn(world?.warWeariness, { wars: stages.flat(), startOf: mechanics?.military === true ? (name) => readers.militaryOf(name)?.weariness ?? null : null })) {
     const weary = wearyShortage(entry.value);
     if (weary > 0) short.set(fold(entry.country), shortagesTogether(short.get(fold(entry.country)) ?? 0, weary));
   }

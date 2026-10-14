@@ -12,7 +12,9 @@
 //                   an enemy in a period
 //   a blockade      by how hard it presses (runtime/naval/blockade.js)
 //
-// falls a little with ground taken, and falls away in peace.
+// falls a little with ground taken, and falls away in peace. A country the
+// game holds none for goes to war as weary as the scenario says it is (its
+// military figures, runtime/militaryStats.js), where the scenario weighs them.
 //
 // WHAT IT DOES. A country nobody plays that is weary enough, or is losing
 // its own ground, offers a person it is at war with peace (runtime/
@@ -99,6 +101,25 @@ export const countriesAtWar = (wars) => {
     for (const name of [...list(war.sideA), ...list(war.sideB)]) if (clean(name) && !names.has(fold(name))) names.set(fold(name), clean(name));
   }
   return names;
+};
+
+// The weariness the countries at war go into a period with: the game's figure
+// for each, and for one at war the game holds none for (it never fought, or
+// has long been at peace) what its own figures say it goes to war with.
+//   kept        world.warWeariness
+//   wars        the war ledger (every stage of it the period goes through)
+//   startOf     (name) => 0 to 100, or null for none (militaryStats.js startingWearinessOf); null: none
+export const wearinessGoingIn = (kept, { wars = [], startOf = null } = {}) => {
+  const known = normalizeWarWeariness(kept);
+  if (typeof startOf !== "function") return known;
+  const held = new Set(known.map((entry) => fold(entry.country)));
+  const seeded = [];
+  for (const [key, name] of countriesAtWar(wars)) {
+    if (held.has(key)) continue;
+    const start = Number(startOf(name));
+    if (Number.isFinite(start) && start > 0) seeded.push({ country: name, value: start });
+  }
+  return seeded.length > 0 ? normalizeWarWeariness([...known, ...seeded]) : known;
 };
 
 // The world's weariness after a turn.
