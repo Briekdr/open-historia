@@ -2104,7 +2104,7 @@ const SettingsWorkspace = ({
                             <option value="political">Political (Countries and borders)</option>
                             <option value="diplomatic">Diplomatic (Allies, enemies, trade partners)</option>
                         </select>
-                        <div style={helperStyle}>Diplomatic mode highlights allies in blue, war enemies in red, and friendly trade partners in green.</div>
+                        <div style={helperStyle}>Diplomatic mode highlights puppets in indigo, allies in blue, war enemies in red, and friendly trade partners in green.</div>
                     </div>
                     <BasemapField value={basemapStyle} onChange={updateBasemapStyle} />
                     {/* Labels rasterize from the player's LOCAL fonts (the style

@@ -48,6 +48,36 @@ test("identifies allies via mutual defense and alliance agreements (sky blue)", 
   assert.equal(getDiplomaticOwnerColor("Netherlands", stance), DIPLO_COLORS.ally);
 });
 
+test("identifies puppet and vassal states (indigo)", () => {
+  const puppets = [
+    {
+      status: "active",
+      overlord: "France",
+      puppet: "Monaco",
+    },
+  ];
+  const agreements = [
+    {
+      status: "active",
+      category: "vassal",
+      overlord: "France",
+      puppet: "Andorra",
+    },
+  ];
+  const polityOverrides = {
+    Saarland: { overlord: "France" },
+  };
+  const stance = buildDiplomaticStanceMap({
+    playerCountry: "France",
+    puppets,
+    agreements,
+    polityOverrides,
+  });
+  assert.equal(getDiplomaticOwnerColor("Monaco", stance), DIPLO_COLORS.puppet);
+  assert.equal(getDiplomaticOwnerColor("Andorra", stance), DIPLO_COLORS.puppet);
+  assert.equal(getDiplomaticOwnerColor("Saarland", stance), DIPLO_COLORS.puppet);
+});
+
 test("identifies trade and friendly partners (green)", () => {
   const agreements = [
     {

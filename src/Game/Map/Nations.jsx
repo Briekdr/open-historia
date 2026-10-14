@@ -517,6 +517,7 @@ const WorldMap = ({ isGlobe = false }) => {
     polityOverrides,
     groups,
     groupAreas,
+    puppets,
     wars,
     relations,
     agreements,
@@ -1350,8 +1351,10 @@ const WorldMap = ({ isGlobe = false }) => {
       wars,
       agreements,
       relations,
+      puppets,
+      polityOverrides,
     });
-  }, [mapMode, activeGame?.country, worldState?.country, wars, agreements, relations]);
+  }, [mapMode, activeGame?.country, worldState?.country, wars, agreements, relations, puppets, polityOverrides]);
 
   const ownerColorCss = useCallback(
     (owner) => {

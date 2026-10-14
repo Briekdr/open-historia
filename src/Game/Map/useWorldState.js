@@ -167,6 +167,7 @@ const deriveMapState = (state) => ({
     return { groups, groupAreas: normalizeGroupAreas(state.groupAreas, groups) };
   })(),
   markers: Array.isArray(state?.markers) ? state.markers : EMPTY_MARKERS,
+  puppets: Array.isArray(state?.puppets) ? state.puppets : EMPTY_ARRAY,
   wars: Array.isArray(state?.wars) ? state.wars : EMPTY_ARRAY,
   relations: Array.isArray(state?.relations) ? state.relations : EMPTY_ARRAY,
   agreements: Array.isArray(state?.agreements) ? state.agreements : EMPTY_ARRAY,
@@ -193,6 +194,7 @@ const sameMapState = (prev, next) =>
   prev.regionOwnershipOverrides === next.regionOwnershipOverrides &&
   prev.regionClaimants === next.regionClaimants &&
   prev.markers === next.markers &&
+  prev.puppets === next.puppets &&
   prev.wars === next.wars &&
   prev.relations === next.relations &&
   prev.agreements === next.agreements &&
@@ -224,6 +226,9 @@ const stabilizeMapStateReferences = (prev, next) => {
     markers: areEqualStructured(prev.markers, next.markers)
       ? prev.markers
       : next.markers,
+    puppets: areEqualStructured(prev.puppets, next.puppets)
+      ? prev.puppets
+      : next.puppets,
     wars: areEqualStructured(prev.wars, next.wars)
       ? prev.wars
       : next.wars,

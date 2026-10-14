@@ -25,6 +25,7 @@ const DiplomaticIcon = () => (
 
 const LEGEND_ITEMS = [
   { label: "You", color: DIPLO_COLORS.player },
+  { label: "Puppets", color: DIPLO_COLORS.puppet },
   { label: "Allies", color: DIPLO_COLORS.ally },
   { label: "At War", color: DIPLO_COLORS.enemy },
   { label: "Friendly / Trade", color: DIPLO_COLORS.friendly },
