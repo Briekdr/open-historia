@@ -3,7 +3,9 @@
 // speak the NIP-01 subset real ones do: they check each event's id and
 // signature the way a relay does (so a serialization mistake fails here as it
 // would against the real thing), answer OK, and pass events to matching
-// subscriptions. A relay can be taken down and brought back.
+// subscriptions. A relay can be taken down and brought back. With
+// `ephemeralMaxAgeSeconds` it refuses an ephemeral event stamped longer ago
+// than that by its own clock, as strfry does ("ephemeral event expired").
 
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -22,7 +24,7 @@ const matches = (filter, event) => {
   return true;
 };
 
-export const createFakeRelayNetwork = ({ verify = true } = {}) => {
+export const createFakeRelayNetwork = ({ verify = true, ephemeralMaxAgeSeconds = 0 } = {}) => {
   const relays = new Map();
   const relayFor = (url) => {
     if (!relays.has(url)) relays.set(url, { url, up: true, sockets: new Set(), events: [], tamper: null, refusing: "", refused: 0 });
@@ -81,6 +83,12 @@ export const createFakeRelayNetwork = ({ verify = true } = {}) => {
         })();
         if (verify && (id !== event.id || !signed)) {
           this.deliver(JSON.stringify(["OK", event.id, false, "invalid: bad id or signature"]));
+          return;
+        }
+        const ephemeral = event.kind >= 20000 && event.kind < 30000;
+        if (ephemeralMaxAgeSeconds && ephemeral && event.created_at < Math.floor(Date.now() / 1000) - ephemeralMaxAgeSeconds) {
+          this.relay.refused += 1;
+          this.deliver(JSON.stringify(["OK", event.id, false, "invalid: ephemeral event expired"]));
           return;
         }
         if (this.relay.refusing) {

@@ -93,3 +93,17 @@ test("a long list of names is cut, and a missing scenario is named", () => {
   assert.match(scenarioMissing("The Fire Rises"), /"The Fire Rises"/);
   assert.match(scenarioMissing(""), /a scenario/);
 });
+
+test("a wrong clock is said while joining, when it ends, and on the host's screen", () => {
+  assert.match(joinStage({ role: "guest", connection: "finding", detail: { heard: false, failures: 0, clock: true } }), /clock looks wrong/);
+  // Once in, it is no longer what holds anything up.
+  assert.match(joinStage({ role: "guest", connection: "connected", detail: { clock: true } }), /Loading the lobby/);
+  const ended = joinFailure({ connection: "lost", reason: "clock" });
+  assert.match(ended, /clock is wrong/);
+  assert.match(ended, /time zone/);
+  assert.match(ended, /Settings → Time & language → Date & time/);
+  const host = hostLines({ clockRefused: true, network: "open" });
+  assert.equal(host.length, 1);
+  assert.equal(host[0].problem, true);
+  assert.match(host[0].text, /nobody can find this lobby/);
+});

@@ -62,6 +62,17 @@ const leave = async () => {
   window.location.reload();
 };
 
+// Who plays what: the lobby's list, and the round bar's when it is opened ("how
+// can I see who is playing?", a player asked mid-game). `ready` marks those
+// who are ready in the round.
+const SeatList = ({ seats, ready = [] }) => (seats ?? []).map((seat) => (
+  <div key={seat.country} style={{ display: "flex", fontSize: "0.86rem", gap: "0.5rem", padding: "0.2rem 0" }}>
+    <span style={{ ...isolate, flex: 1 }}>{seat.country}</span>
+    <span style={{ ...isolate, color: "rgba(255,255,255,0.6)" }}>{seat.name}{seat.you ? " (you)" : ""}</span>
+    <span style={small}>{seat.status === "human" ? (ready.includes(seat.country) ? "Ready ✓" : "") : seat.status === "away" ? "Away" : "AI player"}</span>
+  </div>
+));
+
 const Lobby = ({ shared, me }) => {
   const { lobby, role, token, engine, error } = shared;
   const taken = useMemo(() => new Set((lobby?.seats ?? []).map((seat) => seat.country)), [lobby]);
@@ -117,13 +128,7 @@ const Lobby = ({ shared, me }) => {
 
       <div style={{ marginTop: "1rem" }}>
         <div style={{ ...small, marginBottom: "0.35rem", textTransform: "uppercase" }}>Players</div>
-        {(lobby?.seats ?? []).map((seat) => (
-          <div key={seat.country} style={{ display: "flex", fontSize: "0.86rem", gap: "0.5rem", padding: "0.2rem 0" }}>
-            <span style={{ ...isolate, flex: 1 }}>{seat.country}</span>
-            <span style={{ ...isolate, color: "rgba(255,255,255,0.6)" }}>{seat.name}{seat.you ? " (you)" : ""}</span>
-            <span style={small}>{seat.status === "human" ? "" : seat.status === "away" ? "Away" : "AI player"}</span>
-          </div>
-        ))}
+        <SeatList seats={lobby?.seats} />
       </div>
 
       {!me && lobby && role !== "host" && shared.standIn !== "ready" && !error ? (
@@ -157,6 +162,7 @@ const Lobby = ({ shared, me }) => {
 
 const RoundBar = ({ shared, me }) => {
   const { round, role, notices } = shared;
+  const [showPlayers, setShowPlayers] = useState(false);
   // The clock is read in the timer, never while rendering: the time left and
   // the moment it was read are state like any other.
   const [clockState, setClockState] = useState({ remaining: 0, at: 0 });
@@ -185,8 +191,14 @@ const RoundBar = ({ shared, me }) => {
           <button type="button" style={button} onClick={() => hostControl("resolveNow")}>End round now</button>
         </>
       ) : null}
+      <button type="button" style={showPlayers ? primary : button} aria-expanded={showPlayers} onClick={() => setShowPlayers((open) => !open)}>Players</button>
       <button type="button" style={button} onClick={leave}>{role === "host" ? "Stop" : "Leave"}</button>
       {recent ? <span style={{ ...small, flexBasis: "100%", textAlign: "center" }}>{recent.text}</span> : null}
+      {showPlayers ? (
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", flexBasis: "100%", maxHeight: "40vh", overflowY: "auto", paddingTop: "0.3rem" }}>
+          <SeatList seats={shared.lobby?.seats} ready={round?.ready ?? []} />
+        </div>
+      ) : null}
     </div>
   );
 };

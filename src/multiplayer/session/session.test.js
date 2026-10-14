@@ -59,8 +59,8 @@ test.afterEach(() => {
   }
 });
 
-const world = ({ seats = 4, hostLimits = {} } = {}) => {
-  const relays = createFakeRelayNetwork();
+const world = ({ seats = 4, hostLimits = {}, hostNow, relayOptions = {} } = {}) => {
+  const relays = createFakeRelayNetwork(relayOptions);
   const rtc = createFakeRtcNetwork();
   const channelFactory = (options) => createNostrChannel({ ...options, relays: RELAYS, WebSocketImpl: relays.WebSocket });
   const peerFactory = (options) => createPeer({ ...options, RTCPeerConnectionImpl: rtc.RTCPeerConnection });
@@ -74,6 +74,7 @@ const world = ({ seats = 4, hostLimits = {} } = {}) => {
     onLeave: (player, reason) => events.leaves.push({ ...player, reason }),
     onMessage: (player, message) => events.messages.push({ from: player.name, message }),
     onStatus: (status) => { events.status = status; },
+    ...(hostNow ? { now: hostNow } : {}),
     limits: { beaconIntervalMs: 200, pingIntervalMs: 100_000, ...hostLimits },
   }));
   const join = (name, { token = invite.token, device = createIdentity(), version = VERSION, ...extra } = {}) => {
@@ -393,5 +394,28 @@ test("a message from the host that this build cannot read is reported, not swall
   assert.ok(await until(() => problems.length === 1));
   assert.equal(problems[0].type, "blob");
   assert.equal(player.log.messages.length, 0);
+  setup.host.stop();
+});
+
+test("a computer whose clock is an hour behind is told its clock is wrong, not that no host was found", async () => {
+  // The relays refuse an ephemeral event stamped more than a minute before
+  // their own time, as strfry does; a player's computer was an hour behind.
+  const setup = world({ relayOptions: { ephemeralMaxAgeSeconds: 60 } });
+  setup.host.start();
+  const hourBehind = () => Date.now() - 3_600_000;
+  const late = setup.join("Ana", { now: hourBehind, findTimeoutMs: 800 });
+  assert.ok(await until(() => late.client.state === "lost"));
+  assert.equal(late.log.states.at(-1).reason, "clock");
+  assert.ok(late.log.states.some((entry) => entry.state === "finding" && entry.clock), "the screen was told while it still tried");
+  // Stamped by the relays' time instead (client/clock.js), the same computer gets in.
+  const corrected = setup.join("Ben");
+  assert.ok(await until(() => corrected.client.state === "connected"));
+  setup.host.stop();
+});
+
+test("a host whose clock is an hour behind is told nobody can find its lobby", async () => {
+  const setup = world({ relayOptions: { ephemeralMaxAgeSeconds: 60 }, hostNow: () => Date.now() - 3_600_000 });
+  setup.host.start();
+  assert.ok(await until(() => setup.events.status?.clockRefused === true), JSON.stringify(setup.events.status));
   setup.host.stop();
 });

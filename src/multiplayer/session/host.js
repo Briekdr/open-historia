@@ -102,6 +102,9 @@ export const createHostSession = ({
   // at }. The host's screen says so, because from the host's side they are
   // otherwise invisible, and it is the host's network as often as theirs.
   const unreachable = new Map();
+  // A relay refused what the host sent for its time stamp: this computer's
+  // clock is wrong, and nobody can find the lobby (signaling/nostr.js).
+  let clockRefused = false;
   const unreachableNow = () => {
     const cutoff = now() - limits.unreachableMemoryMs;
     for (const [device, entry] of unreachable) if (entry.at < cutoff) unreachable.delete(device);
@@ -114,6 +117,7 @@ export const createHostSession = ({
     pending: pending.size,
     joining: [...pending.values()].map((entry) => entry.name),
     unreachable: unreachableNow(),
+    clockRefused,
     token: currentInvite.token,
   });
 
@@ -392,7 +396,13 @@ export const createHostSession = ({
   };
 
   const openChannel = () => {
-    channel = channelFactory({ topic: keys.topic, key: keys.signalKey, onPayload, onStatus: report, log, now, timers });
+    const onRefused = ({ clock }) => {
+      if (!clock || clockRefused) return;
+      clockRefused = true;
+      log("a relay refused what this computer sent for its time stamp: its clock is wrong, and nobody can find the lobby");
+      report();
+    };
+    channel = channelFactory({ topic: keys.topic, key: keys.signalKey, onPayload, onStatus: report, onRefused, log, now, timers });
   };
 
   return {

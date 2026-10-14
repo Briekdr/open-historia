@@ -474,6 +474,11 @@ try {
   check("the game starts: both see round 1", barBoth);
   await withHelpers(host);
   await withHelpers(guest);
+  // Who plays what, during the game too ("how can I see who is playing?").
+  await guest.eval("window.__e2e.click('Players')");
+  const playersShown = await until(guest, `(() => { const open = [...document.querySelectorAll('button[aria-expanded="true"]')].find((b) => b.textContent.trim() === 'Players'); const bar = open && open.parentElement; return Boolean(bar && bar.textContent.includes(${JSON.stringify(GUEST_COUNTRY)}) && bar.textContent.includes(${JSON.stringify(HOST_COUNTRY)})); })()`, 10000);
+  check("during the game the round bar's Players shows who plays what", playersShown);
+  await guest.eval("window.__e2e.click('Players')");
 
   // Two people talk. The host opens a thread with the guest's country and
   // writes; nobody answers for the guest but the guest.
@@ -568,6 +573,10 @@ try {
       && firstRoster.some((line) => line.startsWith(`- ${HOST_COUNTRY} — HUMAN-controlled (the player)`))
       && firstRoster.some((line) => line.startsWith(`- ${GUEST_COUNTRY} — HUMAN-controlled (another player)`)),
     JSON.stringify({ ai: AI_COUNTRY, asked: chatBodies.length - askedBeforeTable, guestSees: namesOf(guestTable), hostSees: namesOf(hostTable), roster: firstRoster }));
+  // A vote is nothing the host can be asked for yet: at a table of a shared
+  // game it is not offered. Called from the host's own screen it ran the table
+  // there, which a shared game refuses, and Retry ran it again.
+  check("no vote is offered at a shared game's table", (await host.eval("window.__e2e.buttons('Vote').length")) === 0);
   // The guest speaks at the same table, which is the host's thread.
   await backToList(guest);
   await until(guest, "document.querySelectorAll('[data-diplomacy-thread-row]').length > 1", 15000);

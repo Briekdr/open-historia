@@ -38,7 +38,8 @@ import { probeNetwork } from "../transport/peer.js";
 import { createInvite, parseInvite } from "../invite.js";
 import { loadDeviceIdentity } from "../identity.js";
 import { PLAYER_REQUESTS, SHARED_GAME_VERSION } from "../game/messages.js";
-import { relayChannelFactory } from "../signaling/relays.js";
+import { relayChannelFactory, usesCustomRelays } from "../signaling/relays.js";
+import { describeClock, offsetClock, readSignalingClock } from "../client/clock.js";
 import { createGameHost } from "./gameHost.js";
 import { normalizeSettings } from "./settings.js";
 
@@ -177,7 +178,7 @@ const boot = async () => {
   // being opened, and those the host answered whose connection never opened
   // (session/host.js report). The host's screen names them, because a lobby
   // nobody can get into otherwise looks like one nobody came to.
-  let people = { joining: [], unreachable: [] };
+  let people = { joining: [], unreachable: [], clockRefused: false };
   // What this computer's own network looks like to a player connecting in
   // (transport/peer.js probeNetwork): "" until it is known.
   let network = "";
@@ -231,6 +232,7 @@ const boot = async () => {
       choosing: players.filter((player) => player.id !== SCREEN && !player.seat).map((player) => clean(player.name)).filter(Boolean).slice(0, 64),
       joining: people.joining,
       unreachable: people.unreachable,
+      clockRefused: people.clockRefused === true,
       network,
     });
   };
@@ -317,10 +319,15 @@ const boot = async () => {
       },
       log: (level, text, detail) => console[level === "warn" ? "warn" : "info"](`[shared game] ${text}`, detail ?? ""),
     });
+    // The relays' time, which the lobby's signaling is stamped by
+    // (client/clock.js): a host whose clock is out cannot be found at all.
+    const clock = await readSignalingClock({ customRelays: usesCustomRelays() });
+    if (clock.offsetMs) logDebugEvent("shared game", describeClock(clock));
     session = createHostSession({
       invite,
       host: identity,
       channelFactory: relayChannelFactory,
+      now: offsetClock(clock.offsetMs),
       room: { name: settings.name, seats: settings.seats, version: SHARED_GAME_VERSION },
       appMessages: PLAYER_REQUESTS,
       // A connection closing after "stop" still reports its leaving.
@@ -332,6 +339,7 @@ const boot = async () => {
         people = {
           joining: list(status?.joining).map(clean).filter(Boolean).slice(0, 64),
           unreachable: list(status?.unreachable).map(clean).filter(Boolean).slice(0, 64),
+          clockRefused: status?.clockRefused === true,
         };
         report();
       },

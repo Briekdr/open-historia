@@ -108,7 +108,8 @@ const InviteBar = ({ onEnterGame }) => {
 const HostPanel = ({ onClose, onEnterGame }) => {
   const { activeGame } = useLibraryState();
   const shared = useSharedGame();
-  const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS, name: activeGame?.name ? `${activeGame.name}` : DEFAULT_SETTINGS.name });
+  // A stand-in of an earlier shared game is named "Shared game: …": its lobby is not.
+  const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS, name: String(activeGame?.name || "").replace(/^(?:shared game:\s*)+/i, "").trim() || DEFAULT_SETTINGS.name });
   const [name, setName] = useState(rememberedName);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
