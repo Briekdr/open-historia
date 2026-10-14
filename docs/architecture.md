@@ -84,20 +84,24 @@ The one place the flag is read at boot is `src/main.jsx` (below). Because the we
 | `?editor=1` | `<MapEditor/>` (lazy, `src/App.jsx`) | OpenLayers only fetched here; wrapped in `<Suspense>`. See [Map editor](map-editor.md) |
 | anything else | `<ErrorBoundary><GameApp/></ErrorBoundary>` | `ErrorBoundary` (`src/runtime/ErrorBoundary.jsx`) shows a recoverable Reload screen on a render throw instead of a blank page, with a Save logging file button that attaches the crash's full stacks |
 
-### 3c. `GameApp` — startup preload & first render
+### 3c. `GameApp` — the page starts on the menu; a game is loaded when it is opened
 
-`GameApp` (`src/App.jsx`) always mounts `<Map>` immediately (behind a black `WorldShell`), and swaps a `<StartupScreen>` overlay for the `<UI>` once ready. Readiness is a race between a time budget and two async signals:
+`GameApp` (`src/App.jsx`) starts on the **main menu with no game loaded behind it**: no map instance, none of a game's regions, tiles, borders or labels, and no wait for a world to be drawn. The library still has an *active* game (the one last played), but nothing is loaded for it until the player opens a game. One module-level fact decides that, `src/runtime/gameEntry.js` (`hasEnteredGame()`, `enterGame()`, `useGameEntered()`): false on every page load, set once, never unset.
 
-| State / ref | Meaning | Set by |
+| State | Meaning | Set by |
 |---|---|---|
-| `startupState` | progress %, current stage, per-task steps | `runStartupPreload` progress callback (`src/runtime/preload.js`) |
-| `preloadFinishedRef` | the 8 preload tasks finished/timed out | preload `.finally` |
-| `worldIdleRef` / `hasFirstWorldIdle` | MapLibre fired its **first** `onIdle` (first world frame settled) | `<Map onInitialIdle={handleFirstWorldIdle}>` → `World.jsx` |
-| `isReady` | show `<UI>`, hide `<StartupScreen>` | true when **(preload done AND first world idle)**, OR when `STARTUP_TIME_BUDGET_MS` (30 s) elapses |
+| `startupState` | the startup screen's one step, **Syncing games and scenarios** | `createMenuStartupState()` (`src/runtime/preload.js`) |
+| `isReady` | show `<UI>` (the menu), hide `<StartupScreen>` | `ensureLibraryCatalog()` settling either way, or `STARTUP_TIME_BUDGET_MS` (30 s) should it never answer |
+| `doorShut` | show `<VaultDoor>` over the menu once `isReady` (`GameUI/VaultDoor.jsx`, [game-ui.md](game-ui.md) §1.4); the menu's music is held behind it (`holdMusicBehindDoor`) | true from the start; false when the door has opened (`onOpened`), or at once if it cannot be drawn (`DoorFrame`). Once a page: going back to the menu from a game does not shut it again |
+| `gameEntered` (`useGameEntered()`) | mount `<WorldMap>` (the lazy MapLibre chunk), and run the game's warm-ups | `enterGame()`, below |
 
-A `requestAnimationFrame` loop (`src/App.jsx`) ticks `elapsedMs` and flips `isReady` when either condition is met. The overlay's last 3% ("Finalizing first world render") is gated on `hasFirstWorldIdle` so the bar never sits at 100% while the map is still blank.
+**Who enters a game.** The library, when a game it was asked to open has landed in its state: `activateGame` (Play on a game's card, the active one included, where the id does not change; Import & play; a shared game's stand-in) and `createGame({ setActive })` (a new game, a clone, Apply & Play) call `enterGame()` after the catalog is applied, never before, so the map does not start on the game that is on its way out. And the main menu, when it closes over the game that is already the active one with the library opening nothing: hosting or joining a shared game (`enterActiveGame` in `libraryBar.jsx`, the Lobbies tab's `onEnterGame`, and a phone's Back over a game the menu was opened from). The menu has no other way to be closed. Between a press of Play and the game landing, the menu is closed and nothing is entered yet: `GameUI/main.jsx` shows the cover loading screen (`awaitingGame`), a flow that fails opens the menu again, and should neither happen within the cover's 60 s ceiling the active game is entered.
 
-Before the preload even starts, `ensureLibraryCatalog()` (`src/runtime/library.js`) loads the games/scenarios catalog so the active game's cache token is known. The **8 preload tasks** (`src/runtime/preload.js`) warm: runtime JSON state, ESRI + terrain textures, `countries.pmtiles`, the country index, country labels, `cities.pmtiles`, and `regions.pmtiles`. See [Startup preload](assets-and-data.md).
+**From entry on it is as it was.** The map mounts keyed on the active game; the **preload tasks** (`runStartupPreload`, `src/runtime/preload.js`: runtime JSON state, ESRI + terrain textures, `countries.pmtiles`, the country index, `cities.pmtiles`, `regions.pmtiles`) start with the first game entered, once a page, in the background with no screen of their own; the first world idle only warms the AI chunk (`prefetchGameplay`); and the cover (`useGameLoading`, whose wait and ceiling start at entry, not at mount) stays until the map has drawn. Leaving a game for the menu keeps that game loaded behind the menu: only the first game of a page waits for a Play.
+
+**What waits for entry besides the map**: the game's own controls in `GameUI/main.jsx` (the date widget, which runs the game, the toolbar, Search, the forces, the advisor button), the AI timers, the scenario's music, Discord's "playing", the hooks that read the open game's documents (`useRuntimeState`; `useWorldState({ wait })` and `useCountryDisplayName(code, { wait })` for the two callers that are on screen with the menu), and the retry of a missing community basemap. The standalone editor route (`?editor=1`) is untouched, and the website's entry screen and the Android app's boot screen sit in front of the same menu.
+
+See [Startup preload](assets-and-data.md).
 
 Both `<Map>` and `<UI>` are keyed on `activeGameId` (not the library token) so a scenario "Apply & Play" — which writes many assets and bumps the token repeatedly — remounts the map exactly **once** (`src/App.jsx`).
 
@@ -128,7 +132,7 @@ Both `<Map>` and `<UI>` are keyed on `activeGameId` (not the library token) so a
 | Path | Responsibility | Deep-dive |
 |---|---|---|
 | `src/main.jsx` | Entry: runtime config, mount, web/desktop fork | §3a |
-| `src/App.jsx` | Route split (game vs editor), startup race | §3b/3c |
+| `src/App.jsx` | Route split (game vs editor), startup, and the map mounted when a game is opened | §3b/3c |
 | `src/Game/Map/` | MapLibre map + layers: `World.jsx` (map shell + style), `Nations.jsx` (region fills/borders/labels), `Cities.jsx`, `Units.jsx` + `unitsController.js`, `MarkersLayer.jsx`, `GlobeEffects.jsx` + globe sun/star canvases, `useWorldState.js`, `useCustomBackground.js` | [Map rendering](game-map.md) |
 | `src/Game/GameUI/` | The HUD: `main.jsx` (shell), `libraryBar.jsx` (top bar + main menu), `time.jsx` (date/turn), `chat.jsx` (toolbar/inbox), `advisor.jsx`, `forces.jsx`, `settings.jsx`, `search.jsx`, `stats.jsx`, `communityHub.jsx`, `actions.jsx`, `cheats.jsx`, `FactionCreator.jsx`, `CountryPickerMap.jsx`, `other.jsx` | [Game UI](game-ui.md) |
 | `src/Game/Selection/` | Click-target popups: `Regions.jsx`, `CountryPanel.jsx`, `Units.jsx`, `Features.jsx` | [Selection & popups](game-ui.md) |
@@ -144,7 +148,8 @@ Both `<Map>` and `<UI>` are keyed on `activeGameId` (not the library token) so a
 | `assets.js` | The asset/endpoint hub: defines `JSON_URLS`, `PMTILES_ARCHIVES`, ESRI basemaps, MapLibre `pmtiles`/`ohbase` protocols, `readJson`/`writeJson`/`warm*`, per-token cache sweeping. §5 |
 | `library.js` | React store (`useSyncExternalStore`) for games/scenarios; wraps `/api/library`, `/api/games`, `/api/scenarios`; wires the active cache token + country-name overrides into `assets.js` |
 | `gameState.js` | `GAME_DEFAULTS` + `WORLD_DEFAULTS`; read/write of the per-game `game.json` and `world.json` runtime state | [World state](world-state.md) |
-| `preload.js` | The 8 startup warm tasks + progress model. §3c |
+| `preload.js` | A game's warm tasks (run when the first game is opened) + the startup screen's one step. §3c |
+| `gameEntry.js` | Whether a game has been opened since the page started: nothing of a game is loaded before. §3c |
 | `worldFiles.js` | Where a build reads its map files: `ASSETS_BASE` (`/assets`; `/play/assets` on openhistoria.com), `worldFileUrl`, `mapArchiveUrl` |
 | `StartupScreen.jsx` / `ErrorBoundary.jsx` | Loading overlay; render-error recovery |
 | `countryLabels.js`, `countryFlags.js`, `countryTags.js`, `countryNames`/`polityNames.js` | Country flag/tag/name resolution from `countries.pmtiles` + overrides; the picker's coarse region shapes |
@@ -247,4 +252,4 @@ Gameplay writes flow: **AI turn / cheat / UI action → `gameState.js` write →
 - **State not saving / stale after switch** → `src/runtime/gameState.js` + `src/runtime/assets.js` (`setRuntimeAssetEndpoints` cache sweep) + `src/runtime/library.js`.
 - **API 404 / route** → `server/server.js` (desktop) or `src/runtime/web/router.js` (web).
 - **Build/variant weirdness** → `vite.config.ts` (`define` flag + `dropMapBinaries`) and `.env.web`.
-- **Boot hangs / blank screen** → `src/App.jsx` startup race + `src/runtime/preload.js`.
+- **Boot hangs / blank screen** → `src/App.jsx` startup (it waits for the library catalog only) + `src/runtime/gameEntry.js` (the map and the game's controls mount when a game is entered) + `src/runtime/preload.js`.

@@ -251,9 +251,13 @@ test("a track is played through the route every hub file takes on the platform",
   const router = fs.readFileSync(path.join(ROOT, "src/runtime/web/router.js"), "utf8");
   assert.ok(router.includes("const base = (import.meta.env.VITE_OH_HUB_URL || \"\").replace(/\\/$/, \"\");"));
   assert.ok(router.includes("return fetch(`${base}/hub/file${url.search}`, { method });"));
-  // The address is handed to an <audio>; the file is never read into the page.
+  // An address is handed to an <audio>: the one keptMusic.js answers with (the
+  // copy kept on this device), or this one where no copy can be kept. None of
+  // these files reads a track into memory; the website's kept copy is read
+  // once, to be checked and kept, in keptMusic.js and nowhere else.
   const director = fs.readFileSync(path.join(ROOT, "src/runtime/ambientMusic.js"), "utf8");
-  assert.ok(director.includes("list.audio.src = src;"));
+  assert.ok(director.includes("list.audio.src = address;"));
+  assert.ok(director.includes("give(list, src);"), "with nothing to ask, a track is played from its own address");
   for (const file of ["src/runtime/hubMusic.js", "src/runtime/scenarioMusic.js", "src/runtime/ambientMusic.js", "src/Game/GameUI/ScenarioMusicPanel.jsx"]) {
     const source = fs.readFileSync(path.join(ROOT, file), "utf8");
     assert.ok(!/arrayBuffer\(|\.blob\(|createObjectURL/.test(source), `${file} reads no track into memory`);

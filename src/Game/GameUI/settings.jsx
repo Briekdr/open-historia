@@ -116,6 +116,7 @@ import { getDeviceProfileOverride, isConstrainedDevice, setDeviceProfileOverride
 import { presenceAvailable } from "../../runtime/discordPresence.js";
 import { MUSIC_CREDIT, getNowPlaying, musicVolumeOf, subscribeNowPlaying } from "../../runtime/ambientMusic.js";
 import { creditSiteOf } from "../../runtime/scenarioMusic.js";
+import { clearKeptMusic, keptMusicUsage } from "../../runtime/keptMusic.js";
 import { setVisitConsent, useVisitConsent } from "../../runtime/visitConsent.js";
 import {
     APP_UPDATE_MANUAL_CHECK_RESULT_EVENT,
@@ -2383,17 +2384,73 @@ const ExperimentalPill = ({ children = "Experimental" }) => (
 const settingsHelper = { ...helperStyle, marginTop: "-0.55rem", marginBottom: "0.85rem" };
 
 // --- Sound ---------------------------------------------------------------------
+// The music a scenario played is downloaded once and kept on this device, so
+// the same song is not fetched again for another scenario (runtime/keptMusic.js;
+// on the desktop the server keeps the files, on the website the browser does).
+// It is limited, and what no scenario uses any more is deleted with the last
+// scenario that did, but a player should still see what is there and be able
+// to have the space back: how much is kept, and Clear. Nothing is shown where
+// that cannot be known (a browser that keeps none, a server on another
+// machine).
+const DownloadedMusic = () => {
+    const [usage, setUsage] = useState(null);
+    const [busy, setBusy] = useState(false);
+
+    useEffect(() => {
+        let shown = true;
+        keptMusicUsage().then((next) => { if (shown) setUsage(next); });
+        return () => { shown = false; };
+    }, []);
+
+    if (!usage) return null;
+
+    const clear = async () => {
+        if (busy) return;
+        if (!window.confirm("Delete the music downloaded to this device? It will be downloaded again when a scenario plays it.")) return;
+        setBusy(true);
+        const left = await clearKeptMusic();
+        if (left) {
+            setUsage(left);
+            logSettingMessage("downloaded-music", "Downloaded music cleared.");
+        }
+        setBusy(false);
+    };
+
+    const count = usage.tracks;
+    const size = formatCacheSize(usage.bytes);
+    return (
+        <div style={{ alignItems: "center", display: "flex", gap: "0.75rem", justifyContent: "space-between", marginBottom: "0.85rem" }}>
+            <span style={{ fontSize: "0.9rem" }}>
+                {count === 0
+                    ? "Downloaded music: none"
+                    : count === 1
+                    ? `Downloaded music: 1 track, ${size}`
+                    : `Downloaded music: ${count} tracks, ${size}`}
+            </span>
+            <button
+            type="button"
+            className="oh-tap-row"
+            onClick={clear}
+            disabled={busy || count === 0}
+            style={{ ...diagnosticsButton, opacity: busy || count === 0 ? 0.5 : 1, whiteSpace: "nowrap" }}
+            >
+            Clear
+            </button>
+        </div>
+    );
+};
+
 // The music's switch and volume (runtime/ambientMusic.js), and whose music it
 // is: the pieces' licence asks for exactly that to be said. A scenario's own
 // track comes from the community hub's list, and its licence asks the same:
 // the one sounding now is credited under the game's own, in the hub's words.
-const SoundSection = ({ musicOn, onToggleMusic }) => {
+const SoundSection = ({ musicOn, onToggleMusic, effectsOn, onToggleEffects }) => {
     const stored = useMapSettingValue(MAP_SETTING_KEYS.musicVolume, "");
     const volume = musicVolumeOf(stored);
     const nowPlaying = useSyncExternalStore(subscribeNowPlaying, getNowPlaying, getNowPlaying);
     const nowPlayingSite = creditSiteOf(nowPlaying?.source);
     return (
-        <SettingsSection title="Sound" description="The game's music, and how loud it is.">
+        <SettingsSection title="Sound" description="The game's music and sound effects.">
             <Toggle label="Music" enabled={musicOn} onToggle={onToggleMusic} />
             <label style={{ alignItems: "center", display: "flex", gap: "0.75rem", justifyContent: "space-between", marginBottom: "0.85rem", opacity: musicOn ? 1 : 0.5 }}>
                 <span style={{ fontSize: "0.9rem" }}>{"Music volume"}</span>
@@ -2412,6 +2469,8 @@ const SoundSection = ({ musicOn, onToggleMusic }) => {
                     <span data-no-translate style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.78rem", minWidth: "2.6rem", textAlign: "right" }}>{`${volume}%`}</span>
                 </span>
             </label>
+            <Toggle label="Sound effects" enabled={effectsOn} onToggle={onToggleEffects} />
+            <DownloadedMusic />
             <div style={{ ...helperStyle, marginTop: 0, marginBottom: 0 }}>
                 <span>{"Music: “Passage Of Time”, “Legionnaire (2022 Remaster)” and “Vanguard” by Scott Buckley, released under CC BY 4.0."}</span>
                 {" "}
@@ -2673,6 +2732,8 @@ const SettingsWorkspace = ({
                 <SoundSection
                 musicOn={mapSettings.ambientMusic}
                 onToggleMusic={() => updateMapSetting("ambientMusic", MAP_SETTING_KEYS.ambientMusic, !mapSettings.ambientMusic)}
+                effectsOn={mapSettings.soundEffects}
+                onToggleEffects={() => updateMapSetting("soundEffects", MAP_SETTING_KEYS.soundEffects, !mapSettings.soundEffects)}
                 />
                 <PrivacySection
                 discordPresenceOn={mapSettings.discordPresence}
@@ -3015,6 +3076,8 @@ const SettingsMenu = ({
         discordPresence: getMapSettingDefaultOn(MAP_SETTING_KEYS.discordPresence),
         // And the music (General → Sound).
         ambientMusic: getMapSettingDefaultOn(MAP_SETTING_KEYS.ambientMusic),
+        // And the sound effects (the vault door's; General → Sound).
+        soundEffects: getMapSettingDefaultOn(MAP_SETTING_KEYS.soundEffects),
     }));
 
     const updateMapSetting = (stateKey, settingKey, value) => {

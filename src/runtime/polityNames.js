@@ -108,10 +108,16 @@ export const polityDisplayName = (code) => {
 
 // Hook variant for single values: renders the code briefly, then the name, and
 // follows a rename as soon as it is written.
-export const useCountryDisplayName = (code) => {
+//
+// `wait` is for a caller that is on screen before any game is opened (the main
+// menu and the screen's shell: gameEntry.js). The first lookup reads the
+// game's world and the country tiles, which on Android is the whole countries
+// archive; while `wait` is set nothing is read and the code stands in.
+export const useCountryDisplayName = (code, { wait = false } = {}) => {
   const [name, setName] = useState(() => polityDisplayName(code));
 
   useEffect(() => {
+    if (wait) return undefined;
     let cancelled = false;
     const sync = () => {
       if (!cancelled) setName(polityDisplayName(code));
@@ -123,7 +129,7 @@ export const useCountryDisplayName = (code) => {
       cancelled = true;
       unsubscribe();
     };
-  }, [code]);
+  }, [code, wait]);
 
   return name;
 };

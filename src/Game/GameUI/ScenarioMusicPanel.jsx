@@ -20,7 +20,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { DEFAULT_MUSIC_VOLUME, holdMusic, musicVolume } from "../../runtime/ambientMusic.js";
-import { HUB_MUSIC_TEXTS, offeredTracks, playableAddressOf, trackById } from "../../runtime/hubMusic.js";
+import { HUB_MUSIC_TEXTS, offeredTracks, trackById } from "../../runtime/hubMusic.js";
+import { keptMusicAddress, releaseMusicAddress } from "../../runtime/keptMusic.js";
 import { useTouchPrimary } from "../../runtime/mobileUi.js";
 import {
   MAX_SCENARIO_MUSIC_TRACKS,
@@ -110,11 +111,15 @@ const lengthOf = (seconds) => (seconds ? `${Math.floor(seconds / 60)}:${String(s
 const detailOf = (track) => [track.artist, track.licence, lengthOf(track.seconds)].filter(Boolean).join(" · ");
 
 // One track tried out at a time, on an <audio> of its own, played from the
-// address the game plays the track from. The game's music waits meanwhile
+// address the game plays the track from: the copy kept on this device
+// (runtime/keptMusic.js), so a track tried out here is kept too, and is not
+// downloaded again when a game plays it. The game's music waits meanwhile
 // (ambientMusic.js holdMusic) and carries on when the preview stops, ends,
 // fails, or this tab goes away.
 const useTrackPreview = () => {
   const audioRef = useRef(null);
+  // The address the element holds, given back when it is given another.
+  const heldRef = useRef("");
   // Which preview is the newest: what an older one reports is dropped.
   const turnRef = useRef(0);
   const [playingId, setPlayingId] = useState("");
@@ -133,30 +138,42 @@ const useTrackPreview = () => {
     turnRef.current += 1;
     const turn = turnRef.current;
     setFailedId("");
-    const src = playableAddressOf(track);
-    if (!src) { finish(turn, track.id); return; }
     if (!audioRef.current) {
       audioRef.current = new Audio();
       audioRef.current.preload = "none";
     }
     const audio = audioRef.current;
-    audio.onended = () => finish(turn);
-    audio.onerror = () => finish(turn, track.id);
-    audio.src = src;
-    // As loud as the game's music is set, or as it is by default when that is
-    // silent: a preview somebody pressed is meant to be heard.
-    audio.volume = (musicVolume() || DEFAULT_MUSIC_VOLUME) / 100;
+    // The one before stops now: the next one's address may take a moment (the
+    // first time a track is asked for, it is downloaded and kept).
+    audio.pause();
     setPlayingId(track.id);
     holdMusic(true);
-    const started = audio.play();
-    // Given another track, or stopped, before it began: not a failure.
-    if (started && typeof started.catch === "function") started.catch((error) => { if (error?.name !== "AbortError") finish(turn, track.id); });
+    keptMusicAddress(track, { preview: true }).then((src) => {
+      // Another track, or Stop, was pressed meanwhile: given back unused.
+      if (turn !== turnRef.current) { releaseMusicAddress(src); return; }
+      // A track that must not be played has no address.
+      if (!src) { finish(turn, track.id); return; }
+      audio.onended = () => finish(turn);
+      audio.onerror = () => finish(turn, track.id);
+      const before = heldRef.current;
+      audio.src = src;
+      heldRef.current = src;
+      if (before && before !== src) releaseMusicAddress(before);
+      // As loud as the game's music is set, or as it is by default when that is
+      // silent: a preview somebody pressed is meant to be heard.
+      audio.volume = (musicVolume() || DEFAULT_MUSIC_VOLUME) / 100;
+      const started = audio.play();
+      // Given another track, or stopped, before it began: not a failure.
+      if (started && typeof started.catch === "function") started.catch((error) => { if (error?.name !== "AbortError") finish(turn, track.id); });
+    });
   };
 
   useEffect(() => () => {
     turnRef.current += 1;
     audioRef.current?.pause();
     audioRef.current = null;
+    releaseMusicAddress(heldRef.current);
+    heldRef.current = "";
     holdMusic(false);
   }, []);
 

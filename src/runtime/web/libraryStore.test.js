@@ -1306,3 +1306,137 @@ test("a hub Update takes the new version's music, and takes the old away when th
   assert.equal("music" in db.get("scenarios").get(id).meta, false);
   assert.equal("music" in ok(await scenarios("GET", `${id}/export`)).scenario, false);
 });
+
+// ---- the kept music follows the scenarios (../keptMusic.js; the desktop twin is server/musicLibrary.test.js) ----
+//
+// "Make sure songs arent deleted along with scenarios unless it is the only
+// scenario to use the song." The website keeps a played track in the browser's
+// Cache Storage by its sha256; this store tells it which tracks the scenarios
+// left in the library still name, when one is deleted, saved with a track
+// taken out, or replaced by a hub Update.
+
+const keptMusic = await import("../keptMusic.js");
+const { sha256HexPure } = await import("../sha256.js");
+const MUSIC_RELEASES = "https://github.com/Open-Historia/Open-historia-scenarios/releases/download";
+const WEB_ENV = { VITE_OH_WEB: "1", VITE_OH_HUB_URL: "https://hub-proxy.example/" };
+const songBytes = (name) => new TextEncoder().encode(`ID3 ${name}`);
+const song = (name) => ({ id: name, file: `${MUSIC_RELEASES}/music/${name}.mp3`, sha256: sha256HexPure(songBytes(name)), removed: false });
+const musicOf = (...names) => ({ loading: [], game: names.map((id) => ({ id, version: 1 })), atWar: [], battle: [] });
+
+// The browser's Cache Storage and the hub, standing in for one test. `kept()`
+// names the songs in the cache; `asked` counts the downloads.
+const withKeptMusic = async (run) => {
+  const entries = new Map();
+  const shelf = {
+    match: async (key) => (entries.has(key) ? new Response(entries.get(key).bytes, { headers: entries.get(key).headers }) : undefined),
+    put: async (key, response) => { entries.set(key, { bytes: new Uint8Array(await response.arrayBuffer()), headers: Object.fromEntries(response.headers) }); },
+    delete: async (key) => entries.delete(key),
+  };
+  const asked = [];
+  const priorFetch = globalThis.fetch;
+  globalThis.caches = { open: async () => shelf };
+  globalThis.fetch = async (address) => {
+    const name = /music%2F([^.]+)\.mp3$/.exec(String(address))?.[1];
+    asked.push(name);
+    return new Response(songBytes(name), { status: 200 });
+  };
+  keptMusic.resetKeptMusicForTests();
+  const names = ["shared", "own-a", "own-b", "tried"];
+  const kept = () => [...entries.keys()].filter((key) => !key.endsWith("index.json"))
+    .map((key) => names.find((name) => song(name).sha256 === key.split("/").pop()) ?? key).sort();
+  // A game of a scenario plays a track of it, or the editor previews one.
+  const play = async (name, options = {}) => assert.match(await keptMusic.keptMusicAddress(song(name), { env: WEB_ENV, ...options }), /^blob:/);
+  try {
+    return await run({ kept, play, asked });
+  } finally {
+    globalThis.fetch = priorFetch;
+    delete globalThis.caches;
+    keptMusic.resetKeptMusicForTests();
+  }
+};
+
+test("deleting a scenario deletes the songs only it used; a shared one stays until its last scenario goes", async () => {
+  await reset();
+  await withKeptMusic(async ({ kept, play, asked }) => {
+    const alpha = ok(await scenarios("POST", "", { name: "Alpha", music: musicOf("shared", "own-a") })).scenario.id;
+    const beta = ok(await scenarios("POST", "", { name: "Beta", music: musicOf("shared", "own-b") })).scenario.id;
+    await play("shared");
+    await play("own-a");
+    await play("own-b");
+    await play("tried", { preview: true });
+    // The second scenario's game plays the shared song: nothing is downloaded for it.
+    await play("shared");
+    assert.deepEqual(asked, ["shared", "own-a", "own-b", "tried"]);
+    assert.deepEqual(kept(), ["own-a", "own-b", "shared", "tried"]);
+
+    ok(await scenarios("DELETE", alpha));
+    assert.deepEqual(kept(), ["own-b", "shared", "tried"], "the shared track stays, the deleted scenario's own goes");
+
+    // In Recently deleted, and restored from it: the files do not come back by themselves.
+    const [entry] = ok(await trash("GET", "")).entries;
+    const restored = ok(await trash("POST", `${encodeURIComponent(entry.entry)}/restore`));
+    assert.deepEqual(kept(), ["own-b", "shared", "tried"], "restoring a scenario restores no file");
+    assert.deepEqual(ok(await scenarios("GET", restored.id)).scenario.music, musicOf("shared", "own-a"), "though it names its tracks as before");
+    // Played again, its own song is simply downloaded again.
+    await play("own-a");
+    assert.deepEqual(asked, ["shared", "own-a", "own-b", "tried", "own-a"]);
+
+    ok(await scenarios("DELETE", restored.id));
+    ok(await scenarios("DELETE", beta));
+    assert.deepEqual(kept(), ["tried"], "the shared track goes with its last scenario; the previewed one survives both");
+  });
+});
+
+test("a save that takes a track out, and an Update that replaces the music, sweep the kept music too; other saves do not", async () => {
+  await reset();
+  await withKeptMusic(async ({ kept, play }) => {
+    const alpha = ok(await scenarios("POST", "", { name: "Alpha", music: musicOf("shared", "own-a") })).scenario.id;
+    const version = (name, music, file) => {
+      const bundle = hubBundle(name, file);
+      return { ...bundle, scenario: { ...bundle.scenario, ...(music ? { music } : {}) } };
+    };
+    const beta = ok(await scenarios("POST", "import", version("Hub Map", musicOf("shared", "own-b"), 1))).scenario.id;
+    await play("shared");
+    await play("own-a");
+    await play("own-b");
+    // A rename, and a save that only adds a track: nothing goes.
+    ok(await scenarios("PUT", alpha, { name: "Alpha, renamed" }));
+    ok(await scenarios("PUT", alpha, { music: musicOf("shared", "own-a", "another") }));
+    assert.deepEqual(kept(), ["own-a", "own-b", "shared"]);
+    // The author takes "own-a" out of alpha's music.
+    ok(await scenarios("PUT", alpha, { music: musicOf("shared") }));
+    assert.deepEqual(kept(), ["own-b", "shared"]);
+    // A hub Update brings a version of beta with no music at all.
+    ok(await scenarios("PUT", `${beta}/import`, version("Hub Map v2", null, 2)));
+    assert.deepEqual(kept(), ["shared"], "alpha still names the shared track");
+    // And alpha's music is taken away altogether.
+    ok(await scenarios("PUT", alpha, { music: null }));
+    assert.deepEqual(kept(), []);
+  });
+});
+
+test("a game's music is its scenario's: a game carries none, and a scenario a game uses cannot be deleted", async () => {
+  await reset();
+  await withKeptMusic(async ({ kept, play }) => {
+    const alpha = ok(await scenarios("POST", "", { name: "Alpha", music: musicOf("own-a") })).scenario.id;
+    const game = ok(await games("POST", "", { name: "The Saga", scenarioId: alpha, setActive: true }));
+    await play("own-a");
+    const refused = await scenarios("DELETE", alpha);
+    assert.ok(refused.status >= 400);
+    assert.match(refused.data.error, /still used by one or more games/);
+    assert.deepEqual(kept(), ["own-a"]);
+    const catalog = await library();
+    assert.deepEqual(catalog.runtimeScenario.music, musicOf("own-a"), "what the open game plays is read from its scenario");
+    assert.equal("music" in catalog.activeGame || "music" in game.game, false);
+  });
+});
+
+test("where the browser keeps no music (the Android app), deleting a scenario still works and sweeps nothing", async () => {
+  await reset();
+  keptMusic.resetKeptMusicForTests();
+  const id = ok(await scenarios("POST", "", { name: "Alpha", music: musicOf("own-a") })).scenario.id;
+  ok(await scenarios("PUT", id, { music: null }));
+  ok(await scenarios("DELETE", id));
+  assert.equal((await library()).scenarios.some((scenario) => scenario.id === id), false);
+  keptMusic.resetKeptMusicForTests();
+});

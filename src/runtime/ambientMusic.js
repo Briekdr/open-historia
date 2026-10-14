@@ -79,11 +79,16 @@
 //     tab, the Android app in the background) and carries on after.
 //
 // The game's own files are served beside the page. A hub track is played from
-// the address every hub file is fetched through (hubMusic.js
-// playableAddressOf), handed to the <audio> as its src: its bytes are never
-// read into the page.
+// the copy kept on this device: it is downloaded once, kept by what it is, and
+// never fetched again for another scenario or another day (keptMusic.js
+// keptMusicAddress, which knows the platform so that nothing here has to). The
+// director asks for that address when the track is about to play and gives
+// its <audio> the answer when it comes; where no copy can be kept the answer
+// is the address every hub file is fetched through (hubMusic.js
+// playableAddressOf), which is also what a track's `src` is.
 
 import { SCENARIO_MUSIC_SITUATIONS } from "../../server/scenarioMusic.js";
+import { keptMusicAddress, releaseMusicAddress } from "./keptMusic.js";
 import { MAP_SETTING_KEYS, getMapSettingDefaultOn, getMapSettingValue } from "./mapSettings.js";
 
 const COMPOSER = Object.freeze({
@@ -200,6 +205,9 @@ const FADE = Object.freeze({ cross: 900, breath: 1500, gameIn: 3000 });
 const TICK_MS = 25;
 const CALM_TICK_MS = 200;
 const FADE_STEP_MS = 40;
+// How long a scenario's track waits for the address of its kept copy (the
+// first play downloads the file) before it is played from its own address.
+export const ADDRESS_WAIT_MS = 20000;
 
 export const musicEnabled = () => getMapSettingDefaultOn(MAP_SETTING_KEYS.ambientMusic);
 
@@ -292,8 +300,12 @@ export const expectedLoadSeconds = (list) => {
 // says what the settings are now, `timers` is { set(fn, ms) → id, clear(id) },
 // `now` the time in milliseconds, and `memory` ({ read() → seconds[],
 // write(list) }) keeps how long games took to open. `onNowPlaying` is told the
-// hub track that is sounding, or null. It owns no listeners on the page: the
-// caller tells it the scene, the first gesture, and when the page hides.
+// hub track that is sounding, or null. `trackAddress(track)` answers, at once
+// or in a moment, with where a scenario's track is played from (the copy kept
+// on this device), and `releaseAddress(address)` is told when an <audio> has
+// been given another: without them a track is played from its `src`. It owns
+// no listeners on the page: the caller tells it the scene, the first gesture,
+// and when the page hides.
 export const createMusicDirector = ({
   makeAudio,
   addressOf,
@@ -302,6 +314,8 @@ export const createMusicDirector = ({
   now = null,
   memory = null,
   onNowPlaying = null,
+  trackAddress = null,
+  releaseAddress = null,
   tracks = MUSIC_TRACKS,
   warPieces = MUSIC_WAR_PIECES,
   drama = PASSAGE_DRAMA,
@@ -313,9 +327,11 @@ export const createMusicDirector = ({
   // the loud stretch's).
   const channel = (track) => ({ track, audio: null, want: false, gain: 0, boost: 1, fade: null, startAt: null });
   // One channel a list: its tracks ({ id, src, … }), which one it is on, the
-  // address its one element holds, how many in a row could not be played, and
-  // whether none could (`dead`).
-  const playlist = (key, items = []) => ({ key, tracks: items, index: 0, loaded: "", turn: 0, misses: 0, dead: false, audio: null, want: false, gain: 0, boost: 1, fade: null });
+  // track its one element was given (`loaded`, by its `src`), how many in a
+  // row could not be played, and whether none could (`dead`). A scenario's
+  // track is played from the address `trackAddress` answers with: `waiting`
+  // while that answer is on its way, and `held` once the element has it.
+  const playlist = (key, items = []) => ({ key, tracks: items, index: 0, loaded: "", turn: 0, misses: 0, dead: false, audio: null, want: false, gain: 0, boost: 1, fade: null, asked: 0, waiting: false, arrived: false, held: "" });
   // The game's own: Passage Of Time twice over (the menu's part and the
   // build, an element each, so one can cross into the other), the war room's
   // list of pieces, and the in-game piece.
@@ -435,6 +451,16 @@ export const createMusicDirector = ({
   // Gives a list's element the track it is on. Made, and its file named, only
   // here: when the track is about to play. True when the element was given
   // another file than it held.
+  //
+  // A scenario's track is played from the copy kept on this device, whose
+  // address is asked for here (`trackAddress`) and may take a moment the first
+  // time, while the file is downloaded and kept. The element gets it when the
+  // answer comes, if the list is still waiting for that one (`asked` counts
+  // the askings, and a later one takes an earlier one's place). No answer, a
+  // failed one, or one that has not come within ADDRESS_WAIT_MS, is the
+  // track's own `src`: a copy that cannot be had must not make the track
+  // silent. The game's own war pieces have no kept copy and are given their
+  // `src` at once.
   const load = (list) => {
     if (!list.audio) {
       list.audio = makeAudio();
@@ -442,15 +468,48 @@ export const createMusicDirector = ({
       list.audio.loop = false;
       list.audio.addEventListener?.("ended", () => next(list));
       // An element given another file has no error any more: what it says of
-      // the one before is old news.
-      list.audio.addEventListener?.("error", () => { if (list.audio.error !== null) miss(list, list.turn); });
+      // the one before is old news. So is anything it says while the next
+      // file's address is still on its way.
+      list.audio.addEventListener?.("error", () => { if (list.audio.error !== null && !list.waiting) miss(list, list.turn); });
     }
-    const { src } = list.tracks[list.index];
-    if (list.loaded === src) return false;
-    list.audio.src = src;
+    const track = list.tracks[list.index];
+    const { src } = track;
+    if (list.loaded === src) {
+      // The file it was waiting for has arrived since the last look: that is
+      // the element being given another file, said now.
+      const { arrived } = list;
+      list.arrived = false;
+      return arrived;
+    }
     list.loaded = src;
     list.turn += 1;
+    list.asked += 1;
+    list.arrived = false;
+    if (!trackAddress || list === channels.war) {
+      give(list, src);
+      return true;
+    }
+    const { asked } = list;
+    list.waiting = true;
+    const answer = (address) => {
+      const given = typeof address === "string" && address ? address : src;
+      // Answered already, or the list has moved on: given back unused.
+      if (asked !== list.asked || !list.waiting) { if (given !== src) releaseAddress?.(given); return; }
+      give(list, given);
+      list.arrived = true;
+      refresh();
+    };
+    timers.set(() => answer(""), ADDRESS_WAIT_MS);
+    Promise.resolve().then(() => trackAddress(track)).then(answer, () => answer(""));
     return true;
+  };
+  // Hands a list's element its file, and gives back the address it held.
+  const give = (list, address) => {
+    const before = list.held;
+    list.waiting = false;
+    list.audio.src = address;
+    list.held = address;
+    if (before && before !== address) releaseAddress?.(before);
   };
 
   const start = (list) => {
@@ -519,6 +578,8 @@ export const createMusicDirector = ({
       }
       const another = load(list);
       setVolume(list);
+      // Its file is on its way (load): it is started when the element has it.
+      if (list.waiting) continue;
       if (another || list.audio.paused) start(list);
     }
     if (on && watching()) startTick();
@@ -960,9 +1021,63 @@ export const subscribeNowPlaying = (listener) => {
   return () => { nowPlayingListeners.delete(listener); };
 };
 
+// The director waits for one thing at a time as far as it knows (setHeld), but
+// there are two reasons a page's music waits, and letting go of one must not
+// let go of the other: a track being tried out in the scenario editor
+// ("preview"), and another page of the game sounding ("elsewhere", below). So
+// the reasons are kept here, and the director is held while there is any.
+export const createMusicHolds = (setHeld) => {
+  const reasons = new Set();
+  return (reason, held) => {
+    if (held) reasons.add(reason);
+    else reasons.delete(reason);
+    setHeld(reasons.size > 0);
+  };
+};
+
+// One page of the game sounds at a time (the owner, 2026-10-13: "why is it
+// playing the song 2 times rn"; two windows or tabs of the game were open, and
+// each played the music). Within one browser profile the pages share a
+// channel. A page says "I am playing", with an id of its own, when the player
+// turns to it: it is clicked, tapped, keyed or focused while music is wanted.
+// A page that hears that from another id holds its music until the player
+// turns to it again, when it takes the music back and says so. A page that
+// closes says nothing, and nothing waits on it: whichever page the player
+// uses next is the one that sounds.
+//
+// `channel` is a BroadcastChannel (or null where there is none: then every
+// page plays, as before), `hold(value)` holds or frees this page's music for
+// this reason, and `wanted()` says whether music is wanted here at all (a page
+// with its music switched off claims nothing and silences nobody).
+export const MUSIC_CHANNEL = "oh-music";
+export const createMusicTurn = ({ channel = null, id, hold, wanted = () => true }) => {
+  // Another page said it is playing, and the player has not turned to this one since.
+  let elsewhere = false;
+  channel?.addEventListener?.("message", (event) => {
+    const other = event?.data?.playing;
+    if (typeof other !== "string" || !other || other === id || elsewhere) return;
+    elsewhere = true;
+    hold(true);
+  });
+  return {
+    // The player turned to this page.
+    claim: () => {
+      if (!wanted()) return;
+      if (elsewhere) {
+        elsewhere = false;
+        hold(false);
+      }
+      try { channel?.postMessage({ playing: id }); } catch { /* a closed channel: every page plays */ }
+    },
+    get elsewhere() { return elsewhere; },
+  };
+};
+
 // Starts the music for this page, once. Returns the director, or null where
 // there is no page to play in (a test, a worker).
 let started = null;
+// Holds or frees this page's music for a reason (createMusicHolds).
+let holdFor = null;
 export const startMusic = ({
   env = {},
   win = typeof window === "undefined" ? null : window,
@@ -980,11 +1095,33 @@ export const startMusic = ({
       nowPlaying = track;
       for (const listener of nowPlayingListeners) listener();
     },
+    // A scenario's track plays from the copy kept on this device, downloaded
+    // once whichever scenario asks (keptMusic.js).
+    trackAddress: (track) => keptMusicAddress(track, { env }),
+    releaseAddress: releaseMusicAddress,
+  });
+  holdFor = createMusicHolds((held) => director.setHeld(held));
+  // One page of the game sounds at a time (createMusicTurn). No channel in
+  // this browser, or one that will not open: every page plays, as before.
+  let channel = null;
+  try {
+    channel = typeof win.BroadcastChannel === "function" ? new win.BroadcastChannel(MUSIC_CHANNEL) : null;
+  } catch {
+    channel = null;
+  }
+  const turn = createMusicTurn({
+    channel,
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+    hold: (held) => holdFor("elsewhere", held),
+    wanted: () => musicEnabled() && musicVolume() > 0,
   });
   // Capturing, so a control that stops the event still counts as the gesture.
+  // The page the player touches takes the music from any other, and then
+  // sounds: in that order, so it is not started while still held.
   for (const type of ["pointerdown", "keydown", "touchend"]) {
-    win.addEventListener(type, () => director.unlock(), { capture: true, passive: true });
+    win.addEventListener(type, () => { turn.claim(); director.unlock(); }, { capture: true, passive: true });
   }
+  win.addEventListener("focus", () => turn.claim());
   win.addEventListener("mapSettings:updated", () => director.sync());
   doc.addEventListener("visibilitychange", () => director.setHidden(doc.visibilityState === "hidden"));
   director.setHidden(doc.visibilityState === "hidden");
@@ -1001,5 +1138,11 @@ export const setMusicScene = (scene) => { started?.setScene(scene); };
 export const setMusicPlaylists = (lists) => { started?.setPlaylists(lists); };
 
 // Makes the music wait while something else is listened to (a track tried out
-// in the scenario editor), and lets it carry on after.
-export const holdMusic = (held) => { started?.setHeld(held); };
+// in the scenario editor), and lets it carry on after. Its own reason to
+// wait: freeing it does not free a page that is silent for another one.
+export const holdMusic = (held) => { holdFor?.("preview", Boolean(held)); };
+
+// The vault door the app opens on (GameUI/VaultDoor.jsx) is shut: the menu's
+// music waits behind it, and begins as its leaves part. A third reason to
+// wait, with a name of its own like the other two.
+export const holdMusicBehindDoor = (held) => { holdFor?.("door", Boolean(held)); };

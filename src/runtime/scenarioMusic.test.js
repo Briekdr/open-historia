@@ -109,6 +109,9 @@ test("a record becomes what plays only through the hub's list", () => {
     licence: "CC BY 4.0",
     credit: "'Name of intro' by A Composer - released under CC-BY 4.0.",
     source: "https://composer.example/intro",
+    // What its kept copy is known by (keptMusic.js): the hub's file and its sha256.
+    file: `${RELEASES}/music/intro-v1-0a1b2c3d.mp3`,
+    sha256: "b".repeat(64),
   }]);
   assert.deepEqual(lists.atWar, [], "a list of nothing but a track taken down is no list");
   assert.deepEqual(lists.battle, []);
@@ -351,8 +354,10 @@ test("the scenario editor has a Music tab, saved by the editor's own Save", () =
   // No upload and no address to type: a track is chosen from the hub's list or not at all.
   assert.ok(!/type="file"|<textarea|type="url"/.test(panel));
   assert.ok(panel.includes("onAdd={(track) => write(situation, [...entries, { id: track.id, version: track.version }])}"), "the scenario keeps the id and the version, nothing else");
-  // A preview plays from the address the game plays the track from, and the game's music waits.
-  assert.ok(panel.includes("const src = playableAddressOf(track);"));
+  // A preview plays from the address the game plays the track from (the copy kept on this
+  // device, so a track tried out is kept too: keptMusic.js), and the game's music waits.
+  assert.ok(panel.includes("keptMusicAddress(track, { preview: true }).then((src) => {"));
+  assert.ok(!panel.includes("playableAddressOf"), "no second way to an address");
   assert.ok(panel.includes("holdMusic(true);") && panel.includes("holdMusic(false);"));
   // The tracks said to suit the situation come first.
   assert.ok(panel.includes("return [...found.filter((track) => track.fits.includes(situation)), ...found.filter((track) => !track.fits.includes(situation))];"));

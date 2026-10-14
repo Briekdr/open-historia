@@ -91,6 +91,11 @@ export const MAP_SETTING_KEYS = {
     // Its volume, 0 to 100, as the slider shows it; absent is the default
     // (ambientMusic.js DEFAULT_MUSIC_VOLUME).
     musicVolume: "audio_music_volume",
+    // The game's own sound effects: the vault door the app opens on
+    // (runtime/vaultSounds.js). ON by default — read with
+    // getMapSettingDefaultOn. Settings → General → Sound. (The chat's chime
+    // has a switch of its own, in the chat.)
+    soundEffects: "audio_sound_effects",
 };
 
 // Families the label-font pickers suggest — Settings → Map and the game and
@@ -117,7 +122,8 @@ export function getMapSetting(key) {
 // A default-on setting CANNOT use getMapSetting above — an absent key reads as
 // "1" !== null, i.e. off — so every consumer of such a key must come through here.
 //
-// lookupFunctions, liveSkipEvents, discordPresence and ambientMusic ship on;
+// lookupFunctions, liveSkipEvents, discordPresence, ambientMusic and
+// soundEffects ship on;
 // limitAiGeneration and chunkLongJumps, which used to, went default-off in the
 // beta.
 export function getMapSettingDefaultOn(key) {
@@ -141,6 +147,7 @@ const SETTING_LABELS = {
     [MAP_SETTING_KEYS.defaultBasemapOn]: "Use my default basemap",
     [MAP_SETTING_KEYS.discordPresence]: "Show what I am playing on Discord",
     [MAP_SETTING_KEYS.ambientMusic]: "Music",
+    [MAP_SETTING_KEYS.soundEffects]: "Sound effects",
 };
 
 export function setMapSetting(key, value) {

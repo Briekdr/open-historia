@@ -43,6 +43,8 @@ import { planRestorePointSlots, publicRestorePointIndex } from "../../../server/
 import { coverObjectUrl } from "./coverUrls.js";
 import { createCoarseRegionsCache } from "./coarseRegionsCache.js";
 import { onMemoryPressure } from "../memoryPressure.js";
+import { musicTracksDropped, usedMusicTrackIds } from "../../../server/keptMusic.js";
+import { sweepKeptMusic } from "../keptMusic.js";
 
 const SCENARIO_MANIFEST_KEY = "scenario-manifest";
 const GAME_MANIFEST_KEY = "game-manifest";
@@ -1249,11 +1251,35 @@ const SCENARIO_EDIT_KEYS = [...META_KEYS, "game", "gamePatch", "prompts", "promp
 // unlinked, not write the post back. (A chain per scenario, serializeByKey: the
 // owner migration inside has its own, and nothing in here writes the same
 // scenario through this function again.)
+// The music kept on this device follows the scenarios that use it
+// (../keptMusic.js; server twin: sweepKeptMusic in server/libraryStore.js):
+// once a scenario is deleted, or stops naming a track, every kept file that was
+// a game's and that no scenario left in the library names any more is deleted,
+// and a track another scenario still names stays. A scenario in the trash is
+// not in the library: a song it alone used goes when it is deleted, and a
+// restored scenario downloads its music again the first time it is played.
+// Games have no say of their own: a game carries no music, and a scenario a
+// game still uses cannot be deleted.
+const musicOfRecord = (record) => readScenarioMeta(record.id, record.meta ?? {}).music;
+const sweepKeptMusicOfLibrary = async () => {
+  try {
+    await sweepKeptMusic(usedMusicTrackIds((await readScenarioMetas()).map((row) => row.meta?.music)));
+  } catch (error) {
+    // Kept music is a convenience: a sweep that fails must not fail the delete or the save.
+    console.warn("Could not sweep the kept music:", error);
+  }
+};
+// After a scenario was written: `before` is its music until then.
+const sweepKeptMusicIfDropped = async (before, record) => {
+  if (musicTracksDropped(before, musicOfRecord(record))) await sweepKeptMusicOfLibrary();
+};
+
 const updateScenario = (id, body = {}) => serializeByKey(`scenario-write:${id}`, () => updateScenarioNow(id, body));
 
 const updateScenarioNow = async (id, body = {}) => {
   const record = await getScenario(id);
   if (!record) throw new Error(`Scenario not found: ${id}`);
+  const musicBefore = musicOfRecord(record);
   // A write that only records hub bookkeeping is not an edit: no updatedAt, and
   // a downloaded copy is not marked as changed.
   const provenance = pickHubProvenance(body);
@@ -1265,6 +1291,7 @@ const updateScenarioNow = async (id, body = {}) => {
   }
   if (Object.keys(provenance).length) writeScenarioMeta(record, provenance, { touch: false });
   await putScenario(record);
+  await sweepKeptMusicIfDropped(musicBefore, record);
   if (body.setActive) await setSelectedScenario(id);
   return getScenarioDetails(id);
 };
@@ -1330,6 +1357,8 @@ const deleteScenario = async (id) => {
   const remaining = resolveOrderedIds(manifest.order.filter((e) => e !== id), await listScenarioIds(), DEFAULT_SCENARIO_ID);
   const selectedScenarioId = manifest.selectedScenarioId === id ? (remaining[0] ?? "") : manifest.selectedScenarioId;
   await saveScenarioManifest({ order: remaining, selectedScenarioId });
+  // Its songs go with it, unless another scenario plays them too.
+  await sweepKeptMusicOfLibrary();
   return getLibraryCatalog();
 };
 
@@ -1880,8 +1909,11 @@ const updateScenarioFromBundleNow = async (scenarioId, bundle) => {
     if (currentBackground) world.background = currentBackground;
     else delete world.background;
   }
+  const musicBefore = musicOfRecord(existing);
   writeScenarioMeta(existing, metaPatch);
   await putScenario(existing);
+  // A track the new version no longer plays may be nobody's now.
+  await sweepKeptMusicIfDropped(musicBefore, existing);
 
   await updateScenarioNow(scenarioId, {
     game: data.game ?? {}, prompts: data.prompts ?? {}, world,

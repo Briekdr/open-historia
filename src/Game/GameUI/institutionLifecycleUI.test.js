@@ -138,8 +138,9 @@ test("main-menu settings, gameplay-only idle diplomacy and terminal lifecycle cl
   assert.match(library, /const LibraryTopBar = \(\{ onOpenSettings \}\) =>/);
   assert.match(library, /onClick=\{onOpenSettings\}/);
   assert.match(library, /<ButtonIcon kind="settings" \/> Settings/);
-  assert.match(main, /if \(hasNoGames \|\| mainMenuOpen\) return undefined;/);
-  assert.match(main, /\[hasNoGames, mainMenuOpen\]/);
+  // Nor for a game the player has not opened since the page started (runtime/gameEntry.js).
+  assert.match(main, /if \(hasNoGames \|\| mainMenuOpen \|\| !gameEntered\) return undefined;/);
+  assert.match(main, /\[hasNoGames, mainMenuOpen, gameEntered\]/);
   assert.match(chat, /const leaveActiveChat = \(\) =>/);
   assert.match(chat, /institutionLifecycleConversationState\(worldSnapshot/);
   assert.match(chat, /lifecycleState\.resolvedCases\?\.length === lifecycleState\.cases\.length/);

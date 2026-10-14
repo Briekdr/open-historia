@@ -52,8 +52,11 @@ export const creditSiteOf = (address) => {
 
 // The record as the director plays it: for each situation, its tracks that the
 // hub's list still has and that may be played, in order, each with the address
-// its <audio> loads. null when nothing of it can be played (no record, no
-// list, or no track left).
+// every hub file is fetched from (`src`: which track it is, and what it is
+// played from where no copy can be kept) and what its kept copy is known by
+// (`file`, `sha256`: keptMusic.js keptMusicAddress, asked when the track is
+// about to play). null when nothing of it can be played (no record, no list,
+// or no track left).
 export const resolveScenarioPlaylists = (music, list, addressOf = playableAddressOf) => {
   const wanted = normalizeScenarioMusic(music);
   if (!wanted || !list?.listed) return null;
@@ -62,7 +65,10 @@ export const resolveScenarioPlaylists = (music, list, addressOf = playableAddres
     lists[situation] = wanted[situation].flatMap((entry) => {
       const track = trackById(list, entry.id);
       const src = track ? addressOf(track) : "";
-      return src ? [{ id: track.id, src, name: track.name, artist: track.artist, licence: track.licence, credit: trackCredit(track), source: track.source }] : [];
+      return src ? [{
+        id: track.id, src, name: track.name, artist: track.artist, licence: track.licence, credit: trackCredit(track), source: track.source,
+        file: track.file, sha256: track.sha256,
+      }] : [];
     });
   }
   return SCENARIO_MUSIC_SITUATIONS.some((situation) => lists[situation].length) ? lists : null;
