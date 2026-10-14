@@ -14,7 +14,8 @@ passage-of-time.mp3
 clear-skies.mp3
     "Clear Skies" by Scott Buckley
     https://www.scottbuckley.com.au/library/clear-skies/
-    Plays on the menu, in turn with Passage Of Time.
+    Plays on the menu, in turn with Passage Of Time, and from its own build
+    on while a game opened under it loads.
 
 legionnaire.mp3
     "Legionnaire (2022 Remaster)" by Scott Buckley

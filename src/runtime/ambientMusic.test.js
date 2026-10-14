@@ -31,6 +31,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   ADDRESS_WAIT_MS,
+  CLEAR_SKIES_DRAMA,
   DEFAULT_MUSIC_VOLUME,
   LOAD_SECONDS_KEY,
   MENU_PIECE_KEY,
@@ -38,6 +39,7 @@ import {
   MUSIC_CREDIT,
   MUSIC_MENU_PIECES,
   MUSIC_SCENES,
+  MUSIC_SWELL,
   MUSIC_TRACKS,
   MUSIC_WAR_PIECES,
   PASSAGE_CALM,
@@ -730,7 +732,7 @@ test("a game still loading at the end of the loud stretch goes round it again, a
 
 test("a build found playing the piece's opening is put back where it belongs, and one that cannot be moved is left alone", () => {
   // Some browsers do not keep where an element that has never played was told to start.
-  const { director, time, of } = stage();
+  const { director, time, of } = stage({ menuPieces: [] });
   director.unlock();
   time.advance(3000);
   director.setScene("loading");
@@ -1084,7 +1086,7 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   assert.match(credits, /vanguard\.mp3\r?\n {4}"Vanguard" by Scott Buckley\r?\n {4}https:\/\/www\.scottbuckley\.com\.au\/library\/vanguard\/\r?\n {4}Plays in the war room and while a battlefield is shown\./);
   const readme = read("README.md");
   assert.ok(readme.includes("\"Passage Of Time\", \"Clear Skies\", \"Legionnaire (2022 Remaster)\" and \"Vanguard\", all released under [CC BY 4.0]"));
-  assert.match(credits, /clear-skies\.mp3\r?\n {4}"Clear Skies" by Scott Buckley\r?\n {4}https:\/\/www\.scottbuckley\.com\.au\/library\/clear-skies\/\r?\n {4}Plays on the menu, in turn with Passage Of Time\./);
+  assert.match(credits, /clear-skies\.mp3\r?\n {4}"Clear Skies" by Scott Buckley\r?\n {4}https:\/\/www\.scottbuckley\.com\.au\/library\/clear-skies\/\r?\n {4}Plays on the menu, in turn with Passage Of Time, and from its own build\r?\n {4}on while a game opened under it loads\./);
   // A scenario's own track is the hub's, and its licence asks the same: the
   // one sounding is credited in the hub's words, which are never translated,
   // with where it is from.
@@ -1128,7 +1130,9 @@ test("the menu has a second piece: after Passage Of Time's part, Clear Skies who
   time.advance(130000);
   near(clear.volume, 0.25 * clearLevel(clear.currentTime), 0.004);
   near(clear.volume, 0.25 * PASSAGE_CALM.least, 0.004);
-  // The build is held ready under it, as under Passage Of Time.
+  // Its OWN build is held ready under it, at the entry a game opening would use.
+  assert.deepEqual([of("clearSkiesDrama").paused, of("clearSkiesDrama").plays, of("clearSkiesDrama").currentTime], [true, 0, 89.45]);
+  assert.equal(of("clearSkiesDrama").src, CLEAR);
   assert.deepEqual([of("drama").paused, of("drama").plays], [true, 0]);
   // It plays to its own end, whole, and Passage Of Time starts again.
   time.advance(54000);
@@ -1151,25 +1155,172 @@ test("the menu has a second piece: after Passage Of Time's part, Clear Skies who
   }
 });
 
-test("a game opened while Clear Skies plays crosses into the build as from Passage Of Time", () => {
+// "Why do they both crossfade into the same song, they should crossfade into
+// their own song for the loading."
+test("Clear Skies has a build of its own, measured from its file", () => {
+  assert.equal(MUSIC_TRACKS.clearSkies.drama, CLEAR_SKIES_DRAMA);
+  assert.equal(MUSIC_TRACKS.passage.drama, undefined, "Passage Of Time's is the director's own");
+  const d = CLEAR_SKIES_DRAMA;
+  // The same shape as Passage Of Time's: entries before the big hit, the hits after it, in order.
+  assert.deepEqual(Object.keys(d).sort(), Object.keys(PASSAGE_DRAMA).sort());
+  assert.deepEqual([...d.entries].sort((x, y) => x - y), [...d.entries]);
+  assert.ok(d.entries.every((entry) => entry < d.hit));
+  assert.equal(d.cuts[0], d.hit);
+  assert.deepEqual([...d.cuts].sort((x, y) => x - y), [...d.cuts]);
+  assert.ok(d.enter < d.hit && d.hit - d.enter < 0.3);
+  assert.ok(d.cuts.at(-1) + d.ring < d.wrapAt, "the last hit rings before the stretch goes round");
+  assert.ok(d.wrapAt < 195);
+  assert.ok(d.accents.every((accent) => d.entries.some((entry) => accent > entry && accent - entry < 0.4)), "each accent just after an entry");
+  // A game that opens at once still has four seconds of build; a slow one, the whole of it.
+  assert.equal(entryFor(0, d), 93.6);
+  assert.equal(entryFor(6, d), 89.45);
+  assert.equal(entryFor(60, d), 70.85);
+  // The loud stretch is where the file is loud: every hit stands in a stretch
+  // at least twice as loud as the piece's first minute.
+  const { rms, step } = MUSIC_TRACKS.clearSkies.loud;
+  for (const cut of d.cuts) assert.ok(rms[Math.floor(cut / step)] > 0.1, `${cut}: ${rms[Math.floor(cut / step)]}`);
+});
+
+test("a game opened early in Clear Skies crosses into Clear Skies' own build, not Passage Of Time's", () => {
   const { director, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 } });
   director.unlock();
-  time.advance(143700 + 90000);
+  time.advance(143700 + 30000);
   const clear = of("themes");
-  const build = of("drama");
   assert.deepEqual(sounding(), ["themes"]);
+  const before = clear.currentTime;
+  assert.ok(before > 29 && before < 31);
+  const passageBuildPlays = of("drama").plays;
   director.setScene("loading");
-  // The two cross: both sound for the length of the crossing, and no longer.
+  const build = of("clearSkiesDrama");
+  assert.equal(build.src, CLEAR);
+  // The two cross: its build comes in a little before the entry, under the menu's element.
   time.advance(900);
-  assert.deepEqual(sounding().sort(), ["drama", "themes"]);
-  assert.ok(clear.volume > 0 && build.volume > 0);
+  assert.deepEqual(sounding().sort(), ["clearSkiesDrama", "themes"]);
+  near(build.currentTime, 89.45, 0.05);
   time.advance(1100);
-  assert.deepEqual(sounding(), ["drama"]);
+  assert.deepEqual(sounding(), ["clearSkiesDrama"]);
   assert.equal(clear.paused, true);
+  assert.equal(of("drama").plays, passageBuildPlays, "Passage Of Time's build never sounds");
+  assert.equal(of("drama").paused, true);
   assert.equal(director.inDrama, true);
+  // It grows on the way to its big hit.
+  const early = build.volume;
+  time.advance(4000);
+  assert.ok(build.volume > early);
+  // The game is drawn: on to the big hit, which rings, and then it dies away.
   director.setScene("game");
-  time.advance(30000);
+  near(director.cutAt, CLEAR_SKIES_DRAMA.hit + CLEAR_SKIES_DRAMA.ring, 1e-9);
+  time.advance((CLEAR_SKIES_DRAMA.hit - build.currentTime) * 1000 + 100);
+  assert.equal(build.paused, false);
+  near(build.volume, 0.25 * CLEAR_SKIES_DRAMA.boost, 0.01);
+  time.advance(CLEAR_SKIES_DRAMA.ring * 1000 + CLEAR_SKIES_DRAMA.stopFade + 300);
   assert.deepEqual(sounding(), []);
+  assert.equal(build.paused, true);
+});
+
+test("a game opened while Clear Skies is already in its loud stretch: the same element carries on, and swells", () => {
+  const { director, made, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 } });
+  director.unlock();
+  time.advance(143700 + 110000);
+  const clear = of("themes");
+  assert.deepEqual(sounding(), ["themes"]);
+  const at = clear.currentTime;
+  assert.ok(at > 109 && at < 111);
+  const menuLevel = clear.volume;
+  near(menuLevel, 0.25 * clearLevel(at), 0.004);
+  const elements = made.length;
+  const plays = clear.plays;
+  director.setScene("loading");
+  // Nothing crosses and nothing jumps: no other element sounds at any look,
+  // the piece is where it was, and it was never paused or started again.
+  let last = clear.currentTime;
+  let before = clear.volume;
+  for (let ms = 0; ms < 7000; ms += 100) {
+    time.advance(100);
+    assert.deepEqual(sounding(), ["themes"]);
+    near(clear.currentTime, last + 0.1, 0.02);
+    assert.ok(clear.volume >= before - 1e-9, "only ever louder");
+    last = clear.currentTime;
+    before = clear.volume;
+  }
+  assert.equal(clear.plays, plays);
+  assert.equal(made.length, elements, "no element was made for it");
+  assert.equal(of("clearSkiesDrama").plays, 0);
+  // From the menu's level to the full boost over the next six seconds of the music.
+  near(clear.volume, 0.25 * CLEAR_SKIES_DRAMA.boost, 0.005);
+  assert.equal(MUSIC_SWELL.seconds, 6);
+  assert.equal(director.inDrama, true);
+  // The game is drawn: it stops on the next hit of its own loud stretch.
+  director.setScene("game");
+  const next = CLEAR_SKIES_DRAMA.cuts.find((cut) => cut + CLEAR_SKIES_DRAMA.ring > clear.currentTime + 0.1);
+  near(director.cutAt, next + CLEAR_SKIES_DRAMA.ring, 1e-9);
+  time.advance((director.cutAt - clear.currentTime) * 1000 + CLEAR_SKIES_DRAMA.stopFade + 300);
+  assert.deepEqual(sounding(), []);
+  assert.equal(clear.paused, true);
+  // Back on the menu it is Passage Of Time's turn; and the visit after that, Clear Skies from its start.
+  director.setScene("menu");
+  time.advance(3000);
+  assert.deepEqual(sounding(), ["calm"]);
+  director.setScene("game");
+  time.advance(3000);
+  director.setScene("menu");
+  time.advance(2000);
+  assert.deepEqual(sounding(), ["themes"]);
+  near(clear.currentTime, 2, 0.1);
+  near(clear.volume, 0.25 * clearLevel(2), 0.004);
+});
+
+test("a game still loading at the end of Clear Skies' loud stretch goes round it again, and a game given up goes back to the menu", () => {
+  const { director, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 } });
+  director.unlock();
+  time.advance(143700 + 140000);
+  const clear = of("themes");
+  director.setScene("loading");
+  let latest = 0;
+  for (let ms = 0; ms < 40000; ms += 25) {
+    time.advance(25);
+    latest = Math.max(latest, clear.currentTime);
+    assert.ok(sounding().length <= 1);
+  }
+  assert.ok(latest < CLEAR_SKIES_DRAMA.wrapAt + 0.05, `never into its quiet ending: ${latest}`);
+  assert.ok(clear.currentTime > CLEAR_SKIES_DRAMA.enter && clear.currentTime < CLEAR_SKIES_DRAMA.wrapAt);
+  assert.equal(clear.paused, false);
+  // Given up: the menu, and the other piece's turn.
+  director.setScene("menu");
+  time.advance(3000);
+  assert.deepEqual(sounding(), ["calm"]);
+  assert.equal(clear.paused, true);
+});
+
+test("Passage Of Time still goes into its own build, and each visit's game into the build of that visit's piece", () => {
+  const { director, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 } });
+  director.unlock();
+  time.advance(10000);
+  director.setScene("loading");
+  time.advance(2500);
+  assert.deepEqual(sounding(), ["drama"]);
+  assert.equal(of("clearSkiesDrama"), null);
+  director.setScene("game");
+  time.advance(20000);
+  // The second visit is Clear Skies': its game opens into Clear Skies' build.
+  director.setScene("menu");
+  time.advance(10000);
+  assert.deepEqual(sounding(), ["themes"]);
+  const passagePlays = of("drama").plays;
+  director.setScene("loading");
+  time.advance(2500);
+  assert.deepEqual(sounding(), ["clearSkiesDrama"]);
+  assert.equal(of("drama").plays, passagePlays);
+  director.setScene("game");
+  time.advance(20000);
+  assert.deepEqual(sounding(), []);
+  // The third is Passage Of Time's again.
+  director.setScene("menu");
+  time.advance(10000);
+  assert.deepEqual(sounding(), ["calm"]);
+  director.setScene("loading");
+  time.advance(2500);
+  assert.deepEqual(sounding(), ["drama"]);
 });
 
 // "its always playing passage of time": nobody idles on a menu for the two
@@ -1245,7 +1396,8 @@ test("the game opens on the piece after the one it was on last time", () => {
   near(two.of("themes").currentTime, 3, 0.1);
   assert.equal(first.name, "clearSkies");
   // The build is still held ready under it for a game opening.
-  assert.deepEqual([two.of("drama").paused, two.of("drama").plays], [true, 0]);
+  assert.deepEqual([two.of("clearSkiesDrama").paused, two.of("clearSkiesDrama").plays], [true, 0]);
+  assert.equal(two.of("drama"), null, "and Passage Of Time's build is not made for a menu that is not on it");
   // And the time after that: Passage Of Time again.
   const three = stage({ menuMemory: first, lengths: { [CLEAR]: 195 } });
   three.director.unlock();

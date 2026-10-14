@@ -33,6 +33,14 @@
 //            turns by VISIT: the game opens on the piece after the one it
 //            opened on last time, and each time the menu is come back to
 //            from a game it plays the next one, from its start.
+//            Each of the menu's pieces has a build of ITS OWN for a game
+//            opening ("why do they both crossfade into the same song, they
+//            should crossfade into their own song for the loading"): a game
+//            opened under Clear Skies goes into Clear Skies' build and loud
+//            stretch (CLEAR_SKIES_DRAMA), not Passage Of Time's. Where the
+//            menu's piece is already in its build or loud stretch there is
+//            nothing to cross to: the same element simply carries on, and
+//            swells.
 //   loading  a game is opening under its cover. The build comes in under the
 //            menu's music and the two cross (PASSAGE_DRAMA.crossfade), at the
 //            phrase from which the big hit lands just after the game is
@@ -123,6 +131,9 @@ export const MUSIC_TRACKS = Object.freeze({
     file: "audio/clear-skies.mp3",
     work: "Clear Skies",
     ...COMPOSER,
+    // Its own build and loud stretch, for a game opened under it
+    // (CLEAR_SKIES_DRAMA, below; set here once that is made).
+    get drama() { return CLEAR_SKIES_DRAMA; },
     loud: Object.freeze({
       step: 5,
       rms: Object.freeze([
@@ -221,6 +232,36 @@ export const PASSAGE_DRAMA = Object.freeze({
   boost: 1.6,
 });
 
+// Clear Skies' build and its loud stretch, in seconds of the file, measured
+// from it as PASSAGE_DRAMA's were (loudness every 50 ms). The piece rises
+// from about 70 s, its full orchestra arrives between 92 and 98, and the loud
+// stretch runs to its last hit at 153.4, after which it falls away.
+export const CLEAR_SKIES_DRAMA = Object.freeze({
+  // The starts of the build's phrases, each just before an accent (71.05,
+  // 78.60, 86.15, 89.65, 93.80): 26.75, 19.2, 11.65, 8.15 and 4 seconds
+  // before the big hit.
+  entries: Object.freeze([70.85, 78.4, 85.95, 89.45, 93.6]),
+  crossfade: 1800,
+  lead: 0.9,
+  // The first of the loud stretch's great hits.
+  hit: 97.6,
+  enter: 97.45,
+  // Just after the last hit has rung, before the piece falls away.
+  wrapAt: 154.3,
+  cuts: Object.freeze([97.6, 101.4, 105.15, 108.85, 112.75, 115.9, 120.35, 123.1, 127.2, 131.5, 135.5, 138.25, 143.05, 146, 150.65, 153.4]),
+  ring: 0.5,
+  stopFade: 3200,
+  accents: Object.freeze([71.05, 78.6, 86.15]),
+  softBeyond: 12,
+  softFade: 1500,
+  boost: 1.6,
+});
+// A game opened while the menu's piece is already past its big hit: how many
+// seconds of the music it takes to swell from the menu's level to the full
+// boost; and how long the same element takes to come up to full where it was
+// still fading in, in milliseconds.
+export const MUSIC_SWELL = Object.freeze({ seconds: 6, fadeIn: 300 });
+
 // How long a game takes to open on this device is learned from the last few
 // times one did (seconds): `kept` of them that lasted at least `shortest`,
 // their median held between `least` and `most`, and `unknown` before any has
@@ -310,10 +351,14 @@ export const entryFor = (expectedSeconds, drama = PASSAGE_DRAMA) => {
 // `entry`: as the menu at the entry, the full boost at the big hit, and evenly
 // between by where the music is, not by the clock. No entry (the loud stretch
 // gone round again) is the full boost.
-export const boostAt = (time, entry, drama = PASSAGE_DRAMA) => {
-  if (entry === null || entry === undefined || entry >= drama.hit || time >= drama.hit) return drama.boost;
-  if (time <= entry) return 1;
-  return 1 + (drama.boost - 1) * ((time - entry) / (drama.hit - entry));
+//
+// `from` is the level it starts at (the menu's own level there, when the
+// menu's element carries on as the loading music) and `until` where it
+// reaches the full boost (the big hit, unless that has passed).
+export const boostAt = (time, entry, drama = PASSAGE_DRAMA, from = 1, until = drama.hit) => {
+  if (entry === null || entry === undefined || entry >= until || time >= until) return drama.boost;
+  if (time <= entry) return from;
+  return from + (drama.boost - from) * ((time - entry) / (until - entry));
 };
 
 // The loadings worth learning from, oldest first: the last few that lasted
@@ -355,7 +400,7 @@ export const createMusicDirector = ({
   tracks = MUSIC_TRACKS,
   warPieces = MUSIC_WAR_PIECES,
   menuPieces = MUSIC_MENU_PIECES,
-  drama = PASSAGE_DRAMA,
+  drama: passageDrama = PASSAGE_DRAMA,
   calm = PASSAGE_CALM,
 }) => {
   // One channel a piece: its element (made when first needed), whether it
@@ -381,12 +426,27 @@ export const createMusicDirector = ({
     game: channel(tracks.game),
   };
   const quiet = channels.calm;
-  const loud = channels.drama;
   const themes = channels.themes;
+  // Each of the menu's pieces has its own build for a game opening: its
+  // element (a second one of the piece's file) and its times. Passage Of
+  // Time's is `drama`; another piece's is `<name>Drama`, where the piece has
+  // one (MUSIC_TRACKS.<name>.drama), and Passage Of Time's where it has not.
+  const builds = { passage: { ch: channels.drama, profile: passageDrama } };
+  for (const name of menuPieces) {
+    if (!tracks[name]?.drama) continue;
+    channels[`${name}Drama`] = channel(tracks[name]);
+    builds[name] = { ch: channels[`${name}Drama`], profile: tracks[name].drama };
+  }
+  // The build a game opening would use now, and its times: those of the
+  // piece the menu is on (aim). `loud` is, once a game is opening, whatever
+  // element is the loading music: that build's, or the menu's own element
+  // where it simply carries on.
+  let loud = channels.drama;
+  let drama = passageDrama;
   // A scenario's: one list a situation, of tracks as the hub's list resolved
   // them. One of these that cannot be played gives way to the game's own.
   const lists = Object.fromEntries(SCENARIO_MUSIC_SITUATIONS.map((key) => [key, playlist(key)]));
-  const pieces = [quiet, loud, channels.game];
+  const pieces = [quiet, ...Object.values(builds).map((build) => build.ch), channels.game];
   const playlists = [channels.war, themes, ...Object.values(lists)];
   const everyChannel = () => [...pieces, ...playlists];
 
@@ -403,6 +463,10 @@ export const createMusicDirector = ({
   // stop.
   let inDrama = false;
   let rampFrom = null;
+  // The level the build's growth starts from and where in the file it is
+  // full (boostAt): 1 and the big hit, but for a menu's element carried on.
+  let rampBase = 1;
+  let rampUntil = null;
   let cutAt = null;
   let softExit = false;
   // The entry the build is held ready at while the menu sounds, or null.
@@ -707,6 +771,14 @@ export const createMusicDirector = ({
   };
   // Which piece the menu is on is kept between sessions, so the next one
   // opens on the piece after it.
+  // Points `loud` and `drama` at the build of the piece the menu is on.
+  const aim = () => {
+    const build = builds[menuPiece()] ?? builds.passage;
+    if (build.ch === loud && build.profile === drama) return;
+    loud = build.ch;
+    drama = build.profile;
+    readyAt = null;
+  };
   const rememberMenu = () => {
     const name = menuPiece();
     if (name === remembered) return;
@@ -720,10 +792,12 @@ export const createMusicDirector = ({
     if (!(onTheme && usable(themes))) {
       onTheme = false;
       rememberMenu();
+      aim();
       bringCalm();
       return;
     }
     rememberMenu();
+    aim();
     themes.boost = themeBoost();
     bring(themes, themeTime() < 0.5 ? 0 : calm.fadeIn);
   };
@@ -882,7 +956,7 @@ export const createMusicDirector = ({
       if (cutAt !== null && time >= cutAt) { leave(softExit ? drama.softFade : drama.stopFade, softExit ? false : "decay"); return; }
       // Still loading at the end of the loud stretch: round it again, as loud.
       if (time >= drama.wrapAt) { seek(loud, drama.enter); rampFrom = null; }
-      const boost = boostAt(audio.currentTime, rampFrom, drama);
+      const boost = boostAt(audio.currentTime, rampFrom, drama, rampBase, rampUntil ?? drama.hit);
       if (boost !== loud.boost) { loud.boost = boost; setVolume(loud); }
       tick = timers.set(beat, TICK_MS);
     };
@@ -913,9 +987,11 @@ export const createMusicDirector = ({
     inDrama = false;
     rampFrom = null;
     stopTick();
-    fadeTo(loud, 0, ms, () => {
-      loud.want = false;
-      loud.boost = 1;
+    // The element that is ending, whatever `loud` points at by the time it has.
+    const ending = loud;
+    fadeTo(ending, 0, ms, () => {
+      ending.want = false;
+      ending.boost = 1;
       refresh();
       breath = timers.set(() => { breath = null; settle(); }, FADE.breath);
     }, shape);
@@ -928,7 +1004,10 @@ export const createMusicDirector = ({
     inDrama = false;
     rampFrom = null;
     silence(channels.game, FADE.cross);
-    silence(loud, FADE.cross);
+    for (const build of Object.values(builds)) silence(build.ch, FADE.cross);
+    // The menu's own element had carried on as the loading music: out, too,
+    // and from its start the next time it is that piece's turn.
+    if (loud === themes) silence(themes, FADE.cross);
     for (const list of playlists) {
       // The menu's own list is not on its way out: it may be what comes in.
       if (list !== themes) silence(list, FADE.cross);
@@ -962,6 +1041,10 @@ export const createMusicDirector = ({
     clearBreath();
     cutAt = null;
     softExit = false;
+    // The build of the piece the menu is on.
+    aim();
+    rampBase = 1;
+    rampUntil = null;
     const voice = voiceOf("loading");
     if (voice !== loud) {
       // The scenario's own loading music: no build and no stop on a hit. It
@@ -977,11 +1060,31 @@ export const createMusicDirector = ({
     // its pieces.
     const menu = themes.want ? themes : quiet;
     for (const other of [channels.game, ...playlists]) if (other !== themes) silence(other, FADE.cross);
+    for (const build of Object.values(builds)) if (build.ch !== loud) silence(build.ch, FADE.cross);
     // The menu's music is sounding: the build starts a little before its
     // entry, under it, and the two cross, so that the middle of the crossing
     // is the entry. Nothing to cross with (the first click came while the
     // game was opening): the build comes in from the entry itself.
     const crossing = menu.want && menu.gain > 0 && audible();
+    // The menu's piece is already in its own build or loud stretch: there is
+    // nothing to cross to. Its element carries on as the loading music, and
+    // swells from the menu's level to the full boost, by the big hit, or
+    // over a few seconds when that has passed.
+    const at = menu === themes ? themeTime() : null;
+    if (crossing && at !== null && builds[menuPiece()] && at >= drama.entries[0] - drama.lead && at < drama.wrapAt - 2) {
+      silence(loud, FADE.cross);
+      loud = themes;
+      inDrama = true;
+      rampFrom = at;
+      rampBase = themes.boost;
+      rampUntil = at < drama.hit - 1 ? drama.hit : Math.min(drama.wrapAt, at + MUSIC_SWELL.seconds);
+      readyAt = null;
+      strays = 3;
+      silence(quiet, FADE.cross, { rewind: true });
+      refresh();
+      fadeTo(themes, 1, MUSIC_SWELL.fadeIn);
+      return;
+    }
     const entry = entryFor(loadLeft(), drama);
     const from = crossing ? entry - drama.lead : entry;
     inDrama = true;
