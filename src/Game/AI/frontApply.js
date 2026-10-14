@@ -34,6 +34,8 @@ import { decodeTroops } from "../../runtime/fronts/codec.js";
 import { projectorOf } from "../../runtime/fronts/frame.js";
 import { othersOnWay } from "../../runtime/fronts/invade.js";
 import { gameDateYear } from "../../runtime/gameDates.js";
+import { yearInEra } from "../../runtime/unitMotion.js";
+import { eraSettingOf } from "../../runtime/warSettings.js";
 import { normalizeBattlefields } from "../../runtime/fronts/record.js";
 import { isUnderWay, normalizeTransports } from "../../runtime/fronts/transports.js";
 import { findWay } from "../../runtime/fronts/wayfinder.js";
@@ -220,6 +222,8 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
     unitCaps: { perCountry: MAX_UNITS_PER_POLITY, world: MAX_UNITS_GLOBAL },
     // EXPERIMENT, in the lab: the trained staff, when its switch is on and one is shipped (runtime/fronts/mind/trained.js).
     ...(strategyNetOn() && trainedStaffPolicy() ? { staffPolicy: trainedStaffPolicy() } : {}),
+    // The era the scenario set, if it set one (runtime/warSettings.js).
+    era: eraSettingOf(world),
     players: humanCountriesOf(game),
     // The difficulty weighs the land war for whoever fights a person's country (runtime/fronts/handicap.js).
     difficulty: normalizeDifficulty(game?.difficulty),
@@ -630,7 +634,7 @@ export const transportWaysFor = async ({ world = {}, game = {}, campaignId = "",
     if (!grid) return found;
     const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, regionIds: front.regionIds, groups: isActiveFeatureEnabled("groups") });
     const records = normalizeBattlefields(world?.battlefields);
-    const year = gameDateYear(clean(game?.gameDate));
+    const year = yearInEra(gameDateYear(clean(game?.gameDate)), eraSettingOf(world));
     for (const transport of ordered) {
       const record = records.find((entry) => fold(entry.name) === fold(transport.embark.battlefield));
       if (!record?.frame) continue;
@@ -732,7 +736,7 @@ export const frontsLiveBlock = (world, game, foreseen = null) => [landBlock(worl
 // the period's battles where the period was fought beforehand, else the fleets
 // of the countries at war as they stand. "" with fronts off or no such fleet.
 export const seasLiveBlock = (world, game, foreseen = null) => (frontsOn()
-  ? buildSeasBlock({ sea: foreseen?.sea ?? null, units: world?.units, wars: world?.wars, players: humanCountriesOf(game), date: clean(game?.gameDate || game?.startDate), blockades: world?.blockades })
+  ? buildSeasBlock({ sea: foreseen?.sea ?? null, units: world?.units, wars: world?.wars, players: humanCountriesOf(game), date: clean(game?.gameDate || game?.startDate), blockades: world?.blockades, era: eraSettingOf(world) })
   : "");
 
 const landBlock = (world, game, foreseen = null) => (frontsOn()

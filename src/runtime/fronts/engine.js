@@ -25,7 +25,7 @@
 
 import { addGameDays, compareGameDates, gameDateYear } from "../gameDates.js";
 import { waterTypeIds } from "../regionTypes.js";
-import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf } from "../unitMotion.js";
+import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf, yearInEra } from "../unitMotion.js";
 import { arenaFor } from "./arena.js";
 import { absorbUnit, holderOf, keepStart, lineLength, loadBattle, memberIndex, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setHandicap, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
@@ -97,7 +97,8 @@ const createRun = (input) => {
   const days = Math.max(0, Math.floor(Number(input?.days) || 0));
   const fromDate = String(input?.fromDate ?? "");
   const dated = addGameDays(fromDate, 0) !== "";
-  const era = eraOf(fromDate);
+  // (A scenario may set its era outright: runtime/warSettings.js.)
+  const era = eraOf(fromDate, Number.isInteger(input?.era) ? input.era : null);
   const controller = new Map();
   const group = new Map();
   const areas = input?.groupAreas && typeof input.groupAreas === "object" ? input.groupAreas : {};
@@ -1586,7 +1587,7 @@ const departTransport = (run, index, day) => {
       holderOf: (id) => holderIn(run, war, id),
       friendly,
       hostile,
-      year: gameDateYear(run.dateOf(0)),
+      year: yearInEra(gameDateYear(run.dateOf(0)), Number.isInteger(run.input?.era) ? run.input.era : null),
       date,
       dateOf: (days) => run.dateOf(day + days),
     });

@@ -25,6 +25,7 @@
 // applySimulationResult).
 
 import { diffGameDays, gameDateYear } from "../../runtime/gameDates.js";
+import { yearInEra } from "../../runtime/unitMotion.js";
 import { fundingFactor, middleFundingPerHead } from "../../runtime/militaryFunding.js";
 import { countryWeight } from "../../runtime/countryWeight.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
@@ -817,6 +818,8 @@ export const runTurnFronts = async ({
   naval = true,
   // The most formations a country and the world may have, for a fleet the war at sea commissions.
   unitCaps = null,
+  // The era the scenario set, 0 to 3, or null to read it off the date (runtime/warSettings.js).
+  era = null,
   difficulty = "",
   narratesCombat = null,
   // The fronts a scenario begins with (runtime/fronts/scenarioFronts.js), on
@@ -1025,6 +1028,7 @@ export const runTurnFronts = async ({
       // Who is played by a person: on a side of several countries nobody's order stands in for theirs.
       players: asArray(players).map(clean).filter(Boolean),
       difficulty: clean(difficulty),
+      ...(Number.isInteger(era) ? { era } : {}),
       // How short each country is of what comes by sea, by the blockades standing as the period begins
       // (runtime/naval/blockade.js): the side it fights on is weighed for it (runtime/fronts/handicap.js).
       ...(short.size > 0 ? { shortageOf: (name) => short.get(fold(name)) ?? 0 } : {}),
@@ -1076,6 +1080,7 @@ export const runTurnFronts = async ({
         scale: map?.scale,
         caps: unitCaps ?? {},
         raised: asArray(world?.naviesRaised),
+        era: Number.isInteger(era) ? era : null,
       });
       // (How long the period was, for what its blockades cost: frontApply.js withBlockadeEconomy.)
       sea.days = days;
@@ -1140,7 +1145,7 @@ export const runTurnFronts = async ({
     const mine = transports.find((entry) => entry.id === voyage?.id);
     if (voyage?.k === "refused" && mine && !mine.by) refused.push({ kind: "transport-refused", detail: `${clean(voyage.owner)} to ${clean(voyage.to) || "?"}: ${transportRefusal(voyage.why)}` });
   }
-  const year = gameDateYear(fromDate);
+  const year = yearInEra(gameDateYear(fromDate), Number.isInteger(era) ? era : null);
   for (const order of dispatches) {
     const owner = nameOf(withoutKind(order.side));
     // The battlefield it names is the one its landing opens: not one that is open already.

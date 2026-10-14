@@ -216,6 +216,7 @@ import { CAPTURE_REACH_KM, findNarratedCaptures, mayNarrateCapture } from "./nar
 import { EVENT_PLACES_RULE, findEventPlace, findEventPlaces, readEventPlace } from "./eventPlaces.js";
 import { normalizeEventPlaces } from "../../runtime/eventPlaces.js";
 import { describeTravelPace, seaShareOf } from "../../runtime/unitMotion.js";
+import { eraSettingOf } from "../../runtime/warSettings.js";
 import { PLACEMENT_DIRECTIVE, describeApproximatePlacement, describeOtherKind, distanceKm as placementDistanceKm, hashText as placementHash, homeWaters, nearestInteriorPoint, nearestSea, pointInGeometry, regionWithinContainer, resolvePlacement, resolveRegionPlacement, seasForMap } from "./placement.js";
 import { loadWorldCities } from "./worldCities.js";
 import { FOOTPRINT_KM, obstaclesOf, spaceOut } from "../../runtime/featureSpacing.js";
@@ -2780,7 +2781,7 @@ ${pending}`);
   // the skip template used to carry, not a copy of it.
   blocks.push(`[Units and Structures on the Map]
 When an event raises, moves, reinforces or wears down a force, that event carries the unitOps that show it. When an event builds or establishes something that stands in one place, it carries a markerOps build at a place the map knows, with its country.
-${describeTravelPace(game?.gameDate)}`);
+${describeTravelPace(game?.gameDate, eraSettingOf(world))}`);
 
   // A folded skip keeps the board itself (projectsDirective.js); otherwise the
   // board is context, and its own pass moves it.

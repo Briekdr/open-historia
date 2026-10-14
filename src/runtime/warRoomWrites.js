@@ -20,6 +20,7 @@
 import { inSharedGame, requestFromHost } from "../multiplayer/client/sharedGameBridge.js";
 import { applyWarRoomOp, cleanWarRoomOp } from "./fronts/warRoomOps.js";
 import { mutateWorldState, readGameData } from "./gameState.js";
+import { eraSettingOf } from "./warSettings.js";
 
 export const TURN_RUNNING_REFUSAL = "A turn is being resolved: the generals take orders once it has landed.";
 
@@ -38,7 +39,7 @@ export const sendWarRoomOp = async (op, { turnRunning = () => false } = {}) => {
   const game = await readGameData();
   let refusal = "";
   await mutateWorldState((world) => {
-    const result = applyWarRoomOp(world?.battlefields, sent, { player: game?.country, date: game?.gameDate || game?.startDate, transports: world?.transports });
+    const result = applyWarRoomOp(world?.battlefields, sent, { player: game?.country, date: game?.gameDate || game?.startDate, transports: world?.transports, era: eraSettingOf(world) });
     if (result.error) {
       refusal = result.error;
       return null;

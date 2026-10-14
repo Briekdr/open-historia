@@ -106,6 +106,8 @@ export const TEMPLATE_WORLD_OVERRIDE_KEYS = [
   // The fronts the scenario begins with (src/runtime/fronts/scenarioFronts.js):
   // built into battlefields the first time the game is opened, then dropped.
   "scenarioFronts",
+  // How the scenario's wars are fought (src/runtime/warSettings.js).
+  "warSettings",
 ];
 
 export const SUPPORTED_IMAGE_CONTENT_TYPES = new Set([

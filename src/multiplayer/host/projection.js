@@ -70,6 +70,8 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
   // what every government would know of. Only the country an offer or a call
   // is addressed to may answer it (host/gameHost.js).
   "warWeariness",
+  // How the scenario's wars are fought (runtime/warSettings.js): the scenario's own rules.
+  "warSettings",
   "peaceOffers",
   "reparations",
   "peaceTreaties",

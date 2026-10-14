@@ -7,6 +7,7 @@ import { normalizeBlockades } from "./naval/blockade.js";
 import { normalizeCallsToArms } from "./alliances.js";
 import { normalizePeaceOffers, normalizePeaceTreaties, normalizeReparations } from "./peaceTerms.js";
 import { normalizeWarWeariness } from "./warWeariness.js";
+import { eraSettingOf, normalizeWarSettings } from "./warSettings.js";
 import { MAX_GROUPS, applyGroupOps, canRenameGroup, findGroupKey, normalizeGroupAreas, normalizeGroupOp, normalizeGroups } from "./groups.js";
 import { enqueueEventStrings } from "./translator.js";
 import { normalizeTagList } from "./countryTags.js";
@@ -275,6 +276,8 @@ export const WORLD_DEFAULTS = {
   // How weary of war each country is, 0 to 100 (warWeariness.js): the game's
   // own figure, moved every turn by what the turn did to it.
   warWeariness: [],
+  // How the scenario's wars are fought (warSettings.js): null where it says nothing.
+  warSettings: null,
   // Peace (peaceTerms.js): the offers that wait for an answer or were given
   // one, the reparations being paid, and the last peaces made on terms.
   peaceOffers: [],
@@ -2888,11 +2891,11 @@ const nearestKm = (point, anchors) => {
 // The threshold is "30 days of this type's travel", which makes it era- and
 // type-aware off the same speed table for free: a modern navy reads as globally
 // supported (~18,000 km, correct), a 1400 army does not (~420 km, also correct).
-const isUnsupportedSpawn = (point, anchors, type, gameDate) => {
+const isUnsupportedSpawn = (point, anchors, type, gameDate, era = null) => {
   // An unknown footprint is not a suspicious one — world.units is empty at the
   // start of most scenarios, and gating on that would ghost every first spawn.
   if (anchors.length === 0) return false;
-  const radius = Math.max(600, Math.min(15000, maxTravelKm(type, gameDate, 30)));
+  const radius = Math.max(600, Math.min(15000, maxTravelKm(type, gameDate, 30, { era })));
   return nearestKm(point, anchors) > radius;
 };
 
@@ -2943,7 +2946,7 @@ export const resumeStandingOrders = (world, { round = 0, previousSystem = "" } =
 //   what a non-Gregorian scenario date must fall back to).
 export const applyUnitOpBatch = (units, orders, ops, context = {}) => {
   const {
-    gameDate = "", elapsedDays = null, round = 0, extraAnchors = [], eventId = "",
+    gameDate = "", elapsedDays = null, round = 0, extraAnchors = [], eventId = "", era = null,
   } = context;
   let next = normalizeUnits(units);
   let nextOrders = normalizePendingUnitOrders(orders);
@@ -2973,7 +2976,7 @@ export const applyUnitOpBatch = (units, orders, ops, context = {}) => {
       const anchors = buildOwnerFootprint({ units: next, markers }, unit.ownerCode, extraAnchors);
       // Reach/supply feasibility: a spawn its owner could not support where the
       // model put it is downgraded rather than dropped.
-      if (isUnsupportedSpawn(unit, anchors, unit.type, gameDate)) {
+      if (isUnsupportedSpawn(unit, anchors, unit.type, gameDate, era)) {
         // A fixed installation is the one thing that cannot simply be detected
         // into existence — it has to be built. Downgrade it to the troops it
         // would take rather than dropping the op, because a silently dropped op
@@ -3035,6 +3038,7 @@ export const applyUnitOpBatch = (units, orders, ops, context = {}) => {
             ? Infinity
             : maxTravelKm(unit.type, gameDate, elapsedDays, {
               posture,
+              era,
               seaShare: op.seaShare ?? null,
               remainingKm: haversineKm(unit.lat, unit.lng, op.toLat, op.toLng),
             });
@@ -3188,6 +3192,7 @@ export const advanceStandingOrders = (
       { lng: order.toLng, lat: order.toLat },
       maxTravelKm(unit.type, toDate || fromDate, unitElapsed, {
         posture: unit.posture,
+        era: eraSettingOf(world),
         seaShare: order.seaShare ?? null,
         remainingKm: haversineKm(unit.lat, unit.lng, order.toLat, order.toLng),
       }),
@@ -4448,6 +4453,8 @@ export const normalizeWorldState = (world) => {
     naviesRaised: normalizeNaviesRaised(nextWorld.naviesRaised),
     blockades: normalizeBlockades(nextWorld.blockades),
     warWeariness: normalizeWarWeariness(nextWorld.warWeariness),
+    // How the scenario's wars are fought (warSettings.js): null where it says nothing.
+    warSettings: normalizeWarSettings(nextWorld.warSettings),
     peaceOffers: normalizePeaceOffers(nextWorld.peaceOffers),
     reparations: normalizeReparations(nextWorld.reparations),
     peaceTreaties: normalizePeaceTreaties(nextWorld.peaceTreaties),
@@ -5841,6 +5848,7 @@ export const applyEventImpactsToWorld = ({
         {
           markers: nextWorld.markers,
           gameDate: event.date || cursorDate,
+          era: eraSettingOf(nextWorld),
           elapsedDays: motion ? daysBetweenDates(cursorDate, event.date) : null,
           round: motion?.round ?? 0,
           eventId: event.id,

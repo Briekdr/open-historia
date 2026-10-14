@@ -270,8 +270,8 @@ const placeOf = ({ lng, lat, seas, cities, km }) => {
 //   blockades   [{ country, by: [names], pressure, covered, days }]: each country a fleet
 //               pressed on in the period (blockade.js): the mean of its days, the share
 //               of its coast reached, and how many of the period's days it stood
-export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units = [], strengthOf = null, controllerOf = null, grid = null, cities = [], seas = [], flat = false, scale = undefined, caps = {}, raised = [] } = {}) => {
-  const era = eraOf(fromDate);
+export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units = [], strengthOf = null, controllerOf = null, grid = null, cities = [], seas = [], flat = false, scale = undefined, caps = {}, raised = [], era: setEra = null } = {}) => {
+  const era = eraOf(fromDate, setEra);
   const reach = NAVAL_REACH_KM[era];
   const km = (lngA, latA, lngB, latB) => (grid ? grid.km(lngA, latA, lngB, latB) : kmBetween(lngA, latA, lngB, latB, { flat, scale }));
   const dateOf = (day) => addGameDays(fromDate, day) || clean(fromDate);

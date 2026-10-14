@@ -28,6 +28,7 @@ import { deployFor, disbandFor, revertOrderFor } from "./forces.js";
 import { agentOrderFor } from "./agents.js";
 import { acceptStructure, canSettleStructure, moveStructure } from "../../runtime/structurePlacement.js";
 import { applyWarRoomOp, cleanWarRoomOp } from "../../runtime/fronts/warRoomOps.js";
+import { eraSettingOf } from "../../runtime/warSettings.js";
 import { humanCountriesOf } from "../../runtime/humanPolities.js";
 import { playerDiplomacy } from "../../Game/AI/warAndPeace.js";
 
@@ -346,7 +347,7 @@ export const createGameHost = ({
       if (!sent) return "Nothing was asked.";
       let refusal = "";
       await store.updateForces(({ world, game }) => {
-        const result = applyWarRoomOp(world?.battlefields, sent, { player: seat.country, date: clean(game?.gameDate), transports: world?.transports });
+        const result = applyWarRoomOp(world?.battlefields, sent, { player: seat.country, date: clean(game?.gameDate), transports: world?.transports, era: eraSettingOf(world) });
         if (result.error) {
           refusal = result.error;
           return null;

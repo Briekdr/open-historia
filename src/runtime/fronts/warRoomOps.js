@@ -27,6 +27,7 @@
 // Pure, and runs in bare node.
 
 import { gameDateYear } from "../gameDates.js";
+import { yearInEra } from "../unitMotion.js";
 import { decodeTroops } from "./codec.js";
 import { generalsOf, nameGenerals, orderTroops, ownTroopsOf, readTalk, releaseTroops, returnTroops, withTalk } from "./command.js";
 import { HOLDER_SIDE_A, HOLDER_SIDE_B, MAX_COMMANDS, MAX_TROOPS_PER_SIDE, MAX_WAY_POINTS, TALK_TEXT_MAX, WAR_ROOM_ORDERS } from "./constants.js";
@@ -103,7 +104,7 @@ const REFUSED = Object.freeze({
 //                 and be taken to `to` ([lng, lat]); they board when time next passes
 //   untransport   one that has not set out is called off
 //   hunt          one of the other side's is gone after (`off` stops it)
-const applyTransportOp = (record, side, op, { player, date, transports }) => {
+const applyTransportOp = (record, side, op, { player, date, transports, era = null }) => {
   const kept = normalizeTransports(transports);
   if (op.op === "untransport") {
     const mine = kept.find((entry) => entry.id === clean(op.id, 24) && entry.status === "ordered" && [entry.by, entry.owner].some((name) => foldName(name) === foldName(player)));
@@ -132,7 +133,7 @@ const applyTransportOp = (record, side, op, { player, date, transports }) => {
     to: { lng, lat, name: clean(op.name, 120) },
     embark: { battlefield: record.name, side, troops },
     by: player,
-  }, { date: clean(date, 40), year: gameDateYear(date) });
+  }, { date: clean(date, 40), year: yearInEra(gameDateYear(date), era) });
   if (sent.error) return { error: sent.error === "not-yet" ? REFUSED.carrier : sent.error === "too-many" ? REFUSED.transports : REFUSED.nothing };
   return { transports: sent.transports, transport: sent.transport };
 };
@@ -228,7 +229,8 @@ const applyTo = (record, side, op, { player, date }) => {
 // words a person can read. `date` is the game's date, written on what is kept.
 // An op for a transporter leaves the battlefields as they are and returns
 // `transports` as well: the world's (`transports`, handed in) with the op applied.
-export const applyWarRoomOp = (battlefields, op, { player = "", date = "", transports = [] } = {}) => {
+//   era   the era the scenario set (runtime/warSettings.js), or null: what carries a transport
+export const applyWarRoomOp = (battlefields, op, { player = "", date = "", transports = [], era = null } = {}) => {
   if (!op || !WAR_ROOM_OPS.includes(op.op)) return { error: REFUSED.nothing };
   const wanted = foldBattlefieldName(op.battlefield);
   const rows = list(battlefields);
@@ -238,7 +240,7 @@ export const applyWarRoomOp = (battlefields, op, { player = "", date = "", trans
   const side = battlefieldSideOf(record, player);
   if (side !== HOLDER_SIDE_A && side !== HOLDER_SIDE_B) return { error: REFUSED.side };
   if (TRANSPORT_OPS.includes(op.op)) {
-    const carried = applyTransportOp(record, side, op, { player: clean(player, 120), date, transports });
+    const carried = applyTransportOp(record, side, op, { player: clean(player, 120), date, transports, era });
     return carried.error ? carried : { battlefields: rows, record, side, transports: carried.transports };
   }
   const result = applyTo(record, side, op, { player: clean(player, 120), date });
