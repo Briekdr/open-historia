@@ -187,7 +187,9 @@ const Wheel = ({ logo, metal }) => (
 // handles do, but it is drawn apart from the wheel and moved down and to the
 // right by whoever draws it, outside the turning: a shadow falls the same way
 // however the thing that casts it is turned. (Drawn inside the wheel it went
-// round with it, and fell upward half the time.)
+// round with it, and fell upward half the time.) It is drawn beside the
+// button, not in it, so that it does not shake when the wheel does (the
+// owner: "the shadow is attached to the object making it shake aswell").
 const WheelShadow = () => (
   <svg viewBox="-150 -150 300 300" width="100%" height="100%" aria-hidden="true" style={{ display: "block", opacity: 0.42 }}>
     <circle r="120" fill="#000" />
@@ -305,6 +307,14 @@ export const VaultDoor = ({ onOpening = null, onOpened = null, logo = `${import.
       </svg>
       {/* The wheel, in the middle, over the seams. Its bolts draw back as the leaves start. */}
       <div style={{ position: "absolute", left: "50%", top: "50%", width: "56vmin", height: "56vmin", transform: `translate(-50%, -50%) scale(${opening ? 0.6 : 1})`, opacity: opening ? 0 : 1, transition: still ? "none" : "transform 260ms cubic-bezier(0.42, 0, 1, 1), opacity 260ms cubic-bezier(0.42, 0, 1, 1)" }}>
+        {/* The shadow: moved down and to the right here, and turned inside that.
+            Beside the button, not in it: the button is what shakes, and the
+            shadow lies still on the door while it does. */}
+        <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", transform: "translate(1.3%, 2.4%)" }}>
+          <div style={{ width: "100%", height: "100%", transform: `rotate(${turned && !still ? 540 : 0}deg)`, transition: still ? "none" : `transform ${VAULT_TIMING.spin}ms cubic-bezier(0.5, 0, 0.2, 1)` }}>
+            <WheelShadow />
+          </div>
+        </div>
         <button
           type="button"
           className="oh-vault-knob"
@@ -314,12 +324,6 @@ export const VaultDoor = ({ onOpening = null, onOpened = null, logo = `${import.
           onClick={open}
           style={{ width: "100%", height: "100%", animation: shaking ? `oh-vault-shake ${VAULT_TIMING.shake}ms cubic-bezier(0.42, 0, 0.58, 1)` : "none" }}
         >
-          {/* The shadow: moved down and to the right here, and turned inside that. */}
-          <div style={{ position: "absolute", inset: 0, transform: "translate(1.3%, 2.4%)" }}>
-            <div style={{ width: "100%", height: "100%", transform: `rotate(${turned && !still ? 540 : 0}deg)`, transition: still ? "none" : `transform ${VAULT_TIMING.spin}ms cubic-bezier(0.5, 0, 0.2, 1)` }}>
-              <WheelShadow />
-            </div>
-          </div>
           <div style={{ position: "relative", width: "100%", height: "100%", transform: `rotate(${turned && !still ? 540 : 0}deg)`, transition: still ? "none" : `transform ${VAULT_TIMING.spin}ms cubic-bezier(0.5, 0, 0.2, 1)` }}>
             <Wheel logo={logo} metal={metal} />
           </div>

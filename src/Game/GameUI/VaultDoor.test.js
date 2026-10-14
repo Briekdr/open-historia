@@ -85,6 +85,11 @@ test("the wheel is a button with a name, focused when the door appears, and clic
 test("the wheel's shadow turns with it and always falls the same way", () => {
   // The shadow is drawn apart from the wheel: moved outside the turning, turned inside it.
   assert.match(door, /transform: "translate\(1\.3%, 2\.4%\)" \}\}>\s+<div style=\{\{[^\n]+rotate\(\$\{turned && !still \? 540 : 0\}deg\)[^\n]+\}\}>\s+<WheelShadow \/>/);
+  // It lies still while the wheel shakes: it is beside the button that shakes, before it, not in it.
+  const shadowAt = door.indexOf("<WheelShadow />");
+  const buttonAt = door.indexOf('className="oh-vault-knob"');
+  assert.ok(shadowAt > 0 && shadowAt < buttonAt);
+  assert.doesNotMatch(door.slice(buttonAt, door.indexOf("</button>", buttonAt)), /WheelShadow/);
   // It has the handles' shapes, three of them.
   const shadow = door.slice(door.indexOf("const WheelShadow = "), door.indexOf("// `onOpening`"));
   assert.match(shadow, /\[0, 120, 240\]\.map/);
