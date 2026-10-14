@@ -315,10 +315,127 @@ const ButtonIcon = ({ kind, size = 15, strokeWidth = 1.9 }) => {
           <circle cx="12" cy="18.5" r="1.4" fill="currentColor" stroke="none" />
         </svg>
       );
+    // The main menu's pages, on the rail (MenuRail).
+    case "games":
+      return (
+        <svg aria-hidden="true" {...common}>
+          <rect x="3.5" y="5" width="17" height="14" rx="3" />
+          <path d="m10.3 9.2 4.5 2.8-4.5 2.8z" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case "scenarios":
+      return (
+        <svg aria-hidden="true" {...common}>
+          <path d="M9 4.5 3.5 6.5v13l5.5-2 6 2 5.5-2v-13l-5.5 2z" />
+          <path d="M9 4.5v13M15 6.5v13" />
+        </svg>
+      );
+    case "community":
+      return (
+        <svg aria-hidden="true" {...common}>
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="M3.5 12h17" />
+          <path d="M12 3.5c2.3 2.3 3.5 5.2 3.5 8.5s-1.2 6.2-3.5 8.5c-2.3-2.3-3.5-5.2-3.5-8.5s1.2-6.2 3.5-8.5z" />
+        </svg>
+      );
+    case "lobbies":
+      return (
+        <svg aria-hidden="true" {...common}>
+          <circle cx="8.5" cy="8.5" r="3" />
+          <circle cx="16.5" cy="9.5" r="2.4" />
+          <path d="M3 19c.5-3 2.6-4.8 5.5-4.8s5 1.8 5.5 4.8" />
+          <path d="M14.8 14.6c.5-.2 1.1-.3 1.7-.3 2.3 0 4 1.5 4.5 4.2" />
+        </svg>
+      );
     default:
       return null;
   }
 };
+
+// The main menu's pages, in the order the rail shows them (the owner,
+// 2026-10-14: "restyle this ui so the tabs that are currently on top appear as
+// semi square buttons on a menu on the left side of the screen").
+const MENU_TABS = Object.freeze([
+  Object.freeze({ id: "games", label: "Games" }),
+  Object.freeze({ id: "scenarios", label: "Scenarios" }),
+  Object.freeze({ id: "community", label: "Community" }),
+  Object.freeze({ id: "lobbies", label: "Lobbies" }),
+]);
+const MENU_RAIL_WIDTH = "6.9rem";
+const MENU_RAIL_ICON = 22;
+
+// A page's button on the rail: a rounded square, its icon over its name.
+const railButtonStyle = (active) => ({
+  alignItems: "center",
+  background: active ? "rgba(255,255,255,0.11)" : "rgba(255,255,255,0.035)",
+  border: `1px solid ${active ? "rgba(255,255,255,0.24)" : "rgba(255,255,255,0.07)"}`,
+  borderRadius: "16px",
+  boxShadow: active ? "inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 20px rgba(0,0,0,0.28)" : "none",
+  color: active ? "#ffffff" : "rgba(236,236,240,0.7)",
+  cursor: "pointer",
+  display: "flex",
+  flexDirection: "column",
+  flexShrink: 0,
+  fontSize: "0.74rem",
+  fontWeight: 700,
+  gap: "0.45rem",
+  height: "5.1rem",
+  justifyContent: "center",
+  letterSpacing: "0.01em",
+  padding: "0.5rem 0.3rem",
+  transition: actionButtonStyle.transition,
+  width: "5.4rem",
+});
+
+// The rail down the left of the main menu, on a screen wide enough for it: the
+// mark and the name, a rounded square for each page, and Settings at its
+// foot. A phone keeps the pages as a row across the top.
+const MenuRail = ({ activeTab, onTab, onOpenSettings }) => (
+  <nav
+    style={{
+      alignItems: "center",
+      background: "#0b0b0d",
+      borderRight: "1px solid rgba(255,255,255,0.08)",
+      display: "flex",
+      flexDirection: "column",
+      flexShrink: 0,
+      gap: "0.6rem",
+      overflowY: "auto",
+      padding: `calc(1rem + ${SAFE_TOP}) 0.75rem calc(1rem + ${SAFE_BOTTOM}) calc(0.75rem + ${SAFE_LEFT})`,
+      scrollbarWidth: "none",
+      width: `calc(${MENU_RAIL_WIDTH} + ${SAFE_LEFT})`,
+    }}
+  >
+    <div style={{ alignItems: "center", display: "flex", flexDirection: "column", flexShrink: 0, gap: "0.45rem", marginBottom: "0.8rem" }}>
+      <div style={{ alignItems: "center", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", display: "flex", height: "3.15rem", justifyContent: "center", overflow: "hidden", width: "3.15rem" }}>
+        <img alt="" src="/logo.png" style={{ height: "2.05rem", width: "2.05rem" }} />
+      </div>
+      <div style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 800, letterSpacing: "-0.01em", lineHeight: 1.15, textAlign: "center" }}>
+        Open Historia
+      </div>
+    </div>
+    {MENU_TABS.map((tab) => (
+      <button
+        key={tab.id}
+        aria-current={activeTab === tab.id ? "page" : undefined}
+        className="oh-tap-row"
+        onClick={() => onTab(tab.id)}
+        style={railButtonStyle(activeTab === tab.id)}
+        type="button"
+      >
+        <ButtonIcon kind={tab.id} size={MENU_RAIL_ICON} />
+        <span>{tab.label}</span>
+      </button>
+    ))}
+    <div style={{ flex: 1, minHeight: "0.6rem" }} />
+    {typeof onOpenSettings === "function" && (
+      <button className="oh-tap-row" onClick={onOpenSettings} style={railButtonStyle(false)} type="button">
+        <ButtonIcon kind="settings" size={MENU_RAIL_ICON} />
+        <span>Settings</span>
+      </button>
+    )}
+  </nav>
+);
 
 // On a touch screen .oh-tap / .oh-tap-row (styles.css) make a control a
 // finger's 44 px, but a min-height written inline beats a class, and every pill
@@ -4560,7 +4677,11 @@ const LibraryTopBar = ({ onOpenSettings }) => {
       />
 
       {/* The Main Menu: a full page over everything in-game. Opens on app start
-          (module default) and via Exit Game; closes only by entering a game. */}
+          (module default) and via Exit Game; closes only by entering a game.
+          On a wide screen its pages are a rail down the left (MenuRail) and
+          each page has a header of its own: its name, and its actions. On a
+          phone the pages are a row across the top, and the actions head the
+          page by name. */}
       <Presence open={menuOpen}>
         <div
           style={{
@@ -4568,95 +4689,82 @@ const LibraryTopBar = ({ onOpenSettings }) => {
               "#0f0f11",
             color: "#fff",
             display: "flex",
-            flexDirection: "column",
+            flexDirection: isMobile ? "column" : "row",
             fontFamily: "sans-serif",
             inset: 0,
             position: "fixed",
             zIndex: 10046,
           }}
         >
-          <div style={{ borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
-            <div
-              style={{
-                alignItems: "center",
-                display: "grid",
-                flexShrink: 0,
-                gap: isMobile ? "0.4rem" : "0.9rem",
-                gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 1fr) auto minmax(0, 1fr)",
-                height: `calc(${BAR_HEIGHT}px + ${SAFE_TOP})`,
-                margin: "0 auto",
-                maxWidth: `calc(${APP_SHELL_MAX_WIDTH} + 2rem + ${SAFE_LEFT} + ${SAFE_RIGHT})`,
-                padding: `${SAFE_TOP} calc(${isMobile ? "0.5rem" : "1rem"} + ${SAFE_RIGHT}) 0 calc(${isMobile ? "0.5rem" : "1rem"} + ${SAFE_LEFT})`,
-                width: "100%",
-              }}
-            >
-            {!isMobile && (
-              <div style={{ alignItems: "center", display: "flex", gap: "0.95rem", minWidth: 0 }}>
-                <div style={{ alignItems: "center", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", display: "flex", flexShrink: 0, height: "3.15rem", justifyContent: "center", overflow: "hidden", width: "3.15rem" }}>
-                  <img alt="Open Historia" src="/logo.png" style={{ height: "2.05rem", width: "2.05rem" }} />
-                </div>
-                <div style={{ color: "#fff", fontSize: "1.42rem", fontWeight: 800, letterSpacing: "-0.03em" }}>
-                  Open Historia
-                </div>
-              </div>
-            )}
-
-            <div
-              style={{
-                alignItems: "center",
-                display: "flex",
-                gap: "0.55rem",
-                justifyContent: isMobile ? "flex-start" : "center",
-                justifySelf: "center",
-                minWidth: 0,
-                overflowX: "auto",
-                scrollbarWidth: "none",
-              }}
-            >
-              {["games", "scenarios", "community", "lobbies"].map((tab) => (
-                <button
-                  key={tab}
-                  className="oh-tap-row"
-                  onClick={() => setActiveTab(tab)}
-                  style={touchFit({
-                    ...actionButtonStyle,
-                    background: activeTab === tab ? "var(--oh-grey-selected)" : "rgba(255,255,255,0.05)",
-                    borderColor: activeTab === tab ? "var(--oh-grey-border-strong)" : "rgba(255,255,255,0.08)",
-                    minWidth: isMobile ? "0" : "6.6rem",
-                    padding: isMobile ? "0.55rem 0.6rem" : undefined,
-                  }, touch)}
-                  type="button"
-                >
-                  {tab === "games" ? "Games" : tab === "scenarios" ? "Scenarios" : tab === "community" ? "Community" : "Lobbies"}
-                </button>
-              ))}
-            </div>
-
-            {!isMobile && (
-              <div style={{ alignItems: "center", display: "flex", flexShrink: 0, gap: "0.55rem", justifyContent: "flex-end" }}>
-                {typeof onOpenSettings === "function" && (
+          {isMobile ? (
+            <div style={{ borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
+              <div
+                style={{
+                  alignItems: "center",
+                  display: "flex",
+                  gap: "0.55rem",
+                  height: `calc(${BAR_HEIGHT}px + ${SAFE_TOP})`,
+                  overflowX: "auto",
+                  padding: `${SAFE_TOP} calc(0.5rem + ${SAFE_RIGHT}) 0 calc(0.5rem + ${SAFE_LEFT})`,
+                  scrollbarWidth: "none",
+                }}
+              >
+                {MENU_TABS.map((tab) => (
                   <button
+                    key={tab.id}
+                    aria-current={activeTab === tab.id ? "page" : undefined}
                     className="oh-tap-row"
-                    onClick={onOpenSettings}
-                    style={touchFit({ ...actionButtonStyle, flexShrink: 0 }, touch)}
-                    title={isMobile ? "Settings" : undefined}
+                    onClick={() => setActiveTab(tab.id)}
+                    style={touchFit({
+                      ...actionButtonStyle,
+                      background: activeTab === tab.id ? "var(--oh-grey-selected)" : "rgba(255,255,255,0.05)",
+                      borderColor: activeTab === tab.id ? "var(--oh-grey-border-strong)" : "rgba(255,255,255,0.08)",
+                      minWidth: "0",
+                      padding: "0.55rem 0.6rem",
+                    }, touch)}
                     type="button"
                   >
-                    <ButtonIcon kind="settings" /> Settings
-                  </button>
-                )}
-                {tabActions.map(({ icon, label, run }) => (
-                  <button key={label} className="oh-tap-row" onClick={run} style={touchFit({ ...actionButtonStyle, flexShrink: 0 }, touch)} type="button">
-                    <ButtonIcon kind={icon} /> {label}
+                    {tab.label}
                   </button>
                 ))}
               </div>
-            )}
             </div>
-          </div>
+          ) : (
+            <MenuRail activeTab={activeTab} onOpenSettings={onOpenSettings} onTab={setActiveTab} />
+          )}
+
+          <div style={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0, minWidth: 0 }}>
+          {!isMobile && (
+            <div style={{ borderBottom: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
+              <div
+                style={{
+                  alignItems: "center",
+                  display: "flex",
+                  gap: "0.9rem",
+                  height: `calc(${BAR_HEIGHT}px + ${SAFE_TOP})`,
+                  justifyContent: "space-between",
+                  margin: "0 auto",
+                  maxWidth: APP_SHELL_MAX_WIDTH,
+                  padding: `${SAFE_TOP} calc(1.6rem + ${SAFE_RIGHT}) 0 1.6rem`,
+                  width: "100%",
+                }}
+              >
+                <h1 style={{ color: "#fff", fontSize: "1.42rem", fontWeight: 800, letterSpacing: "-0.03em", margin: 0, minWidth: 0 }}>
+                  {MENU_TABS.find((tab) => tab.id === activeTab)?.label ?? ""}
+                </h1>
+                <div style={{ alignItems: "center", display: "flex", flexShrink: 0, gap: "0.55rem", justifyContent: "flex-end" }}>
+                  {tabActions.map(({ icon, label, run }) => (
+                    <button key={label} className="oh-tap-row" onClick={run} style={touchFit({ ...actionButtonStyle, flexShrink: 0 }, touch)} type="button">
+                      <ButtonIcon kind={icon} /> {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div style={{ flex: 1, overflowY: "auto" }}>
-            <div style={{ margin: "0 auto", maxWidth: APP_SHELL_MAX_WIDTH, padding: isMobile ? `1.1rem calc(0.8rem + ${SAFE_RIGHT}) calc(2.5rem + ${SAFE_BOTTOM}) calc(0.8rem + ${SAFE_LEFT})` : `1.5rem calc(1.6rem + ${SAFE_RIGHT}) calc(3rem + ${SAFE_BOTTOM}) calc(1.6rem + ${SAFE_LEFT})`, width: "100%" }}>
+            <div style={{ margin: "0 auto", maxWidth: APP_SHELL_MAX_WIDTH, padding: isMobile ? `1.1rem calc(0.8rem + ${SAFE_RIGHT}) calc(2.5rem + ${SAFE_BOTTOM}) calc(0.8rem + ${SAFE_LEFT})` : `1.5rem calc(1.6rem + ${SAFE_RIGHT}) calc(3rem + ${SAFE_BOTTOM}) 1.6rem`, width: "100%" }}>
             {/* Phones: the tab's actions head the page, by name. In the bar they
                 would be icon-only controls named by a tooltip, which a finger
                 never sees, and the bar has no room for words beside the tabs. */}
@@ -4814,6 +4922,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
               </>
             )}
             </div>
+          </div>
           </div>
         </div>
       </Presence>

@@ -137,7 +137,7 @@ test("main-menu settings, gameplay-only idle diplomacy and terminal lifecycle cl
   assert.match(main, /<LibraryTopBar onOpenSettings=/);
   assert.match(library, /const LibraryTopBar = \(\{ onOpenSettings \}\) =>/);
   assert.match(library, /onClick=\{onOpenSettings\}/);
-  assert.match(library, /<ButtonIcon kind="settings" \/> Settings/);
+  assert.match(library, /<ButtonIcon kind="settings" size=\{MENU_RAIL_ICON\} \/>\s*<span>Settings<\/span>/);
   // Nor for a game the player has not opened since the page started (runtime/gameEntry.js).
   assert.match(main, /if \(hasNoGames \|\| mainMenuOpen \|\| !gameEntered\) return undefined;/);
   assert.match(main, /\[hasNoGames, mainMenuOpen, gameEntered\]/);

@@ -200,7 +200,7 @@ const HostPanel = ({ onClose, onEnterGame }) => {
 
 export default function LobbiesTab({ hosting = false, onHostingChange, onEnterGame }) {
   return (
-    <div style={{ display: "grid", gap: "1.1rem", maxWidth: "62rem", margin: "0 auto" }}>
+    <div style={{ display: "grid", gap: "1.1rem", maxWidth: "62rem", margin: "0" }}>
       <InviteBar onEnterGame={onEnterGame} />
       {hosting ? <HostPanel onClose={() => onHostingChange?.(false)} onEnterGame={onEnterGame} /> : null}
       <PublicLobbies />

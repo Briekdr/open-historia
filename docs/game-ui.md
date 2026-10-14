@@ -141,15 +141,18 @@ The app boots into the menu **with no game loaded behind it**, and closing the m
 
 ### 4.2 Menu chrome
 
-Full-page overlay at z 10046. Header is a centered, width-bounded 3-column grid: **logo/title** | **tab buttons** | **actions**. The desktop shell now grows to **3000px** before capping, so 2560px and 3440px displays use substantially more of the viewport instead of rendering a 1080p-era island in the middle. Card widths remain independently capped, so additional width yields more cards per row rather than oversized cards; very wide displays still retain deliberate outer gutters instead of pinning chrome to the physical screen edges.
+Full-page overlay at z 10046. On a wide screen the pages are a **rail down the left** (`MenuRail` in `libraryBar.jsx`, 6.9rem wide): the logo and the name at its head, a rounded square (16px corners, icon over name) for each of `MENU_TABS` (Games, Scenarios, Community, Lobbies; the open one marked `aria-current="page"`), and **Settings** at its foot. Right of it, each page has a header of its own: the page's name as an `<h1>` and that page's actions. On a phone the pages stay a row of buttons across the top and the actions head the page by name. The content column grows to **3000px** before capping, so 2560px and 3440px displays use substantially more of the viewport instead of rendering a 1080p-era island in the middle. Card widths remain independently capped, so additional width yields more cards per row rather than oversized cards; very wide displays still retain deliberate outer gutters instead of pinning chrome to the physical screen edges.
 
 | Tab | Content | Component |
 |---|---|---|
 | Games | `MenuRow`s: 🕐 Last Played, 🔥 Most Played, 🗄️ Archived, 🗑️ Recently deleted | `GameCard`, `DeletedCard` |
 | Scenarios | 🔥 Most Played, 🕐 Last Updated, ✦ Your Scenarios (with `CreateScenarioTile`), 🗑️ Recently deleted | `ScenarioCard`, `DeletedCard` |
 | Community | Lazy `CommunityPanel fullPage` | `communityHub.jsx` |
+| Lobbies | Multiplayer lobbies, left-aligned like the other pages | `multiplayer/ui/LobbiesTab.jsx` |
 
-Header utility actions use the shared inline `ButtonIcon` glyphs: **Settings**, **Refresh**, and the tab-specific **Import Game** / **Import Scenario** action. The labels remain visible on desktop and use the same icon vocabulary on phones.
+Header utility actions use the shared inline `ButtonIcon` glyphs: **Refresh** and the tab-specific **Import Game** / **Import Scenario** action (Settings is on the rail). The labels remain visible on desktop and use the same icon vocabulary on phones.
+
+Scrollbars everywhere are thin and dark (`styles.css`: `scrollbar-color: rgba(255, 255, 255, 0.16) transparent`, brighter on hover, a `::-webkit-scrollbar` fallback where `scrollbar-color` is unsupported) so they never show as a white bar.
 
 Each `MenuRow` carries a short description plus a subtle divider. Desktop rows use a responsive grid so a populated library scales across the available width; phones retain horizontally scrollable shelves. Sparse libraries are not stretched into oversized feature cards.
 
