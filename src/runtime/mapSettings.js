@@ -18,6 +18,7 @@ export const MAP_SETTING_KEYS = {
     // pick is kept apart, per game (runtime/basemapPick.js).
     defaultBasemap: "map_basemap_default",
     defaultBasemapOn: "map_basemap_default_on",
+    mapMode: "map_mode",
     // Empty/unset means "use the scenario author's label font" (world.labelFont,
     // itself defaulting to Georgia). A family name here is a local, reversible
     // player override, like the default basemap above. It exists in

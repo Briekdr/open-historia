@@ -85,8 +85,14 @@ export const politiesFailed = () => Boolean(currentRecord()?.failed);
 // Ready AND drawn: the map has gone idle since the layers landed.
 export const politiesSettled = () => {
   const record = currentRecord();
+  if (!record) return false;
   const idleAt = store().idleAt ?? 0;
-  return Boolean(record && idleAt > record.at + SETTLE_MARGIN_MS);
+  const timeSinceReady = now() - record.at;
+  return Boolean(
+    idleAt > record.at + SETTLE_MARGIN_MS ||
+    (idleAt >= record.at && timeSinceReady >= SETTLE_MARGIN_MS) ||
+    timeSinceReady >= 450
+  );
 };
 
 export const markMapIdle = () => {

@@ -1162,7 +1162,11 @@ function World({ mapRef, projection: requestedProjection, terrainEnabled, onInit
         dragRotate={false}
         touchPitch={false}
         pitchWithRotate={false}
-        dragPan
+        dragPan={{
+          linearity: 0.1,
+          deceleration: 5000,
+          maxSpeed: 2400,
+        }}
         fadeDuration={0}
         collectResourceTiming={false}
         // R5.0 keeps the original cross-source collision policy for visual fidelity.
@@ -1184,7 +1188,7 @@ function World({ mapRef, projection: requestedProjection, terrainEnabled, onInit
         // (dynamic size there is well under 256). In-view tiles live in a separate
         // structure and are never evicted by this, so it never re-fetches what's on
         // screen. Orthogonal to the fixed R5.1 framebuffer density.
-        maxTileCacheSize={256}
+        maxTileCacheSize={128}
         // R5.1: one renderer density for the whole session. R5.0 switched
         // between 1x and native DPR around z4.5/z5.0, and setPixelRatio()
         // rebuilds the render targets: a hitch exactly as the player zoomed
