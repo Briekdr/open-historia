@@ -27,7 +27,15 @@ import { SETTINGS_SCHEMA } from "../host/settings.js";
 // 5: a battlefield's war room is its side's own (its generals, its talk, its
 // planned movements are no longer sent to the other side), and a player can ask
 // the host for what is done in one (the "warroom" request).
-export const SHARED_GAME_VERSION = "5";
+// 6: a player's institutions are asked of the host (the "institution" request),
+// and an ack may carry what the host made (`result`).
+export const SHARED_GAME_VERSION = "6";
+
+// What of the institutions a player's screen may ask the host for: the game's
+// own institution functions, run on the host for the asker's country
+// (host/institutions.js). Each is one thing the Institutions screen, a thread
+// or the advisor does.
+export const INSTITUTION_CALLS = Object.freeze(["lifecycle", "governance", "proposal", "voteRequest", "channel", "negotiation", "message", "council", "hearing"]);
 
 // Orders are free text in single player; in a shared game one is held to this.
 export const ORDER_MAX_CHARS = 1500;
@@ -83,6 +91,12 @@ export const PLAYER_REQUESTS = Object.freeze({
   // its id; or terms of its own put to the other side of a war ("propose", by
   // the war's id, with `terms`). Whose answer it is is the seat's country.
   peace: obj({ t: literal("peace"), id: REQUEST_ID, op: str(8, { enum: ["accept", "decline", "honour", "refuse", "propose"] }), ref: str(160, { min: 1 }), terms: json(3) }),
+  // An institution's business, done by the host for the asker's country:
+  // found one, apply, invite, answer a case, vote, table a proposal, open its
+  // Council or a hearing, and the Council's or the hearing's turn
+  // (INSTITUTION_CALLS). The host checks every argument; the country is never
+  // the asker's to name.
+  institution: obj({ t: literal("institution"), id: REQUEST_ID, call: str(16, { enum: INSTITUTION_CALLS }), args: json(6) }),
   // Diplomacy: into a thread the player is in, or to open one with `to`.
   say: obj({
     t: literal("say"), id: REQUEST_ID, thread: str(120, { nullable: true }),
@@ -116,7 +130,9 @@ export const HOST_MESSAGES = Object.freeze({
     counted: int(0, 64),
     needed: int(0, 64),
   }),
-  ack: obj({ t: literal("ack"), id: REQUEST_ID, ok: bool(), error: str(300, { nullable: true }) }),
+  // `result`: what the host made for the request, by id (an institution, a
+  // proposal, a thread), which the asker's screen goes on to show.
+  ack: obj({ t: literal("ack"), id: REQUEST_ID, ok: bool(), error: str(300, { nullable: true }), result: json(3) }, ["result"]),
   notice: obj({ t: literal("notice"), level: str(8, { enum: ["info", "warn"] }), text: str(500) }),
   // The player's own view of the game's documents; only the ones that changed
   // since the last, whole. `rev` only goes up.

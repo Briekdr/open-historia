@@ -56,7 +56,7 @@ export const createGameClient = ({
           changed();
           break;
         case "ack":
-          settle(message.id, { ok: message.ok, error: message.error || "" });
+          settle(message.id, { ok: message.ok, error: message.error || "", ...(message.result ? { result: message.result } : {}) });
           break;
         case "notice":
           notices = [...notices, { ...message, at: now() }].slice(-NOTICES_KEPT);

@@ -41,6 +41,16 @@ import { PLAYER_REQUESTS, SHARED_GAME_VERSION } from "../game/messages.js";
 import { relayChannelFactory, usesCustomRelays } from "../signaling/relays.js";
 import { describeClock, offsetClock, readSignalingClock } from "../client/clock.js";
 import { createGameHost } from "./gameHost.js";
+import { createInstitutionDesk } from "./institutions.js";
+import { commitInstitutionLifecycleCommand, ensureInstitutionLifecycleNegotiationChat } from "../../runtime/institutionLifecycle.js";
+import { ensureInstitutionalChannel } from "../../runtime/institutionalChannels.js";
+import {
+  commitInstitutionGovernanceCommand,
+  commitInstitutionalPlayerMessage,
+  commitInstitutionalPlayerProposal,
+  commitInstitutionalPlayerVoteRequest,
+} from "../../runtime/institutionalGovernance.js";
+import { commitWithVotingRuleBackfill } from "../../Game/AI/institutionGovernanceRetry.js";
 import { normalizeSettings } from "./settings.js";
 
 const SCREEN = "host-screen";
@@ -146,13 +156,13 @@ const rotateInvite = (campaign, identity) => {
 // The AI governments of a thread answer a person's message, as the chat panel's
 // own turn does, with that person as the player; the thread is then saved the
 // way the panel saves it.
-const replyTo = async ({ chatId, seat }) => {
-  const chats = await readChatsState({ force: true });
-  const chat = list(chats).find((entry) => clean(entry?.id) === clean(chatId));
-  if (!chat) return;
-  const lastLine = [...list(chat.messages)].reverse().find((message) => clean(message?.speaker || message?.code) === clean(seat));
-  const outcome = await runChatActionBatch({ chat, playerMessage: clean(lastLine?.text), playerCountry: seat, useCanonicalState: true });
-  if (!outcome || outcome.committed || !Array.isArray(outcome.events)) return;
+// One turn of a table for a seat: the AI governments at it answer (or a
+// Council or a hearing does its business, with the flags the chat panel's own
+// turn passes), and the thread is saved the way the panel saves it.
+const tableTurn = async ({ chat, seat, ...flags }) => {
+  const chatId = clean(chat?.id);
+  const outcome = await runChatActionBatch({ chat, playerCountry: seat, useCanonicalState: true, ...flags });
+  if (!outcome || outcome.committed || !Array.isArray(outcome.events)) return outcome;
   const projected = projectChatThread(outcome.events);
   await mutateChatsState((current) => list(current).map((entry) => (clean(entry?.id) === clean(chatId)
     ? {
@@ -164,6 +174,15 @@ const replyTo = async ({ chatId, seat }) => {
       demands: projected.demands ?? entry.demands,
     }
     : entry)));
+  return outcome;
+};
+
+const replyTo = async ({ chatId, seat }) => {
+  const chats = await readChatsState({ force: true });
+  const chat = list(chats).find((entry) => clean(entry?.id) === clean(chatId));
+  if (!chat) return;
+  const lastLine = [...list(chat.messages)].reverse().find((message) => clean(message?.speaker || message?.code) === clean(seat));
+  await tableTurn({ chat, seat, playerMessage: clean(lastLine?.text) });
 };
 
 const boot = async () => {
@@ -313,6 +332,25 @@ const boot = async () => {
         else await readCountryForPlayer(name);
       },
       replyTo,
+      // A player's institution business, run here for their country.
+      institution: createInstitutionDesk({
+        host,
+        game: {
+          lifecycle: (args) => commitInstitutionLifecycleCommand(args),
+          negotiation: (args) => ensureInstitutionLifecycleNegotiationChat(args),
+          channel: (args) => ensureInstitutionalChannel(args),
+          proposal: (args) => commitInstitutionalPlayerProposal(args),
+          voteRequest: (args) => commitWithVotingRuleBackfill(
+            () => commitInstitutionalPlayerVoteRequest(args),
+            { institutionId: args.institutionId, proposalId: args.proposalId },
+          ),
+          governance: (args) => commitInstitutionGovernanceCommand(args),
+          message: (args) => commitInstitutionalPlayerMessage(args),
+          chatTurn: (args) => tableTurn(args),
+          readChats: () => readChatsState({ force: true }),
+          updateChats: (fn) => mutateChatsState(fn),
+        },
+      }),
       onStatus: (status) => {
         hostStatus = status;
         report();
@@ -350,7 +388,7 @@ const boot = async () => {
     });
     // From here this window is the game's host: the engine reads who people
     // play from the game (runtime/humanPolities.js), and nowhere else does.
-    setHostingSharedGame(true);
+    setHostingSharedGame(true, { host });
     gameHost.start();
     session.start();
     failure = "";

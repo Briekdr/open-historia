@@ -582,6 +582,34 @@ try {
   await until(guest, "document.querySelectorAll('[data-diplomacy-thread-row]').length > 1", 15000);
   await guest.eval(`(() => { const row = [...document.querySelectorAll('[data-diplomacy-thread-row]')].find((entry) => entry.textContent.includes(${JSON.stringify(AI_COUNTRY)})); if (row) row.click(); return Boolean(row); })()`);
   await sayInOpenThread(guest, LINE_AT_TABLE);
+
+  // An institution founded from a guest's screen: the host founds it for the
+  // guest's country (host/institutions.js). From any screen of a shared game
+  // that write was refused ("409"), and run for a guest the game's own
+  // institution functions would have dropped the host's thread with that guest.
+  const INSTITUTION = "E2E Concord";
+  const hostThreadsBefore = (await host.eval("window.__e2e.view('chat')")).length;
+  // The panel's tabs are over its list, not over an open thread.
+  await backToList(guest);
+  await until(guest, "window.__e2e.buttons('Institutions').length > 0", 15000);
+  await guest.eval("window.__e2e.click('Institutions')");
+  await until(guest, "window.__e2e.buttons('＋ Found institution').length > 0", 15000);
+  await guest.eval("window.__e2e.click('＋ Found institution')");
+  const formOpen = await until(guest, `Boolean(document.querySelector('input[placeholder="Baltic Union"]'))`, 15000);
+  if (!formOpen) {
+    const seen = await guest.eval("[...document.querySelectorAll('button')].map((b) => b.textContent.trim()).filter(Boolean).slice(0, 40)");
+    throw new Error(`the founding form did not open; buttons: ${JSON.stringify(seen)}`);
+  }
+  await guest.eval(`(() => { window.__e2e.type(document.querySelector('input[placeholder="Baltic Union"]'), ${JSON.stringify(INSTITUTION)}); return true; })()`);
+  await sleep(300);
+  await guest.eval("window.__e2e.click('Found institution')");
+  const founded = await until(host, `window.__e2e.view('world').then((world) => Object.values(world?.institutions?.byId || {}).some((entry) => entry?.name === ${JSON.stringify(INSTITUTION)} && (entry.members || []).some((member) => member?.polity === ${JSON.stringify(GUEST_COUNTRY)})))`, 30000);
+  const guestSeesIt = await until(guest, `document.body.textContent.includes(${JSON.stringify(INSTITUTION)})`, 15000);
+  const refusal = await guest.eval("(document.body.textContent.match(/409|resolves every round|this is done there/) || [''])[0]");
+  const hostThreadsAfter = (await host.eval("window.__e2e.view('chat')")).length;
+  check("a guest founds an institution: the host founds it for the guest's country, and the host's threads are untouched",
+    founded && guestSeesIt && !refusal && hostThreadsAfter >= hostThreadsBefore,
+    JSON.stringify({ founded, guestSeesIt, refusal, hostThreadsBefore, hostThreadsAfter }));
   const guestHeard = await until(host, holds(LINE_AT_TABLE), 20000);
   for (const deadline = Date.now() + 45000 * PATIENCE; Date.now() < deadline && chatBodies.length < askedBeforeTable + 2;) await sleep(300);
   const askedAgain = chatBodies.length >= askedBeforeTable + 2;

@@ -110,6 +110,8 @@ const setup = (options = {}) => {
     countries: [LATVIA, RUSSIA, ESTONIA],
     store,
     resolveRound: async (info) => {
+      // A round held in "resolving" until the test lets it go.
+      if (options.holdResolve) await options.holdResolve;
       resolved.push({ ...info, game: structuredClone(store.docs.game) });
       store.docs.events.push({ id: `round-${info.round}`, title: "The round's events", description: "", date: "2014-05-01" });
     },
@@ -121,6 +123,7 @@ const setup = (options = {}) => {
       if (info.country === ESTONIA && options.sheetFails) throw new Error("The model did not answer.");
       store.docs.world = { ...store.docs.world, countryStats: { ...store.docs.world.countryStats, [info.country]: { capital: "A capital", stability: 50 } } };
     },
+    ...(options.institution ? { institution: options.institution } : {}),
     now: clock.now,
     timers: clock.timers,
   });
@@ -288,6 +291,36 @@ test("a guest's thread keeps its owner through the game's own normalizer and rec
     ["ru-lv", RUSSIA, LATVIA],
   ]);
   assert.deepEqual(after.map((chat) => chat.messages.length), [1, 1, 1]);
+});
+
+test("reconciled for a guest's institution business, the host's threads stay the host's", async () => {
+  // A guest founding or voting runs the game's institution functions for the
+  // guest's country, and they reconcile every thread for it. A host thread
+  // whose only other member was that guest lost its last member and was gone.
+  const { normalizeChats, reconcileChatsForPlayer } = await import("../../runtime/gameState.js");
+  const { setHostingSharedGame } = await import("../../runtime/humanPolities.js");
+  const world = { polityOverrides: Object.fromEntries([LATVIA, RUSSIA, ESTONIA].map((name) => [name, { code: name, name, status: "active" }])) };
+  const line = (id, speaker, text) => ({ id, role: "user", speaker, code: speaker, text });
+  const stored = normalizeChats([
+    { id: "lv-ru", countries: [{ code: RUSSIA, name: RUSSIA }], messages: [line("m1", LATVIA, "Riga to Moscow")] },
+    { id: "lv-est", countries: [{ code: ESTONIA, name: ESTONIA }], messages: [line("m2", LATVIA, "Riga to Tallinn")] },
+    { id: "ru-est", player: RUSSIA, countries: [{ code: ESTONIA, name: ESTONIA }], messages: [line("m3", RUSSIA, "Moscow to Tallinn")] },
+  ]);
+  setHostingSharedGame(true, { host: LATVIA });
+  try {
+    const after = reconcileChatsForPlayer(stored, world, RUSSIA);
+    assert.deepEqual(after.map((chat) => [chat.id, chat.player ?? "", chat.countries.map((entry) => entry.name).join()]), [
+      ["lv-ru", "", RUSSIA],
+      ["lv-est", "", ESTONIA],
+      ["ru-est", RUSSIA, ESTONIA],
+    ]);
+    // For the host, as before: its own threads are its own.
+    assert.deepEqual(reconcileChatsForPlayer(stored, world, LATVIA).map((chat) => chat.id), ["lv-ru", "lv-est", "ru-est"]);
+  } finally {
+    setHostingSharedGame(false);
+  }
+  // Single player, where no thread names an owner: nothing changes.
+  assert.deepEqual(reconcileChatsForPlayer(stored.slice(0, 2), world, LATVIA).map((chat) => chat.id), ["lv-ru", "lv-est"]);
 });
 
 test("each player keeps a Projects board of its own: the host's is the game's, another person's is kept beside it", async () => {
@@ -576,4 +609,59 @@ test("what a player does in the war room is written for its own side, and its wa
   assert.doesNotMatch(JSON.stringify(hostSees), /Hold the river|Gen\. Orlov/);
   // The troops themselves are seen by both: there is no fog of war.
   assert.equal(hostSees.troops[0], record().troops[0]);
+});
+
+test("orders given while a round's events are read are the next round's; while it is resolved, the player is told why not", async () => {
+  // A player gave three orders as the round's events came in, was refused
+  // ("Orders are taken while a round is being planned"), and gave them again.
+  let release;
+  const s = setup({ holdResolve: new Promise((resolve) => { release = resolve; }) });
+  s.host.join(s.hostPlayer);
+  s.host.join(s.guest);
+  await s.request(s.guest, { t: "pick", id: id(1), country: RUSSIA });
+  await s.host.control.start();
+  await s.request(s.hostPlayer, { t: "ready", id: id(2), value: true });
+  await s.request(s.guest, { t: "ready", id: id(3), value: true });
+  assert.equal(s.to(s.guest, "round").at(-1).phase, "resolving");
+  await s.request(s.guest, { t: "order", id: id(4), text: "Send missiles to Abkhazia" });
+  assert.match(s.ack(s.guest, id(4)).error, /being resolved/);
+  release();
+  await s.clock.flush();
+  assert.equal(s.to(s.guest, "round").at(-1).phase, "revealing");
+  await s.request(s.guest, { t: "order", id: id(5), text: "Send missiles to Abkhazia" });
+  assert.equal(s.ack(s.guest, id(5)).ok, true);
+  const queued = s.store.docs.actions.find((action) => action.text === "Send missiles to Abkhazia");
+  assert.equal(queued.ownerCode, RUSSIA);
+  assert.equal(queued.status, "planned");
+  // And taken back, while the events are still read.
+  await s.request(s.guest, { t: "unorder", id: id(6), order: queued.id });
+  assert.equal(s.ack(s.guest, id(6)).ok, true);
+});
+
+test("an institution's business goes to the host's desk for the asker's seat, and what it made comes back with the ack", async () => {
+  const asked = [];
+  const s = setup({
+    institution: async (request) => {
+      asked.push(request);
+      if (request.args?.command?.type === "seize") throw new Error("That is not something a player can do to an institution.");
+      return { institutionId: "baltic-pact", chatId: "founding-1", extra: "not sent" };
+    },
+  });
+  s.host.join(s.hostPlayer);
+  s.host.join(s.guest);
+  await s.request(s.guest, { t: "institution", id: id(1), call: "lifecycle", args: { command: { type: "found", name: "Baltic Pact" } } });
+  assert.equal(s.ack(s.guest, id(1)).error, "Take a country first.");
+  await s.request(s.guest, { t: "pick", id: id(2), country: RUSSIA });
+  await s.request(s.guest, { t: "institution", id: id(3), call: "lifecycle", args: { command: { type: "found", name: "Baltic Pact" } } });
+  const ack = s.ack(s.guest, id(3));
+  assert.equal(ack.ok, true);
+  assert.deepEqual(ack.result, { institutionId: "baltic-pact", chatId: "founding-1" });
+  assert.equal(asked.at(-1).seat, RUSSIA, "the seat's country, never one the request names");
+  // The host's own screen asks the same way, for the host's country.
+  await s.request(s.hostPlayer, { t: "institution", id: id(4), call: "channel", args: { institutionId: "baltic-pact" } });
+  assert.equal(asked.at(-1).seat, LATVIA);
+  // A refusal is said in the desk's own words.
+  await s.request(s.guest, { t: "institution", id: id(5), call: "lifecycle", args: { command: { type: "seize" } } });
+  assert.match(s.ack(s.guest, id(5)).error, /not something a player can do/);
+  assert.equal(s.ack(s.guest, id(5)).result, undefined);
 });

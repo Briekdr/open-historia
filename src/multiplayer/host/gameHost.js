@@ -79,6 +79,11 @@ export const createGameHost = ({
   // Write a country's stat sheet (the game's own, on the host's AI key);
   // rejects with the reason when it cannot.
   readCountry = async () => {},
+  // An institution's business for a seat (host/institutions.js): resolves
+  // { institutionId, proposalId, chatId } or rejects with the reason.
+  institution = async () => {
+    throw new Error("Institutions are not run here.");
+  },
   onStatus = () => {},
   log = () => {},
   now = () => Date.now(),
@@ -213,6 +218,15 @@ export const createGameHost = ({
   // --- Requests ------------------------------------------------------------------
 
   const planning = () => ["planning", "countdown"].includes(round.status().phase);
+  // Orders go on the queue the next skip reads: while a round is planned, and
+  // while the one just resolved is being read, when they are the next round's.
+  // A player who gave orders as the events came in was refused, and gave them
+  // again ten seconds later. Never while a round is being resolved: its skip
+  // has read the queue already.
+  const takingOrders = () => ["planning", "countdown", "revealing"].includes(round.status().phase);
+  const notNow = (outside) => (round.status().phase === "resolving"
+    ? "The round is being resolved: try again once it has landed."
+    : outside);
 
   const handlers = {
     pick: async (connection, { country }) => {
@@ -236,7 +250,7 @@ export const createGameHost = ({
       return "";
     },
     order: async (connection, { text }, seat) => {
-      if (!planning()) return "Orders are taken while a round is being planned.";
+      if (!takingOrders()) return notNow("Orders are taken while a round is being planned.");
       const body = clean(text).slice(0, ORDER_MAX_CHARS);
       if (!body) return "An order needs words.";
       let refusal = "";
@@ -262,7 +276,7 @@ export const createGameHost = ({
       return refusal;
     },
     unorder: async (connection, { order }, seat) => {
-      if (!planning()) return "Orders can be withdrawn while a round is being planned.";
+      if (!takingOrders()) return notNow("Orders can be withdrawn while a round is being planned.");
       let found = false;
       // An order that raised or stood down a formation is undone on the map in
       // the same write that takes it off the queue (host/forces.js).
@@ -281,7 +295,7 @@ export const createGameHost = ({
     // Raise a formation: it stands on the map as pending, and its Deploy
     // request rides with the next skip (host/forces.js).
     deploy: async (connection, request, seat) => {
-      if (!planning()) return "Formations are raised while a round is being planned.";
+      if (!takingOrders()) return notNow("Formations are raised while a round is being planned.");
       let refusal = "";
       await store.updateForces(({ world, actions }) => {
         const result = deployFor({ world, actions }, seat.country, request, {
@@ -300,7 +314,7 @@ export const createGameHost = ({
       return refusal;
     },
     disband: async (connection, { unit }, seat) => {
-      if (!planning()) return "Formations are stood down while a round is being planned.";
+      if (!takingOrders()) return notNow("Formations are stood down while a round is being planned.");
       let refusal = "";
       await store.updateForces(({ world, actions }) => {
         const result = disbandFor({ world, actions }, seat.country, unit, {
@@ -439,6 +453,26 @@ export const createGameHost = ({
       round.touch(seat.country);
       return "";
     },
+    // An institution's business, done for this seat's country by the game's
+    // own institution functions (host/institutions.js), which check that the
+    // country may do it. Not while a round is being resolved: the turn writes
+    // back the world the institutions live in. What was made goes back with
+    // the ack, so the asker's screen can show it.
+    institution: async (connection, { call, args }, seat) => {
+      if (round.status().phase === "resolving") return "The round is being resolved: try again once it has landed.";
+      try {
+        const made = await institution({ seat: seat.country, call, args: args ?? {} });
+        const result = {};
+        for (const key of ["institutionId", "proposalId", "proposalStatus", "chatId"]) {
+          const value = clean(made?.[key]).slice(0, 160);
+          if (value) result[key] = value;
+        }
+        return { error: "", result };
+      } catch (failure) {
+        log("warn", "an institution request was refused", { call, error: String(failure?.message || failure) });
+        return clean(failure?.message || failure).slice(0, 300) || "The host could not do that.";
+      }
+    },
     say: async (connection, { thread, to, text }, seat) => {
       const body = clean(text);
       if (!body) return "A message needs words.";
@@ -518,16 +552,22 @@ export const createGameHost = ({
     const seat = seatOf(connection);
     const needsSeat = !["pick", "unpick"].includes(message.t);
     let error = "";
+    let result = null;
     if (needsSeat && (!seat || seat.status !== SEAT_STATUS.HUMAN)) error = "Take a country first.";
     else {
       try {
-        error = await handler(connection, message, seat);
+        // A refusal's words, or { error, result } from a request that made something.
+        const outcome = await handler(connection, message, seat);
+        if (outcome && typeof outcome === "object") {
+          error = clean(outcome.error);
+          result = outcome.result && Object.keys(outcome.result).length ? outcome.result : null;
+        } else error = outcome;
       } catch (failure) {
         log("warn", "request failed", { t: message.t, error: String(failure?.message || failure) });
         error = "The host could not do that.";
       }
     }
-    if (id) send(connection, { t: "ack", id, ok: !error, error: error || null });
+    if (id) send(connection, { t: "ack", id, ok: !error, error: error || null, ...(result && !error ? { result } : {}) });
     if (!error && message.t !== "ready" && message.t !== "revealed") await pushViews();
   };
 

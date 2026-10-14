@@ -60,6 +60,7 @@ import { buildPlayerPoliticalKnowledgeView } from "../../runtime/politicalKnowle
 import { commitInstitutionLifecycleCommand, institutionLifecycleCasesForPolity, institutionLifecycleConversationState, institutionPortfolioForPolity } from "../../runtime/institutionLifecycle.js";
 import { buildLifecycleReplyRevealPlan } from "./institutionLifecyclePresentation.js";
 import { inSharedGame, requestFromHost } from "../../multiplayer/client/sharedGameBridge.js";
+import { askHostForInstitution } from "../../runtime/sharedInstitutions.js";
 
 // Who the player is and when it is: all this panel reads of game.json.
 const selectGameIdentity = (game) => ({
@@ -1644,6 +1645,18 @@ const ConversationView = ({ chat, playerCountry, gameDate, world = {}, onDelete,
             // else is the host's to start. A Retry from an older error bubble
             // comes here too, and it ran the table on this screen again.
             if (inSharedGame()) {
+                // A hearing's governments answering it: the host's to run, on its AI key.
+                if (lifecycleResponseRequested && !text) {
+                    setIsLoading(true);
+                    try {
+                        await askHostForInstitution("hearing", { thread: String((chatOverride || chat).id) }, { timeoutMs: 180_000 });
+                    } catch (error) {
+                        pushMessages([...nextMessages, { role: "error", speaker: "System", text: error?.message || "The host did not take the message.", time: gameDate }]);
+                    } finally {
+                        setIsLoading(false);
+                    }
+                    return true;
+                }
                 const answer = text
                     ? await requestFromHost("say", { thread: String((chatOverride || chat).id), to: [], text })
                     : { ok: false, error: new SharedGameRefusal().message };
@@ -3767,6 +3780,17 @@ const ChatPanel = ({ isOpen, onClose, requestedCountry, requestedDraft = "", onC
         // than discovering the new game id after the delay and writing into it.
         const expectedGameId = String(getLibraryState()?.activeGameId || "");
         try {
+            // In a shared game the host runs the Council, on its AI key, for
+            // this player's country; the channel comes back in the next view.
+            if (inSharedGame()) {
+                setInstitutionAutomation((current) => [
+                    ...current.filter((entry) => entry.key !== key),
+                    { key, institutionId: id, proposalId: proposal, kind: mode },
+                ]);
+                const shared = await askHostForInstitution("council", { institutionId: id, proposalId: proposal, kind: mode, comment: String(playerComment || "").trim() }, { timeoutMs: 180_000 });
+                adoptInstitutionalResult(shared);
+                return shared;
+            }
             if (Number(delayMs) > 0) {
                 await new Promise((resolve) => window.setTimeout(resolve, Math.max(0, Number(delayMs) || 0)));
             }
