@@ -2630,6 +2630,7 @@ const PrivacySection = ({ discordPresenceOn, onToggleDiscordPresence }) => {
 
 const SETTINGS_SECTIONS = [
     { key: "general", label: "General", icon: "◫", description: "Language, display, accessibility, sound and privacy" },
+    { key: "sound", label: "Sound", icon: "♫", description: "The game's music and sound effects." },
     { key: "map", label: "Map", icon: "◇", description: "Basemap, labels, globe and camera" },
     { key: "ai", label: "AI", icon: "✦", description: "Models, backups, keys and reasoning" },
     { key: "advanced", label: "Advanced", icon: "⌘", description: "Per-task models and expert controls" },
@@ -2822,6 +2823,17 @@ const SettingsWorkspace = ({
                 <PrivacySection
                 discordPresenceOn={mapSettings.discordPresence}
                 onToggleDiscordPresence={() => updateMapSetting("discordPresence", MAP_SETTING_KEYS.discordPresence, !mapSettings.discordPresence)}
+                />
+                </>
+            )}
+
+            {activeSection === "sound" && (
+                <>
+                <SoundSection
+                musicOn={mapSettings.ambientMusic}
+                onToggleMusic={() => updateMapSetting("ambientMusic", MAP_SETTING_KEYS.ambientMusic, !mapSettings.ambientMusic)}
+                effectsOn={mapSettings.soundEffects}
+                onToggleEffects={() => updateMapSetting("soundEffects", MAP_SETTING_KEYS.soundEffects, !mapSettings.soundEffects)}
                 />
                 </>
             )}
@@ -3301,6 +3313,7 @@ const SettingsMenu = ({
             <QuickMenuPanel title="Settings" description="Jump straight into the options category you want.">
                 <div style={grid}>
                     <QuickAction title="General" description="Language, display, accessibility, sound and privacy" symbol="◫" tone="blue" onClick={() => openSettingsSection("general")} />
+                    <QuickAction title="Sound" description="The game's music and sound effects." symbol="♫" tone="blue" onClick={() => openSettingsSection("sound")} />
                     <QuickAction title="Map" description="Basemap, labels, globe and camera" symbol="◇" tone="blue" onClick={() => openSettingsSection("map")} />
                     <QuickAction title="AI" description="Models, backups, keys and reasoning" symbol="✦" onClick={() => openSettingsSection("ai")} />
                     <QuickAction title="Advanced" description="Per-task models and expert controls" symbol="⌘" onClick={() => openSettingsSection("advanced")} />
