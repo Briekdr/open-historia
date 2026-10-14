@@ -64,7 +64,19 @@ const WALL_LEVEL_LABELS = { 3: "Weak", 4: "Light", 5: "Solid", 6: "Strong", 7: "
 
 const WEATHER_LABELS = { clear: "Clear", rain: "Rain", storm: "Storm", mud: "Mud", snow: "Snow", blizzard: "Blizzard", frost: "Frost", heat: "Heat", fog: "Fog" };
 const CLIMATE_LABELS = { polar: "Polar", continental: "Continental", arid: "Arid", tropical: "Tropical" };
-const MONTH_LABELS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+// The months by name, January first, in the page's own language: the browser knows them all.
+const monthNames = () => {
+  const language = (typeof document !== "undefined" && document.documentElement?.lang) || "en";
+  const named = (code) => {
+    const format = new Intl.DateTimeFormat(code, { month: "long", timeZone: "UTC" });
+    return Array.from({ length: 12 }, (_, index) => format.format(new Date(Date.UTC(2001, index, 1))));
+  };
+  try {
+    return named(language);
+  } catch {
+    return named("en");
+  }
+};
 
 // What a season or an event does besides its weather (warGeography.js
 // EFFECT_RANGES): `usual` is what the slider shows while the effect is unset.
@@ -133,8 +145,8 @@ const DayPicker = ({ label, value, onChange }) => {
     <div style={sliderRow}>
       <span style={sliderLabel}>{label}</span>
       <select value={month} onChange={(e) => onChange(monthDayOf(Number(e.target.value), day))} style={{ ...smallInput, flex: 1, minWidth: 0, cursor: "pointer" }}>
-        {MONTH_LABELS.map((name, index) => (
-          <option key={name} value={index + 1} style={{ color: "#000" }}>{name}</option>
+        {monthNames().map((name, index) => (
+          <option key={index} value={index + 1} style={{ color: "#000" }}>{name}</option>
         ))}
       </select>
       <select value={day} onChange={(e) => onChange(monthDayOf(month, Number(e.target.value)))} style={{ ...smallInput, width: 62, cursor: "pointer" }}>
@@ -213,8 +225,8 @@ const SeasonCard = ({ season, zoneColor, open, onToggle, onChange, onRemove }) =
       <div style={cardBody}>
         <div style={labelDim}>Name</div>
         <input value={season.name || ""} maxLength={40} onChange={(e) => onChange({ name: e.target.value })} style={smallInput} />
-        <DayPicker label="Starts" value={season.start} onChange={(start) => onChange({ start })} />
-        <DayPicker label="Ends" value={season.end} onChange={(end) => onChange({ end })} />
+        <DayPicker label="Season starts" value={season.start} onChange={(start) => onChange({ start })} />
+        <DayPicker label="Season ends" value={season.end} onChange={(end) => onChange({ end })} />
         <Row label="Own colour" title="The zone's colour on the game's map in this season">
           <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <Toggle value={Boolean(season.color)} onChange={(on) => onChange({ color: on ? zoneColor : undefined })} />
@@ -265,12 +277,12 @@ const EventCard = ({ event, open, onToggle, onChange, onRemove }) => {
           <div style={labelDim}>Name</div>
           <input value={event.name || ""} maxLength={80} onChange={(e) => onChange({ name: e.target.value })} style={smallInput} />
           <div style={sliderRow}>
-            <span style={sliderLabel}>From</span>
-            <DateInput label="From" value={event.from} onChange={(from) => onChange({ from })} />
+            <span style={sliderLabel}>First day</span>
+            <DateInput label="First day" value={event.from} onChange={(from) => onChange({ from })} />
           </div>
           <div style={sliderRow}>
-            <span style={sliderLabel}>To</span>
-            <DateInput label="To" value={event.to} onChange={(to) => onChange({ to })} />
+            <span style={sliderLabel}>Last day</span>
+            <DateInput label="Last day" value={event.to} onChange={(to) => onChange({ to })} />
           </div>
           {!datesRead && (
             <div style={{ ...hint, color: "#fbbf24" }}>Write each date as YYYY-MM-DD, with a minus before a year BC. An event without both dates is not saved.</div>

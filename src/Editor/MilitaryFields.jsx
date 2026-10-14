@@ -123,7 +123,7 @@ const MilitaryFields = ({ recordKey = "", value, defaults = null, onChange, onRa
         <div style={groupLabelStyle}>What it can fight with</div>
         <div style={{ display: "grid", gap: "5px 12px", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
           {figure("land", "Land", "What it can do on land, 0 to 100; 0 is no army at all. Empty is 50.", "50")}
-          {figure("sea", "Sea", "What it can do at sea, 0 to 100; 0 is no navy at all. Empty is 50.", "50")}
+          {figure("sea", "Naval", "What it can do at sea, 0 to 100; 0 is no navy at all. Empty is 50.", "50")}
           {figure("air", "Air", "What it can do in the air, 0 to 100; 0 is no air force at all. Empty is 50.", "50")}
         </div>
 

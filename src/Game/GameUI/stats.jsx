@@ -409,7 +409,7 @@ const MILITARY_FIGURE_LABELS = Object.freeze({
     manpowerShare: "Manpower share",
     weariness: "War weariness",
     land: "Land",
-    sea: "Sea",
+    sea: "Naval",
     air: "Air",
 });
 const MILITARY_FIGURE_ORDER = Object.freeze(["quality", "technology", "manpowerShare", "weariness", "land", "sea", "air"]);

@@ -309,7 +309,7 @@ const MusterChart = ({
       <div style={{ alignItems: "center", display: "grid", fontSize: 11, gap: "4px 6px", gridTemplateColumns: "auto minmax(0, 1fr) minmax(0, 1fr)" }}>
         <span />
         <span style={{ color: "rgba(255,255,255,0.5)", textAlign: "right" }}>Mustered (%)</span>
-        <span style={{ color: "rgba(255,255,255,0.5)", textAlign: "right" }}>Days</span>
+        <span style={{ color: "rgba(255,255,255,0.5)", textAlign: "right" }}>Days after the call-up</span>
         <span style={{ color: "rgba(255,255,255,0.72)" }}>First point</span>
         {field(0, "First point: the share of the army mustered, in percent")}
         {field(1, "First point: days since the call-up")}
