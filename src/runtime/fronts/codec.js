@@ -231,6 +231,27 @@ export const decodeTroops = (text) => {
   return troops;
 };
 
+// ---- levels ------------------------------------------------------------------
+
+// A value from 0 to 1 a letter, in 63rds: a troop's fatigue (fatigue.js), a
+// string a side, in the order of its troops. A letter outside the alphabet reads as 0.
+export const encodeLevels = (values) => {
+  let text = "";
+  for (const value of Array.isArray(values) ? values : []) text += ALPHABET[clampInt((Number(value) || 0) * 63, 0, 63)];
+  return text;
+};
+
+export const decodeLevels = (text) => {
+  const source = String(text ?? "");
+  const values = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index);
+    const value = code < 128 ? VALUE_OF[code] : -1;
+    values.push(value > 0 ? value / 63 : 0);
+  }
+  return values;
+};
+
 // ---- the drawn line ----------------------------------------------------------
 
 // A strand is a run of the line: open where it ends on a coast or a country

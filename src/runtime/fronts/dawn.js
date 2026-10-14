@@ -16,6 +16,7 @@
 //
 // Only + - * / and comparisons.
 
+import { guardLeft, legsLeft, punchLeft, tireDay } from "./fatigue.js";
 import { anyMechanic } from "./mechanics.js";
 import { isLive } from "./troops.js";
 
@@ -37,13 +38,17 @@ export const dawn = (run, battle, day) => {
     const legs = steered(run, "legs", side);
     for (const troop of battle.troops[side]) {
       if (!isLive(troop)) continue;
-      troop.punch = punch;
-      troop.guard = guard;
-      troop.legs = legs;
+      // What its fatigue leaves it (fatigue.js).
+      const tired = run.mech.fatigue && troop.fatigue > 0;
+      troop.punch = tired ? punch * punchLeft(troop.fatigue) : punch;
+      troop.guard = tired ? guard * guardLeft(troop.fatigue) : guard;
+      troop.legs = tired ? legs * legsLeft(troop.fatigue) : legs;
     }
   }
 };
 
 export const dusk = (run, battle, day) => {
   if (!anyMechanic(run.mech)) return;
+  // The day's march and fighting tire every troop that marched or fought, and rest the others (fatigue.js).
+  if (run.mech.fatigue) tireDay(run, battle);
 };

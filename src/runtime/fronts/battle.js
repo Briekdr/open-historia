@@ -19,7 +19,7 @@
 // taker's ground painted over it, until the last of it has changed hands.
 
 import { diffGameDays } from "../gameDates.js";
-import { decodeTroops, encodeLines, encodeTroops } from "./codec.js";
+import { decodeLevels, decodeTroops, encodeLevels, encodeLines, encodeTroops } from "./codec.js";
 import {
   BATTLEFIELD_VERSION,
   CONTROL_RADIUS_MAX_KM,
@@ -552,6 +552,13 @@ export const loadBattle = (run, record, arena) => {
     const command = Array.isArray(carry.command) && Array.isArray(carry.command[side]) ? carry.command[side][index] : -1;
     troop.command = Number.isInteger(command) && command >= 0 && command < MAX_COMMANDS ? command : -1;
   }));
+  // How worn out each troop was (fatigue.js), where the last run kept it: fresh where it did not.
+  if (Array.isArray(carry.tired)) {
+    read.forEach((list, side) => {
+      const levels = decodeLevels(carry.tired[side]);
+      list.forEach((troop, index) => { troop.fatigue = levels[index] ?? 0; });
+    });
+  }
   battle.generals = readGenerals(carry.generals);
   battle.talk = readTalk(carry.talk);
   // The plans a side keeps (plans.js) are not the engine's: it hands them on.
@@ -789,6 +796,10 @@ export const saveBattle = (battle, run, day, changes, brief) => {
         // Which general each troop is under, and what the generals are called.
         command: battle.troops.map((list) => list.map((troop) => (isLive(troop) ? troop.command : -1))),
         ...(battle.generals.some((names) => names.some(Boolean)) ? { generals: battle.generals } : {}),
+        // How worn out each troop is (fatigue.js), a letter a troop: only where the run tires troops and one is tired.
+        ...(run.mech?.fatigue && battle.troops.some((list) => list.some((troop) => isLive(troop) && troop.fatigue > 0))
+          ? { tired: battle.troops.map((list) => encodeLevels(list.map((troop) => (isLive(troop) ? troop.fatigue : 0)))) }
+          : {}),
         ...(battle.talk.some((lines) => lines.length > 0) ? { talk: battle.talk } : {}),
         ...(plans ? { plans } : {}),
         ...(battle.status === "standing" ? { quiet: battle.quiet } : {}),

@@ -277,6 +277,24 @@ export const WITHDRAW_KM = 60;
 // side defending needs the larger figures to do either. Under the last figure
 // any side digs in. A stretch of line needs this many troops to be attacked from.
 export const STAFF_MARK = "staff";
+
+// ---- fatigue (fatigue.js; Wars and Fronts Pt.2) ------------------------------------
+// What a day adds to a troop's fatigue (0 fresh to 1 spent): a full day's
+// march at its era's pace, a day it attacked, a day it was attacked; what a
+// day of rest takes off, dug in and cut off; the march under which a day is
+// rest. What a spent troop has lost of its attack, defence and pace. The
+// fatigue at which a troop counts as exhausted (brief.js).
+export const FATIGUE_MARCH = 0.05;
+export const FATIGUE_ATTACK = 0.035;
+export const FATIGUE_DEFEND = 0.015;
+export const FATIGUE_REST = 0.07;
+export const FATIGUE_REST_DUG = 1.25;
+export const FATIGUE_REST_POCKET = 0.25;
+export const FATIGUE_STILL_KM = 2;
+export const FATIGUE_PUNCH = 0.35;
+export const FATIGUE_GUARD = 0.15;
+export const FATIGUE_LEGS = 0.4;
+export const FATIGUE_EXHAUSTED = 0.7;
 // EXPERIMENT, in the lab (mind/policy.js createTroopPolicy): what a trained staff
 // that orders troops one by one marks its orders with (engine.js orderTroopsByMind).
 export const MIND_MARK = "mind";
