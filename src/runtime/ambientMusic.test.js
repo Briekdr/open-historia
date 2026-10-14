@@ -35,6 +35,7 @@ import {
   LOAD_SECONDS_KEY,
   MUSIC_CHANNEL,
   MUSIC_CREDIT,
+  MUSIC_MENU_PIECES,
   MUSIC_SCENES,
   MUSIC_TRACKS,
   MUSIC_WAR_PIECES,
@@ -102,7 +103,7 @@ const clock = () => {
 // how long a file is (by its address; any other never ends), and `broken`
 // which addresses cannot be played: such a file fails as a browser's does,
 // its element saying so before play() does.
-const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRACKS, memory = null, lengths = {}, broken = [], onNowPlaying = null, trackAddress = null, releaseAddress = null } = {}) => {
+const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRACKS, memory = null, lengths = {}, broken = [], onNowPlaying = null, trackAddress = null, releaseAddress = null, menuPieces = undefined } = {}) => {
   const time = clock();
   const settings = { enabled, volume };
   const made = [];
@@ -160,6 +161,8 @@ const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRAC
     trackAddress,
     releaseAddress,
     tracks,
+    // Undefined is the game's own (MUSIC_MENU_PIECES); [] is a menu with Passage Of Time alone.
+    menuPieces,
   });
   const of = (name) => director.channels[name].audio;
   const list = (key) => director.lists[key];
@@ -254,8 +257,8 @@ test("the menu levels the piece: the gain follows its own loudness, gliding, bet
   assert.ok(steepest < 0.035, `at most ${steepest} of itself a look`);
 });
 
-test("the menu plays to the lull before the build and starts again there, never fading in between", () => {
-  const { director, time, of } = stage();
+test("the menu plays to the lull before the build and, with no other piece, starts again there, never fading in between", () => {
+  const { director, time, of } = stage({ menuPieces: [] });
   director.unlock();
   const audio = of("calm");
   const volumeAt = (at) => 0.25 * calmGainAt(at);
@@ -1053,20 +1056,23 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   assert.equal(typeof MAP_SETTING_KEYS.ambientMusic, "string");
   assert.equal(typeof MAP_SETTING_KEYS.musicVolume, "string");
   // The licence's condition: the titles, the author, the licence, and where they are from.
-  assert.ok(settings.includes("{\"Music: “Passage Of Time”, “Legionnaire (2022 Remaster)” and “Vanguard” by Scott Buckley, released under CC BY 4.0.\"}"));
-  assert.ok(!settings.includes("“Passage Of Time” and “Legionnaire (2022 Remaster)” by"), "the two-piece sentence is gone");
+  // The sentence is one for any number of pieces: the names are read from
+  // MUSIC_TRACKS, so a piece added there is credited, and are never translated.
+  assert.ok(settings.includes("<span>{\"Music by Scott Buckley, released under CC BY 4.0:\"}</span>"));
+  assert.ok(settings.includes("<span data-no-translate>{MUSIC_WORKS}</span>"));
+  assert.ok(settings.includes("const MUSIC_WORKS = Object.values(MUSIC_TRACKS).filter(Boolean).map((track) => `“${track.work}”`).join(\", \");"));
+  assert.ok(!settings.includes("“Passage Of Time”"), "no sentence that names the pieces one by one is left");
   assert.ok(settings.includes("href={MUSIC_CREDIT.siteUrl}"));
   assert.deepEqual([MUSIC_CREDIT.artist, MUSIC_CREDIT.licence, MUSIC_CREDIT.site], ["Scott Buckley", "CC BY 4.0", "www.scottbuckley.com.au"]);
   // Every piece has its composer's name for it, and the sentence names each of them.
-  assert.deepEqual([MUSIC_TRACKS.passage.work, MUSIC_TRACKS.war.work, MUSIC_TRACKS.vanguard.work], ["Passage Of Time", "Legionnaire (2022 Remaster)", "Vanguard"]);
+  assert.deepEqual([MUSIC_TRACKS.passage.work, MUSIC_TRACKS.war.work, MUSIC_TRACKS.vanguard.work, MUSIC_TRACKS.clearSkies.work], ["Passage Of Time", "Legionnaire (2022 Remaster)", "Vanguard", "Clear Skies"]);
   const pieces = Object.values(MUSIC_TRACKS).filter(Boolean);
-  assert.equal(pieces.length, 3);
+  assert.equal(pieces.length, 4);
   for (const piece of pieces) {
-    assert.ok(settings.includes(`“${piece.work}”`), piece.work);
     assert.deepEqual([piece.artist, piece.licence], ["Scott Buckley", "CC BY 4.0"]);
   }
   const credits = read("public/audio/CREDITS.txt");
-  for (const part of ["Passage Of Time", "Legionnaire (2022 Remaster)", "Vanguard", "Scott Buckley", "CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/", "scottbuckley.com.au"]) assert.ok(credits.includes(part), part);
+  for (const part of ["Passage Of Time", "Clear Skies", "Legionnaire (2022 Remaster)", "Vanguard", "Scott Buckley", "CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/", "scottbuckley.com.au"]) assert.ok(credits.includes(part), part);
   // Each file by its name, its piece, where it is from, and where it plays.
   const literally = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   for (const piece of pieces) {
@@ -1074,7 +1080,8 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   }
   assert.match(credits, /vanguard\.mp3\r?\n {4}"Vanguard" by Scott Buckley\r?\n {4}https:\/\/www\.scottbuckley\.com\.au\/library\/vanguard\/\r?\n {4}Plays in the war room and while a battlefield is shown\./);
   const readme = read("README.md");
-  assert.ok(readme.includes("\"Passage Of Time\", \"Legionnaire (2022 Remaster)\" and \"Vanguard\", all released under [CC BY 4.0]"));
+  assert.ok(readme.includes("\"Passage Of Time\", \"Clear Skies\", \"Legionnaire (2022 Remaster)\" and \"Vanguard\", all released under [CC BY 4.0]"));
+  assert.match(credits, /clear-skies\.mp3\r?\n {4}"Clear Skies" by Scott Buckley\r?\n {4}https:\/\/www\.scottbuckley\.com\.au\/library\/clear-skies\/\r?\n {4}Plays on the menu, in turn with Passage Of Time\./);
   // A scenario's own track is the hub's, and its licence asks the same: the
   // one sounding is credited in the hub's words, which are never translated,
   // with where it is from.
@@ -1082,6 +1089,124 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   assert.ok(settings.includes("<span>{\"Now playing:\"}</span>"));
   assert.ok(settings.includes("<span data-no-translate>{nowPlaying.credit}</span>"));
   assert.ok(settings.includes("<a data-no-translate href={nowPlaying.source} target=\"_blank\" rel=\"noopener noreferrer\""));
+});
+
+// ---- the menu's other pieces -------------------------------------------------------
+// "Add these as main menu themes too ... actually, add clearskies not viktor lux."
+
+const CLEAR = "/audio/clear-skies.mp3";
+const clearLevel = (at) => calmGainAt(at, { ...PASSAGE_CALM, ...MUSIC_TRACKS.clearSkies.loud });
+
+test("the menu has a second piece: after Passage Of Time's part, Clear Skies whole, then Passage Of Time again", () => {
+  assert.deepEqual(MUSIC_MENU_PIECES, ["clearSkies"]);
+  // Its loudness was measured for the whole of it: 195 seconds, five at a time.
+  assert.equal(MUSIC_TRACKS.clearSkies.loud.rms.length * MUSIC_TRACKS.clearSkies.loud.step, 195);
+  const { director, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 } });
+  director.unlock();
+  time.advance(60000);
+  assert.deepEqual(sounding(), ["calm"]);
+  // Nothing of the second piece is made or fetched while the first plays.
+  assert.equal(of("themes"), null);
+  // Passage Of Time reaches the end of its part, in silence, and Clear Skies begins.
+  time.advance(83700);
+  const calm = of("calm");
+  const clear = of("themes");
+  assert.deepEqual([calm.paused, calm.currentTime], [true, 0]);
+  assert.equal(clear.src, CLEAR);
+  assert.equal(clear.paused, false);
+  assert.equal(clear.loop, false);
+  assert.ok(clear.currentTime < 0.4, `from its start: ${clear.currentTime}`);
+  assert.deepEqual(sounding(), ["themes"]);
+  // Levelled as the first is, from its own loudness: its faint opening turned
+  // up to the most, its loud stretch brought down.
+  time.advance(10000);
+  near(clear.volume, 0.25 * clearLevel(clear.currentTime), 0.004);
+  near(clear.volume, 0.25 * PASSAGE_CALM.most, 0.004);
+  time.advance(130000);
+  near(clear.volume, 0.25 * clearLevel(clear.currentTime), 0.004);
+  near(clear.volume, 0.25 * PASSAGE_CALM.least, 0.004);
+  // The build is held ready under it, as under Passage Of Time.
+  assert.deepEqual([of("drama").paused, of("drama").plays], [true, 0]);
+  // It plays to its own end, whole, and Passage Of Time starts again.
+  time.advance(54000);
+  assert.ok(clear.currentTime > 194, `to its end: ${clear.currentTime}`);
+  assert.equal(clear.paused, false);
+  time.advance(1500);
+  assert.equal(clear.paused, true);
+  assert.equal(calm.paused, false);
+  assert.ok(calm.currentTime < 1.2, `Passage Of Time from its start: ${calm.currentTime}`);
+  assert.deepEqual(sounding(), ["calm"]);
+  // And round: Clear Skies again after it, from its start, the same element.
+  time.advance(144000);
+  assert.deepEqual(sounding(), ["themes"]);
+  assert.ok(clear.currentTime < 2, `from its start again: ${clear.currentTime}`);
+  assert.equal(clear.loads, 1, "its file was asked for once");
+  // Never the two at once, at any look of a long idle.
+  for (let ms = 0; ms < 12 * 60 * 1000; ms += 250) {
+    time.advance(250);
+    assert.ok(sounding().length <= 1, `${sounding().join(" + ")} at ${time.now}`);
+  }
+});
+
+test("a game opened while Clear Skies plays crosses into the build, and the menu gone back to carries on with Clear Skies", () => {
+  const { director, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 } });
+  director.unlock();
+  time.advance(143700 + 90000);
+  const clear = of("themes");
+  const build = of("drama");
+  assert.deepEqual(sounding(), ["themes"]);
+  const before = clear.currentTime;
+  director.setScene("loading");
+  // The two cross: both sound for the length of the crossing, and no longer.
+  time.advance(900);
+  assert.deepEqual(sounding().sort(), ["drama", "themes"]);
+  assert.ok(clear.volume > 0 && build.volume > 0);
+  time.advance(1100);
+  assert.deepEqual(sounding(), ["drama"]);
+  assert.equal(clear.paused, true);
+  near(clear.currentTime, before + PASSAGE_DRAMA.crossfade / 1000, 0.1);
+  assert.equal(director.inDrama, true);
+  // The game is drawn and played; Clear Skies stays where it was.
+  director.setScene("game");
+  time.advance(30000);
+  assert.deepEqual(sounding(), []);
+  const held = clear.currentTime;
+  // Back on the menu: Clear Skies from there, faded in, and not Passage Of Time.
+  director.setScene("menu");
+  time.advance(1200);
+  assert.deepEqual(sounding(), ["themes"]);
+  near(clear.currentTime, held + 1.2, 0.05);
+  assert.ok(clear.volume < 0.25 * clearLevel(clear.currentTime), "still coming in");
+  time.advance(1500);
+  near(clear.volume, 0.25 * clearLevel(clear.currentTime), 0.004);
+  assert.equal(of("calm").paused, true);
+});
+
+test("with Clear Skies unplayable the menu is Passage Of Time's alone, round and round as it was", async () => {
+  const { director, time, of, sounding } = stage({ broken: [CLEAR] });
+  director.unlock();
+  time.advance(143700);
+  await settle();
+  time.advance(600);
+  assert.deepEqual(sounding(), ["calm"]);
+  assert.ok(of("calm").currentTime < 1, `from the top again: ${of("calm").currentTime}`);
+  // Not tried again at every seam: once is enough until a game has been played.
+  const tried = of("themes").plays;
+  time.advance(144000);
+  await settle();
+  time.advance(600);
+  assert.deepEqual(sounding(), ["calm"]);
+  assert.equal(of("themes").plays, tried);
+});
+
+test("with the music off, or before the first click, the second piece is never fetched", () => {
+  const off = stage({ enabled: false, lengths: { [CLEAR]: 195 } });
+  off.director.unlock();
+  off.time.advance(300000);
+  assert.equal(off.made.length, 0);
+  const waiting = stage({ lengths: { [CLEAR]: 195 } });
+  waiting.time.advance(300000);
+  assert.equal(waiting.made.length, 0);
 });
 
 // ---- a scenario's own lists ------------------------------------------------------

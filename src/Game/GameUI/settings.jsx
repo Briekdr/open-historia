@@ -114,7 +114,7 @@ import { detailedMapOffers, detailedMapsDownloadLine, lookUpDetailedMaps } from 
 import DetailedMapsInstallOffer from "../Map/DetailedMapsInstallOffer.jsx";
 import { getDeviceProfileOverride, isConstrainedDevice, setDeviceProfileOverride } from "../../runtime/deviceProfile.js";
 import { presenceAvailable } from "../../runtime/discordPresence.js";
-import { MUSIC_CREDIT, getNowPlaying, musicVolumeOf, subscribeNowPlaying } from "../../runtime/ambientMusic.js";
+import { MUSIC_CREDIT, MUSIC_TRACKS, getNowPlaying, musicVolumeOf, subscribeNowPlaying } from "../../runtime/ambientMusic.js";
 import { creditSiteOf } from "../../runtime/scenarioMusic.js";
 import { clearKeptMusic, keptMusicUsage } from "../../runtime/keptMusic.js";
 import { setVisitConsent, useVisitConsent } from "../../runtime/visitConsent.js";
@@ -2444,6 +2444,11 @@ const DownloadedMusic = () => {
 // is: the pieces' licence asks for exactly that to be said. A scenario's own
 // track comes from the community hub's list, and its licence asks the same:
 // the one sounding now is credited under the game's own, in the hub's words.
+// The game's own pieces by the names their composer gives them, never
+// translated: every piece the game ships, so a new one is credited by being
+// added to MUSIC_TRACKS.
+const MUSIC_WORKS = Object.values(MUSIC_TRACKS).filter(Boolean).map((track) => `“${track.work}”`).join(", ");
+
 const SoundSection = ({ musicOn, onToggleMusic, effectsOn, onToggleEffects }) => {
     const stored = useMapSettingValue(MAP_SETTING_KEYS.musicVolume, "");
     const volume = musicVolumeOf(stored);
@@ -2472,7 +2477,9 @@ const SoundSection = ({ musicOn, onToggleMusic, effectsOn, onToggleEffects }) =>
             <Toggle label="Sound effects" enabled={effectsOn} onToggle={onToggleEffects} />
             <DownloadedMusic />
             <div style={{ ...helperStyle, marginTop: 0, marginBottom: 0 }}>
-                <span>{"Music: “Passage Of Time”, “Legionnaire (2022 Remaster)” and “Vanguard” by Scott Buckley, released under CC BY 4.0."}</span>
+                <span>{"Music by Scott Buckley, released under CC BY 4.0:"}</span>
+                {" "}
+                <span data-no-translate>{MUSIC_WORKS}</span>
                 {" "}
                 <a data-no-translate href={MUSIC_CREDIT.siteUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>{MUSIC_CREDIT.site}</a>
             </div>

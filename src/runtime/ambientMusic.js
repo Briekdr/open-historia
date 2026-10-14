@@ -10,6 +10,8 @@
 //    dramaticism when loading";
 //   "scenario creators should be able to add different tracks and songs for
 //    different situations" — from the community hub's music list.
+//   "add these as main menu themes too ... actually, add clearskies not
+//    viktor lux" — Clear Skies, the menu's second piece.
 // And, having listened to the first version of it:
 //   "its abruptly cutting to another part of the song when you open a new
 //    game. I see the vision, but its a rough transition";
@@ -22,7 +24,10 @@
 //            round, LEVELLED: the gain follows the piece's own loudness
 //            (calmGainAt), so its nearly inaudible opening is heard and its
 //            loud plateau is no louder than the rest. The seam is where the
-//            piece itself is all but silent, at both ends.
+//            piece itself is all but silent, at both ends. At that seam the
+//            menu's other pieces take their turn (MUSIC_MENU_PIECES: Clear
+//            Skies), each whole and levelled the same way, and after the
+//            last of them Passage Of Time begins again.
 //   loading  a game is opening under its cover. The build comes in under the
 //            menu's music and the two cross (PASSAGE_DRAMA.crossfade), at the
 //            phrase from which the big hit lands just after the game is
@@ -104,6 +109,25 @@ export const MUSIC_TRACKS = Object.freeze({
   passage: Object.freeze({ file: "audio/passage-of-time.mp3", work: "Passage Of Time", ...COMPOSER }),
   war: Object.freeze({ file: "audio/legionnaire.mp3", work: "Legionnaire (2022 Remaster)", ...COMPOSER }),
   vanguard: Object.freeze({ file: "audio/vanguard.mp3", work: "Vanguard", ...COMPOSER }),
+  // The menu's second piece. `loud` is the piece's own loudness (RMS), one
+  // figure for every `step` seconds from 0, measured from the file as
+  // PASSAGE_CALM's was: the menu levels it the same way (calmGainAt). It
+  // comes in from nothing over most of a minute and dies away as slowly,
+  // which is all the seam it needs.
+  clearSkies: Object.freeze({
+    file: "audio/clear-skies.mp3",
+    work: "Clear Skies",
+    ...COMPOSER,
+    loud: Object.freeze({
+      step: 5,
+      rms: Object.freeze([
+        0.002, 0.007, 0.013, 0.025, 0.025, 0.034, 0.030, 0.035, 0.041, 0.037,
+        0.039, 0.056, 0.052, 0.071, 0.099, 0.115, 0.106, 0.123, 0.170, 0.154,
+        0.176, 0.171, 0.164, 0.193, 0.206, 0.190, 0.220, 0.219, 0.195, 0.233,
+        0.225, 0.081, 0.052, 0.039, 0.047, 0.039, 0.033, 0.020, 0.001,
+      ]),
+    }),
+  }),
   // The piece that plays in a game. None has been chosen yet: until one is,
   // a game is quiet outside the war room.
   game: null,
@@ -111,6 +135,11 @@ export const MUSIC_TRACKS = Object.freeze({
 // The war room's pieces (names in MUSIC_TRACKS), in the order they play: one
 // after the other, round again at the end. A session starts on the first.
 export const MUSIC_WAR_PIECES = Object.freeze(["war", "vanguard"]);
+// The menu's other pieces (names in MUSIC_TRACKS), in the order they play.
+// The menu opens on Passage Of Time, which is also the music a game opens
+// to; each time its part ends these play, one after the other and each whole,
+// and then Passage Of Time again.
+export const MUSIC_MENU_PIECES = Object.freeze(["clearSkies"]);
 // What Settings names and links (one composer so far).
 export const MUSIC_CREDIT = COMPOSER;
 
@@ -318,6 +347,7 @@ export const createMusicDirector = ({
   releaseAddress = null,
   tracks = MUSIC_TRACKS,
   warPieces = MUSIC_WAR_PIECES,
+  menuPieces = MUSIC_MENU_PIECES,
   drama = PASSAGE_DRAMA,
   calm = PASSAGE_CALM,
 }) => {
@@ -333,21 +363,24 @@ export const createMusicDirector = ({
   // while that answer is on its way, and `held` once the element has it.
   const playlist = (key, items = []) => ({ key, tracks: items, index: 0, loaded: "", turn: 0, misses: 0, dead: false, audio: null, want: false, gain: 0, boost: 1, fade: null, asked: 0, waiting: false, arrived: false, held: "" });
   // The game's own: Passage Of Time twice over (the menu's part and the
-  // build, an element each, so one can cross into the other), the war room's
-  // list of pieces, and the in-game piece.
+  // build, an element each, so one can cross into the other), the menu's
+  // other pieces and the war room's pieces, a list each, and the in-game
+  // piece.
   const channels = {
     calm: channel(tracks.passage),
     drama: channel(tracks.passage),
     war: playlist("war", warPieces.flatMap((name) => (tracks[name] ? [{ id: name, src: addressOf(tracks[name].file) }] : []))),
+    themes: playlist("themes", menuPieces.flatMap((name) => (tracks[name] ? [{ id: name, src: addressOf(tracks[name].file), loud: tracks[name].loud ?? null }] : []))),
     game: channel(tracks.game),
   };
   const quiet = channels.calm;
   const loud = channels.drama;
+  const themes = channels.themes;
   // A scenario's: one list a situation, of tracks as the hub's list resolved
   // them. One of these that cannot be played gives way to the game's own.
   const lists = Object.fromEntries(SCENARIO_MUSIC_SITUATIONS.map((key) => [key, playlist(key)]));
   const pieces = [quiet, loud, channels.game];
-  const playlists = [channels.war, ...Object.values(lists)];
+  const playlists = [channels.war, themes, ...Object.values(lists)];
   const everyChannel = () => [...pieces, ...playlists];
 
   let scene = "menu";
@@ -367,6 +400,10 @@ export const createMusicDirector = ({
   let softExit = false;
   // The entry the build is held ready at while the menu sounds, or null.
   let readyAt = null;
+  // The menu has come to its other pieces (MUSIC_MENU_PIECES): it is on one of
+  // them, not on Passage Of Time. Kept while a game is played, so the menu
+  // gone back to carries on with the piece it was on.
+  let onTheme = false;
   // How many times the build, found playing far from where it was put, has
   // been put back since this game began to open.
   let strays = 0;
@@ -485,7 +522,7 @@ export const createMusicDirector = ({
     list.turn += 1;
     list.asked += 1;
     list.arrived = false;
-    if (!trackAddress || list === channels.war) {
+    if (!trackAddress || list === channels.war || list === themes) {
       give(list, src);
       return true;
     }
@@ -569,7 +606,7 @@ export const createMusicDirector = ({
         started.catch((error) => { if (error?.name === "NotAllowedError") unlocked = false; });
       }
     }
-    if (on && scene === "menu" && quiet.want) readyDrama();
+    if (on && scene === "menu" && (quiet.want || themes.want)) readyDrama();
     for (const list of playlists) {
       const sounding = on && list.want && usable(list);
       if (!sounding) {
@@ -638,12 +675,58 @@ export const createMusicDirector = ({
     bring(quiet, calm.fadeIn);
   };
 
+  // The menu's other pieces are levelled as Passage Of Time is, each from its
+  // own loudness: where the one the menu is on is now, and what that makes
+  // its level.
+  const themeTime = () => {
+    const track = themes.tracks[themes.index];
+    return track && themes.audio && themes.loaded === track.src ? themes.audio.currentTime : 0;
+  };
+  const themeBoost = () => {
+    const track = themes.tracks[themes.index];
+    return track?.loud ? calmGainAt(themeTime(), { ...calm, ...track.loud }) : 1;
+  };
+  // The menu's music in: the piece the menu had come to. Passage Of Time to
+  // begin with; another piece at once when it is at its start (its own
+  // opening is its way in), and faded in where it was left when it is not.
+  const bringMenu = () => {
+    if (!(onTheme && usable(themes))) { onTheme = false; bringCalm(); return; }
+    themes.boost = themeBoost();
+    bring(themes, themeTime() < 0.5 ? 0 : calm.fadeIn);
+  };
+  // Passage Of Time's part is over, in silence: the menu's next piece.
+  const toTheme = () => {
+    stopFade(quiet);
+    Object.assign(quiet, { want: false, gain: 0 });
+    if (quiet.audio && !quiet.audio.paused) quiet.audio.pause();
+    seek(quiet, 0);
+    onTheme = true;
+    bringMenu();
+  };
+  // The last of the menu's other pieces has ended, or none of them can be
+  // played: Passage Of Time again, from its start.
+  const toPassage = () => {
+    stopFade(themes);
+    Object.assign(themes, { want: false, gain: 0 });
+    onTheme = false;
+    if (scene === "menu") bringCalm();
+    else refresh();
+  };
+
   // A list's track ended, or could not be played: the next one, round again
   // at the end. Its file is asked for when it plays, which is now if the list
   // is still sounding.
   const next = (list) => {
     if (!list.tracks.length) return;
     list.index = (list.index + 1) % list.tracks.length;
+    // The menu's other pieces do not go round among themselves: after the
+    // last of them, Passage Of Time. The first is left at its start for the
+    // next time.
+    if (list === themes && list.index === 0) {
+      if (list.audio) { try { list.audio.currentTime = 0; } catch { /* it starts again when played */ } }
+      toPassage();
+      return;
+    }
     refresh();
   };
   // A track that could not be played (said by its element, or by play()
@@ -661,6 +744,9 @@ export const createMusicDirector = ({
     if (list.misses < list.tracks.length) { next(list); return; }
     stopFade(list);
     Object.assign(list, { dead: true, want: false, gain: 0 });
+    // None of the menu's other pieces can be played: the menu is Passage Of
+    // Time's alone, round and round as it was, until a game has been played.
+    if (list === themes) { toPassage(); return; }
     revoice();
   };
 
@@ -686,7 +772,7 @@ export const createMusicDirector = ({
   // What the watch below is for: on the menu, the levelling and the end of
   // the menu's part; while a game opens, the build's growth, the wrap, and
   // how it ends.
-  const watching = () => (scene === "menu" ? quiet.want : inDrama || cutAt !== null);
+  const watching = () => (scene === "menu" ? quiet.want || themes.want : inDrama || cutAt !== null);
   const stopTick = () => { if (tick !== null) { timers.clear(tick); tick = null; } };
   const startTick = () => {
     if (tick !== null) return;
@@ -694,11 +780,21 @@ export const createMusicDirector = ({
       tick = null;
       if (!audible() || !watching()) return;
       if (scene === "menu") {
+        if (themes.want) {
+          // One of the menu's other pieces: levelled by where it is.
+          const boost = themeBoost();
+          if (boost !== themes.boost) { themes.boost = boost; setVolume(themes); }
+          tick = timers.set(beat, CALM_TICK_MS);
+          return;
+        }
         const audio = quiet.audio;
         if (!audio) return;
         const time = audio.currentTime;
         if (time >= calm.end) {
-          // The end of its part, in silence: from the top again.
+          // The end of its part, in silence: the menu's next piece, when
+          // there is one that plays.
+          if (usable(themes)) { toTheme(); return; }
+          // None: from the top again.
           seek(quiet, 0);
           quiet.boost = calmBoostAt(0);
           quiet.gain = 0;
@@ -784,12 +880,13 @@ export const createMusicDirector = ({
     silence(channels.game, FADE.cross);
     silence(loud, FADE.cross);
     for (const list of playlists) {
-      silence(list, FADE.cross);
+      // The menu's own list is not on its way out: it may be what comes in.
+      if (list !== themes) silence(list, FADE.cross);
       // A list that could not be played is tried again in the next game.
       list.dead = false;
       list.misses = 0;
     }
-    bringCalm();
+    bringMenu();
   };
 
   // How much longer the game now opening is expected to take.
@@ -813,12 +910,15 @@ export const createMusicDirector = ({
       sound(voice);
       return;
     }
-    for (const other of [channels.game, ...playlists]) silence(other, FADE.cross);
+    // What the menu was sounding: Passage Of Time's own part, or another of
+    // its pieces.
+    const menu = themes.want ? themes : quiet;
+    for (const other of [channels.game, ...playlists]) if (other !== themes) silence(other, FADE.cross);
     // The menu's music is sounding: the build starts a little before its
     // entry, under it, and the two cross, so that the middle of the crossing
     // is the entry. Nothing to cross with (the first click came while the
     // game was opening): the build comes in from the entry itself.
-    const crossing = quiet.want && quiet.gain > 0 && audible();
+    const crossing = menu.want && menu.gain > 0 && audible();
     const entry = entryFor(loadLeft(), drama);
     const from = crossing ? entry - drama.lead : entry;
     inDrama = true;
@@ -833,13 +933,17 @@ export const createMusicDirector = ({
     refresh();
     fadeTo(loud, 1, drama.crossfade, null, true);
     if (crossing) {
-      fadeTo(quiet, 0, drama.crossfade, () => {
-        quiet.want = false;
-        seek(quiet, 0);
+      fadeTo(menu, 0, drama.crossfade, () => {
+        menu.want = false;
+        // Passage Of Time goes back to its start. Another piece stays where
+        // it was: the menu carries on with it from there.
+        if (menu === quiet) seek(quiet, 0);
         refresh();
       }, true);
+      if (menu !== quiet) silence(quiet, FADE.cross, { rewind: true });
     } else {
       silence(quiet, FADE.cross, { rewind: true });
+      silence(themes, FADE.cross);
     }
   };
 
@@ -947,7 +1051,7 @@ export const createMusicDirector = ({
 
   // The first sound of a session: whatever the scene is by then.
   const begin = () => {
-    if (scene === "menu") bringCalm();
+    if (scene === "menu") bringMenu();
     else if (scene === "loading") toLoading();
     else settle();
   };
