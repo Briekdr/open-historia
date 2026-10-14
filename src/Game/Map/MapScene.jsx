@@ -12,6 +12,10 @@ import WarRoomTools from "./WarRoomTools.jsx";
 import TransportLayers from "./TransportLayers.jsx";
 import StrikeLayers from "./StrikeLayers.jsx";
 import SeaBattleLayers from "./SeaBattleLayers.jsx";
+import SeasonLayers from "./SeasonLayers.jsx";
+import IceLayers from "./IceLayers.jsx";
+import WarGeographyLayers from "./WarGeographyLayers.jsx";
+import FrontWeatherLayers from "./FrontWeatherLayers.jsx";
 import GlobeEffects from "./GlobeEffects.jsx";
 import RegionPopup from "../Selection/Regions";
 import CountryInfoPanel from "../Selection/CountryPanel.jsx";
@@ -154,6 +158,9 @@ const MapScene = ({ isGlobe = false }) => {
     <>
       {fillProbeEnabled && <MapFillProbe />}
       <Nations isGlobe={isGlobe} />
+      <SeasonLayers isGlobe={isGlobe} />
+      <IceLayers />
+      <WarGeographyLayers />
       <Cities />
       <MarkersLayer />
       <WarRoomLayers />
@@ -163,6 +170,7 @@ const MapScene = ({ isGlobe = false }) => {
       <TransportLayers />
       <StrikeLayers />
       <SeaBattleLayers />
+      <FrontWeatherLayers />
       <Units />
       <GlobeEffects active={isGlobe} />
       <RegionPopup />

@@ -4,7 +4,7 @@
 // useMapSetting() below instead of receiving these as props threaded through
 // GameUI/main.jsx, mirroring how useCountryDisplayName (polityNames.js) sits
 // beside the data it subscribes to.
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { logDebugEvent, logSettingChange } from "./debugLog.js";
 
 // Immediate source of truth for string-valued settings. This also keeps a
@@ -102,6 +102,12 @@ export const MAP_SETTING_KEYS = {
     // setting to make it always when opening game"). Settings → General →
     // Display, under the door's own switch.
     vaultDoorAlways: "vault_door_every_time",
+    // The seasons and the weather on the map (Map/SeasonLayers.jsx,
+    // FrontWeatherLayers.jsx, IceLayers.jsx): the season's tint over the whole
+    // map, each battlefield's weather, and the water that can freeze. ON by
+    // default — read with getMapSettingDefaultOn (useMapSettingDefaultOn).
+    // Frozen water is drawn as ice either way: troops cross it. Settings → Map.
+    seasonsWeather: "map_seasons_weather",
 };
 
 // Families the label-font pickers suggest — Settings → Map and the game and
@@ -129,7 +135,7 @@ export function getMapSetting(key) {
 // "1" !== null, i.e. off — so every consumer of such a key must come through here.
 //
 // lookupFunctions, liveSkipEvents, discordPresence, ambientMusic,
-// soundEffects and vaultDoor ship on;
+// soundEffects, vaultDoor and seasonsWeather ship on;
 // limitAiGeneration and chunkLongJumps, which used to, went default-off in the
 // beta.
 export function getMapSettingDefaultOn(key) {
@@ -176,6 +182,7 @@ const SETTING_LABELS = {
     // "Every time the game opens" in the panel, under the door's switch; named
     // in full here, where the log line stands alone.
     [MAP_SETTING_KEYS.vaultDoorAlways]: "Vault door every time the game opens",
+    [MAP_SETTING_KEYS.seasonsWeather]: "Seasons and weather",
 };
 
 export function setMapSetting(key, value) {
@@ -234,6 +241,16 @@ export function useMapSetting(key) {
     }, [key]);
 
     return value;
+}
+
+// The same subscription for a setting that ships ON (getMapSettingDefaultOn):
+// useMapSetting would read its absent key as off.
+const subscribeMapSettings = (notify) => {
+    window.addEventListener("mapSettings:updated", notify);
+    return () => window.removeEventListener("mapSettings:updated", notify);
+};
+export function useMapSettingDefaultOn(key) {
+    return useSyncExternalStore(subscribeMapSettings, () => getMapSettingDefaultOn(key), () => true);
 }
 
 // The operating system's own reduced-motion setting. While it is on, the game

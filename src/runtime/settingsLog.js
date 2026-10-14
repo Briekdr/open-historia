@@ -101,6 +101,8 @@ registerSettingsSnapshot("Map", () => [
     ["3D Globe", onOff(storedBoolean("Globe", false))],
     ["3D Terrain", onOff(storedBoolean("Terrain", true))],
     ["Hide country labels", onOff(getMapSetting(MAP_SETTING_KEYS.hideCountryLabels))],
+    // Ships on: an absent key is on.
+    ["Seasons and weather", onOff(getMapSettingDefaultOn(MAP_SETTING_KEYS.seasonsWeather))],
     ["Disable idle globe rotation", onOff(getMapSetting(MAP_SETTING_KEYS.disableIdleRotation))],
     ["Disable camera movement during events", onOff(getMapSetting(MAP_SETTING_KEYS.disableEventCamera))],
     // What decides the worker count, whole-archive warming, the regions parse

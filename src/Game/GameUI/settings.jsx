@@ -2634,6 +2634,10 @@ const SettingsWorkspace = ({
                         <div style={helperStyle}>Empty uses the font the scenario author chose. Any font installed on this computer works; overrides apply immediately.</div>
                     </div>
                     <Toggle label="Hide country labels" enabled={mapSettings.hideCountryLabels} onToggle={() => updateMapSetting("hideCountryLabels", MAP_SETTING_KEYS.hideCountryLabels, !mapSettings.hideCountryLabels)} />
+                    <Toggle label="Seasons and weather" enabled={mapSettings.seasonsWeather} onToggle={() => updateMapSetting("seasonsWeather", MAP_SETTING_KEYS.seasonsWeather, !mapSettings.seasonsWeather)} />
+                    <div style={settingsHelper}>
+                    On (default): the map is tinted by the season, each battlefield shows its weather, and water that can freeze is marked. Frozen water is drawn as ice either way.
+                    </div>
                     <PerformanceModeSetting />
                 </SettingsSection>
                 <SettingsSection title="3D map" description="Globe and terrain rendering are presentation features; they do not change world state.">
@@ -2923,6 +2927,8 @@ const SettingsMenu = ({
         // Off by default: the door shows the first time the game opens after
         // an update, unless this asks for every time.
         vaultDoorAlways: getMapSetting(MAP_SETTING_KEYS.vaultDoorAlways),
+        // And the seasons and weather on the map (Map → Map presentation).
+        seasonsWeather: getMapSettingDefaultOn(MAP_SETTING_KEYS.seasonsWeather),
     }));
 
     const updateMapSetting = (stateKey, settingKey, value) => {

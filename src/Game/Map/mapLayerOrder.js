@@ -59,6 +59,22 @@ export const MAP_LAYER_ORDER = [
   "fronts-paint-9",
   "fronts-paint-10",
   "fronts-paint-11",
+  // The season over the whole map (SeasonLayers.jsx): a faint tint over every
+  // fill and every battlefield's paint, under the borders and every name.
+  "seasons-tint",
+  // Water that can freeze, faintly, and water frozen hard enough to cross, as
+  // ice with a light edge (IceLayers.jsx): over the season, laid on the
+  // scenario's own regions and, for a region the map repaired, on the repair.
+  "ice-hint",
+  "ice-hint-repair",
+  "ice-fill",
+  "ice-fill-repair",
+  "ice-edge",
+  "ice-edge-repair",
+  // Ground a scenario made harder to cross (WarGeographyLayers.jsx): a shade
+  // and a dashed edge, under the borders that may run through it.
+  "war-terrain-fill",
+  "war-terrain-outline",
 
   // Sovereign frontiers are presentation, but must remain above every
   // political fill and below every semantic object/label layer.
@@ -67,6 +83,19 @@ export const MAP_LAYER_ORDER = [
   // ...and its outline sits above the sovereign borders it may run along.
   "group-areas-outline-casing",
   "group-areas-outline",
+  // A scenario's fortified lines (WarGeographyLayers.jsx), over the borders
+  // they so often follow: the rubble of a breach, a line still being built,
+  // and a standing line with its core and its teeth.
+  "war-walls-rubble",
+  "war-walls-planned",
+  "war-walls-progress",
+  "war-walls-casing",
+  "war-walls-core",
+  "war-walls-teeth",
+  // The weather over each battlefield (FrontWeatherLayers.jsx): over its
+  // ground and its walls, under the ways its troops came and every label.
+  "fronts-weather-wash",
+  "fronts-weather-pattern",
   // The ways a battlefield's troops have come: a faint line along what they
   // walked long ago, and arrows raised off the map (shadow, edge, face) along
   // their last days, over the borders and under every label.
@@ -127,6 +156,8 @@ export const MAP_LAYER_ORDER = [
   "fronts-troops-picked",
   "fronts-troops-kind",
   "fronts-troops-name",
+  // Each battlefield's season and weather, written on a chip over its troops.
+  "fronts-weather-chip",
 
   // Transporters cross the map over the fronts they sail to (TransportLayers.jsx).
   "transports-way-casing",
