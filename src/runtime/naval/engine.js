@@ -50,6 +50,7 @@
 import { addGameDays, diffGameDays } from "../gameDates.js";
 import { BLOCKADE_LEAST, dayPressure, seaShareOf, stationsOf } from "./blockade.js";
 import { readMilitary, seaWorth } from "../fronts/military.js";
+import { weatherOn } from "../fronts/weather.js";
 import { kmBetween } from "../fronts/worldGrid.js";
 import { eraOf } from "../unitMotion.js";
 
@@ -113,6 +114,12 @@ const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 const fold = (value) => clean(value).toLowerCase();
 const list = (value) => (Array.isArray(value) ? value : []);
 const finite = (value) => Number.isFinite(Number(value));
+
+// Weighing the weather: the states that are a storm at sea, what one leaves of the chance that fleets in
+// reach of each other meet, and of what a blockading fleet can do.
+const STORMY = new Set(["storm", "blizzard"]);
+export const STORM_ENGAGE = 0.25;
+export const STORM_BLOCKADE = 0.5;
 
 // A number from 0 up to 1 that belongs to one thing that happens.
 const chanceOf = (text) => {
@@ -271,8 +278,12 @@ const placeOf = ({ lng, lat, seas, cities, km }) => {
 //   blockades   [{ country, by: [names], pressure, covered, days }]: each country a fleet
 //               pressed on in the period (blockade.js): the mean of its days, the share
 //               of its coast reached, and how many of the period's days it stood
-export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units = [], strengthOf = null, controllerOf = null, grid = null, cities = [], seas = [], flat = false, scale = undefined, caps = {}, raised = [], era: setEra = null, militaryOf = null } = {}) => {
+export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units = [], strengthOf = null, controllerOf = null, grid = null, cities = [], seas = [], flat = false, scale = undefined, caps = {}, raised = [], era: setEra = null, militaryOf = null, weatherSeed = null } = {}) => {
   const era = eraOf(fromDate, setEra);
+  // Weighing the weather (fronts/weather.js): a storm keeps fleets apart and weakens a blockade. Fleets in the same
+  // stretch of sea (five degrees by five) have the same weather; none without a seed.
+  const stormy = (fleet, day) => (weatherSeed === null || weatherSeed === undefined ? false
+    : STORMY.has(weatherOn({ seed: String(weatherSeed), place: `sea ${Math.round(fleet.lng / 5)} ${Math.round(fleet.lat / 5)}`, lat: fleet.lat, date: dateOf(day) }).state));
   // Weighing countries' own military figures (fronts/military.js): what a country's navy is against
   // what every country's was, and 0 for one that has none, which neither fights nor is given a fleet.
   const navies = new Map();
@@ -438,7 +449,7 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
       if (one.ready > day || two.ready > day || !live(one) || !live(two)) continue;
       const keen = Math.max(keenOf(one.posture), keenOf(two.posture));
       const shy = Math.min(keenOf(one.posture), keenOf(two.posture)) <= POSTURE_KEEN.withdrawing ? EVADES : 1;
-      if (chanceOf(`${seed}|${day}|${one.id}|${two.id}|meet`) >= (ENGAGE_LEAST + ENGAGE_SPAN * keen) * shy * Math.min(shelterOf(one), shelterOf(two))) continue;
+      if (chanceOf(`${seed}|${day}|${one.id}|${two.id}|meet`) >= (ENGAGE_LEAST + ENGAGE_SPAN * keen) * shy * Math.min(shelterOf(one), shelterOf(two)) * (stormy(one, day) || stormy(two, day) ? STORM_ENGAGE : 1)) continue;
       const lng = (one.lng + two.lng) / 2;
       const lat = (one.lat + two.lat) / 2;
       // Every fleet of the two sides that is in reach of it joins.
@@ -493,7 +504,7 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
         if (!live(fleet) || fleet.posture !== "blockade" || !hostile(fleet.key, key)) continue;
         if (!post.stations.some(([lng, lat]) => km(lng, lat, fleet.lng, fleet.lat) <= reach)) continue;
         // What it can put into the blockade: what it is, less what the fleets of its enemies in reach of it tie down.
-        const mine = fleet.strength * navyFactor(weightOf(fleet.owner)) * seaOf(fleet.owner);
+        const mine = fleet.strength * navyFactor(weightOf(fleet.owner)) * seaOf(fleet.owner) * (stormy(fleet, day) ? STORM_BLOCKADE : 1);
         let tied = 0;
         for (const other of fleets) {
           if (!live(other) || other.posture === "withdrawing" || !hostile(other.key, fleet.key)) continue;

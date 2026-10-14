@@ -20,6 +20,7 @@ import { guardLeft, legsLeft, punchLeft, tireDay } from "./fatigue.js";
 import { mendBudget } from "./manpower.js";
 import { anyMechanic } from "./mechanics.js";
 import { isLive } from "./troops.js";
+import { skyOver } from "./weather.js";
 
 // (A test may set a side's readiness outright: input.steering.readiness = { punch: [a, b], guard, legs }.)
 const steered = (run, key, side) => {
@@ -33,6 +34,11 @@ export const dawnsOn = (run) => anyMechanic(run.mech) || Boolean(run.steer?.read
 
 export const dawn = (run, battle, day) => {
   if (!dawnsOn(run)) return;
+  // The day's weather (weather.js): what it does to every troop's march and blows.
+  const sky = run.mech.weather ? skyOver(run, battle, day) : null;
+  if (!sky) battle.sky = null;
+  const pace = sky ? sky.effects.pace : 1;
+  const blows = sky ? sky.effects.attack : 1;
   for (const side of [0, 1]) {
     const punch = steered(run, "punch", side);
     const guard = steered(run, "guard", side);
@@ -43,9 +49,9 @@ export const dawn = (run, battle, day) => {
       const worth = battle.worth ? battle.worth[side][troop.owner] ?? 1 : 1;
       // What its fatigue leaves it (fatigue.js).
       const tired = run.mech.fatigue && troop.fatigue > 0;
-      troop.punch = (tired ? punch * punchLeft(troop.fatigue) : punch) * worth;
+      troop.punch = (tired ? punch * punchLeft(troop.fatigue) : punch) * worth * blows;
       troop.guard = (tired ? guard * guardLeft(troop.fatigue) : guard) * worth;
-      troop.legs = tired ? legs * legsLeft(troop.fatigue) : legs;
+      troop.legs = (tired ? legs * legsLeft(troop.fatigue) : legs) * pace;
     }
   }
 };
@@ -53,7 +59,8 @@ export const dawn = (run, battle, day) => {
 export const dusk = (run, battle, day) => {
   if (!anyMechanic(run.mech)) return;
   // The day's march and fighting tire every troop that marched or fought, and rest the others (fatigue.js).
-  if (run.mech.fatigue) tireDay(run, battle);
+  // (And the weather tires them too, and rests them less: weather.js.)
+  if (run.mech.fatigue) tireDay(run, battle, battle.sky ? { wear: battle.sky.effects.wear, rest: battle.sky.effects.rest } : undefined);
   // Weighing countries' own military figures, reserves make good a country's losses only with men it still has (manpower.js).
   if (run.mech.military) {
     const budget = mendBudget(run, day);

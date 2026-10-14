@@ -160,6 +160,8 @@ export const buildBrief = (battle, since) => {
     cities: [unique(battle.citiesTaken[0]), unique(battle.citiesTaken[1])],
     pockets,
     since,
+    // The season, today's weather and the days of each this run (weather.js): for the story.
+    ...(battle.sky && battle.skies ? { weather: { season: battle.sky.season, now: battle.sky.state, days: { ...battle.skies } } } : {}),
   };
 };
 
@@ -241,6 +243,15 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
   const strength = Array.isArray(brief.strength) && brief.strength.length === 2
     ? `  Strength: ${brief.strength.map((side, index) => `${lead[index]} ${side.n} formations (${side.pct}%)${side.tired > 0 ? `, ${side.tired} of them exhausted` : ""}${side.mustering > 0 ? `, ${side.mustering} more still mustering` : ""}${Array.isArray(side.members) && side.members.length > 1 ? ` (${side.members.map((member) => `${member.name} ${member.n}`).join(", ")})` : ""}, reserves ${side.reserves}`).join("; ")}`
     : "";
+  // The season and the weather it was fought in (weather.js): "autumn; mud on 6 of 10 days, rain on 3".
+  const weather = brief.weather && typeof brief.weather === "object" && brief.weather.days
+    ? (() => {
+      const days = Object.entries(brief.weather.days).filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+      const total = days.reduce((sum, [, count]) => sum + count, 0);
+      const spells = days.slice(0, 3).map(([state, count], at) => `${state} on ${count}${at === 0 ? ` of ${total} days` : ""}`).join(", ");
+      return `  Weather: ${brief.weather.season ? `${brief.weather.season}; ` : ""}${spells}${brief.weather.now ? `; ${brief.weather.now} now` : ""}`;
+    })()
+    : "";
   // A side that has withdrawn its troops from here (engine.js withdrawWhoLeft).
   const gone = [HOLDER_SIDE_A, HOLDER_SIDE_B].filter((side) => brief.carry?.away?.[side] === true)
     .map((side) => `  ${lead[side]} has withdrawn its troops from here: the ground it holds is unguarded until it orders them back.`).join("\n");
@@ -262,7 +273,7 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
   // are listed, then fewer sectors.
   let text = "";
   for (const [mostSectors, mostNames] of [[3, 4], [3, 2], [3, 1], [2, 1], [0, 1]]) {
-    text = [head, strength, gone, lineText(mostSectors), sinceText(mostNames), orders, valid].filter(Boolean).join("\n");
+    text = [head, strength, weather, gone, lineText(mostSectors), sinceText(mostNames), orders, valid].filter(Boolean).join("\n");
     if (text.length <= BRIEF_TEXT_MAX) return text;
   }
   return text.slice(0, BRIEF_TEXT_MAX - 1).trimEnd() + "…";

@@ -846,6 +846,8 @@ export const runTurnFronts = async ({
   manpowerShare = null,
   // When the game began: a war that began after it musters its levies (runtime/fronts/muster.js).
   gameBegan = "",
+  // The campaign's own seed for its weather (runtime/fronts/weather.js): the same whatever the turn.
+  climateSeed = "",
   difficulty = "",
   narratesCombat = null,
   // The fronts a scenario begins with (runtime/fronts/scenarioFronts.js), on
@@ -1059,6 +1061,8 @@ export const runTurnFronts = async ({
       // Each country's own military figures, where the scenario weighs them (runtime/fronts/military.js).
       ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
       ...(Number(menEach) >= 1 ? { menEach: Number(menEach) } : {}),
+      // The seasons and weather, where the scenario has them (runtime/fronts/weather.js).
+      ...(mechanics?.weather === true && clean(climateSeed) ? { climateSeed: clean(climateSeed) } : {}),
       // Each country's mustering curve, where the scenario musters wars (runtime/fronts/muster.js).
       ...(mechanics?.muster === true && clean(gameBegan) ? { musterOf: readers.musterOf, gameBegan: clean(gameBegan) } : {}),
       ...(Number(manpowerShare) > 0 ? { manpowerShare: Number(manpowerShare) } : {}),
@@ -1115,6 +1119,7 @@ export const runTurnFronts = async ({
         raised: asArray(world?.naviesRaised),
         era: Number.isInteger(era) ? era : null,
         ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
+        ...(mechanics?.weather === true && clean(climateSeed) ? { weatherSeed: clean(climateSeed) } : {}),
       });
       // (How long the period was, for what its blockades cost: frontApply.js withBlockadeEconomy.)
       sea.days = days;

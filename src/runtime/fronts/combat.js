@@ -70,6 +70,7 @@ import {
   TROOP_DEFENCE,
 } from "./constants.js";
 import { ownCell, takeCapsule } from "./field.js";
+import { weatherLoss } from "./weather.js";
 import { downhill } from "./ground.js";
 import { STATE_ADVANCING, STATE_DUG_IN, STATE_ENCIRCLED, STATE_HOLDING, STATE_SPENT, controlRadius, isLive, reachCells, stepAlong } from "./troops.js";
 
@@ -388,7 +389,8 @@ export const closeDay = (battle) => {
       // off wastes: slowly in a besieged place or in squeezed ground, where
       // something still gets through, fast in a pocket.
       const wasting = troop.besieged ? SIEGE_LOSS : troop.sealed ? POCKET_LOSS : troop.squeezed ? SQUEEZED_LOSS : 0;
-      troop.strength -= troop.loss * (troop.dug ? DUG_IN_LOSS : 1) + wasting;
+      // (And what the day's cold or heat takes from a troop short of supply: weather.js.)
+      troop.strength -= troop.loss * (troop.dug ? DUG_IN_LOSS : 1) + wasting + (battle.sky ? weatherLoss(battle.sky, troop) : 0);
       // What is left of a cut-off troop, with the other side upon it, gives up.
       if (troop.pocket && !troop.besieged && troop.engaged && troop.strength < GIVES_UP_UNDER) troop.strength = 0;
     }

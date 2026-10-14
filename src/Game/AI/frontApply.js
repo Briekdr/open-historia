@@ -231,6 +231,8 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
     manpowerShare: warSettingsOf(world).manpowerShare,
     // When the game began: its wars that began after it muster their levies.
     gameBegan: clean(game?.startDate),
+    // The campaign's own seed for its weather: the same spell of it whichever turn it straddles.
+    climateSeed: clean(campaignId),
     players: humanCountriesOf(game),
     // The difficulty weighs the land war for whoever fights a person's country (runtime/fronts/handicap.js).
     difficulty: normalizeDifficulty(game?.difficulty),
