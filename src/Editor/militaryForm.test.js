@@ -128,13 +128,13 @@ test("a roster import keeps a country's military figures, and leaves those it do
 
 test("what an empty field stands for: the scenario's own settings, else its era's, the era read off its date as the engine reads it", () => {
   const medieval = militaryDefaultsFor(null, "1415-10-25");
-  assert.deepEqual(medieval, { era: 0, menPerCounter: 2000, manpowerShare: 12, cavalryShare: 0.15, siegeShare: 0.1, muster: DEFAULT_MUSTER, scenarioMuster: false });
+  assert.deepEqual(medieval, { era: 0, gameDate: "1415-10-25", rules: "", menPerCounter: 2000, manpowerShare: 12, cavalryShare: 0.15, siegeShare: 0.1, muster: DEFAULT_MUSTER, scenarioMuster: false });
   assert.equal(unitMixEra(medieval), "old", "horse and siege engines");
   assert.equal(unitMixEra(militaryDefaultsFor(null, "1916-07-01")), "modern", "armour and artillery from 1850");
   assert.equal(unitMixEra(militaryDefaultsFor({ era: 1 }, "1916-07-01")), "old", "the era the scenario set, over its date");
   assert.equal(unitMixEra(null), "both", "a map with no scenario to say");
   const own = militaryDefaultsFor({ era: 3, menPerCounter: 500, manpowerShare: 20, muster: [[0.5, 10], [1, 40]] }, "1415-10-25");
-  assert.deepEqual(own, { era: 3, menPerCounter: 500, manpowerShare: 20, cavalryShare: 0.3, siegeShare: 0.15, muster: [[0.5, 10], [1, 40]], scenarioMuster: true });
+  assert.deepEqual(own, { era: 3, gameDate: "1415-10-25", rules: "", menPerCounter: 500, manpowerShare: 20, cavalryShare: 0.3, siegeShare: 0.15, muster: [[0.5, 10], [1, 40]], scenarioMuster: true });
   // A calendar of its own reads as the present, as the engine reads it, unless the scenario sets its era.
   assert.equal(militaryDefaultsFor(null, "Year 12 AC").era, 3);
   assert.equal(militaryDefaultsFor({ era: 0 }, "Year 12 AC").era, 0);
@@ -149,7 +149,7 @@ test("the Countries and Groups panels carry the Military block, and the scenario
   const editor = read("MapEditor.jsx");
   assert.equal(editor.split("militaryDefaults={initialMap?.militaryDefaults ?? null}").length - 1, 2);
   const library = read("../Game/GameUI/libraryBar.jsx");
-  assert.ok(library.includes("militaryDefaults: militaryDefaultsFor(warSettings === undefined ? world.warSettings : warSettings, gameDate),"));
+  assert.ok(library.includes("militaryDefaults: militaryDefaultsFor(warSettings === undefined ? world.warSettings : warSettings, gameDate, { rules: world.simulationRules }),"));
   const fields = read("MilitaryFields.jsx");
   for (const words of ["\"Armour (%)\", \"Artillery (%)\"", "\"Cavalry (%)\", \"Siege (%)\"", "\"Cavalry / armour (%)\", \"Siege / artillery (%)\""]) assert.ok(fields.includes(words), words);
 });

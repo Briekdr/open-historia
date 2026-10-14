@@ -3648,7 +3648,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
         // What a country's or a group's military figures left empty stand for
         // here, for the Countries and Groups panels: the era its wars are
         // fought in, and the scenario's own settings (militaryForm.js).
-        militaryDefaults: militaryDefaultsFor(warSettings === undefined ? world.warSettings : warSettings, gameDate),
+        militaryDefaults: militaryDefaultsFor(warSettings === undefined ? world.warSettings : warSettings, gameDate, { rules: world.simulationRules }),
         // What it draws on its map for war: terrain areas, fortified lines,
         // climate zones and the water that can freeze, for the War map panel.
         ...warGeographyOf(world),

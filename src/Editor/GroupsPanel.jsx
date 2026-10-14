@@ -27,6 +27,7 @@ import {
 } from "../runtime/groups.js";
 import { groupEraseSteps, groupRenameSteps } from "./documentUndo.js";
 import MilitaryFields from "./MilitaryFields.jsx";
+import { rateMilitaryFigures } from "../Game/AI/militaryRating.js";
 
 const Swatch = ({ color, size = 14 }) => (
   <span
@@ -222,6 +223,14 @@ const GroupsPanel = ({ api, groups = {}, setGroups, selection = [], regionEpoch 
             value={record.military}
             defaults={militaryDefaults}
             onChange={(military) => patchRecord(current, { military: military ?? undefined })}
+            onRate={() => rateMilitaryFigures({
+              name: current,
+              note: record.description,
+              population: record.population,
+              date: militaryDefaults?.gameDate,
+              era: Number.isInteger(militaryDefaults?.era) ? militaryDefaults.era : null,
+              rules: militaryDefaults?.rules,
+            })}
           />
           <div style={labelDim}>Tint colour</div>
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 5 }}>

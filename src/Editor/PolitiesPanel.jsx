@@ -14,6 +14,7 @@ import { acceptFor } from "../runtime/fileAccept.js";
 import { formatPopulationFigure, readPopulationFigure } from "../runtime/populationFigure.js";
 import PuppetFields from "./PuppetFields.jsx";
 import MilitaryFields from "./MilitaryFields.jsx";
+import { rateMilitaryFigures } from "../Game/AI/militaryRating.js";
 import { rosterRowKey } from "./polityRoster.js";
 
 const clean = (value) => String(value ?? "").trim();
@@ -644,6 +645,14 @@ const PolitiesPanel = ({
                   value={current.record?.military}
                   defaults={militaryDefaults}
                   onChange={(military) => upsertPolity?.(current.key, { military: military ?? undefined })}
+                  onRate={() => rateMilitaryFigures({
+                    name: current.record?.name || current.key,
+                    note: current.record?.note,
+                    population: current.record?.population,
+                    date: militaryDefaults?.gameDate,
+                    era: Number.isInteger(militaryDefaults?.era) ? militaryDefaults.era : null,
+                    rules: militaryDefaults?.rules,
+                  })}
                 />
               </div>
             </div>

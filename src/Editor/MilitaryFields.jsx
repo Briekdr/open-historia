@@ -18,7 +18,7 @@
 // a click on the map takes no focus from a field (OlMap cancels it), so its
 // leaving cannot be waited for.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { inputStyle, pillButton } from "./editorStyles.js";
 import MusterChart from "./MusterChart.jsx";
 import { militaryFieldText, unitMixEra, withMilitaryField, withMilitaryMuster } from "./militaryForm.js";
@@ -60,8 +60,26 @@ const FigureField = ({ label, title, text, placeholder, onText }) => {
 //   defaults   what an empty field stands for in this scenario (militaryForm.js
 //              militaryDefaultsFor), or null for a map opened on its own
 //   onChange   (military | null): the figures the record keeps; null for none
-const MilitaryFields = ({ recordKey = "", value, defaults = null, onChange }) => {
+//   onRate     () => Promise<military>: the AI's figures for it (Game/AI/militaryRating.js),
+//              which fill only the fields left empty; none, no button
+const MilitaryFields = ({ recordKey = "", value, defaults = null, onChange, onRate = null }) => {
   const kept = normalizeMilitaryStats(value);
+  const [rating, setRating] = useState(false);
+  const [rateError, setRateError] = useState("");
+  // The AI's figures, under what the designer has set already: those stand.
+  const fillIn = async () => {
+    setRating(true);
+    setRateError("");
+    try {
+      const figures = await onRate();
+      const next = normalizeMilitaryStats({ ...(figures ?? {}), ...(kept ?? {}) });
+      if (next && JSON.stringify(next) !== JSON.stringify(kept)) onChange?.(next);
+    } catch (error) {
+      setRateError(String(error?.message ?? error) || "The AI could not be asked.");
+    } finally {
+      setRating(false);
+    }
+  };
   const mix = unitMixEra(defaults);
   const [horse, siege] = mix === "modern" ? ["Armour (%)", "Artillery (%)"] : mix === "old" ? ["Cavalry (%)", "Siege (%)"] : ["Cavalry / armour (%)", "Siege / artillery (%)"];
 
@@ -143,6 +161,20 @@ const MilitaryFields = ({ recordKey = "", value, defaults = null, onChange }) =>
           fieldStyle={{ ...inputStyle, padding: "4px 6px", textAlign: "right" }}
         />
 
+        {typeof onRate === "function" && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            <button
+              type="button"
+              disabled={rating}
+              style={{ ...pillButton(false), alignSelf: "flex-start" }}
+              title="Ask the AI for the figures left empty, from what the scenario says of this country and its era"
+              onClick={fillIn}
+            >
+              {rating ? "Asking the AI…" : "Fill in with AI"}
+            </button>
+            {rateError && <span style={hintStyle}>{rateError}</span>}
+          </div>
+        )}
         {kept && (
           <button
             type="button"

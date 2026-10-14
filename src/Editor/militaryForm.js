@@ -102,11 +102,14 @@ export const withMilitaryMuster = (military, points) => {
 // the era's and the game's), the era's unit mix, and its mustering curve (its
 // own default, else the game's). The Workshop is given this when it opens a
 // scenario's map (libraryBar.jsx); a map opened on its own has none (null).
-export const militaryDefaultsFor = (warSettings, gameDate) => {
+//   rules   the scenario's own rules of its world, for the AI that fills a country's figures in (Game/AI/militaryRating.js)
+export const militaryDefaultsFor = (warSettings, gameDate, { rules = "" } = {}) => {
   const settings = normalizeWarSettings(warSettings) ?? { era: null, menPerCounter: null, manpowerShare: null, muster: null };
   const era = eraOf(gameDate, settings.era);
   return {
     era,
+    gameDate: String(gameDate ?? ""),
+    rules: String(rules ?? ""),
     menPerCounter: settings.menPerCounter ?? MEN_PER_FORMATION_BY_ERA[era],
     manpowerShare: settings.manpowerShare ?? Math.round(MANPOWER_SHARE * 1000) / 10,
     cavalryShare: ARMOUR_SHARE_BY_ERA[era],
