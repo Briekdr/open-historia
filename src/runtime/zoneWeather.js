@@ -6,6 +6,9 @@
 // skyOver), and the map draws the zone as a patch of it (Game/Map/
 // weatherPatches.js), its soft edges running into the zones beside it.
 //
+// Each zone's weather fits the weather of the zones beside it (fronts/
+// climate.js zoneWeathersOn): snow is never beside heat.
+//
 // The weather is drawn from the campaign's own seed (the land war's: Game/AI/
 // frontApply.js turnRunInput climateSeed), which only the screen that plays
 // the turn knows: so the turn writes what each zone's weather is as it lands
@@ -17,7 +20,7 @@
 //
 // Pure, and loads in plain Node.
 
-import { zoneWeatherOn } from "./fronts/climate.js";
+import { zoneWeathersOn } from "./fronts/climate.js";
 import { parseGameDate } from "./gameDates.js";
 import { normalizeClimateZones } from "./warGeography.js";
 import { warSettingsOf } from "./warSettings.js";
@@ -30,9 +33,6 @@ export const zoneWeatherFor = (world, { seed = "", date = "" } = {}) => {
   if (zones.length === 0 || !parseGameDate(date)) return null;
   return {
     date: String(date),
-    zones: zones.map((zone) => {
-      const sky = zoneWeatherOn({ seed: String(seed ?? ""), zone, date });
-      return { id: zone.id, state: sky.state, season: sky.season };
-    }),
+    zones: zoneWeathersOn({ seed: String(seed ?? ""), zones, date }).map(({ zone, state, season }) => ({ id: zone.id, state, season })),
   };
 };

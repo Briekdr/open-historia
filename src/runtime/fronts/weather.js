@@ -30,7 +30,7 @@
 
 import { diffGameDays, parseGameDate } from "../gameDates.js";
 import { hashSeed } from "../unitMotion.js";
-import { climateAt, oddsAt, zoneWeatherOn, zonesToday } from "./climate.js";
+import { climateAt, oddsAt, zoneNeighbours, zoneWeatherOn, zoneWeathersOn, zonesToday } from "./climate.js";
 import { cellAt } from "./ground.js";
 
 export const WEATHER_STATES = Object.freeze(["clear", "rain", "storm", "mud", "snow", "blizzard", "frost", "heat", "fog"]);
@@ -117,10 +117,27 @@ export const weatherOn = ({ seed = "", place = "", lat = 45, date = "", odds = n
   const parsed = parseGameDate(date);
   if (!parsed) return { state: "clear", season: "", climate };
   const season = seasonOf(parsed.month, lat);
+  return { state: pickWeather(odds ?? WEATHER_ODDS[climate][season], weatherDraw(seed, place, date)), season, climate };
+};
+
+// The draw, from 0 up to 1, that picks a place's weather for the spell a date is in.
+export const weatherDraw = (seed, place, date) => {
   const days = diffGameDays(SPELL_EPOCH, date);
   const spell = Math.floor((Number.isFinite(days) ? days : 0) / SPELL_DAYS);
-  const draw = (hashSeed(`${seed}|${place}|${spell}|weather`) % 10000) / 10000;
-  return { state: pickWeather(odds ?? WEATHER_ODDS[climate][season], draw), season, climate };
+  return (hashSeed(`${seed}|${place}|${spell}|weather`) % 10000) / 10000;
+};
+
+// A zone's weather on a day of a run: every zone's worked out together once a
+// day, so that each fits the zones beside it (climate.js zoneWeathersOn).
+const zoneSkyOn = (run, zone, date, seed) => {
+  if (run.zoneSkiesDate !== date) {
+    const zones = Array.isArray(run.input?.climateZones) ? run.input.climateZones : [];
+    if (!run.zoneNeighbours) run.zoneNeighbours = zoneNeighbours(zones);
+    run.zoneSkies = zoneWeathersOn({ seed, zones, date, neighbours: run.zoneNeighbours });
+    run.zoneSkiesDate = date;
+  }
+  const found = run.zoneSkies.find((entry) => entry.zone === zone) ?? run.zoneSkies.find((entry) => entry.zone?.id === zone?.id);
+  return found ? { state: found.state, season: found.season, climate: found.climate } : zoneWeatherOn({ seed, zone, date });
 };
 
 // A battlefield's weather for a day of a run: where its ground's middle lies,
@@ -145,7 +162,7 @@ export const skyOver = (run, battle, day) => {
   // In a zone (half or more of its weight at the middle) the weather is the zone's, one for the whole of it
   // (climate.js zoneWeatherOn); elsewhere the battlefield's own, from the odds where it lies.
   const sky = there?.zone
-    ? zoneWeatherOn({ seed, zone: there.zone.zone, date })
+    ? zoneSkyOn(run, there.zone.zone, date, seed)
     : weatherOn({ seed, place: battle.name, lat: battle.climateLat, date, odds: there ? there.odds : null });
   if (there?.zone) sky.season = `${there.zone.zone.name ? `${there.zone.zone.name}, ` : ""}${sky.season}`;
   const forced = run.steer?.weather;

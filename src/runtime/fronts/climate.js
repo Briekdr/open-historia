@@ -32,7 +32,9 @@
 //
 // A zone has ONE weather at a time, the whole of it (zoneWeatherOn): "the
 // weather patches should be drawn by scenario designers who can choose the
-// climate regions" (the owner, 2026-10-14). A battlefield whose middle is in a
+// climate regions" (the owner, 2026-10-14). And a zone's weather fits the
+// weather of the zones beside it ("weather conditions should only border
+// other weather conditions that make sense": zoneWeathersOn, WEATHER_NEIGHBOURS). A battlefield whose middle is in a
 // zone (half or more of its weight there) fights in the zone's weather, and the
 // map draws the zone as a patch of it (Game/Map/weatherPatches.js); elsewhere a
 // battlefield's weather is its own, from the odds where it lies.
@@ -41,7 +43,7 @@
 
 import { parseGameDate } from "../gameDates.js";
 import { fillPolygon, projectRegion } from "./arena.js";
-import { WEATHER_ODDS, WEATHER_STATES, climateOf, seasonOf, weatherOn } from "./weather.js";
+import { WEATHER_ODDS, WEATHER_STATES, climateOf, seasonOf, weatherDraw, weatherOn } from "./weather.js";
 
 const MONTH_START = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
 const YEAR = 365;
@@ -190,6 +192,160 @@ export const zoneWeatherOn = ({ seed = "", zone, date = "" } = {}) => {
   const mix = zoneMixOn(zone, date, lat);
   const sky = weatherOn({ seed, place: `zone:${zone?.id ?? ""}`, lat, date, odds: mix.odds });
   return { ...sky, season: mix.season };
+};
+
+// ---- what weather lies beside what ---------------------------------------------------
+
+// Which weathers may lie side by side, one zone's beside the next's: snow
+// beside frost or rain and never beside heat, a blizzard only among snow and
+// frost, heat only under clear skies, a storm only where it rains.
+export const WEATHER_NEIGHBOURS = Object.freeze({
+  clear: Object.freeze(["clear", "frost", "fog", "heat", "rain", "snow", "mud"]),
+  frost: Object.freeze(["frost", "clear", "snow", "fog", "blizzard"]),
+  snow: Object.freeze(["snow", "frost", "blizzard", "clear", "rain", "fog"]),
+  blizzard: Object.freeze(["blizzard", "snow", "frost"]),
+  fog: Object.freeze(["fog", "clear", "frost", "rain", "mud", "snow"]),
+  rain: Object.freeze(["rain", "storm", "fog", "mud", "clear", "snow"]),
+  storm: Object.freeze(["storm", "rain", "mud"]),
+  mud: Object.freeze(["mud", "rain", "storm", "fog", "clear"]),
+  heat: Object.freeze(["heat", "clear"]),
+});
+export const weathersFit = (a, b) => (WEATHER_NEIGHBOURS[a] ?? []).includes(b);
+
+const PI = 3.141592653589793;
+const KM_A_DEGREE = 111.2;
+// The cosine of a latitude, near enough for the distances between zones (Bhaskara's rule: + - * / only).
+const cosineOf = (lat) => {
+  const x = (lat < 0 ? -lat : lat) * (PI / 180);
+  return (PI * PI - 4 * x * x) / (PI * PI + x * x);
+};
+// A zone's outer ring, the box round it, and how far it blends.
+const outlineOf = (zone) => {
+  const points = (zone?.rings?.[0] ?? []).filter((point) => Number.isFinite(point?.[0]) && Number.isFinite(point?.[1]));
+  if (points.length < 3) return null;
+  let west = Infinity;
+  let east = -Infinity;
+  let south = Infinity;
+  let north = -Infinity;
+  for (const [lng, lat] of points) {
+    if (lng < west) west = lng;
+    if (lng > east) east = lng;
+    if (lat < south) south = lat;
+    if (lat > north) north = lat;
+  }
+  return { points, west, east, south, north, blend: Number(zone.blendKm) || 0 };
+};
+const insideOutline = (points, [x, y]) => {
+  let odd = false;
+  for (let at = 0, back = points.length - 1; at < points.length; back = at, at += 1) {
+    const [ax, ay] = points[back];
+    const [bx, by] = points[at];
+    if ((ay > y) !== (by > y) && x < ax + ((y - ay) * (bx - ax)) / (by - ay)) odd = !odd;
+  }
+  return odd;
+};
+// How far a place is from a stretch of outline, all of it in degrees with
+// longitude narrowed by `squeeze`.
+const fromStretch = (px, py, ax, ay, bx, by, squeeze) => {
+  const x = px * squeeze;
+  const x1 = ax * squeeze;
+  const x2 = bx * squeeze;
+  const dx = x2 - x1;
+  const dy = by - ay;
+  const length = dx * dx + dy * dy;
+  let share = length > 0 ? ((x - x1) * dx + (py - ay) * dy) / length : 0;
+  share = share < 0 ? 0 : share > 1 ? 1 : share;
+  const ex = x1 + share * dx - x;
+  const ey = ay + share * dy - py;
+  return Math.sqrt(ex * ex + ey * ey);
+};
+
+// Whether two zones lie side by side: their outlines come within the reach of
+// their blends of each other (half of each), or one has a corner inside the other.
+export const zonesMeet = (a, b) => {
+  const A = outlineOf(a);
+  const B = outlineOf(b);
+  if (!A || !B) return false;
+  const reach = (A.blend + B.blend) / 2 / KM_A_DEGREE;
+  const cosine = cosineOf((A.south + A.north + B.south + B.north) / 4);
+  const squeeze = cosine > 0.05 ? cosine : 0.05;
+  const reachAcross = reach / squeeze;
+  if (A.east + reachAcross < B.west || B.east + reachAcross < A.west || A.north + reach < B.south || B.north + reach < A.south) return false;
+  if (insideOutline(B.points, A.points[0]) || insideOutline(A.points, B.points[0])) return true;
+  const near = (from, to) => {
+    for (const [px, py] of from.points) {
+      for (let at = 0, back = to.points.length - 1; at < to.points.length; back = at, at += 1) {
+        if (fromStretch(px, py, to.points[back][0], to.points[back][1], to.points[at][0], to.points[at][1], squeeze) <= reach) return true;
+      }
+    }
+    return false;
+  };
+  return near(A, B) || near(B, A);
+};
+
+// Which zones lie beside which: Map of a zone's place in the list to the places of those beside it.
+export const zoneNeighbours = (zones) => {
+  const list = Array.isArray(zones) ? zones : [];
+  const beside = new Map(list.map((_, index) => [index, []]));
+  for (let a = 0; a < list.length; a += 1) {
+    for (let b = a + 1; b < list.length; b += 1) {
+      if (!zonesMeet(list[a], list[b])) continue;
+      beside.get(a).push(b);
+      beside.get(b).push(a);
+    }
+  }
+  return beside;
+};
+
+const boxArea = (zone) => {
+  const outline = outlineOf(zone);
+  return outline ? (outline.east - outline.west) * (outline.north - outline.south) : 0;
+};
+
+// Every zone's weather on a date, each drawn as zoneWeatherOn draws it and then
+// made to fit the zones beside it: the largest zones are settled first, and one
+// whose weather does not fit a neighbour already settled takes, of the
+// weathers that fit them all (or else the most of them), the one its own odds
+// favour by the same draw; where its odds give none of them, the first of them.
+// [{ zone, state, season, climate }], in the zones' own order.
+//   neighbours   zoneNeighbours(zones), where the caller keeps it
+export const zoneWeathersOn = ({ seed = "", zones = [], date = "", neighbours = null } = {}) => {
+  const list = Array.isArray(zones) ? zones : [];
+  const beside = neighbours ?? zoneNeighbours(list);
+  const drawn = list.map((zone) => {
+    const lat = zoneLatOf(zone);
+    const mix = zoneMixOn(zone, date, lat);
+    const place = `zone:${zone?.id ?? ""}`;
+    const sky = weatherOn({ seed, place, lat, date, odds: mix.odds });
+    return { zone, state: sky.state, season: mix.season, climate: sky.climate, odds: mix.odds, draw: weatherDraw(seed, place, date) };
+  });
+  const order = drawn.map((_, index) => index).sort((a, b) => boxArea(list[b]) - boxArea(list[a]) || a - b);
+  const settled = new Set();
+  for (const index of order) {
+    const entry = drawn[index];
+    const around = (beside.get(index) ?? []).filter((other) => settled.has(other)).map((other) => drawn[other].state);
+    settled.add(index);
+    if (around.every((state) => weathersFit(entry.state, state))) continue;
+    const fitting = WEATHER_STATES.map((state) => around.filter((other) => weathersFit(state, other)).length);
+    let most = 0;
+    for (const count of fitting) if (count > most) most = count;
+    const candidates = WEATHER_STATES.filter((_, at) => fitting[at] === most);
+    let total = 0;
+    for (const state of candidates) total += entry.odds?.[state] > 0 ? entry.odds[state] : 0;
+    let chosen = candidates[0];
+    if (total > 0) {
+      let sum = 0;
+      for (const state of candidates) {
+        const share = entry.odds?.[state] > 0 ? entry.odds[state] / total : 0;
+        if (!(share > 0)) continue;
+        chosen = state;
+        sum += share;
+        if (entry.draw < sum) break;
+      }
+    }
+    entry.state = chosen;
+  }
+  return drawn.map(({ zone, state, season, climate }) => ({ zone, state, season, climate }));
 };
 
 // ---- across the map --------------------------------------------------------------

@@ -9,7 +9,7 @@ import { runNaval } from "../naval/engine.js";
 import { zoneWeightAt } from "../warGeography.js";
 import { describeBattlefield } from "./brief.js";
 import { decodeTroops } from "./codec.js";
-import { climateAt, freezesAt, seasonMixOn, zoneLatOf, zoneMixOn, zoneWeatherOn, zonesOver } from "./climate.js";
+import { WEATHER_NEIGHBOURS, climateAt, freezesAt, seasonMixOn, weathersFit, zoneLatOf, zoneMixOn, zoneWeatherOn, zoneWeathersOn, zonesMeet, zonesOver } from "./climate.js";
 import { runFronts } from "./engine.js";
 import { frontInput, syntheticMap } from "./syntheticMap.js";
 
@@ -128,6 +128,33 @@ test("a zone has one weather at a time: a battlefield in it fights in the zone's
   assert.ok(new Set(others).size > 1, String(others));
   // Reckoned at the middle of the zone, north to south.
   assert.equal(zoneLatOf(mixed), 51);
+});
+
+test("a zone's weather fits the zones beside it: snow is never beside heat, and the smaller zone gives way", () => {
+  const box = (id, west, east, weather) => ({ id, name: id, color: "#8899aa", blendKm: 200, transitionDays: 0, rings: [[[west, 46], [east, 46], [east, 52], [west, 52]]], seasons: [{ name: "All year", start: "01-01", end: "12-31", weather, effects: {} }], events: [] });
+  // A great hot plain beside a small cold one, and a far one alone.
+  const hot = box("hot", 20, 34, { heat: 1 });
+  const cold = box("cold", 34, 38, { blizzard: 3, snow: 2, clear: 1 });
+  const far = box("far", 80, 84, { blizzard: 1 });
+  assert.equal(zonesMeet(hot, cold), true);
+  assert.equal(zonesMeet(hot, far), false);
+  for (const date of ["0300-01-05", "0300-01-09", "0300-01-13", "0300-02-20"]) {
+    const [h, c, f] = zoneWeathersOn({ seed: "c", zones: [hot, cold, far], date }).map((entry) => entry.state);
+    assert.equal(h, "heat", "the larger zone keeps its own");
+    assert.equal(c, "clear", "of the weathers that fit heat, only clear is in the small zone's own odds");
+    assert.equal(f, "blizzard", "a zone with none beside it keeps its own");
+  }
+  // The table goes both ways, and each weather may lie beside its own kind.
+  for (const [a, list] of Object.entries(WEATHER_NEIGHBOURS)) {
+    assert.ok(list.includes(a), a);
+    for (const b of list) assert.ok(WEATHER_NEIGHBOURS[b].includes(a), `${a} and ${b}`);
+  }
+  assert.equal(weathersFit("snow", "heat"), false);
+  assert.equal(weathersFit("blizzard", "rain"), false);
+  assert.equal(weathersFit("storm", "rain"), true);
+  // In the engine: a battle in the small cold zone, beside a greater hot one, fights in the weather that fits.
+  const { result } = fight(sheet(), { mechanics: { weather: true }, climateZones: [box("west", 6, 22, { heat: 1 }), box("here", 22, 30, { blizzard: 3, snow: 2, clear: 1 })], climateSeed: "c", days: 6 });
+  assert.equal(result.battlefields[0].brief.weather.now, "clear");
 });
 
 test("frozen water is crossed, slowly; thawed, it is wall again and those on it get off it as they can", () => {
