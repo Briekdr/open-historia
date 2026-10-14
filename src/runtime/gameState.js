@@ -8,6 +8,7 @@ import { normalizeCallsToArms } from "./alliances.js";
 import { normalizePeaceOffers, normalizePeaceTreaties, normalizeReparations } from "./peaceTerms.js";
 import { normalizeWarWeariness } from "./warWeariness.js";
 import { eraSettingOf, normalizeWarSettings } from "./warSettings.js";
+import { normalizeClimateZones, normalizeFortifications, normalizeFreezingRegions, normalizeTerrainAreas } from "./warGeography.js";
 import { normalizeMilitaryStats } from "./militaryStats.js";
 import { MAX_GROUPS, applyGroupOps, canRenameGroup, findGroupKey, normalizeGroupAreas, normalizeGroupOp, normalizeGroups } from "./groups.js";
 import { enqueueEventStrings } from "./translator.js";
@@ -279,6 +280,13 @@ export const WORLD_DEFAULTS = {
   warWeariness: [],
   // How the scenario's wars are fought (warSettings.js): null where it says nothing.
   warSettings: null,
+  // What the scenario draws on its map for war (warGeography.js): ground harder
+  // to cross, walls that must be broken through, its own climates, and the
+  // water that freezes in winter.
+  terrainAreas: [],
+  fortifications: [],
+  climateZones: [],
+  freezingRegions: [],
   // Peace (peaceTerms.js): the offers that wait for an answer or were given
   // one, the reparations being paid, and the last peaces made on terms.
   peaceOffers: [],
@@ -4458,6 +4466,11 @@ export const normalizeWorldState = (world) => {
     warWeariness: normalizeWarWeariness(nextWorld.warWeariness),
     // How the scenario's wars are fought (warSettings.js): null where it says nothing.
     warSettings: normalizeWarSettings(nextWorld.warSettings),
+    // What it draws on its map for war (warGeography.js).
+    terrainAreas: normalizeTerrainAreas(nextWorld.terrainAreas),
+    fortifications: normalizeFortifications(nextWorld.fortifications),
+    climateZones: normalizeClimateZones(nextWorld.climateZones),
+    freezingRegions: normalizeFreezingRegions(nextWorld.freezingRegions),
     peaceOffers: normalizePeaceOffers(nextWorld.peaceOffers),
     reparations: normalizeReparations(nextWorld.reparations),
     peaceTreaties: normalizePeaceTreaties(nextWorld.peaceTreaties),

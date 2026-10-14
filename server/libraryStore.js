@@ -554,6 +554,11 @@ const TEMPLATE_WORLD_OVERRIDE_KEYS = [
   "scenarioFronts",
   // How the scenario's wars are fought (src/runtime/warSettings.js).
   "warSettings",
+  // What the scenario draws on its map for war (src/runtime/warGeography.js).
+  "terrainAreas",
+  "fortifications",
+  "climateZones",
+  "freezingRegions",
 ];
 
 const COLORS_ASSET_CANDIDATES = [

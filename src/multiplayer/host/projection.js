@@ -72,6 +72,11 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
   "warWeariness",
   // How the scenario's wars are fought (runtime/warSettings.js): the scenario's own rules.
   "warSettings",
+  // What the scenario draws on its map for war (runtime/warGeography.js): there for all to see.
+  "terrainAreas",
+  "fortifications",
+  "climateZones",
+  "freezingRegions",
   "peaceOffers",
   "reparations",
   "peaceTreaties",
