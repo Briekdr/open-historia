@@ -43,7 +43,7 @@
 // Pure: { width, height, topLat, data } out of the zones and a date. The
 // layer is SeasonLayers.jsx.
 
-import { dayOfYear, seasonMixOn } from "../../runtime/fronts/climate.js";
+import { curvedRings, dayOfYear, seasonMixOn } from "../../runtime/fronts/climate.js";
 import { KM_PER_DEGREE, yToLat } from "../../runtime/fronts/frame.js";
 import { seasonOf } from "../../runtime/fronts/weather.js";
 import { parseGameDate } from "../../runtime/gameDates.js";
@@ -243,7 +243,8 @@ export const tintGrid = (width, height, topLat = MERCATOR_TOP_LAT) => {
 // date line runs past the picture's edge, and is drawn on the other side of
 // it). null where it reaches no pixel.
 export const zoneWeightGrid = (zone, grid) => {
-  const rings = (Array.isArray(zone?.rings) ? zone.rings : []).map((ring) => ring.map(([lng, lat]) => [grid.toX(lng), grid.toY(lat)]));
+  // (Its outline rounded off, as the engine reads it: fronts/climate.js curvedRings.)
+  const rings = curvedRings(zone).map((ring) => ring.map(([lng, lat]) => [grid.toX(lng), grid.toY(lat)]));
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;

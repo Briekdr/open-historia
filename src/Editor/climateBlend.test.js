@@ -11,7 +11,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { blendCellPixels, blendWeight, mercatorKmPerUnit, paintClimateBlend, prepareClimateZones, signedDistance } from "./climateBlend.js";
+import { blendCellPixels, blendWeight, mercatorKmPerUnit, paintClimateBlend, prepareClimateZones, signedDistance } from "./climateBlend.js";
+import { ZONE_CURVE_ROUNDS } from "../runtime/fronts/climate.js";
 
 // Two zones side by side on a plane measured in km: A from x 0 to 100, B from
 // 100 to 200, both from y 0 to 100. Rings as the world keeps them, closed.
@@ -44,7 +45,8 @@ test("a ring is closed whether or not it repeats its first point, and a zone wit
   const [open] = prepareClimateZones([{ color: "#000000", rings: [[[0, 0], [10, 0], [10, 10], [0, 10]]] }]);
   const [closed] = prepareClimateZones([{ color: "#000000", rings: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] }]);
   assert.deepEqual([...open.edges], [...closed.edges]);
-  assert.equal(open.edges.length / 4, 4);
+  // (Each corner rounded off, as the game reads a zone: runtime/fronts/climate.js curvedRings.)
+  assert.equal(open.edges.length / 4, 4 * 2 ** ZONE_CURVE_ROUNDS);
   assert.deepEqual([open.minX, open.minY, open.maxX, open.maxY], [0, 0, 10, 10]);
   assert.deepEqual(prepareClimateZones([{ color: "#000000", rings: [] }, null]), []);
 });

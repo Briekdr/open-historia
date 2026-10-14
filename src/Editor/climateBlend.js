@@ -18,6 +18,8 @@
 // plane and puts the bytes on the map; the browser's own scaling of the small
 // picture to the screen smooths it. Pure; tested in climateBlend.test.js.
 
+import { curvedRings } from "../runtime/fronts/climate.js";
+
 // How strongly a zone holds a spot `signedKm` inside its edge (negative:
 // outside), for a zone that blends over `blendKm`. A zone with no blend width
 // has a hard edge.
@@ -44,8 +46,9 @@ export const prepareClimateZones = (zones, project = (point) => point) => (Array
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const ring of Array.isArray(zone?.rings) ? zone.rings : []) {
-    const points = (Array.isArray(ring) ? ring : []).map(project);
+  // (Its outline rounded off, as the game reads it: runtime/fronts/climate.js curvedRings.)
+  for (const ring of curvedRings(zone)) {
+    const points = ring.map(project);
     for (let i = 0; i < points.length; i += 1) {
       const a = points[i];
       const b = points[(i + 1) % points.length];

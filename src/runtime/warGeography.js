@@ -26,6 +26,7 @@
 // The engine reads them through the front run (runtime/fronts/: arena.js,
 // walls.js, climate.js); the Workshop draws them; the map shows them.
 
+import { curvedRings } from "./fronts/climate.js";
 import { WEATHER_STATES } from "./fronts/weather.js";
 
 export const TERRAIN_LEVEL_MOST = 10;
@@ -182,7 +183,8 @@ export const withFrontFortifications = (lines, changes) => {
 // `blendKm` / 2 inside, nothing as far outside. For the turn and the map, which
 // may measure as they like; the engine keeps to its own arithmetic.
 export const zoneWeightAt = (zone, lng, lat) => {
-  const rings = Array.isArray(zone?.rings) ? zone.rings : [];
+  // (Its outline rounded off, as the engine reads it: fronts/climate.js curvedRings.)
+  const rings = curvedRings(zone);
   let inside = false;
   let nearest = Infinity;
   const kx = 111.32 * Math.cos((lat * Math.PI) / 180);

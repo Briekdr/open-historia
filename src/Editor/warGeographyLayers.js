@@ -34,6 +34,7 @@ import Style from "ol/style/Style";
 import Text from "ol/style/Text";
 import { containsExtent, getHeight, getWidth } from "ol/extent";
 import { fromLonLat, transform } from "ol/proj";
+import { curveRing } from "../runtime/fronts/climate.js";
 import { blendCellPixels, mercatorKmPerUnit, paintClimateBlend, prepareClimateZones } from "./climateBlend.js";
 
 // ---------------------------------------------------------------------------
@@ -207,13 +208,20 @@ const wallStyle = (level, selected, label) => {
 };
 
 const climateStyles = new Map();
+// A zone drawn as the game reads it, its corners rounded off (runtime/fronts/
+// climate.js curveRing); the points it was drawn with are still what is edited.
+const curvedZone = (feature) => {
+  const geometry = feature.getGeometry();
+  return geometry?.getType?.() === "Polygon" ? new Polygon(geometry.getCoordinates().map((ring) => curveRing(ring))) : geometry;
+};
 const climateStyle = (color, selected, label) => {
   const key = `${color}|${selected ? 1 : 0}|${label}`;
   let style = climateStyles.get(key);
   if (!style) {
     style = [
-      new Style({ stroke: new Stroke({ color: selected ? SELECTED : "rgba(10, 12, 16, 0.6)", width: selected ? 5 : 3.4 }) }),
+      new Style({ geometry: curvedZone, stroke: new Stroke({ color: selected ? SELECTED : "rgba(10, 12, 16, 0.6)", width: selected ? 5 : 3.4 }) }),
       new Style({
+        geometry: curvedZone,
         stroke: new Stroke({ color, width: selected ? 2.4 : 1.6, lineDash: [10, 5] }),
         text: label
           ? new Text({ text: label, font: "700 12px sans-serif", overflow: true, fill: new Fill({ color }), stroke: halo })

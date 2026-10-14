@@ -194,6 +194,44 @@ export const zoneWeatherOn = ({ seed = "", zone, date = "" } = {}) => {
   return { ...sky, season: mix.season };
 };
 
+// ---- a zone's outline ------------------------------------------------------------
+
+// How many times a zone's corners are cut: a zone is a curving shape, not a
+// polygon ("the climate zones should not be geometric, they should be curvy",
+// the owner, 2026-10-14). The points the designer drew stay what is kept and
+// edited; the engine, the map and the Workshop all read the outline rounded
+// off, the same way.
+export const ZONE_CURVE_ROUNDS = 3;
+const curves = new WeakMap();
+
+// A closed ring with its corners cut, round by round (Chaikin): each side
+// keeps its middle half. Closed again on its first point.
+export const curveRing = (ring, rounds = ZONE_CURVE_ROUNDS) => {
+  let points = (Array.isArray(ring) ? ring : []).filter((point) => Number.isFinite(point?.[0]) && Number.isFinite(point?.[1]));
+  const last = points[points.length - 1];
+  if (points.length > 1 && points[0][0] === last[0] && points[0][1] === last[1]) points = points.slice(0, -1);
+  if (points.length < 3) return points;
+  for (let round = 0; round < rounds; round += 1) {
+    const next = [];
+    for (let at = 0; at < points.length; at += 1) {
+      const [ax, ay] = points[at];
+      const [bx, by] = points[(at + 1) % points.length];
+      next.push([ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25], [ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75]);
+    }
+    points = next;
+  }
+  return [...points, [points[0][0], points[0][1]]];
+};
+
+// A zone's rings as everything reads them: rounded off. Kept for the zone it was worked out for.
+export const curvedRings = (zone) => {
+  const known = zone && typeof zone === "object";
+  if (known && curves.has(zone)) return curves.get(zone);
+  const rings = (Array.isArray(zone?.rings) ? zone.rings : []).map((ring) => curveRing(ring)).filter((ring) => ring.length >= 4);
+  if (known) curves.set(zone, rings);
+  return rings;
+};
+
 // ---- what weather lies beside what ---------------------------------------------------
 
 // Which weathers may lie side by side, one zone's beside the next's: snow
@@ -221,7 +259,7 @@ const cosineOf = (lat) => {
 };
 // A zone's outer ring, the box round it, and how far it blends.
 const outlineOf = (zone) => {
-  const points = (zone?.rings?.[0] ?? []).filter((point) => Number.isFinite(point?.[0]) && Number.isFinite(point?.[1]));
+  const points = (curvedRings(zone)[0] ?? []).filter((point) => Number.isFinite(point?.[0]) && Number.isFinite(point?.[1]));
   if (points.length < 3) return null;
   let west = Infinity;
   let east = -Infinity;
@@ -411,7 +449,7 @@ export const zonesOver = (run, battle) => {
     const width = cols + 2 * pad;
     const height = rows + 2 * pad;
     const mask = new Uint8Array(width * height);
-    const shape = projectRegion(frame, { geometry: { type: "Polygon", coordinates: zone.rings } });
+    const shape = projectRegion(frame, { geometry: { type: "Polygon", coordinates: curvedRings(zone) } });
     if (shape.polygons.length === 0 || shape.east < -pad || shape.west > cols + pad || shape.north < -pad || shape.south > rows + pad) continue;
     let filled = 0;
     for (const rings of shape.polygons) filled += fillPolygon(rings, mask, width, height, -pad, -pad, 1, 1);
