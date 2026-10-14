@@ -45,9 +45,10 @@
 // two staffs are the same war.
 
 import { addGameDays } from "../../src/runtime/gameDates.js";
+import { musterTable } from "../../src/runtime/mustering.js";
 import { runFronts } from "../../src/runtime/fronts/engine.js";
 import { homeTableOf } from "../../src/runtime/fronts/mind/features.js";
-import { DIG_IN, HOLD, PUSH, STRIKE, TAKE_CAPITAL, TAKE_CITY, TROOP_ACTIONS, troopView } from "../../src/runtime/fronts/mind/troops.js";
+import { DIG_IN, HOLD, PUSH, REST, STRIKE, TAKE_CAPITAL, TAKE_CITY, TROOP_ACTIONS, troopView } from "../../src/runtime/fronts/mind/troops.js";
 import { syntheticMap } from "../../src/runtime/fronts/syntheticMap.js";
 
 // (Measured on the scripted staff's wars and always advancing against it, a
@@ -174,7 +175,66 @@ export const makeScenario = (seed) => {
     cities,
     year: AGES[pick(0, AGES.length - 1)],
     periods: pick(4, 6),
+    ...newerMechanics(random, pick, { count, layout, step, stepLat }),
   };
+};
+
+// Wars and Fronts Pt.2: what each war is drawn with besides, from the same
+// seed. The month it begins in (its seasons), each country's own military
+// figures and how long it takes to muster, now and then ground harder to
+// cross across the border or a wall behind one, and air wings from 1914.
+function newerMechanics(random, pick, { count, layout, step, stepLat }) {
+  const month = pick(1, 12);
+  const military = Array.from({ length: count }, () => ({
+    quality: pick(25, 85),
+    technology: pick(30, 80),
+    land: 50,
+    sea: 50,
+    air: 50,
+    manpowerShare: [8, 10, 12, 12, 15, 20, 30][pick(0, 6)],
+    ...(random() < 0.2 ? { cavalryShare: Math.round(random() * 60) / 100, siegeShare: Math.round(random() * 20) / 100 } : {}),
+  }));
+  const muster = Array.from({ length: count }, () => {
+    const first = [0.3, 0.4, 0.5, 0.6][pick(0, 3)];
+    const days = pick(5, 30);
+    return [[first, days], [1, days * (2 + pick(0, 3))]];
+  });
+  // Rough ground across one border, a column or two of regions wide; a wall a little inside another's.
+  const cols = layout[0].length;
+  const rows = layout.length;
+  const terrain = random() < 0.3
+    ? (() => {
+      const col = pick(1, cols - 2);
+      const west = 20 + col * step;
+      return [{ id: "rough", level: pick(3, 8), rings: [[[west, 52], [west + step * pick(1, 2), 52], [west + step * 2, 52 - rows * stepLat], [west, 52 - rows * stepLat]]] }];
+    })()
+    : [];
+  const wall = random() < 0.25
+    ? (() => {
+      const owner = pick(0, count - 1);
+      const columns = layout.map((line) => [...line].map((letter, at) => (letter === LETTERS[owner] ? at : -1)).filter((at) => at >= 0));
+      const edge = columns.map((list) => (list.length > 0 ? Math.min(...list) : 0));
+      const lng = 20 + (Math.max(...edge) + 0.5) * step;
+      return [{ id: "wall", name: "the wall", owner, level: pick(3, 9), points: [[lng, 52.2], [lng, 52 - rows * stepLat - 0.2]], breaches: [], wear: [] }];
+    })()
+    : [];
+  return { month, military, muster, terrain, wall };
+}
+
+// Each country's air wings, from 1914: none, or up to four on its own ground.
+const wingsOf = (scenario, random) => {
+  if (scenario.year < 1914) return [];
+  const units = [];
+  scenario.countries.forEach((name, country) => {
+    const cells = [];
+    scenario.layout.forEach((line, row) => [...line].forEach((letter, col) => { if (letter === LETTERS[country]) cells.push([col, row]); }));
+    const count = Math.floor(random() * 5);
+    for (let at = 0; at < count && cells.length > 0; at += 1) {
+      const [col, row] = cells[Math.floor(random() * cells.length)];
+      units.push({ id: `wing-${country}-${at}`, name: `${name} wing ${at + 1}`, type: "air", ownerCode: name, strength: 100, lng: 20 + (col + 0.5) * scenario.step, lat: 52 - (row + 0.5) * scenario.stepLat });
+    }
+  });
+  return units;
 };
 
 // What a team came to, as a number: each part by its weight, charges taken off.
@@ -189,12 +249,13 @@ export const troopHabit = (prefer) => (battle, side) => {
   for (const row of view.rows) {
     const chosen = prefer.find((action) => row.valid[action]) ?? HOLD;
     said[chosen] += 1;
-    const key = chosen === HOLD ? "hold" : chosen === DIG_IN ? "dig in" : chosen === PUSH ? "push" : row.goal[chosen];
+    const key = chosen === HOLD ? "hold" : chosen === DIG_IN ? "dig in" : chosen === PUSH ? "push" : chosen === REST ? "rest" : row.goal[chosen];
     if (!bodies.has(key)) bodies.set(key, []);
     bodies.get(key).push(row.index);
   }
   const troops = [...bodies.entries()].map(([key, picked]) => (key === "hold" || key === "dig in" ? { order: key, picked }
     : key === "push" ? { order: "advance", picked }
+      : key === "rest" ? { order: "rest", picked }
       : { order: "advance", picked, way: view.places.get(key).way.map(([x, y]) => battle.place.toLngLat(x, y)) }));
   return { troops, said };
 };
@@ -303,7 +364,14 @@ export const fight = (scenario, staffs = [null, null]) => {
   const arenas = new Map();
   const gaveUp = [0, 0];
   let saved = [];
-  let fromDate = `${String(scenario.year).padStart(4, "0")}-03-01`;
+  // (The newer mechanics: what this war was drawn with.)
+  const month = String(scenario.month ?? 3).padStart(2, "0");
+  const opened = `${String(scenario.year).padStart(4, "0")}-${month}-01`;
+  let fromDate = opened;
+  const militaryOf = new Map(names.map((name, index) => [fold(name), scenario.military?.[index] ?? null]));
+  const musterOf = new Map(names.map((name, index) => [fold(name), scenario.muster?.[index] ? { table: musterTable(scenario.muster[index]), head: scenario.muster[index][0][1] } : null]));
+  const wings = wingsOf(scenario, rngOf(scenario.seed + 7));
+  let walls = (scenario.wall ?? []).map((line) => ({ ...line, owner: names[line.owner] ?? "" }));
   for (period = 0; period < scenario.periods; period += 1) {
     const toDate = addGameDays(fromDate, PERIOD_DAYS);
     const result = runFronts({
@@ -312,13 +380,20 @@ export const fight = (scenario, staffs = [null, null]) => {
       toDate,
       days: PERIOD_DAYS,
       moments: [],
-      wars: [{ id: "war-1", title: "the war", status: "active", sideA: scenario.teams[0].map((index) => names[index]), sideB: scenario.teams[1].map((index) => names[index]) }],
+      wars: [{ id: "war-1", title: "the war", status: "active", sideA: scenario.teams[0].map((index) => names[index]), sideB: scenario.teams[1].map((index) => names[index]), startedDate: opened }],
       controllerOf: world.controllerOf,
       sovereignOf: world.sovereignOf,
       groupAreas: {},
       isGroup: () => false,
-      units: [],
-      map: world.map,
+      units: wings,
+      map: { ...world.map, ...((scenario.terrain ?? []).length > 0 ? { terrain: { key: `terrain-${scenario.seed}`, areas: scenario.terrain } } : {}) },
+      // Every newer mechanic of the engine's (Wars and Fronts Pt.2).
+      mechanics: { fatigue: true, weather: true, terrain: true, walls: true, muster: true, military: true, air: true },
+      militaryOf: (name) => militaryOf.get(fold(name)) ?? null,
+      musterOf: (name) => musterOf.get(fold(name)) ?? null,
+      gameBegan: `${String(scenario.year - 1).padStart(4, "0")}-01-01`,
+      climateSeed: `arena-${scenario.seed}`,
+      fortifications: walls,
       regionTypes: [],
       strengthOf: (name) => weights.get(fold(name)) ?? 1,
       peopleOf: (name) => people.get(fold(name)) ?? 0,
@@ -341,6 +416,8 @@ export const fight = (scenario, staffs = [null, null]) => {
       }
     }
     saved = result.battlefields ?? [];
+    // What the fighting did to the wall: its breaches and wear, for the next month.
+    for (const change of result.fortifications ?? []) walls = walls.map((line) => (line.id === change.id ? { ...line, breaches: change.breaches, wear: change.wear } : line));
     fromDate = toDate;
   }
 

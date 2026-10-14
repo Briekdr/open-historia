@@ -17,7 +17,7 @@ import { frontInput, syntheticMap } from "../syntheticMap.js";
 import { FEATURE_COUNT, FEATURE_NAMES, MIND_ACTIONS, SEEN_COUNT, countGround, groundOf, homeTableOf, staffFeatures } from "./features.js";
 import { blankState, headStep, packWeights, paramCount, readWeights, step } from "./net.js";
 import { MIND_ORDERS_MOST, MIND_OUTPUTS, MIND_SHAPE, TROOP_SHAPE, createStaffPolicy, createTroopPolicy } from "./policy.js";
-import { DIG_IN, GUARD, HOLD, PUSH, TAKE_CAPITAL, TAKE_CITY, TROOP_ACTIONS, TROOP_FEATURE_COUNT, TROOP_FEATURE_NAMES, troopView } from "./troops.js";
+import { DIG_IN, GUARD, HOLD, PUSH, REST, TAKE_CAPITAL, TAKE_CITY, TROOP_ACTIONS, TROOP_FEATURE_COUNT, TROOP_FEATURE_NAMES, troopView } from "./troops.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -248,7 +248,8 @@ test("what each troop is shown: every live troop once, numbers in range, and som
       assert.equal(row.valid[HOLD], true, "a troop may always hold");
       assert.equal(row.valid[DIG_IN], true);
       row.valid.forEach((may, action) => {
-        if (!may || action === HOLD || action === DIG_IN || action === PUSH) return;
+        // (A rest is a pull back from where each troop stands: somewhere of its own, not a place shared.)
+        if (!may || action === HOLD || action === DIG_IN || action === PUSH || action === REST) return;
         const goal = view.places.get(row.goal[action]);
         assert.ok(goal && goal.way.length > 0, TROOP_ACTIONS[action] + " goes somewhere");
       });

@@ -30,7 +30,7 @@ import { readField } from "../field.js";
 import { cellAt } from "../ground.js";
 import { KIND_ARMOUR, KIND_ARTILLERY, STATE_DUG_IN, isLive } from "../troops.js";
 
-export const TROOP_ACTIONS = Object.freeze(["hold", "dig in", "push", "strike", "go round", "take a city", "take a capital", "guard a city", "shore up"]);
+export const TROOP_ACTIONS = Object.freeze(["hold", "dig in", "push", "strike", "go round", "take a city", "take a capital", "guard a city", "shore up", "rest", "breach"]);
 export const HOLD = 0;
 export const DIG_IN = 1;
 export const PUSH = 2;
@@ -40,6 +40,9 @@ export const TAKE_CITY = 5;
 export const TAKE_CAPITAL = 6;
 export const GUARD = 7;
 export const SHORE_UP = 8;
+// Wars and Fronts Pt.2: pull back off the line to recover (fatigue.js), and go at the nearest stretch of an enemy wall (walls.js).
+export const REST = 9;
+export const BREACH = 10;
 
 export const TROOP_FEATURE_NAMES = Object.freeze([
   "one",
@@ -53,6 +56,8 @@ export const TROOP_FEATURE_NAMES = Object.freeze([
   "guard: how far", "guard: danger", "guard: worth",
   "shore up: how far", "shore up: odds there",
   "how far back it stands among its own", "attacking now", "at a city of its own",
+  // Wars and Fronts Pt.2.
+  "fatigue", "breach: how far", "breach: wall's level", "today's going", "the sky over it", "still mustering",
 ]);
 export const TROOP_FEATURE_COUNT = TROOP_FEATURE_NAMES.length;
 
@@ -236,6 +241,25 @@ export const troopView = (battle, side) => {
   const shaky = spread(ownFront, kmAt, 2 * LOCAL_KM, SPOTS_MOST);
   shaky.forEach((spot, at) => places.set(`shore ${at}`, { way: [[spot.x, spot.y]] }));
 
+  // The stretches of the other side's walls standing against this side today (walls.js): a few, spread out.
+  const mask = battle.wallMask?.[side] ?? null;
+  const wallCells = [];
+  if (mask && battle.walls) {
+    for (let cell = 0; cell < mask.length; cell += 1) {
+      if (mask[cell] !== 1) continue;
+      const at = battle.walls.cellLine[cell];
+      const level = at > 0 ? (battle.wallRun?.lines?.[at - 1]?.level ?? 0) : 0;
+      wallCells.push({ index: cell, x: (cell % field.cols) + 0.5, y: Math.floor(cell / field.cols) + 0.5, level, score: 10 - level });
+    }
+  }
+  const walls = spread(wallCells, kmAt, 2 * LOCAL_KM, SPOTS_MOST);
+  walls.forEach((spot, at) => places.set(`breach ${at}`, { way: [[spot.x, spot.y]] }));
+  // How much of the side is still to come in (muster.js).
+  const owed = Array.isArray(battle.levy?.[side]) ? battle.levy[side].reduce((sum, entry) => sum + Math.max(0, entry.t - entry.r), 0) : 0;
+  const mustering = owed > 0 ? owed / (owed + own.length) : 0;
+  // Who holds the sky over the battlefield (air.js): + for this side, - for the other.
+  const sky = battle.wings ? (battle.wings.holds === side ? 1 : -1) * battle.wings.superiority : 0;
+
   // How far back each troop stands among its own.
   const depths = own.map((point) => depthOf(field, side, point.x, point.y));
   const order = depths.map((depth, at) => at).sort((a, b) => depths[a] - depths[b] || a - b);
@@ -315,6 +339,21 @@ export const troopView = (battle, side) => {
     t[25] = rank[at];
     t[26] = troop.order && !troop.order.done && (troop.order.kind === "way" || troop.order.kind === "assault") ? 1 : 0;
     t[27] = kept.some((city) => kmBetween(kmAt, city.x, city.y, x, y) < 2 * HERE_KM) ? 1 : 0;
+    // Wars and Fronts Pt.2: how worn it is, the nearest wall to break, today's going, the sky, the levies still to come.
+    t[28] = within(Number(troop.fatigue) || 0, 0, 1);
+    const wall = nearestOf(walls, kmAt, x, y);
+    t[29] = wall ? wall.km / REACH_MOST_KM : 1;
+    t[30] = wall ? wall.place.level / 10 : 0;
+    if (wall && !troop.pocket) {
+      valid[BREACH] = true;
+      goal[BREACH] = `breach ${walls.indexOf(wall.place)}`;
+    }
+    t[31] = within((battle.sky ? battle.sky.effects.pace : 1) * (troop.climate ? troop.climate.pace : 1), 0, 1.5);
+    t[32] = within(sky, -1, 1);
+    t[33] = mustering;
+    // A rest: pull back off the line, and the more so the more it is worn.
+    valid[REST] = !troop.pocket;
+    goal[REST] = "rest";
     rows.push({ index: point.index, t, valid, goal });
   });
   return { rows, places };

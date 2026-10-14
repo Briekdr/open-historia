@@ -72,6 +72,7 @@ import {
 import { contactAt, findContacts, frameForContact, middleOf } from "./contact.js";
 import { REGIONS_NEEDED, growToHold, prepare, recordDay, settleRegions, simulateDay, startRecorder } from "./day.js";
 import { redistance, takeCapsule, traceContour } from "./field.js";
+import { downhill } from "./ground.js";
 import { pointInFrame } from "./frame.js";
 import { landWithin, othersOnWay } from "./invade.js";
 import { draw, formationsLeft, manpowerReport, menOf, menPerFormation, partLeft, sendHome } from "./manpower.js";
@@ -82,7 +83,7 @@ import { sideIsPlayed, staffDecision, staffMayOrder, staffStanding } from "./sta
 import { findPockets } from "./supply.js";
 import { TRANSPORT_ENDED, boundFor, interceptionOf, loadOf, moveOn, normalizeTransports, setOut, struck, transportChance } from "./transports.js";
 import { findPlace, inSector, resolveSector } from "./sectors.js";
-import { createTroop, isLive, kindsFor, liveCount, troopsCap, troopsFactor, troopsLeast, troopsWanted } from "./troops.js";
+import { STATE_HOLDING, createTroop, isLive, kindsFor, liveCount, troopsCap, troopsFactor, troopsLeast, troopsWanted } from "./troops.js";
 import { buildWorldGrid, kmBetween, placeAlong, worldSheetKey } from "./worldGrid.js";
 
 const clean = (value, max = 120) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max).trim();
@@ -1968,6 +1969,8 @@ const assignStanding = (run, battle) => {
 // time is over, and nothing stands for a stretch of the side's line any more:
 // its troops do what it gave each of them. A body sent on to where it was
 // going already sets off without waiting.
+const REST_KM = 20;
+const restAim = [0, 0];
 const orderTroopsByMind = (run, battle, side, bodies, day, today, lead) => {
   const date = run.dateOf(day);
   const troops = battle.troops[side];
@@ -1979,6 +1982,25 @@ const orderTroopsByMind = (run, battle, side, bodies, day, today, lead) => {
     if (picked.length === 0) continue;
     if (body.order === "hold" || body.order === "dig in") {
       assignOrder(battle, run, { s: side, sector: "all", order: body.order, since: date, age: 0 }, { ...today, date, run }, { picked });
+      continue;
+    }
+    // A rest (Wars and Fronts Pt.2): each pulls back REST_KM from where it stands, into its own ground, and
+    // out of the fighting it recovers (fatigue.js).
+    if (body.order === "rest") {
+      const order = { s: side, sector: "all", order: "fall back", since: date, age: 0, chosen: true, mark: MIND_MARK, ...(lead ? { by: lead } : {}) };
+      battle.orders.push(order);
+      for (const index of picked) {
+        const troop = troops[index];
+        let target = null;
+        if (battle.toSide && downhill(battle.field, battle.toSide[1 - side], troop.x, troop.y, restAim)) {
+          const cells = REST_KM / battle.place.kmAt(troop.y);
+          target = { x: troop.x - restAim[0] * cells, y: troop.y - restAim[1] * cells };
+        }
+        if (troop.dug) troop.state = STATE_HOLDING;
+        troop.dug = false;
+        troop.order = { kind: "fallback", standing: order, target, since: day, day, gone: 0 };
+        troop.fallback = null;
+      }
       continue;
     }
     const way = Array.isArray(body.way) && body.way.length > 0 ? body.way.map((point) => [Number(point[0]), Number(point[1])]) : null;

@@ -22,7 +22,7 @@
 
 import { FEATURE_COUNT, MIND_ACTIONS, SEEN_COUNT, staffFeatures } from "./features.js";
 import { headStep, step } from "./net.js";
-import { DIG_IN, HOLD, PUSH, TROOP_ACTIONS, TROOP_FEATURE_COUNT, troopView } from "./troops.js";
+import { DIG_IN, HOLD, PUSH, REST, TROOP_ACTIONS, TROOP_FEATURE_COUNT, troopView } from "./troops.js";
 
 // What the network says: four words for what the side does, then two for whether it drafts.
 export const MIND_OUTPUTS = MIND_ACTIONS.length + 2;
@@ -110,11 +110,11 @@ export const createTroopPolicy = ({ shape, params }) => {
         chosen = at;
       }
       said[chosen] += 1;
-      const key = chosen === HOLD ? "hold" : chosen === DIG_IN ? "dig in" : chosen === PUSH ? "push" : row.goal[chosen];
+      const key = chosen === HOLD ? "hold" : chosen === DIG_IN ? "dig in" : chosen === PUSH ? "push" : chosen === REST ? "rest" : row.goal[chosen];
       if (!bodies.has(key)) bodies.set(key, { key, picked: [] });
       bodies.get(key).picked.push(row.index);
     }
-    // Hold and dig in need no standing order; every other body does, and there is room for so many.
+    // Hold and dig in need no standing order; every other body does (a rest too), and there is room for so many.
     const sent = [...bodies.values()].filter((body) => body.key !== "hold" && body.key !== "dig in")
       .sort((a, b) => b.picked.length - a.picked.length || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
     const hold = bodies.get("hold") ?? { key: "hold", picked: [] };
@@ -128,6 +128,7 @@ export const createTroopPolicy = ({ shape, params }) => {
       const picked = body.picked.slice().sort((a, b) => a - b);
       if (body.key === "hold" || body.key === "dig in") troops.push({ order: body.key, picked });
       else if (body.key === "push") troops.push({ order: "advance", picked });
+      else if (body.key === "rest") troops.push({ order: "rest", picked });
       else {
         const way = (view.places.get(body.key)?.way ?? []).map(([x, y]) => battle.place.toLngLat(x, y).map((value) => Math.round(value * 10000) / 10000));
         if (way.length > 0) troops.push({ order: "advance", picked, way });
