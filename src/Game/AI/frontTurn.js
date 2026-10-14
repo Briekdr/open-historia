@@ -27,6 +27,8 @@
 import { diffGameDays, gameDateYear } from "../../runtime/gameDates.js";
 import { yearInEra } from "../../runtime/unitMotion.js";
 import { militaryLookup } from "../../runtime/militaryStats.js";
+import { DEFAULT_MUSTER, musterTable } from "../../runtime/mustering.js";
+import { warSettingsOf } from "../../runtime/warSettings.js";
 import { fundingFactor, middleFundingPerHead } from "../../runtime/militaryFunding.js";
 import { countryWeight } from "../../runtime/countryWeight.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
@@ -342,6 +344,9 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
     }
     return people.get(fold(name));
   };
+  const military = militaryLookup(world);
+  const scenarioMuster = warSettingsOf(world).muster;
+  const curves = new Map();
   // What a country's economy does to its weight (runtime/militaryFunding.js):
   // how its treasury stands, and how well funded it is against the others known.
   let funded = null;
@@ -361,7 +366,15 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
     strengthOf: (name) => countryWeight({ population: peopleOf(name), regions: heldBy(name), funding: fundingOf(name) }),
     // A country's own military figures, where its author or its sheet gives them (runtime/militaryStats.js;
     // what they do: runtime/fronts/military.js).
-    militaryOf: militaryLookup(world),
+    militaryOf: military,
+    // How long it takes a country to call up its army (runtime/mustering.js), as the engine takes it:
+    // its own curve, else the scenario's, else the game's (runtime/fronts/muster.js).
+    musterOf: (name) => {
+      const points = military(name)?.muster ?? scenarioMuster ?? DEFAULT_MUSTER;
+      const key = JSON.stringify(points);
+      if (!curves.has(key)) curves.set(key, { table: musterTable(points), head: points[0][1] });
+      return curves.get(key);
+    },
     // A country's people, where its sheet says: what its troops are raised from (runtime/fronts/manpower.js).
     peopleOf: (name) => {
       const people = Number(peopleOf(name));
@@ -831,6 +844,8 @@ export const runTurnFronts = async ({
   // The men a counter stands for and the share of people who can fight, where the scenario set them (runtime/fronts/manpower.js).
   menEach = null,
   manpowerShare = null,
+  // When the game began: a war that began after it musters its levies (runtime/fronts/muster.js).
+  gameBegan = "",
   difficulty = "",
   narratesCombat = null,
   // The fronts a scenario begins with (runtime/fronts/scenarioFronts.js), on
@@ -1044,6 +1059,8 @@ export const runTurnFronts = async ({
       // Each country's own military figures, where the scenario weighs them (runtime/fronts/military.js).
       ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
       ...(Number(menEach) >= 1 ? { menEach: Number(menEach) } : {}),
+      // Each country's mustering curve, where the scenario musters wars (runtime/fronts/muster.js).
+      ...(mechanics?.muster === true && clean(gameBegan) ? { musterOf: readers.musterOf, gameBegan: clean(gameBegan) } : {}),
       ...(Number(manpowerShare) > 0 ? { manpowerShare: Number(manpowerShare) } : {}),
       // How short each country is of what comes by sea, by the blockades standing as the period begins
       // (runtime/naval/blockade.js): the side it fights on is weighed for it (runtime/fronts/handicap.js).

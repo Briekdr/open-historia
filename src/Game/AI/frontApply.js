@@ -229,6 +229,8 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
     // The men a counter stands for and the share of people who can fight, where it set them.
     menEach: warSettingsOf(world).menPerCounter,
     manpowerShare: warSettingsOf(world).manpowerShare,
+    // When the game began: its wars that began after it muster their levies.
+    gameBegan: clean(game?.startDate),
     players: humanCountriesOf(game),
     // The difficulty weighs the land war for whoever fights a person's country (runtime/fronts/handicap.js).
     difficulty: normalizeDifficulty(game?.difficulty),

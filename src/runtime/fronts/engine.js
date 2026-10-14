@@ -23,12 +23,13 @@
 // arena not kept) it answers { needsRegions: true } having changed nothing,
 // and is run again in full with them.
 
-import { addGameDays, compareGameDates, gameDateYear } from "../gameDates.js";
+import { addGameDays, compareGameDates, diffGameDays, gameDateYear } from "../gameDates.js";
 import { waterTypeIds } from "../regionTypes.js";
 import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf, yearInEra } from "../unitMotion.js";
 import { arenaFor } from "./arena.js";
 import { dawn } from "./dawn.js";
 import { readMechanics } from "./mechanics.js";
+import { levyOwed, musterShare } from "./muster.js";
 import { MILITARY_NEUTRAL, airWorth, landWorth, mixOf, readMilitary, seaWorth } from "./military.js";
 import { absorbUnit, holderOf, keepStart, lineLength, loadBattle, memberIndex, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setHandicap, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
@@ -175,6 +176,17 @@ const createRun = (input) => {
     if (!figures.has(key)) figures.set(key, readMilitary(input?.militaryOf?.(name)));
     return figures.get(key);
   };
+  // Each country's mustering curve (muster.js), as the run is handed it: { table, head }, or null.
+  const curves = new Map();
+  run.musterOf = (name) => {
+    if (!run.mech.muster) return null;
+    const key = fold(name);
+    if (!curves.has(key)) {
+      const curve = input?.musterOf?.(name);
+      curves.set(key, curve && Array.isArray(curve.table) ? curve : null);
+    }
+    return curves.get(key);
+  };
   // A region changed hands: every battlefield it lies on reads its side again.
   run.regionChanged = (id) => {
     for (const battle of run.battles) {
@@ -196,7 +208,8 @@ const createRun = (input) => {
   for (const war of Array.isArray(input?.wars) ? input.wars : []) {
     const id = clean(war?.id);
     if (!id || run.wars.has(id)) continue;
-    run.wars.set(id, { id, title: clean(war.title), status: ["active", "ceasefire", "ended"].includes(war.status) ? war.status : "active", sides: [memberList(war.sideA), memberList(war.sideB)] });
+    // (When it began, for whether its levies must muster: muster.js.)
+    run.wars.set(id, { id, title: clean(war.title), status: ["active", "ceasefire", "ended"].includes(war.status) ? war.status : "active", sides: [memberList(war.sideA), memberList(war.sideB)], began: clean(war.startedDate) });
   }
   run.moments = (Array.isArray(input?.moments) ? input.moments : [])
     .filter((moment) => moment && typeof moment === "object")
@@ -418,6 +431,74 @@ const raiseFor = (battle, run, side, owner) => {
   battle.pool[side] += count * POOL_PER_TROOP * battle.edge[side].reserves;
 };
 
+// A side's new troops, from `first` on in its list, come under what their
+// stretch of the line is told: an order for that stretch before one for the whole line.
+const putUnderStanding = (run, battle, side, first, today, day) => {
+  const standing = battle.orders.filter((order) => order.s === side && !order.chosen && order.order !== "assault" && order.order !== "withdraw");
+  const under = new Map();
+  for (let at = first; at < battle.troops[side].length; at += 1) {
+    const troop = battle.troops[side][at];
+    const fits = (order) => {
+      const stretch = resolveSector(battle.arena, today.line, today.sectors, order.sector);
+      return stretch && stretch.kind !== "all" && inSector(stretch, troop.x, troop.y, battle.place.kmAt);
+    };
+    const order = standing.find(fits) ?? standing.find((entry) => fold(entry.sector) === "all") ?? null;
+    if (order) under.set(order, [...(under.get(order) ?? []), at]);
+  }
+  for (const [order, picked] of under) assignOrder(battle, run, order, { ...today, date: run.dateOf(day), run }, { picked, lagless: true });
+};
+
+// Weighing a war's mustering (muster.js): each morning the levies each member
+// is owed come in as its curve says, as many as it has men for, in its own
+// unit mix, on its own ground along the line, under what their stretch of the
+// line is told, each charged to its people as it comes.
+const musterDay = (run, battle, day) => {
+  if (!run.mech.muster || !levyOwed(battle.levy)) return;
+  let today = null;
+  for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
+    for (const entry of battle.levy[side]) {
+      const member = battle.sides[side][entry.o];
+      if (entry.r >= entry.t || !member || battle.gone[side].has(entry.o)) continue;
+      const days = diffGameDays(entry.f, run.dateOf(day));
+      const share = days === null ? 1 : musterShare(run, member, days);
+      const military = run.mech.military;
+      const whole = formationsLeft(run, member);
+      const part = military ? partLeft(run, member) : 0;
+      const due = Math.min(Math.min(entry.t, Math.floor(entry.t * share)) - entry.r, MAX_TROOPS_PER_SIDE - battle.troops[side].length, whole + (part > 0 ? 1 : 0));
+      if (due <= 0) continue;
+      const contour = traceContour(battle.field);
+      const own = side === HOLDER_SIDE_A ? contour.cellA : contour.cellB;
+      let cells = [];
+      for (let vertex = 0; vertex < own.length; vertex += 1) if (own[vertex] >= 0) cells.push(own[vertex]);
+      const home = cells.filter((cell) => {
+        const region = battle.arena.region[cell];
+        return region > 0 && fold(holderOf(battle, run, battle.arena.ids[region])) === fold(member);
+      });
+      if (home.length > 0) cells = home;
+      if (cells.length === 0 && battle.field.holders.indexOf(side) >= 0) cells = [battle.field.holders.indexOf(side)];
+      if (cells.length === 0) continue;
+      today = today ?? prepare(battle, day);
+      const kinds = kindsFor(entry.t, run.era, military ? mixOf(run.militaryOf(member)) : null).slice(entry.r, entry.r + due);
+      const first = battle.troops[side].length;
+      let men = 0;
+      for (let index = 0; index < due; index += 1) {
+        const cell = cells[Math.min(cells.length - 1, Math.floor(((index + 0.5) * cells.length) / due))];
+        const strength = military && index === due - 1 && due > whole ? Math.round(100 * part) : 100;
+        battle.troops[side].push(createTroop({ x: (cell % battle.field.cols) + 0.5, y: Math.floor(cell / battle.field.cols) + 0.5, kind: kinds[index], owner: entry.o, strength }));
+        men += (strength / 100) * menOf(run, member);
+      }
+      draw(run, member, men);
+      battle.pool[side] += due * POOL_PER_TROOP * battle.edge[side].reserves;
+      entry.r += due;
+      putUnderStanding(run, battle, side, first, today, day);
+      battle.touched = true;
+      battle.planKey = "";
+    }
+  }
+  battle.levy = battle.levy.map((list) => list.filter((entry) => entry.r < entry.t));
+  if (today) setRadii(battle);
+};
+
 const joinBattle = (run, battle, side, names) => {
   for (const name of names) {
     const index = battle.sides[side].findIndex((member) => fold(member) === fold(name));
@@ -579,7 +660,7 @@ const attackOpensWar = (run, attacker, defender, day, serious = true) => {
   if (!serious) return null;
   const id = `war-${slugOf(attacker)}-${slugOf(defender)}-${date}`;
   if (run.wars.has(id)) return run.wars.get(id).status === "active" ? run.wars.get(id) : null;
-  run.wars.set(id, { id, title: "", status: "active", sides: [[clean(attacker)], [clean(defender)]] });
+  run.wars.set(id, { id, title: "", status: "active", sides: [[clean(attacker)], [clean(defender)]], began: date });
   run.starts.push({ day, date, warId: id, attacker: clean(attacker), defender: clean(defender) });
   examineWar(run, run.wars.get(id), day);
   return run.wars.get(id);
@@ -910,19 +991,7 @@ const reinforceOnFront = (run, battle, moment, day) => {
   });
   draw(run, drafted, military ? called : count * run.menEach);
   battle.pool[side] += count * POOL_PER_TROOP * battle.edge[side].reserves;
-  // They come under what their stretch of the line is told: an order for that stretch before one for the whole line.
-  const standing = battle.orders.filter((order) => order.s === side && !order.chosen && order.order !== "assault" && order.order !== "withdraw");
-  const under = new Map();
-  for (let at = first; at < battle.troops[side].length; at += 1) {
-    const troop = battle.troops[side][at];
-    const fits = (order) => {
-      const stretch = resolveSector(battle.arena, today.line, today.sectors, order.sector);
-      return stretch && stretch.kind !== "all" && inSector(stretch, troop.x, troop.y, battle.place.kmAt);
-    };
-    const order = standing.find(fits) ?? standing.find((entry) => fold(entry.sector) === "all") ?? null;
-    if (order) under.set(order, [...(under.get(order) ?? []), at]);
-  }
-  for (const [order, picked] of under) assignOrder(battle, run, order, { ...today, date: run.dateOf(day), run }, { picked, lagless: true });
+  putUnderStanding(run, battle, side, first, today, day);
   // (Troops come back to a battlefield their side had left.)
   if (battle.away[side]) comeBack(run, battle, day);
   battle.log.push({ d: run.dateOf(day), k: "drafted", s: side, at: `${count} fresh formations ${whole ? "along its whole line" : `in the ${sector.word ?? clean(moment.sector)}`}`, n: count });
@@ -1126,7 +1195,7 @@ const applyWarMoment = (run, moment, day) => {
   const mine = () => run.battles.filter((battle) => battle.warId === id && battle.status !== "closed");
   if (moment.op === "start") {
     if (!id || run.wars.has(id)) return;
-    run.wars.set(id, { id, title: clean(moment.title), status: "active", sides: [names, memberList(moment.opponents)] });
+    run.wars.set(id, { id, title: clean(moment.title), status: "active", sides: [names, memberList(moment.opponents)], began: run.dateOf(day) });
     examineWar(run, run.wars.get(id), day);
     return;
   }
@@ -2007,7 +2076,8 @@ const stepDay = (run) => {
       invadeWhereSent(run, battle, day);
       // A side that withdrew and whose orders no longer say so (the war room sent it back) is back.
       if (battle.away[0] || battle.away[1]) comeBack(run, battle, day);
-      // The morning: what the day makes of every troop, before its staff looks (dawn.js).
+      // The levies owed come in (muster.js), and the morning: what the day makes of every troop, before its staff looks (dawn.js).
+      musterDay(run, battle, day);
       dawn(run, battle, day);
       if (battle.begun || battle.daysRun === 0 || battle.daysRun % STAFF_REVIEW_DAYS === 0) reviewStaff(run, battle, day);
       run.steps += simulateDay(battle, run, day);

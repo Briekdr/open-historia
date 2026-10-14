@@ -14,6 +14,7 @@ import { BRIEF_TEXT_MAX, FATIGUE_EXHAUSTED, HOLDER_SIDE_A, HOLDER_SIDE_B, RESERV
 import { traceContour } from "./field.js";
 import { measureLine } from "./line.js";
 import { describePoint, inSector, readSectors } from "./sectors.js";
+import { levyPending } from "./muster.js";
 import { isLive } from "./troops.js";
 
 const unique = (names) => [...new Set(names)];
@@ -87,8 +88,11 @@ export const buildBrief = (battle, since) => {
     const members = battle.sides[side].map((name, owner) => ({ name, n: live.reduce((count, troop) => count + (troop.owner === owner ? 1 : 0), 0) })).filter((entry) => entry.n > 0);
     // How many are worn out (fatigue.js).
     const tired = live.reduce((count, troop) => count + (troop.fatigue >= FATIGUE_EXHAUSTED ? 1 : 0), 0);
+    // How many more are still to muster (muster.js).
+    const mustering = levyPending(battle.levy, side);
     return {
       n: live.length,
+      ...(mustering > 0 ? { mustering } : {}),
       pct: live.length > 0 ? Math.round(live.reduce((sum, troop) => sum + troop.strength, 0) / live.length) : 0,
       ...(tired > 0 ? { tired } : {}),
       reserves: pool >= RESERVES_AMPLE_PER_TROOP * Math.max(1, live.length) ? "ample" : pool >= 1 ? "thin" : "none",
@@ -235,7 +239,7 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
   const head = `- ${record.name}: ${record.sides[0].join(", ")} against ${record.sides[1].join(", ")}, open since ${record.openedDate}${status}, line ${brief.km ?? 0} km`;
 
   const strength = Array.isArray(brief.strength) && brief.strength.length === 2
-    ? `  Strength: ${brief.strength.map((side, index) => `${lead[index]} ${side.n} formations (${side.pct}%)${side.tired > 0 ? `, ${side.tired} of them exhausted` : ""}${Array.isArray(side.members) && side.members.length > 1 ? ` (${side.members.map((member) => `${member.name} ${member.n}`).join(", ")})` : ""}, reserves ${side.reserves}`).join("; ")}`
+    ? `  Strength: ${brief.strength.map((side, index) => `${lead[index]} ${side.n} formations (${side.pct}%)${side.tired > 0 ? `, ${side.tired} of them exhausted` : ""}${side.mustering > 0 ? `, ${side.mustering} more still mustering` : ""}${Array.isArray(side.members) && side.members.length > 1 ? ` (${side.members.map((member) => `${member.name} ${member.n}`).join(", ")})` : ""}, reserves ${side.reserves}`).join("; ")}`
     : "";
   // A side that has withdrawn its troops from here (engine.js withdrawWhoLeft).
   const gone = [HOLDER_SIDE_A, HOLDER_SIDE_B].filter((side) => brief.carry?.away?.[side] === true)

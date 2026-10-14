@@ -36,7 +36,8 @@ const carryFor = (carry, orders, side) => {
   if (Array.isArray(carry.next)) seen.next = [0, 1].map((index) => pair(carry.next[index]).map((point) => (index === side ? point : -1)));
   // Which general each troop is under is drawn for both sides, and says
   // nothing a map does not; who they are and what they were told is a side's own.
-  for (const key of ["generals", "talk", "plans"]) {
+  // (And what its members are still owed of their levies, muster.js: a side's own, as its reserves are.)
+  for (const key of ["generals", "talk", "plans", "levy"]) {
     if (Array.isArray(carry[key])) seen[key] = [0, 1].map((index) => (index === side ? pair(carry[key][index]) : []));
   }
   // Where a side waits in a halt, and for how long, is its own too.
