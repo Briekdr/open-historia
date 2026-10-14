@@ -33,6 +33,7 @@ import {
   ADDRESS_WAIT_MS,
   DEFAULT_MUSIC_VOLUME,
   LOAD_SECONDS_KEY,
+  MENU_PIECE_KEY,
   MUSIC_CHANNEL,
   MUSIC_CREDIT,
   MUSIC_MENU_PIECES,
@@ -54,6 +55,7 @@ import {
   getNowPlaying,
   holdMusic,
   loadSecondsMemory,
+  menuPieceMemory,
   musicAddress,
   musicSceneOf,
   musicVolumeOf,
@@ -103,7 +105,7 @@ const clock = () => {
 // how long a file is (by its address; any other never ends), and `broken`
 // which addresses cannot be played: such a file fails as a browser's does,
 // its element saying so before play() does.
-const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRACKS, memory = null, lengths = {}, broken = [], onNowPlaying = null, trackAddress = null, releaseAddress = null, menuPieces = undefined } = {}) => {
+const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRACKS, memory = null, lengths = {}, broken = [], onNowPlaying = null, trackAddress = null, releaseAddress = null, menuPieces = undefined, menuMemory = null } = {}) => {
   const time = clock();
   const settings = { enabled, volume };
   const made = [];
@@ -163,6 +165,7 @@ const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRAC
     tracks,
     // Undefined is the game's own (MUSIC_MENU_PIECES); [] is a menu with Passage Of Time alone.
     menuPieces,
+    menuMemory,
   });
   const of = (name) => director.channels[name].audio;
   const list = (key) => director.lists[key];
@@ -373,7 +376,7 @@ test("the build grows louder by where the music is: as the menu at the entry, th
 
 test("a game opening: the build comes in under the menu's music and the two cross, with no silence between", () => {
   assert.deepEqual([PASSAGE_DRAMA.crossfade, PASSAGE_DRAMA.lead], [1800, 0.9]);
-  const { director, made, time, of, sounding } = stage();
+  const { director, made, time, of, sounding } = stage({ menuPieces: [] });
   director.unlock();
   time.advance(5000);
   const calm = of("calm");
@@ -752,7 +755,7 @@ test("a build found playing the piece's opening is put back where it belongs, an
 });
 
 test("the war room, or a battlefield shown: Legionnaire; back in the game it stops", () => {
-  const { director, time, of, sounding } = stage();
+  const { director, time, of, sounding } = stage({ menuPieces: [] });
   director.unlock();
   director.setScene("game");
   time.advance(3000);
@@ -1148,14 +1151,13 @@ test("the menu has a second piece: after Passage Of Time's part, Clear Skies who
   }
 });
 
-test("a game opened while Clear Skies plays crosses into the build, and the menu gone back to carries on with Clear Skies", () => {
+test("a game opened while Clear Skies plays crosses into the build as from Passage Of Time", () => {
   const { director, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 } });
   director.unlock();
   time.advance(143700 + 90000);
   const clear = of("themes");
   const build = of("drama");
   assert.deepEqual(sounding(), ["themes"]);
-  const before = clear.currentTime;
   director.setScene("loading");
   // The two cross: both sound for the length of the crossing, and no longer.
   time.advance(900);
@@ -1164,22 +1166,123 @@ test("a game opened while Clear Skies plays crosses into the build, and the menu
   time.advance(1100);
   assert.deepEqual(sounding(), ["drama"]);
   assert.equal(clear.paused, true);
-  near(clear.currentTime, before + PASSAGE_DRAMA.crossfade / 1000, 0.1);
   assert.equal(director.inDrama, true);
-  // The game is drawn and played; Clear Skies stays where it was.
   director.setScene("game");
   time.advance(30000);
   assert.deepEqual(sounding(), []);
-  const held = clear.currentTime;
-  // Back on the menu: Clear Skies from there, faded in, and not Passage Of Time.
+});
+
+// "its always playing passage of time": nobody idles on a menu for the two
+// minutes and more the first piece's part takes.
+test("the menu's pieces take turns by visit: back from a game it is the next one, from its start", () => {
+  const { director, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 } });
+  director.unlock();
+  // The first visit: Passage Of Time.
+  time.advance(20000);
+  assert.deepEqual(sounding(), ["calm"]);
+  // A game is opened, played, and left.
+  director.setScene("loading");
+  time.advance(6000);
+  director.setScene("game");
+  time.advance(40000);
+  assert.deepEqual(sounding(), []);
   director.setScene("menu");
-  time.advance(1200);
-  assert.deepEqual(sounding(), ["themes"]);
-  near(clear.currentTime, held + 1.2, 0.05);
-  assert.ok(clear.volume < 0.25 * clearLevel(clear.currentTime), "still coming in");
   time.advance(1500);
-  near(clear.volume, 0.25 * clearLevel(clear.currentTime), 0.004);
+  // The second visit: Clear Skies, from its start, and not Passage Of Time.
+  const clear = of("themes");
+  assert.deepEqual(sounding(), ["themes"]);
+  near(clear.currentTime, 1.5, 0.1);
   assert.equal(of("calm").paused, true);
+  near(clear.volume, 0.25 * clearLevel(clear.currentTime), 0.004);
+  // Another game, part of the way into Clear Skies.
+  time.advance(60000);
+  director.setScene("loading");
+  time.advance(6000);
+  director.setScene("game");
+  time.advance(40000);
+  director.setScene("menu");
+  time.advance(3000);
+  // The third visit: Passage Of Time again, from its start.
+  assert.deepEqual(sounding(), ["calm"]);
+  near(of("calm").currentTime, 3, 0.1);
+  assert.equal(clear.paused, true);
+  // And the fourth: Clear Skies from its start, not from where it was left.
+  director.setScene("game");
+  time.advance(5000);
+  director.setScene("menu");
+  time.advance(2000);
+  assert.deepEqual(sounding(), ["themes"]);
+  near(clear.currentTime, 2, 0.1);
+  // Never two at once through any of it.
+  for (const to of ["loading", "menu", "game", "menu", "war", "menu"]) {
+    director.setScene(to);
+    for (let ms = 0; ms < 8000; ms += 250) {
+      time.advance(250);
+      if (ms >= 2500) assert.ok(sounding().length <= 1, `${sounding().join(" + ")} in ${to}`);
+    }
+  }
+});
+
+test("the game opens on the piece after the one it was on last time", () => {
+  const kept = (first = null) => {
+    const memory = { name: first, read: () => memory.name, write: (name) => { memory.name = name; } };
+    return memory;
+  };
+  // The first ever: Passage Of Time, and that is remembered once it sounds.
+  const first = kept();
+  const one = stage({ menuMemory: first, lengths: { [CLEAR]: 195 } });
+  assert.equal(first.name, null, "nothing is written before anything sounds");
+  one.director.unlock();
+  one.time.advance(3000);
+  assert.deepEqual(one.sounding(), ["calm"]);
+  assert.equal(first.name, "passage");
+  // The next time the game is started: Clear Skies, at once.
+  const two = stage({ menuMemory: first, lengths: { [CLEAR]: 195 } });
+  two.director.unlock();
+  two.time.advance(3000);
+  assert.deepEqual(two.sounding(), ["themes"]);
+  assert.equal(two.of("calm"), null, "Passage Of Time is not even made");
+  near(two.of("themes").currentTime, 3, 0.1);
+  assert.equal(first.name, "clearSkies");
+  // The build is still held ready under it for a game opening.
+  assert.deepEqual([two.of("drama").paused, two.of("drama").plays], [true, 0]);
+  // And the time after that: Passage Of Time again.
+  const three = stage({ menuMemory: first, lengths: { [CLEAR]: 195 } });
+  three.director.unlock();
+  three.time.advance(3000);
+  assert.deepEqual(three.sounding(), ["calm"]);
+  assert.equal(first.name, "passage");
+  // The turns of one session are remembered too: left on Clear Skies after a game, the next opens on Passage Of Time.
+  three.director.setScene("game");
+  three.time.advance(3000);
+  three.director.setScene("menu");
+  three.time.advance(3000);
+  assert.equal(first.name, "clearSkies");
+  // A name that is no piece of the menu's, or a memory that cannot be read: Passage Of Time.
+  for (const menuMemory of [kept("someone-elses"), { read: () => { throw new Error("refused"); }, write: () => { throw new Error("refused"); } }]) {
+    const odd = stage({ menuMemory, lengths: { [CLEAR]: 195 } });
+    odd.director.unlock();
+    odd.time.advance(3000);
+    assert.deepEqual(odd.sounding(), ["calm"]);
+  }
+  // With no other piece the menu is always Passage Of Time, whatever was kept.
+  const alone = stage({ menuMemory: kept("passage"), menuPieces: [] });
+  alone.director.unlock();
+  alone.time.advance(3000);
+  assert.deepEqual(alone.sounding(), ["calm"]);
+});
+
+test("the page keeps the menu's piece in localStorage, and does without it when it is refused", () => {
+  const store = new Map();
+  const memory = menuPieceMemory({ localStorage: { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) } });
+  assert.equal(memory.read(), null);
+  memory.write("clearSkies");
+  assert.equal(store.get(MENU_PIECE_KEY), "clearSkies");
+  assert.equal(memory.read(), "clearSkies");
+  const refused = menuPieceMemory({ localStorage: { getItem: () => { throw new Error("no"); }, setItem: () => { throw new Error("no"); } } });
+  assert.equal(refused.read(), null);
+  assert.doesNotThrow(() => refused.write("passage"));
+  assert.ok(read("src/runtime/ambientMusic.js").includes("menuMemory: menuPieceMemory(win),"));
 });
 
 test("with Clear Skies unplayable the menu is Passage Of Time's alone, round and round as it was", async () => {
@@ -1257,7 +1360,7 @@ test("a scenario's list plays in the place of the game's piece: in order, the ne
 });
 
 test("leaving a situation fades its list out where it is, and coming back carries on from there", () => {
-  const { director, time, of, list, sounding } = stage({ lengths: { "/hub/a.mp3": 30, "/hub/b.mp3": 600 } });
+  const { director, time, of, list, sounding } = stage({ menuPieces: [], lengths: { "/hub/a.mp3": 30, "/hub/b.mp3": 600 } });
   director.setPlaylists({ game: [hubTrack("a"), hubTrack("b")] });
   director.unlock();
   director.setScene("game");
