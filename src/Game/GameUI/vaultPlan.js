@@ -3,10 +3,14 @@
 // how long each part of its opening takes, and the three leaves it is made
 // of. Plain data, apart from the drawing, so that it can be checked.
 
-// How long each part takes, in milliseconds.
+// How long each part takes, in milliseconds. The door is left alone at
+// first: it shudders only once it has gone ten seconds without being touched,
+// and every five seconds after that (the owner, 2026-10-13: "only start
+// shaking after 10 seconds of not being touched, then every 5 seconds after
+// that"). A touch that is not on the wheel starts the ten seconds again.
 export const VAULT_TIMING = Object.freeze({
-  firstShake: 1400,
-  shakeEvery: 3400,
+  firstShake: 10000,
+  shakeEvery: 5000,
   shake: 520,
   spin: 1500,
   bolts: 380,

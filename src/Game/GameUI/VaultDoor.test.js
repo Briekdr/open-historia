@@ -47,9 +47,15 @@ test("each leaf goes far enough to be off the screen altogether", () => {
   }
 });
 
-test("it shakes before it is clicked, soon and then now and again", () => {
-  assert.ok(VAULT_TIMING.firstShake <= 2000);
+test("left alone for ten seconds it shakes, and every five seconds after that", () => {
+  assert.equal(VAULT_TIMING.firstShake, 10000);
+  assert.equal(VAULT_TIMING.shakeEvery, 5000);
   assert.ok(VAULT_TIMING.shakeEvery > VAULT_TIMING.shake * 3);
+  // The five seconds are counted from the first shake, not from the door appearing.
+  assert.match(door, /const first = setTimeout\(\(\) => \{\s+shudder\(\);\s+again = setInterval\(shudder, VAULT_TIMING\.shakeEvery\);\s+\}, VAULT_TIMING\.firstShake\);/);
+  // A touch that is not on the wheel starts the ten seconds again.
+  assert.match(door, /onPointerDown=\{\(\) => \{ if \(stage === "closed"\) setTouches\(\(count\) => count \+ 1\); \}\}/);
+  assert.match(door, /\}, \[stage, still, touches\]\);/);
   assert.match(door, /const shudder = \(\) => \{\s+setShaking\(true\);\s+soundsRef\.current\?\.rattle\(\);/);
   assert.match(door, /animation: shaking \? `oh-vault-shake \$\{VAULT_TIMING\.shake\}ms/);
 });
@@ -76,8 +82,20 @@ test("the wheel is a button with a name, focused when the door appears, and clic
   assert.match(door, /if \(stage !== "closed"\) return;/);
 });
 
+test("the wheel's shadow turns with it and always falls the same way", () => {
+  // The shadow is drawn apart from the wheel: moved outside the turning, turned inside it.
+  assert.match(door, /transform: "translate\(1\.3%, 2\.4%\)" \}\}>\s+<div style=\{\{[^\n]+rotate\(\$\{turned && !still \? 540 : 0\}deg\)[^\n]+\}\}>\s+<WheelShadow \/>/);
+  // It has the handles' shapes, three of them.
+  const shadow = door.slice(door.indexOf("const WheelShadow = "), door.indexOf("// `onOpening`"));
+  assert.match(shadow, /\[0, 120, 240\]\.map/);
+  assert.match(shadow, /<rect [^>]+\/>\s+<circle cy="-136"/);
+  // And nothing inside the turning wheel is a shadow moved off its centre.
+  const wheel = door.slice(door.indexOf("const Wheel = "), door.indexOf("const WheelShadow = "));
+  assert.doesNotMatch(wheel, /fill="#000"/);
+});
+
 test("the mark is nearly the whole of the wheel", () => {
-  const wheel = door.slice(door.indexOf("const Wheel = "), door.indexOf("// `onOpening`"));
+  const wheel = door.slice(door.indexOf("const Wheel = "), door.indexOf("const WheelShadow = "));
   const rim = Number(/<circle r="(\d+)" fill=\{STEEL\.edge\} \/>/.exec(wheel)[1]);
   const mark = Number(/<clipPath id="oh-vault-hub"><circle r="(\d+)" \/><\/clipPath>/.exec(wheel)[1]);
   assert.ok(mark / rim >= 0.8, `the mark is ${mark} of a rim of ${rim}`);

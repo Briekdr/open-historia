@@ -41,7 +41,7 @@ const STYLES = `
   60% { transform: translate(2px, 0) rotate(0.9deg); }
   80% { transform: translate(-1px, 0) rotate(-0.4deg); }
 }
-.oh-vault-knob { appearance: none; background: none; border: 0; padding: 0; cursor: pointer; border-radius: 50%; outline-offset: 6px; }
+.oh-vault-knob { appearance: none; background: none; border: 0; padding: 0; cursor: pointer; border-radius: 50%; outline-offset: 6px; position: relative; }
 .oh-vault-knob:focus-visible { outline: 2px solid #d4d4d8; }
 .oh-vault-knob:disabled { cursor: default; }
 `;
@@ -155,10 +155,8 @@ const DoorFace = ({ metal }) => {
 // it. It is what is clicked, and it is the mark that turns.
 const Wheel = ({ logo, metal }) => (
   <svg viewBox="-150 -150 300 300" width="100%" height="100%" aria-hidden="true" style={{ display: "block" }}>
-    <circle cx="3" cy="6" r="122" fill="#000" opacity="0.4" />
     {[0, 120, 240].map((turn) => (
       <g key={turn} transform={`rotate(${turn})`}>
-        <rect x="-6" y="-134" width="18" height="36" rx="6" fill="#000" opacity="0.3" />
         <rect x="-9" y="-138" width="18" height="36" rx="6" fill={STEEL.light} stroke={STEEL.edge} strokeWidth="3" />
         <rect x="-5.5" y="-130" width="3" height="16" rx="1.5" fill={STEEL.lit} opacity="0.45" />
         <circle cy="-136" r="12" fill={STEEL.bolt} stroke={STEEL.edge} strokeWidth="3" />
@@ -184,12 +182,32 @@ const Wheel = ({ logo, metal }) => (
   </svg>
 );
 
+// The wheel's shadow on the door: its outline, rim and handles, in one flat
+// dark. It TURNS with the wheel, so the handles' shadows go round as the
+// handles do, but it is drawn apart from the wheel and moved down and to the
+// right by whoever draws it, outside the turning: a shadow falls the same way
+// however the thing that casts it is turned. (Drawn inside the wheel it went
+// round with it, and fell upward half the time.)
+const WheelShadow = () => (
+  <svg viewBox="-150 -150 300 300" width="100%" height="100%" aria-hidden="true" style={{ display: "block", opacity: 0.42 }}>
+    <circle r="120" fill="#000" />
+    {[0, 120, 240].map((turn) => (
+      <g key={turn} transform={`rotate(${turn})`} fill="#000">
+        <rect x="-10.5" y="-139.5" width="21" height="39" rx="7" />
+        <circle cy="-136" r="13.5" />
+      </g>
+    ))}
+  </svg>
+);
+
 // `onOpening`: the wheel has been turned and the leaves start to move (the
 // menu's music may begin). `onOpened`: the door is gone.
 export const VaultDoor = ({ onOpening = null, onOpened = null, logo = `${import.meta.env?.BASE_URL ?? "/"}logo.png`, sounds: givenSounds = null }) => {
   // closed → spinning → opening → gone
   const [stage, setStage] = useState("closed");
   const [shaking, setShaking] = useState(false);
+  // Counts the touches that were not on the wheel: each starts the wait again.
+  const [touches, setTouches] = useState(0);
   const still = useMemo(() => reduceMotionEnabled(), []);
   const metal = useMemo(() => vaultMetal(), []);
   const soundsRef = useRef(null);
@@ -202,19 +220,24 @@ export const VaultDoor = ({ onOpening = null, onOpened = null, logo = `${import.
     if (!givenSounds) soundsRef.current?.dispose();
   }, [givenSounds]);
 
-  // Shut, it shudders now and then: that is the invitation.
+  // Shut and left alone, it shudders: that is the invitation. Not at once:
+  // after VAULT_TIMING.firstShake without a touch, and then every
+  // VAULT_TIMING.shakeEvery. A touch starts the wait from the beginning.
   useEffect(() => {
     if (stage !== "closed" || still) return undefined;
     let stop = null;
+    let again = null;
     const shudder = () => {
       setShaking(true);
       soundsRef.current?.rattle();
       stop = setTimeout(() => setShaking(false), VAULT_TIMING.shake);
     };
-    const first = setTimeout(shudder, VAULT_TIMING.firstShake);
-    const again = setInterval(shudder, VAULT_TIMING.shakeEvery);
-    return () => { clearTimeout(first); clearInterval(again); clearTimeout(stop); };
-  }, [stage, still]);
+    const first = setTimeout(() => {
+      shudder();
+      again = setInterval(shudder, VAULT_TIMING.shakeEvery);
+    }, VAULT_TIMING.firstShake);
+    return () => { clearTimeout(first); clearInterval(again); clearTimeout(stop); setShaking(false); };
+  }, [stage, still, touches]);
 
   const open = () => {
     if (stage !== "closed") return;
@@ -245,6 +268,7 @@ export const VaultDoor = ({ onOpening = null, onOpened = null, logo = `${import.
   return (
     <div
       data-oh-vault={stage}
+      onPointerDown={() => { if (stage === "closed") setTouches((count) => count + 1); }}
       style={{
         position: "fixed", inset: 0, zIndex: 2147482000, overflow: "hidden",
         // Still, the whole door fades; moving, each leaf leaves by itself.
@@ -290,7 +314,13 @@ export const VaultDoor = ({ onOpening = null, onOpened = null, logo = `${import.
           onClick={open}
           style={{ width: "100%", height: "100%", animation: shaking ? `oh-vault-shake ${VAULT_TIMING.shake}ms cubic-bezier(0.42, 0, 0.58, 1)` : "none" }}
         >
-          <div style={{ width: "100%", height: "100%", transform: `rotate(${turned && !still ? 540 : 0}deg)`, transition: still ? "none" : `transform ${VAULT_TIMING.spin}ms cubic-bezier(0.5, 0, 0.2, 1)` }}>
+          {/* The shadow: moved down and to the right here, and turned inside that. */}
+          <div style={{ position: "absolute", inset: 0, transform: "translate(1.3%, 2.4%)" }}>
+            <div style={{ width: "100%", height: "100%", transform: `rotate(${turned && !still ? 540 : 0}deg)`, transition: still ? "none" : `transform ${VAULT_TIMING.spin}ms cubic-bezier(0.5, 0, 0.2, 1)` }}>
+              <WheelShadow />
+            </div>
+          </div>
+          <div style={{ position: "relative", width: "100%", height: "100%", transform: `rotate(${turned && !still ? 540 : 0}deg)`, transition: still ? "none" : `transform ${VAULT_TIMING.spin}ms cubic-bezier(0.5, 0, 0.2, 1)` }}>
             <Wheel logo={logo} metal={metal} />
           </div>
         </button>
