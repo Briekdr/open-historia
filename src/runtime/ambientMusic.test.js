@@ -1246,6 +1246,29 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   }
   const credits = read("public/audio/CREDITS.txt");
   for (const part of ["Passage Of Time", "Clear Skies", "Hour Of The Witch", "Honour Among Thieves", "Frankincense and Myrrh", "Discovery", "Legionnaire (2022 Remaster)", "Vanguard", "Scott Buckley", "CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/", "scottbuckley.com.au"]) assert.ok(credits.includes(part), part);
+  // The licence asks that a change be said: the files are re-encoded, and nothing else.
+  assert.ok(credits.includes("re-encoded at a lower"));
+  assert.ok(credits.includes("Nothing else about them is changed"));
+  assert.ok(!credits.includes("The files are the composer's own, unchanged."));
+  // Each says so in itself too, with its piece, its composer and the licence.
+  for (const piece of pieces) {
+    const tags = fs.readFileSync(path.join(root, "public", piece.file)).subarray(0, 2048).toString("latin1");
+    assert.ok(tags.startsWith("ID3"), piece.file);
+    for (const part of [piece.work, "Scott Buckley", "CC BY 4.0", "Re-encoded at a lower bitrate for Open Historia"]) assert.ok(tags.includes(part), `${piece.file}: ${part}`);
+  }
+  // A piece the game is put at a time in, part of the way through, is constant
+  // bitrate: a browser lands about 0.3 s off in a variable-bitrate MP3, and
+  // every hit the loading music stops on would move. An encoder marks a
+  // constant-bitrate file "Info" and a variable one "Xing", in its first frame.
+  const kindOf = (piece) => {
+    const head = fs.readFileSync(path.join(root, "public", piece.file)).subarray(0, 8192).toString("latin1");
+    return head.includes("Info") ? "constant" : head.includes("Xing") ? "variable" : "unmarked";
+  };
+  for (const piece of [MUSIC_TRACKS.passage, ...pieces.filter((entry) => entry.drama)]) assert.equal(kindOf(piece), "constant", piece.file);
+  assert.equal(kindOf(MUSIC_TRACKS.clearSkies), "constant");
+  // And they are small: the eight together under 40 MB (they were 71).
+  const total = pieces.reduce((sum, piece) => sum + fs.statSync(path.join(root, "public", piece.file)).size, 0);
+  assert.ok(total < 40 * 1024 * 1024, `${Math.round(total / 1048576)} MB`);
   // Each file by its name, its piece, where it is from, and where it plays.
   const literally = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   for (const piece of pieces) {
@@ -1254,6 +1277,7 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   assert.match(credits, /vanguard\.mp3\r?\n {4}"Vanguard" by Scott Buckley\r?\n {4}https:\/\/www\.scottbuckley\.com\.au\/library\/vanguard\/\r?\n {4}Plays in the war room and while a battlefield is shown\./);
   const readme = read("README.md");
   assert.ok(readme.includes("\"Passage Of Time\", \"Clear Skies\", \"Hour Of The Witch\", \"Honour Among Thieves\", \"Frankincense and Myrrh\", \"Discovery\", \"Legionnaire (2022 Remaster)\" and \"Vanguard\", all released under [CC BY 4.0]"));
+  assert.ok(readme.includes("re-encoded at a lower bitrate to make the game smaller and otherwise unchanged"));
   for (const file of ["hour-of-the-witch", "honour-among-thieves", "frankincense-and-myrrh", "discovery"]) {
     assert.match(credits, new RegExp(`${file}\\.mp3\\r?\\n {4}"[^"]+" by Scott Buckley\\r?\\n {4}https://www\\.scottbuckley\\.com\\.au/library/${file}/\\r?\\n {4}Plays in a game, in the background\\.`), file);
   }

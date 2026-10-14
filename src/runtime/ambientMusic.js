@@ -88,9 +88,20 @@
 // All of the game's own pieces are Scott Buckley's, released under CC BY 4.0
 // (www.scottbuckley.com.au). That licence lets the game ship them as long as
 // it says whose they are: Settings → General → Sound does, and so does
-// public/audio/CREDITS.txt beside the files, which are the composer's own,
-// unchanged. The times and the loudness in PASSAGE_CALM and PASSAGE_DRAMA were
-// measured from the file: they belong to this recording and no other. A hub
+// public/audio/CREDITS.txt beside the files, which are the composer's own
+// recordings re-encoded at a lower bitrate ("compress all the songs to take up
+// less space while maintaining high quality": MP3, about half the size
+// together; the licence asks that a change be said, and CREDITS.txt and the
+// README say it). The pieces the game is put at a time in, part of the way
+// through (Passage Of Time and Clear Skies: the builds a game opening comes
+// into) are CONSTANT bitrate, 192 kbps: a browser put at a time in a
+// variable-bitrate MP3 finds its place by a table and lands about 0.3 s off,
+// measured, which would move every hit the loading music stops on. The
+// others, only ever played from their start, are variable bitrate (LAME
+// quality 4), which is smaller. Each is whole and at its own length, to
+// the sample, so the times and the loudness in PASSAGE_CALM, PASSAGE_DRAMA
+// and the pieces' `loud` tables, which were measured from the composer's
+// files, are the same in these: they belong to these recordings and no other. A hub
 // track's credit is the hub's (Settings shows the one that is playing).
 //
 // How loud a situation's music is: a share of the player's own volume

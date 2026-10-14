@@ -3,7 +3,12 @@ The music of Open Historia
 All eight pieces are by Scott Buckley (https://www.scottbuckley.com.au/) and are
 released under the Creative Commons Attribution 4.0 International License
 (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
-The files are the composer's own, unchanged.
+
+Changes: the files are the composer's own recordings, re-encoded at a lower
+bitrate (MP3, about half the size together) so that the game is smaller to
+download. Nothing else about them is changed: every piece is whole, at its
+own length. Each file names its piece, its composer and this licence in its
+tags.
 
 passage-of-time.mp3
     "Passage Of Time" by Scott Buckley
