@@ -1,21 +1,22 @@
-/*! Open Historia — a battlefield's weather as the map shows it © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
-// The weather over each battlefield being fought over (runtime/fronts/
-// weather.js: the brief's season and the day's weather as its last run left
-// them), drawn so it can be told at a glance: rain in slanting streaks, a storm
-// in dense streaks under a darker wash, snow in flakes, a blizzard in driven
-// flakes under a white veil, fog as a grey veil, mud as brown blotches, heat as
-// a pale warm shimmer, frost as an icy speckle. Clear weather draws nothing.
-//
-// It lies over the battlefield's frame as an oval, the weather full in its
-// middle and thinner in two steps toward its rim, so it reads as a spell of
-// weather and not as a box. Over it, a chip says the season and the weather:
+/*! Open Historia — the weather as the map shows it © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
+// How each weather is drawn, so it can be told at a glance: rain in slanting
+// streaks, a storm in dense streaks under a darker wash, snow in flakes, a
+// blizzard in driven flakes under a white veil, fog as a grey veil, mud as
+// brown blotches, heat as a pale warm shimmer, frost as an icy speckle. Clear
+// weather draws nothing. And the chip that says a season and a weather:
 // "Winter · snow".
+//
+// The weather is drawn in the shapes of the climate zones a scenario's
+// designer painted, one patch a zone (weatherPatches.js): "the weather patches
+// should be drawn by scenario designers who can choose the climate regions"
+// (the owner, 2026-10-14). A battlefield in no zone has no patch: only its
+// chip says its weather (battleChipFeatures).
 //
 // Pure: features out of records. The layers are FrontWeatherLayers.jsx; the
 // pictures mapPatterns.js.
 
 import { WEATHER_STATES } from "../../runtime/fronts/weather.js";
-import { latToY, normalizeFrame, projectorOf, yToLat } from "../../runtime/fronts/frame.js";
+import { normalizeFrame, projectorOf } from "../../runtime/fronts/frame.js";
 import { weatherDrifts, weatherImageId } from "./mapPatterns.js";
 
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -51,15 +52,6 @@ export const weatherOverlayOf = (state) => {
   const overlay = WEATHER_OVERLAYS[state];
   return { pattern: overlay.pattern ? weatherImageId(state) : null, wash: overlay.wash, drifts: overlay.pattern && weatherDrifts(state) };
 };
-
-// The steps the weather thins in toward its rim: [outer edge, inner edge,
-// strength], each a share of the oval round the frame.
-export const WEATHER_BANDS = Object.freeze([
-  Object.freeze([1, 0.84, 0.3]),
-  Object.freeze([0.84, 0.68, 0.6]),
-  Object.freeze([0.68, 0, 1]),
-]);
-const OVAL_POINTS = 48;
 
 // The battlefields to draw weather over, as the world keeps them: those being
 // fought over whose brief says the day's weather.
@@ -99,77 +91,29 @@ export const weatherChipText = ({ season = "", now = "" } = {}, { zoneNames = []
   return [said ? label(said.text, said.kind) : "", overlay ? label(overlay.chipLabel, "interface") : ""].map(clean).filter(Boolean).join(" · ");
 };
 
-// The oval round a frame on the map's own plane: its middle and its two half-widths.
-const ovalOf = (frame) => {
-  const { toLngLat } = projectorOf(frame);
-  const [west, south] = toLngLat(0, 0);
-  const [east, north] = toLngLat(frame.cols, frame.rows);
-  const bottom = latToY(south);
-  const top = latToY(north);
-  return { x: (west + east) / 2, y: (bottom + top) / 2, across: (east - west) / 2, up: (top - bottom) / 2 };
-};
-// A closed ring round the oval at a share of its size, one way round or the other.
-const ringOf = (oval, share, backwards = false) => {
-  const ring = [];
-  for (let step = 0; step < OVAL_POINTS; step += 1) {
-    const turn = ((backwards ? -step : step) * 2 * Math.PI) / OVAL_POINTS;
-    ring.push([round6(oval.x + oval.across * share * Math.cos(turn)), round6(yToLat(oval.y + oval.up * share * Math.sin(turn)))]);
-  }
-  ring.push([...ring[0]]);
-  return ring;
+// Whether a battlefield is in one of the scenario's climate zones: its season
+// is told with the zone's name before it ("The North, Winter": weather.js skyOver).
+export const inZone = (season, zoneNames = []) => {
+  const text = clean(season);
+  return list(zoneNames).map(clean).filter(Boolean).some((name) => text.length > name.length + 2 && text.startsWith(`${name}, `));
 };
 
+// A chip over each battlefield in no zone, saying its season and weather (a
+// battlefield in a zone fights in the zone's weather, and the zone's own chip
+// says it: weatherPatches.js). Over the middle of the battlefield's frame,
+// toward its top.
 //   fronts      weatherFrontsOf(world.battlefields)
 //   zoneNames   the names of the scenario's climate zones
 //   label       (text, kind) -> the text in the player's language
-// Returns { areas, chips }: the weather's bands (polygons, each with its
-// weather, its strength, and its picture and wash where it has them) and a
-// chip a battlefield (points over the middle of the weather, with what it says).
-export const frontWeatherFeatures = ({ fronts = [], zoneNames = [], label } = {}) => {
-  const areas = [];
+export const battleChipFeatures = ({ fronts = [], zoneNames = [], label } = {}) => {
   const chips = [];
   for (const front of list(fronts)) {
-    const overlay = weatherOverlayOf(front?.now);
     const frame = front?.frame ? normalizeFrame(front.frame) : null;
-    if (!overlay || !frame) continue;
-    const oval = ovalOf(frame);
-    if (overlay.pattern || overlay.wash) {
-      for (const [outer, inner, strength] of WEATHER_BANDS) {
-        const rings = inner > 0 ? [ringOf(oval, outer), ringOf(oval, inner, true)] : [ringOf(oval, outer)];
-        areas.push({
-          type: "Feature",
-          geometry: { type: "Polygon", coordinates: rings },
-          properties: {
-            name: front.name,
-            weather: front.now,
-            strength,
-            ...(overlay.pattern ? { pattern: overlay.pattern } : {}),
-            ...(overlay.wash ? { wash: overlay.wash.color, washOpacity: overlay.wash.opacity } : {}),
-          },
-        });
-      }
-    }
+    if (!frame || !weatherOverlayOf(front?.now) || inZone(front.season, zoneNames)) continue;
     const chip = weatherChipText(front, { zoneNames, label });
-    if (chip) {
-      chips.push({
-        type: "Feature",
-        // Over the middle of the weather, toward the top of its fullest part.
-        geometry: { type: "Point", coordinates: [round6(oval.x), round6(yToLat(oval.y + oval.up * WEATHER_BANDS[2][0]))] },
-        properties: { name: front.name, weather: front.now, chip },
-      });
-    }
+    if (!chip) continue;
+    const [lng, lat] = projectorOf(frame).toLngLat(frame.cols / 2, frame.rows * 0.7);
+    chips.push({ type: "Feature", geometry: { type: "Point", coordinates: [round6(lng), round6(lat)] }, properties: { name: front.name, weather: front.now, chip } });
   }
-  return { areas: collection(areas), chips: collection(chips) };
+  return collection(chips);
 };
-
-// The battlefields' weathers that move (mapPatterns.js WEATHER_DRIFT), each
-// with the box of the map it is over: [{ state, west, south, east, north }].
-export const driftingWeatherOf = (fronts) => list(fronts).map((front) => {
-  const overlay = weatherOverlayOf(front?.now);
-  const frame = front?.frame ? normalizeFrame(front.frame) : null;
-  if (!overlay?.drifts || !frame) return null;
-  const { toLngLat } = projectorOf(frame);
-  const [west, south] = toLngLat(0, 0);
-  const [east, north] = toLngLat(frame.cols, frame.rows);
-  return { state: front.now, west, south, east, north };
-}).filter(Boolean);

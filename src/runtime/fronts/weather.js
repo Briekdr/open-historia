@@ -30,7 +30,7 @@
 
 import { diffGameDays, parseGameDate } from "../gameDates.js";
 import { hashSeed } from "../unitMotion.js";
-import { climateAt, oddsAt, zonesToday } from "./climate.js";
+import { climateAt, oddsAt, zoneWeatherOn, zonesToday } from "./climate.js";
 import { cellAt } from "./ground.js";
 
 export const WEATHER_STATES = Object.freeze(["clear", "rain", "storm", "mud", "snow", "blizzard", "frost", "heat", "fog"]);
@@ -142,8 +142,12 @@ export const skyOver = (run, battle, day) => {
   const worldOdds = parsed ? WEATHER_ODDS[climateOf(battle.climateLat)][seasonOf(parsed.month, battle.climateLat)] : null;
   const middle = cellAt(battle.field, battle.field.cols / 2, battle.field.rows / 2);
   const there = today && worldOdds ? oddsAt(today, middle, worldOdds) : null;
-  const sky = weatherOn({ seed, place: battle.name, lat: battle.climateLat, date, odds: there ? there.odds : null });
-  if (there?.zone) sky.season = `${there.zone.zone.name ? `${there.zone.zone.name}, ` : ""}${there.zone.mix.season}`;
+  // In a zone (half or more of its weight at the middle) the weather is the zone's, one for the whole of it
+  // (climate.js zoneWeatherOn); elsewhere the battlefield's own, from the odds where it lies.
+  const sky = there?.zone
+    ? zoneWeatherOn({ seed, zone: there.zone.zone, date })
+    : weatherOn({ seed, place: battle.name, lat: battle.climateLat, date, odds: there ? there.odds : null });
+  if (there?.zone) sky.season = `${there.zone.zone.name ? `${there.zone.zone.name}, ` : ""}${sky.season}`;
   const forced = run.steer?.weather;
   const state = typeof forced === "string" && WEATHER[forced] ? forced : sky.state;
   // (The zones' own say over whether aircraft fly, at its middle.)

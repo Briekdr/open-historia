@@ -30,11 +30,18 @@
 // (climateAt). Water a designer marked as freezing freezes where its winter
 // (or the world's) says (freezesAt).
 //
+// A zone has ONE weather at a time, the whole of it (zoneWeatherOn): "the
+// weather patches should be drawn by scenario designers who can choose the
+// climate regions" (the owner, 2026-10-14). A battlefield whose middle is in a
+// zone (half or more of its weight there) fights in the zone's weather, and the
+// map draws the zone as a patch of it (Game/Map/weatherPatches.js); elsewhere a
+// battlefield's weather is its own, from the odds where it lies.
+//
 // Only + - * / and comparisons; dates through gameDates.js.
 
 import { parseGameDate } from "../gameDates.js";
 import { fillPolygon, projectRegion } from "./arena.js";
-import { WEATHER_ODDS, WEATHER_STATES, climateOf, seasonOf } from "./weather.js";
+import { WEATHER_ODDS, WEATHER_STATES, climateOf, seasonOf, weatherOn } from "./weather.js";
 
 const MONTH_START = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
 const YEAR = 365;
@@ -159,6 +166,30 @@ export const zoneMixOn = (zone, date, lat) => {
     if (weight >= 0.5) top = { weight: 1, name: event.name, color: top?.color ?? zone.color };
   }
   return { odds, effects, season: top?.name ?? worldSeason, color: top?.color ?? zone.color };
+};
+
+// The latitude a zone is reckoned at where its own seasons say nothing and the
+// world's own by latitude stand in: the middle of its outer ring, north to south.
+export const zoneLatOf = (zone) => {
+  let south = Infinity;
+  let north = -Infinity;
+  for (const point of zone?.rings?.[0] ?? []) {
+    const lat = point?.[1];
+    if (!(lat >= -90 && lat <= 90)) continue;
+    if (lat < south) south = lat;
+    if (lat > north) north = lat;
+  }
+  return south <= north ? (south + north) / 2 : 45;
+};
+
+// A zone's weather on a date, one for the whole of it: { state, season (the
+// name of its season most in), climate }. The same seed, zone and spell of
+// days is the same weather, for every battlefield in it and on the map.
+export const zoneWeatherOn = ({ seed = "", zone, date = "" } = {}) => {
+  const lat = zoneLatOf(zone);
+  const mix = zoneMixOn(zone, date, lat);
+  const sky = weatherOn({ seed, place: `zone:${zone?.id ?? ""}`, lat, date, odds: mix.odds });
+  return { ...sky, season: mix.season };
 };
 
 // ---- across the map --------------------------------------------------------------

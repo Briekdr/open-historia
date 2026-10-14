@@ -9,7 +9,7 @@ import { runNaval } from "../naval/engine.js";
 import { zoneWeightAt } from "../warGeography.js";
 import { describeBattlefield } from "./brief.js";
 import { decodeTroops } from "./codec.js";
-import { climateAt, freezesAt, seasonMixOn, zoneMixOn, zonesOver } from "./climate.js";
+import { climateAt, freezesAt, seasonMixOn, zoneLatOf, zoneMixOn, zoneWeatherOn, zonesOver } from "./climate.js";
 import { runFronts } from "./engine.js";
 import { frontInput, syntheticMap } from "./syntheticMap.js";
 
@@ -102,6 +102,32 @@ test("a zone's winter slows an advance into it and brings its weather; the story
   const today = [{ ...zones[0], mix: zoneMixOn(winterZone(), "0300-01-15", 51) }];
   assert.equal(climateAt(today, at(27)).pace, 0.3);
   assert.equal(climateAt(today, at(20.5)).pace, 1);
+});
+
+test("a zone has one weather at a time: a battlefield in it fights in the zone's weather, the one the map draws", () => {
+  // A zone of mixed weather over the whole battlefield, so its middle is in it.
+  const mixed = winterZone({
+    rings: [[[18, 54], [30, 54], [30, 48], [18, 48]]],
+    seasons: [{ name: "Winter", start: "12-01", end: "02-28", weather: { snow: 1, rain: 1, fog: 1, frost: 1 }, effects: {} }],
+  });
+  const days = [];
+  for (const span of [3, 7, 12, 17]) {
+    const { result } = fight(sheet(), { mechanics: { weather: true }, climateZones: [mixed], climateSeed: "campaign-1", days: span });
+    const record = result.battlefields[0];
+    days.push([record.asOf, record.brief.weather.now]);
+    // The battlefield's weather on its last day is the zone's (zoneWeatherOn), as the map draws it.
+    assert.equal(record.brief.weather.now, zoneWeatherOn({ seed: "campaign-1", zone: mixed, date: record.asOf }).state, record.asOf);
+    assert.match(record.brief.weather.season, /^The North, Winter$/);
+  }
+  assert.ok(new Set(days.map(([, now]) => now)).size > 1, `the weather changes from spell to spell: ${JSON.stringify(days)}`);
+  // The same zone, seed and spell is the same weather, whoever asks; another campaign, its own.
+  const once = zoneWeatherOn({ seed: "campaign-1", zone: mixed, date: "0300-01-10" });
+  assert.deepEqual(zoneWeatherOn({ seed: "campaign-1", zone: { ...mixed }, date: "0300-01-10" }), once);
+  assert.equal(once.season, "Winter");
+  const others = ["a", "b", "c", "d", "e", "f"].map((seed) => zoneWeatherOn({ seed, zone: mixed, date: "0300-01-10" }).state);
+  assert.ok(new Set(others).size > 1, String(others));
+  // Reckoned at the middle of the zone, north to south.
+  assert.equal(zoneLatOf(mixed), 51);
 });
 
 test("frozen water is crossed, slowly; thawed, it is wall again and those on it get off it as they can", () => {

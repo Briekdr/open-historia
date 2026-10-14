@@ -1,34 +1,49 @@
-/*! Open Historia — the weather over the battlefields © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
-// Each battlefield being fought over shows the day's weather there, so it can
-// be told at a glance (frontWeatherFeatures.js): streaks of rain, flakes of
+/*! Open Historia — the weather on the map: patches in the climate zones' own shapes © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
+// "The weather patches should be drawn by scenario designers who can choose
+// the climate regions" (the owner, 2026-10-14). Each climate zone a designer
+// painted shows its weather as a patch in the zone's own shape, full in its
+// middle and thinning across its edge into the zones beside it, like the
+// biomes of a map of the world (weatherPatches.js): streaks of rain, flakes of
 // snow, a blizzard's white veil, a fog's grey one, mud, heat, frost; and a chip
-// over it saying the season and the weather, "Winter · snow". The pictures are
-// flat tiles (mapPatterns.js), and the weather that moves moves: the map is
-// handed the next step of its picture a few times a second, while such
-// weather is on the screen, the page is in view and nothing asks for less
-// motion (Reduce motion, or the system's setting). It is shown while the
-// player's Seasons and weather switch is on (Settings → Map).
+// in it saying its season and weather, "Winter · snow". A battlefield in no
+// zone has a chip over it and no patch. The pictures are flat tiles
+// (mapPatterns.js), and the weather that moves moves: the map is handed the
+// next step of its picture a few times a second, while such weather is on the
+// screen, the page is in view and nothing asks for less motion (Reduce motion,
+// or the system's setting). It is shown while the player's Seasons and weather
+// switch is on (Settings → Map) and the scenario's wars have weather.
 //
-// The chip is drawn on the map, where the page's translator cannot reach it:
-// its words are put into the player's language here, the season of a
+// Each zone's weather is the one the last turn wrote (world.zoneWeather, the
+// same on every screen of a shared game); before the first turn it is worked
+// out here as the turn would (runtime/zoneWeather.js), from this game's own id.
+//
+// The chips are drawn on the map, where the page's translator cannot reach
+// them: their words are put into the player's language here, the season of a
 // designer's own zone as the scenario's own text.
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Layer, Source, useMap } from "react-map-gl/maplibre";
+import { useLibraryState } from "../../runtime/library.js";
 import { MAP_SETTING_KEYS, reduceMotionEnabled, useMapSettingDefaultOn } from "../../runtime/mapSettings.js";
 import { isTouchPrimary } from "../../runtime/mobileUi.js";
 import { translateLabel, uiString } from "../../runtime/translator.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
-import { driftingWeatherOf, frontWeatherFeatures, weatherFrontsOf } from "./frontWeatherFeatures.js";
+import { warSettingsOf } from "../../runtime/warSettings.js";
+import { zoneWeatherFor } from "../../runtime/zoneWeather.js";
+import { battleChipFeatures, weatherFrontsOf } from "./frontWeatherFeatures.js";
 import { CHIP_STRETCH, WEATHER_CHIP_IMAGE, WEATHER_DRAWN, chipPicture, weatherImageId, weatherPattern } from "./mapPatterns.js";
 import { useLayerOrder } from "./useLayerOrder.js";
+import { weatherPatchFeatures, zoneWeatherById } from "./weatherPatches.js";
 
 const AREAS = "fronts-weather-source";
 const CHIPS = "fronts-weather-chips-source";
 const LAYERS = ["fronts-weather-wash", "fronts-weather-pattern", "fronts-weather-chip"];
 const NONE = Object.freeze([]);
 const selectFronts = (world) => weatherFrontsOf(world?.battlefields);
-const selectZoneNames = (world) => (Array.isArray(world?.climateZones) ? world.climateZones.map((zone) => String(zone?.name ?? "")) : NONE);
+const selectZones = (world) => (Array.isArray(world?.climateZones) ? world.climateZones : NONE);
+const selectRecorded = (world) => world?.zoneWeather ?? null;
+const selectWeatherOn = (world) => warSettingsOf(world).mechanics.weather;
+const selectDate = (game) => String(game?.gameDate || game?.startDate || "");
 
 // The weather is seen from as far off as a battlefield's markers are, and
 // thins as the map comes close, where the troops are looked at one by one.
@@ -77,8 +92,12 @@ const FrontWeatherLayers = () => {
   const map = mapRef?.getMap?.() ?? mapRef ?? null;
   const switchedOn = useMapSettingDefaultOn(MAP_SETTING_KEYS.seasonsWeather);
   const fronts = useRuntimeState("world", selectFronts);
-  const zoneNames = useRuntimeState("world", selectZoneNames);
-  const shown = switchedOn && fronts.length > 0;
+  const zones = useRuntimeState("world", selectZones);
+  const recorded = useRuntimeState("world", selectRecorded);
+  const weatherOn = useRuntimeState("world", selectWeatherOn);
+  const date = useRuntimeState("game", selectDate);
+  const gameId = String(useLibraryState()?.activeGameId ?? "");
+  const shown = switchedOn && weatherOn !== false && (zones.length > 0 || fronts.length > 0);
 
   // Rebuilt when the translator has learnt new words, so the chips say them.
   const [wordsEpoch, setWordsEpoch] = useState(0);
@@ -87,13 +106,21 @@ const FrontWeatherLayers = () => {
     window.addEventListener("i18n:updated", bump);
     return () => window.removeEventListener("i18n:updated", bump);
   }, []);
+  // Each zone's weather: what the last turn wrote, else as the turn would work it out.
+  const weather = useMemo(
+    () => (shown ? zoneWeatherById(recorded, date, zoneWeatherFor({ climateZones: zones }, { seed: gameId, date })) : new Map()),
+    [shown, recorded, date, zones, gameId],
+  );
   const data = useMemo(() => {
     void wordsEpoch;
     const label = (text, kind) => (kind === "interface" ? uiString(text) : translateLabel(text));
-    return frontWeatherFeatures({ fronts: shown ? fronts : NONE, zoneNames, label });
-  }, [fronts, zoneNames, shown, wordsEpoch]);
-  const states = useMemo(() => [...new Set(fronts.map((front) => front.now))].sort(), [fronts]);
-  const drifting = useMemo(() => driftingWeatherOf(fronts), [fronts]);
+    if (!shown) return { areas: { type: "FeatureCollection", features: [] }, chips: { type: "FeatureCollection", features: [] }, drifting: [] };
+    const patches = weatherPatchFeatures({ zones, weather, label });
+    const zoneNames = zones.map((zone) => String(zone?.name ?? ""));
+    const battles = battleChipFeatures({ fronts, zoneNames, label });
+    return { areas: patches.areas, chips: { type: "FeatureCollection", features: [...patches.chips.features, ...battles.features] }, drifting: patches.drifting };
+  }, [shown, zones, weather, fronts, wordsEpoch]);
+  const states = useMemo(() => [...new Set(data.areas.features.map((feature) => feature.properties.weather))].sort(), [data]);
 
   // The pictures: those of the weathers on the map and the chip's, now, after
   // every change of style, and the moment the map asks for one.
@@ -113,6 +140,7 @@ const FrontWeatherLayers = () => {
   }, [map, shown, stateKey]);
 
   // The weather that moves, moved a step at a time while it can be seen.
+  const drifting = data.drifting;
   useEffect(() => {
     if (!map || !shown || drifting.length === 0) return undefined;
     const moving = [...new Set(drifting.map((entry) => entry.state))];

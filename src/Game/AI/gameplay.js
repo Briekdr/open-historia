@@ -23,6 +23,7 @@ import { effectiveCityPopulation } from "../../runtime/cityPopulation.js";
 import { hostingSharedGame, humanCountriesOf } from "../../runtime/humanPolities.js";
 import { withTurnSeaBattles } from "../../runtime/naval/record.js";
 import { withFrontFortifications } from "../../runtime/warGeography.js";
+import { zoneWeatherFor } from "../../runtime/zoneWeather.js";
 import { militaryLookup } from "../../runtime/militaryStats.js";
 import { warSettingsOf } from "../../runtime/warSettings.js";
 import { STATS_BACKEND_FIELD, conflictSheetTargets, hasStatsBackend, statsBackendInstruction, statsBackendOf, statsBackendPatch, statsBackendTurnRule } from "../../runtime/statsBackend.js";
@@ -9013,6 +9014,9 @@ const applySimulationResult = async ({
       ...(turnFronts?.fortifications?.length ? { fortifications: withFrontFortifications(baseWorld?.fortifications, turnFronts.fortifications) } : null),
       // And the water frozen this turn, for the map to show as ice (runtime/fronts/climate.js).
       ...(turnFronts ? { frozenRegions: normalizeArray(turnFronts.frozen) } : null),
+      // And each climate zone's weather on the day the turn lands, drawn from the campaign's own seed as the
+      // land war's is (runtime/zoneWeather.js): the same patches of weather on every screen of a shared game.
+      zoneWeather: zoneWeatherFor(baseWorld, { seed: campaignId, date: nextGame.gameDate }),
       // And the blockades that stand as the turn ends, each with the days it has stood (runtime/naval/blockade.js).
       ...(turnFronts ? { blockades: turnBlockades(baseWorld, turnFronts) } : null),
       // Whatever comes through here ends a scene: a skip is refused while one is

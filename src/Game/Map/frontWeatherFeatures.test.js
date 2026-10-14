@@ -11,11 +11,10 @@ import { WEATHER_STATES } from "../../runtime/fronts/weather.js";
 import { MAP_LAYER_ORDER } from "./mapLayerOrder.js";
 import {
   SEASON_CHIPS,
-  WEATHER_BANDS,
   WEATHER_OVERLAYS,
+  battleChipFeatures,
   chipSeasonOf,
-  driftingWeatherOf,
-  frontWeatherFeatures,
+  inZone,
   weatherChipText,
   weatherFrontsOf,
   weatherOverlayOf,
@@ -191,37 +190,23 @@ test("a chip says the season and the weather, the season of a designer's zone wi
   assert.deepEqual(Object.values(SEASON_CHIPS).map((entry) => entry.chipLabel), ["Winter", "Spring", "Summer", "Autumn"]);
 });
 
-test("the weather lies over its battlefield as an oval, full in the middle and thinner in two steps to its rim", () => {
-  const fronts = weatherFrontsOf([battlefield(), battlefield({ name: "Sunny", frame: { ...frame, lng0: 60 }, brief: { weather: { season: "summer", now: "clear" } } })]);
-  const { areas, chips } = frontWeatherFeatures({ fronts });
-  assert.equal(areas.features.length, WEATHER_BANDS.length, "clear weather is no area, only a chip");
-  assert.deepEqual(areas.features.map((feature) => feature.properties.strength), [0.3, 0.6, 1]);
-  for (const feature of areas.features) {
-    assert.equal(feature.properties.pattern, "oh-weather-snow");
-    assert.equal(feature.properties.wash, WEATHER_OVERLAYS.snow.wash.color);
-    for (const ring of feature.geometry.coordinates) assert.deepEqual(ring[0], ring[ring.length - 1], "closed");
-  }
-  // The rim's bands are rings round the next, wound the other way; the middle has no hole.
-  const area = (ring) => ring.slice(1).reduce((sum, point, index) => sum + (ring[index][0] * point[1] - point[0] * ring[index][1]), 0) / 2;
-  const [outer, , middle] = areas.features;
-  assert.equal(outer.geometry.coordinates.length, 2);
-  assert.ok(Math.sign(area(outer.geometry.coordinates[0])) === -Math.sign(area(outer.geometry.coordinates[1])));
-  assert.equal(middle.geometry.coordinates.length, 1);
-  // Within the frame, filling it to its edges.
-  const points = outer.geometry.coordinates[0];
-  const lngs = points.map((point) => point[0]);
-  const lats = points.map((point) => point[1]);
-  assert.ok(Math.abs(Math.min(...lngs) - 30) < 1e-6 && Math.abs(Math.max(...lngs) - 36) < 1e-6);
-  assert.ok(Math.min(...lats) >= 47.99 && Math.max(...lats) <= 52 && Math.max(...lats) > 50.5);
-  // A chip each, over the middle of the weather.
-  assert.deepEqual(chips.features.map((feature) => feature.properties.chip), ["Winter · snow", "Summer · clear"]);
+test("no circle round a battlefield: one in no climate zone has a chip over it, one in a zone is told by the zone's own", () => {
+  const fronts = weatherFrontsOf([
+    battlefield(),
+    battlefield({ name: "Sunny", frame: { ...frame, lng0: 60 }, brief: { weather: { season: "summer", now: "clear" } } }),
+    battlefield({ name: "Northern", frame: { ...frame, lng0: 90 }, brief: { weather: { season: "The North, Deep Winter", now: "blizzard" } } }),
+  ]);
+  const chips = battleChipFeatures({ fronts, zoneNames: ["The North"] });
+  assert.deepEqual(chips.features.map((feature) => [feature.properties.name, feature.properties.chip]), [["The Steppe", "Winter · snow"], ["Sunny", "Summer · clear"]]);
+  // Over the middle of its frame, toward its top.
   const [lng, lat] = chips.features[0].geometry.coordinates;
-  assert.ok(lng === 33 && lat > 49 && lat < Math.max(...lats));
-  assert.deepEqual(frontWeatherFeatures(), { areas: { type: "FeatureCollection", features: [] }, chips: { type: "FeatureCollection", features: [] } });
-  // Only the weather that moves is set moving, with the box it is over.
-  assert.deepEqual(driftingWeatherOf(fronts).map((entry) => entry.state), ["snow"]);
-  const box = driftingWeatherOf(fronts)[0];
-  assert.ok(box.west === 30 && Math.abs(box.east - 36) < 1e-9 && Math.abs(box.south - 48) < 1e-9 && box.north > box.south);
+  assert.ok(lng === 33 && lat > 49.5 && lat < 52, `${lng} ${lat}`);
+  assert.equal(inZone("The North, Deep Winter", ["The North"]), true);
+  assert.equal(inZone("winter", ["The North"]), false);
+  assert.equal(inZone("The North", ["The North"]), false, "a season that is only the zone's name is not in it");
+  assert.deepEqual(battleChipFeatures(), { type: "FeatureCollection", features: [] });
+  // The map draws no shape of its own round a battlefield: the patches are the zones'.
+  assert.doesNotMatch(read("frontWeatherFeatures.js"), /oval|Math\.cos|Math\.sin/i);
 });
 
 test("its layers are in the map's order: the weather over the walls and under the troops' ways, its chip over the troops", () => {
@@ -241,5 +226,7 @@ test("its layers are in the map's order: the weather over the walls and under th
   assert.match(component, /document\.hidden/);
   assert.match(component, /kind === "interface" \? uiString\(text\) : translateLabel\(text\)/);
   assert.match(component, /map\.on\("styleimagemissing", asked\);/);
-  for (const name of ["frontWeatherFeatures.js", "mapPatterns.js", "FrontWeatherLayers.jsx"]) assert.doesNotMatch(read(name), /createLinearGradient|createRadialGradient|createConicGradient|gradient\(/i);
+  for (const name of ["frontWeatherFeatures.js", "weatherPatches.js", "mapPatterns.js", "FrontWeatherLayers.jsx"]) assert.doesNotMatch(read(name), /createLinearGradient|createRadialGradient|createConicGradient|gradient\(/i);
+  // The patches are the zones' weather as the last turn wrote it, else worked out as the turn would.
+  assert.match(component, /zoneWeatherById\(recorded, date, zoneWeatherFor\(\{ climateZones: zones \}, \{ seed: gameId, date \}\)\)/);
 });

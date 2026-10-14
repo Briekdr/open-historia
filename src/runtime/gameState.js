@@ -8,7 +8,7 @@ import { normalizeCallsToArms } from "./alliances.js";
 import { normalizePeaceOffers, normalizePeaceTreaties, normalizeReparations } from "./peaceTerms.js";
 import { normalizeWarWeariness } from "./warWeariness.js";
 import { eraSettingOf, normalizeWarSettings } from "./warSettings.js";
-import { normalizeClimateZones, normalizeFortifications, normalizeFreezingRegions, normalizeTerrainAreas } from "./warGeography.js";
+import { normalizeClimateZones, normalizeFortifications, normalizeFreezingRegions, normalizeTerrainAreas, normalizeZoneWeather } from "./warGeography.js";
 import { normalizeMilitaryStats } from "./militaryStats.js";
 import { MAX_GROUPS, applyGroupOps, canRenameGroup, findGroupKey, normalizeGroupAreas, normalizeGroupOp, normalizeGroups } from "./groups.js";
 import { enqueueEventStrings } from "./translator.js";
@@ -289,6 +289,8 @@ export const WORLD_DEFAULTS = {
   freezingRegions: [],
   // The water frozen as the last turn left it (runtime/fronts/climate.js): for the map to show as ice.
   frozenRegions: [],
+  // Each climate zone's weather as the last turn left it (runtime/zoneWeather.js): the map's patches of weather.
+  zoneWeather: null,
   // Peace (peaceTerms.js): the offers that wait for an answer or were given
   // one, the reparations being paid, and the last peaces made on terms.
   peaceOffers: [],
@@ -4474,6 +4476,7 @@ export const normalizeWorldState = (world) => {
     climateZones: normalizeClimateZones(nextWorld.climateZones),
     freezingRegions: normalizeFreezingRegions(nextWorld.freezingRegions),
     frozenRegions: normalizeFreezingRegions(nextWorld.frozenRegions),
+    zoneWeather: normalizeZoneWeather(nextWorld.zoneWeather),
     peaceOffers: normalizePeaceOffers(nextWorld.peaceOffers),
     reparations: normalizeReparations(nextWorld.reparations),
     peaceTreaties: normalizePeaceTreaties(nextWorld.peaceTreaties),

@@ -209,4 +209,17 @@ export const zoneWeightAt = (zone, lng, lat) => {
   return Math.max(0, Math.min(1, 0.5 + (inside ? nearest : -nearest) / blend));
 };
 
+// The weather of each climate zone as the last turn left it (runtime/zoneWeather.js):
+// { date, zones: [{ id, state, season }] }, or null.
+export const normalizeZoneWeather = (value) => {
+  if (!isRecord(value) || !clean(value.date, 40) || !Array.isArray(value.zones)) return null;
+  const zones = value.zones
+    .map((entry) => (isRecord(entry) && clean(entry.id, 64) && WEATHER_STATES.includes(entry.state)
+      ? { id: clean(entry.id, 64), state: entry.state, season: clean(entry.season, 80) }
+      : null))
+    .filter(Boolean)
+    .slice(0, CLIMATE_ZONES_MOST);
+  return zones.length > 0 ? { date: clean(value.date, 40), zones } : null;
+};
+
 export const normalizeFreezingRegions = (value) => [...new Set((Array.isArray(value) ? value : []).map((id) => clean(id, 120)).filter(Boolean))].slice(0, 5000);
