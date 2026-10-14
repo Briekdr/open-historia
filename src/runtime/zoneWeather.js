@@ -24,12 +24,14 @@ import { zoneWeathersOn } from "./fronts/climate.js";
 import { parseGameDate } from "./gameDates.js";
 import { normalizeClimateZones } from "./warGeography.js";
 import { warSettingsOf } from "./warSettings.js";
+import { climateZonesOf } from "./worldGeographyDefaults.js";
 
 // Each zone's weather on a date: what world.zoneWeather keeps, or null.
 //   seed   the campaign's own, as its land war is fought with
 export const zoneWeatherFor = (world, { seed = "", date = "" } = {}) => {
   if (!warSettingsOf(world).mechanics.weather) return null;
-  const zones = normalizeClimateZones(world?.climateZones);
+  // (Its own zones, or on the built-in basemaps the real world's: worldGeographyDefaults.js.)
+  const zones = normalizeClimateZones(climateZonesOf(world));
   if (zones.length === 0 || !parseGameDate(date)) return null;
   return {
     date: String(date),

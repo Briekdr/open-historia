@@ -19,13 +19,15 @@ import { isConstrainedDevice } from "../../runtime/deviceProfile.js";
 import { MAP_SETTING_KEYS, useMapSettingDefaultOn } from "../../runtime/mapSettings.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
 import { warSettingsOf } from "../../runtime/warSettings.js";
+import { climateZonesOf } from "../../runtime/worldGeographyDefaults.js";
 import { GLOBE_TOP_LAT, MERCATOR_TOP_LAT, seasonTintCorners, seasonTintField, seasonTintHeight } from "./seasonTint.js";
 import { useLayerOrder } from "./useLayerOrder.js";
 
 const SOURCE = "seasons-tint-source";
 const LAYERS = ["seasons-tint"];
 const NONE = Object.freeze([]);
-const selectZones = (world) => (Array.isArray(world?.climateZones) ? world.climateZones : NONE);
+// The scenario's own zones, or on the built-in basemaps the real world's (runtime/worldGeographyDefaults.js).
+const selectZones = (world) => climateZonesOf(world);
 const selectSeasons = (world) => warSettingsOf(world).mechanics.weather === true;
 const selectDate = (game) => String(game?.gameDate || game?.startDate || "");
 // A tint, not a colour: a little stronger from far off, where it is the season

@@ -32,7 +32,7 @@ import { WEATHER_STATES } from "./fronts/weather.js";
 export const TERRAIN_LEVEL_MOST = 10;
 export const WALL_LEVEL_LEAST = 3;
 export const WALL_LEVEL_MOST = 10;
-export const CLIMATE_ZONES_MOST = 24;
+export const CLIMATE_ZONES_MOST = 48;
 export const TERRAIN_AREAS_MOST = 200;
 export const FORTIFICATIONS_MOST = 200;
 const POINTS_MOST = 2000;

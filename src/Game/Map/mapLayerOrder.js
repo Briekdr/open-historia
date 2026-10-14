@@ -75,10 +75,6 @@ export const MAP_LAYER_ORDER = [
   "ice-cracks-b-repair",
   "ice-edge",
   "ice-edge-repair",
-  // Ground a scenario made harder to cross (WarGeographyLayers.jsx): a shade
-  // and a dashed edge, under the borders that may run through it.
-  "war-terrain-fill",
-  "war-terrain-outline",
 
   // Sovereign frontiers are presentation, but must remain above every
   // political fill and below every semantic object/label layer.

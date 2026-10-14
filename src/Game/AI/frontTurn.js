@@ -30,6 +30,7 @@ import { militaryLookup } from "../../runtime/militaryStats.js";
 import { DEFAULT_MUSTER, musterTable } from "../../runtime/mustering.js";
 import { warSettingsOf } from "../../runtime/warSettings.js";
 import { normalizeClimateZones, normalizeFortifications, normalizeFreezingRegions, normalizeTerrainAreas, zoneWeightAt } from "../../runtime/warGeography.js";
+import { climateZonesOf, terrainAreasOf } from "../../runtime/worldGeographyDefaults.js";
 import { freezesAt } from "../../runtime/fronts/climate.js";
 import { hashKey } from "../../runtime/fronts/codec.js";
 import { fundingFactor, middleFundingPerHead } from "../../runtime/militaryFunding.js";
@@ -387,10 +388,17 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
 };
 
 // The ground a scenario made harder to cross, as the engine's map carries it
-// (runtime/fronts/arena.js): { key, areas }, or null for none.
+// (runtime/fronts/arena.js): { key, areas }, or null for none. Its own, or on
+// the built-in basemaps the real world's (runtime/worldGeographyDefaults.js).
+// Worked out once for the same list of areas.
+const terrains = new WeakMap();
 const terrainOf = (world) => {
-  const areas = normalizeTerrainAreas(world?.terrainAreas).filter((area) => area.level > 0);
-  return areas.length > 0 ? { key: hashKey(areas.map((area) => `${area.id}:${area.level}:${JSON.stringify(area.rings)}`)), areas } : null;
+  const source = terrainAreasOf(world);
+  if (terrains.has(source)) return terrains.get(source);
+  const areas = normalizeTerrainAreas(source).filter((area) => area.level > 0);
+  const terrain = areas.length > 0 ? { key: hashKey(areas.map((area) => `${area.id}:${area.level}:${JSON.stringify(area.rings)}`)), areas } : null;
+  terrains.set(source, terrain);
+  return terrain;
 };
 
 // The water a scenario lets freeze that is frozen for a turn: by its climate
@@ -400,7 +408,7 @@ const terrainOf = (world) => {
 export const frozenFor = ({ world, regions, fromDate = "", days = 0 }) => {
   const freezing = normalizeFreezingRegions(world?.freezingRegions);
   if (freezing.length === 0 || !Array.isArray(regions)) return [];
-  const zones = normalizeClimateZones(world?.climateZones).map((zone) => ({ zone, inside: (lng, lat) => zoneWeightAt(zone, lng, lat) }));
+  const zones = normalizeClimateZones(climateZonesOf(world)).map((zone) => ({ zone, inside: (lng, lat) => zoneWeightAt(zone, lng, lat) }));
   const middle = addGameDays(fromDate, Math.floor(Math.max(0, Number(days) || 0) / 2)) || fromDate;
   const wanted = new Set(freezing);
   const frozen = [];
@@ -1099,7 +1107,8 @@ export const runTurnFronts = async ({
       ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
       ...(Number(menEach) >= 1 ? { menEach: Number(menEach) } : {}),
       // A scenario's own climate zones, where it has seasons and weather (runtime/fronts/climate.js).
-      ...(mechanics?.weather === true && normalizeClimateZones(world?.climateZones).length > 0 ? { climateZones: normalizeClimateZones(world?.climateZones) } : {}),
+      // (Its own, or on the built-in basemaps the real world's: runtime/worldGeographyDefaults.js.)
+      ...(mechanics?.weather === true && climateZonesOf(world).length > 0 ? { climateZones: normalizeClimateZones(climateZonesOf(world)) } : {}),
       // The walls the scenario drew and the War Room built, where it has them (runtime/fronts/walls.js).
       ...(mechanics?.walls === true && normalizeFortifications(world?.fortifications).length > 0 ? { fortifications: normalizeFortifications(world?.fortifications) } : {}),
       // The seasons and weather, where the scenario has them (runtime/fronts/weather.js).

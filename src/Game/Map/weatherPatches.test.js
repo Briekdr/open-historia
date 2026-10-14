@@ -129,6 +129,8 @@ test("each zone's weather is the one the last turn wrote, else worked out as the
   assert.deepEqual(worked.zones.map((entry) => entry.id), ["west", "east", "far"]);
   assert.deepEqual(zoneWeatherFor(world, { seed: "campaign", date: "1916-01-10" }), worked);
   assert.equal(zoneWeatherFor({ ...world, warSettings: { mechanics: { weather: false } } }, { seed: "campaign", date: "1916-01-10" }), null);
-  assert.equal(zoneWeatherFor({ climateZones: [] }, { seed: "campaign", date: "1916-01-10" }), null);
+  // A world with no zones of its own and a map of its own has none; on the built-in basemaps, the real world's (worldGeographyDefaults.js).
+  assert.equal(zoneWeatherFor({ climateZones: [], background: { kind: "image" } }, { seed: "campaign", date: "1916-01-10" }), null);
+  assert.ok(zoneWeatherFor({ climateZones: [] }, { seed: "campaign", date: "1916-01-10" }).zones.length >= 30);
   assert.equal(zoneWeatherFor(world, { seed: "campaign", date: "Year 12" }), null);
 });

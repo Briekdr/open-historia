@@ -26,6 +26,7 @@ import { MAP_SETTING_KEYS, useMapSettingDefaultOn } from "../../runtime/mapSetti
 import { translateLabel, uiString } from "../../runtime/translator.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
 import { warSettingsOf } from "../../runtime/warSettings.js";
+import { climateZonesOf } from "../../runtime/worldGeographyDefaults.js";
 import { zoneWeatherFor } from "../../runtime/zoneWeather.js";
 import { battleChipFeatures, weatherFrontsOf } from "./frontWeatherFeatures.js";
 import { CHIP_STRETCH, WEATHER_CHIP_IMAGE, WEATHER_DRAWN, WEATHER_LAYERS, chipPicture, weatherImageId, weatherPattern } from "./mapPatterns.js";
@@ -37,7 +38,8 @@ const CHIPS = "fronts-weather-chips-source";
 const LAYERS = ["fronts-weather-wash", "fronts-weather-pattern", "fronts-weather-pattern-b", "fronts-weather-pattern-c", "fronts-weather-chip"];
 const NONE = Object.freeze([]);
 const selectFronts = (world) => weatherFrontsOf(world?.battlefields);
-const selectZones = (world) => (Array.isArray(world?.climateZones) ? world.climateZones : NONE);
+// The scenario's own zones, or on the built-in basemaps the real world's (runtime/worldGeographyDefaults.js).
+const selectZones = (world) => climateZonesOf(world);
 const selectRecorded = (world) => world?.zoneWeather ?? null;
 const selectWeatherOn = (world) => warSettingsOf(world).mechanics.weather;
 const selectDate = (game) => String(game?.gameDate || game?.startDate || "");

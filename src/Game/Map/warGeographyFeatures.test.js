@@ -113,25 +113,21 @@ test("fortified lines: what stands, the rubble of its breaches, and a line being
   assert.deepEqual(fortificationFeatures().features, []);
 });
 
-test("its layers are in the map's order: terrain under the borders, walls over them and under the battlefields' weather", () => {
+test("its layers are in the map's order: walls over the borders and under the weather; hard ground is not drawn in the game", () => {
   const index = (id) => MAP_LAYER_ORDER.indexOf(id);
-  const terrain = ["war-terrain-fill", "war-terrain-outline"];
   const walls = ["war-walls-rubble", "war-walls-planned", "war-walls-progress", "war-walls-casing", "war-walls-core", "war-walls-teeth"];
-  for (const id of [...terrain, ...walls]) assert.ok(index(id) >= 0, `${id} is missing from the map's order`);
-  assert.deepEqual([...terrain, ...walls].sort((a, b) => index(a) - index(b)), [...terrain, ...walls]);
-  for (const id of terrain) {
-    assert.ok(index(id) > index("custom-regions-fill") && index(id) > index("fronts-paint-11"), "over the fills and the taken ground");
-    assert.ok(index(id) > index("seasons-tint") && index(id) < index("polity-boundaries-shadow"));
-  }
+  for (const id of walls) assert.ok(index(id) >= 0, `${id} is missing from the map's order`);
+  assert.deepEqual([...walls].sort((a, b) => index(a) - index(b)), walls);
+  // "The terrain traversability marker should not be visible ingame": no layer of it, in the order or drawn.
+  assert.equal(MAP_LAYER_ORDER.some((id) => id.startsWith("war-terrain")), false);
   for (const id of walls) {
     assert.ok(index(id) > index("polity-boundaries") && index(id) > index("group-areas-outline"), "over the borders they so often follow");
     assert.ok(index(id) < index("fronts-weather-wash") && index(id) < index("fronts-arrows-past") && index(id) < index("country-curved-labels"));
   }
   const component = read("WarGeographyLayers.jsx");
-  assert.deepEqual([...component.matchAll(/id="([a-z-]+)"/g)].map((match) => match[1]), [...terrain, ...walls], "every layer it declares is in the order, and no other");
-  assert.match(component, /warSettingsOf\(world\)\.mechanics\.terrain/);
+  assert.deepEqual([...component.matchAll(/id="([a-z-]+)"/g)].map((match) => match[1]), walls, "every layer it declares is in the order, and no other");
   assert.match(component, /warSettingsOf\(world\)\.mechanics\.walls/);
-  assert.match(component, /"line-dasharray": \[3, 2\]/, "the terrain's edge is dashed");
+  assert.doesNotMatch(component, /terrainAreaFeatures|war-terrain/);
   assert.match(component, /"line-offset": wallWidth\(0\.75\)/, "the teeth stand off to one side");
   assert.match(read("MapScene.jsx"), /<IceLayers \/>\s*<WarGeographyLayers \/>/);
   for (const name of ["warGeographyFeatures.js", "WarGeographyLayers.jsx"]) assert.doesNotMatch(read(name), /createLinearGradient|createRadialGradient|createConicGradient|gradient\(/i);

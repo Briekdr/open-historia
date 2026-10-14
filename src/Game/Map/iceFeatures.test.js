@@ -51,7 +51,7 @@ test("the ice lies over the season's tint and under the borders, on the regions'
   assert.deepEqual([...layers].sort((a, b) => index(a) - index(b)), layers);
   for (const id of layers) {
     assert.ok(index(id) > index("custom-regions-fill") && index(id) > index("custom-regions-repair-fill"), "over the water's own fill");
-    assert.ok(index(id) > index("seasons-tint") && index(id) < index("war-terrain-fill") && index(id) < index("polity-boundaries-shadow"));
+    assert.ok(index(id) > index("seasons-tint") && index(id) < index("war-walls-rubble") && index(id) < index("polity-boundaries-shadow"));
   }
   const component = read("IceLayers.jsx");
   assert.deepEqual([...component.matchAll(/id="([a-z-]+)"/g)].map((match) => match[1]), layers, "every layer it declares is in the order, and no other");
