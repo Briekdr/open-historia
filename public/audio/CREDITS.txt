@@ -1,6 +1,6 @@
 The music of Open Historia
 
-All three pieces are by Scott Buckley (https://www.scottbuckley.com.au/) and are
+All four pieces are by Scott Buckley (https://www.scottbuckley.com.au/) and are
 released under the Creative Commons Attribution 4.0 International License
 (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
 The files are the composer's own, unchanged.
@@ -10,6 +10,11 @@ passage-of-time.mp3
     https://www.scottbuckley.com.au/library/passage-of-time/
     Plays on the menu, as far as its build, and from its build on while a
     game opens.
+
+clear-skies.mp3
+    "Clear Skies" by Scott Buckley
+    https://www.scottbuckley.com.au/library/clear-skies/
+    Plays on the menu, in turn with Passage Of Time.
 
 legionnaire.mp3
     "Legionnaire (2022 Remaster)" by Scott Buckley

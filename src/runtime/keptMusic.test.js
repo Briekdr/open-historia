@@ -412,7 +412,7 @@ test("the director, the editor's preview and Settings all go through this one fu
   // Under the volume, in Sound.
   const sound = settings.slice(settings.indexOf("const SoundSection = "));
   assert.ok(sound.indexOf("aria-label=\"Music volume\"") < sound.indexOf("<DownloadedMusic />"));
-  assert.ok(sound.indexOf("<DownloadedMusic />") < sound.indexOf("released under CC BY 4.0."));
+  assert.ok(sound.indexOf("<DownloadedMusic />") < sound.indexOf("released under CC BY 4.0:"));
 });
 
 test("the page's start-up sweep of old caches leaves the kept music", () => {
