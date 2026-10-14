@@ -807,6 +807,8 @@ export const runTurnFronts = async ({
   players = [],
   // false leaves every side nobody plays to the orders it is given (runtime/fronts/staff.js decides for it otherwise).
   staff = true,
+  // EXPERIMENT, in the lab (runtime/fronts/mind/policy.js): a staff of the caller's own, asked before the engine's.
+  staffPolicy = null,
   // How many troops are raised, of the usual: a factor, 1 unless a run says (runtime/fronts/troops.js troopsFactor).
   troops = 1,
   // false charges no country's people for the troops raised (runtime/fronts/manpower.js).
@@ -1027,6 +1029,7 @@ export const runTurnFronts = async ({
       // (runtime/naval/blockade.js): the side it fights on is weighed for it (runtime/fronts/handicap.js).
       ...(short.size > 0 ? { shortageOf: (name) => short.get(fold(name)) ?? 0 } : {}),
       ...(staff === false ? { staff: false } : {}),
+      ...(typeof staffPolicy === "function" ? { staffPolicy } : {}),
       ...(Number(troops) > 0 && Number(troops) !== 1 ? { troops: Number(troops) } : {}),
       pace,
       flipAllowance: frontFlipAllowance({ allowance, events: list }),

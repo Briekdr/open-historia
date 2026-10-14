@@ -216,6 +216,8 @@ export const normalizeBattlefield = (raw) => {
     base: pairOf(raw.base, amount(0)),
     quality: pairOf(raw.quality, amount(1)),
     effort: pairOf(raw.effort, (value) => (FRONT_EFFORTS.includes(value) ? value : DEFAULT_EFFORT)),
+    // EXPERIMENT, in the lab (mind/policy.js): what a side's trained staff remembers, a list of numbers a side.
+    ...(Array.isArray(raw.mind) ? { mind: [0, 1].map((side) => (Array.isArray(raw.mind[side]) ? raw.mind[side].slice(0, 64).map((value) => (Number.isFinite(Number(value)) ? Number(value) : 0)) : [])) } : {}),
     orders: normalizeOrders(raw.orders),
     replay: normalizeReplay(raw.replay),
     held: packed(raw.held),

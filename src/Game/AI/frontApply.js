@@ -48,7 +48,8 @@ import { FREEFORM, normalizeProjection } from "../../../server/mapProjection.js"
 import { stolenPlansBlock, turnPlanned, warRoomIntel } from "./frontPlans.js";
 import { battlefieldPowers, buildFrontsBlock } from "./frontPrompt.js";
 import { buildScenarioFronts, scenarioFrontsPending } from "./frontScenario.js";
-import { frontsOn, frontsPace } from "./frontsGate.js";
+import { frontsOn, frontsPace, strategyNetOn } from "./frontsGate.js";
+import { trainedStaffPolicy } from "../../runtime/fronts/mind/trained.js";
 import { applyFrontUnitChanges, battlefieldRegionTest, engineRegionsOf, frontWorldReaders, runTurnFronts, stripFrontOps } from "./frontTurn.js";
 import { applyWarUpdates, eventNarratesHardCombat } from "./nativeWarLedger.js";
 import { filterToRenderedRegions } from "./promptContext.js";
@@ -217,6 +218,8 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
     seed: `${clean(campaignId)}|${round}|${fromDate}`,
     // What a fleet the war at sea commissions is held to (runtime/naval/engine.js).
     unitCaps: { perCountry: MAX_UNITS_PER_POLITY, world: MAX_UNITS_GLOBAL },
+    // EXPERIMENT, in the lab: the trained staff, when its switch is on and one is shipped (runtime/fronts/mind/trained.js).
+    ...(strategyNetOn() && trainedStaffPolicy() ? { staffPolicy: trainedStaffPolicy() } : {}),
     players: humanCountriesOf(game),
     // The difficulty weighs the land war for whoever fights a person's country (runtime/fronts/handicap.js).
     difficulty: normalizeDifficulty(game?.difficulty),

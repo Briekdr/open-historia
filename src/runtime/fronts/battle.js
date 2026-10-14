@@ -563,6 +563,7 @@ export const loadBattle = (run, record, arena) => {
   battle.base = record.base.slice();
   battle.quality = record.quality.slice();
   battle.effort = record.effort.slice();
+  if (Array.isArray(record.mind)) battle.mind = record.mind.map((list) => (Array.isArray(list) ? list.slice() : []));
   battle.orders = record.orders.map((order, index) => {
     const stood = Array.isArray(carry.ages) && Number.isFinite(carry.ages[index]) ? carry.ages[index] : diffGameDays(order.since, run.input.fromDate);
     return { ...order, age: Math.max(0, Math.floor(Number(stood) || 0)) };
@@ -759,6 +760,7 @@ export const saveBattle = (battle, run, day, changes, brief) => {
     base: battle.base.slice(),
     quality: battle.quality.slice(),
     effort: battle.effort.slice(),
+    ...(Array.isArray(battle.mind) ? { mind: battle.mind.map((list) => (Array.isArray(list) ? list.slice() : [])) } : {}),
     orders: orders.map(({ s, sector, order, objective, effort, by, since, chosen, way, mark, attacks }) => ({
       s,
       sector,

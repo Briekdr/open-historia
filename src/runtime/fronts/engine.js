@@ -1875,18 +1875,31 @@ const reviewStaff = (run, battle, day) => {
     if (battle.away[side] || sideIsPlayed(battle, side, run.input?.players) || !staffMayOrder(battle, side)) continue;
     if (liveCount(battle.troops[side]) === 0) continue;
     today = today ?? prepare(battle, day);
-    const decided = staffDecision(battle, side, {
+    const context = {
       // (The first side of a war is the one that began it.)
       began: battleSide(battle, side) === 0,
       today,
       key: `${run.seed}|${battle.name}|${side}|${run.dateOf(day)}`,
-    });
+    };
+    // EXPERIMENT, in the lab (mind/policy.js): a run may be handed a staff of
+    // its own, a trained network, asked first. `undefined` from it leaves the
+    // side to the staff the engine has.
+    const own = typeof run.input?.staffPolicy === "function" ? run.input.staffPolicy(battle, side, context, run) : undefined;
+    const decided = own === undefined ? staffDecision(battle, side, context) : own;
     if (!decided) continue;
+    const lead = battle.sides[side].find((member, at) => !battle.gone[side].has(at)) ?? "";
+    // Such a staff may call up fresh formations too (reinforceOnFront): as many as a draft usually brings,
+    // within what a side may be brought to and the men its country has. One refused says nothing.
+    if (decided.draft === true && lead) {
+      const said = run.notes.length;
+      reinforceOnFront(run, battle, { side: lead, sector: decided.sector, given: true }, day);
+      run.notes.length = said;
+      today = prepare(battle, day);
+    }
     const wanted = `${decided.order}|${fold(decided.sector)}`;
     const stands = staffStanding(battle, side);
     // To hold is what a side with no order does: nothing is written for it, unless the staff had it attacking.
     if (stands === wanted || (decided.order === "hold" && stands === "" && !battle.orders.some((order) => order.s === side && !order.chosen))) continue;
-    const lead = battle.sides[side].find((member, at) => !battle.gone[side].has(at)) ?? "";
     // What the staff had the side doing before is over, and so is an order of the story's that has
     // stood too long to be left alone (staffMayOrder): the line is the staff's to order afresh.
     battle.orders = battle.orders.filter((order) => order.s !== side || order.chosen);

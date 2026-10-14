@@ -29,6 +29,20 @@ export const frontsPace = () => {
   return FRONT_PACE_SHARE * setting;
 };
 
+// EXPERIMENT, in the lab only (runtime/fronts/mind/). Whether the sides nobody
+// plays are led by the trained network in place of the engine's scripted
+// staff. Off unless whoever is at the keyboard turns it on, in the browser's
+// console: localStorage.setItem("oh:strategyNet", "1"). There is no setting
+// for it and no scenario can ask for it.
+export const STRATEGY_NET_KEY = "oh:strategyNet";
+export const strategyNetOn = () => {
+  try {
+    return globalThis.localStorage?.getItem(STRATEGY_NET_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
 // The formations a model that moves units is shown. One fighting on a
 // battlefield is a troop of its side there: the engine moves it, the
 // battlefield's own lines in [Fronts] speak for it, and it leaves the list, so
