@@ -10,10 +10,10 @@
 // patch in the zone's own shape. Each zone's share of each place, a half at
 // its edge, the whole blendKm / 2 inside it and nothing as far outside
 // (seasonTint.js zoneWeightGrid, as the season's tint has it), is summed for
-// the zones of each weather; the patch's outline is traced where that sum is a
-// fifth, a half and four fifths (marching squares) and rounded off (Chaikin).
-// The three are laid one over another, so a patch's weather is full in its
-// middle and thins across its edge into the next: where two zones meet, their
+// the zones of each weather; the patch's outline is traced at five levels of
+// that sum, a tenth to nine tenths (marching squares), and rounded off
+// (Chaikin). The five are laid one over another, so a patch's weather is full
+// in its middle and thins evenly across its edge into the next: where two zones meet, their
 // patches meet, each fading into the other, and zones of one weather that
 // touch are one patch. Nothing is drawn where no zone is.
 //
@@ -27,11 +27,14 @@ import { weatherChipText, weatherOverlayOf } from "./frontWeatherFeatures.js";
 import { MERCATOR_TOP_LAT, seasonTintHeight, tintGrid, zoneWeightGrid } from "./seasonTint.js";
 
 // Where a patch's outline is traced, and how strongly each is drawn: laid one
-// over another they come to about a third, two thirds and all of the weather.
+// over another they come to a fifth, two fifths, three, four and all of the
+// weather, in even steps from the edge of its blend to the middle.
 export const PATCH_BANDS = Object.freeze([
-  Object.freeze([0.2, 0.32]),
-  Object.freeze([0.5, 0.5]),
-  Object.freeze([0.8, 1]),
+  Object.freeze([0.1, 0.2]),
+  Object.freeze([0.3, 0.25]),
+  Object.freeze([0.5, 1 / 3]),
+  Object.freeze([0.7, 0.5]),
+  Object.freeze([0.9, 1]),
 ]);
 // How fine the picture the outlines are traced on is: a pixel no finer than
 // this many degrees, and about this many pixels for all the zones together.
@@ -349,6 +352,7 @@ export const weatherPatchFeatures = ({ zones = [], weather = new Map(), label } 
         geometry: { type: "MultiPolygon", coordinates },
         properties: {
           weather: state,
+          level,
           strength,
           ...(overlay.pattern ? { pattern: overlay.pattern } : {}),
           ...(overlay.wash ? { wash: overlay.wash.color, washOpacity: overlay.wash.opacity } : {}),

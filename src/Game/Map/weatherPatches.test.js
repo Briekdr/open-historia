@@ -9,7 +9,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { contourRings, ringsToPolygons, smoothRing, weatherPatchFeatures, zoneWeatherById } from "./weatherPatches.js";
+import { PATCH_BANDS, contourRings, ringsToPolygons, smoothRing, weatherPatchFeatures, zoneWeatherById } from "./weatherPatches.js";
 import { zoneWeatherFor } from "../../runtime/zoneWeather.js";
 
 // A field of `width` x `height` with 1 where `inside(x, y)`.
@@ -69,8 +69,16 @@ const weatherOf = (entries) => new Map(entries.map(([id, state, season]) => [id,
 
 test("each zone is a patch of its weather in its own shape; zones that meet, meet, each fading into the other", () => {
   const { areas, chips, drifting } = weatherPatchFeatures({ zones: ZONES, weather: weatherOf([["west", "snow", "Winter"], ["east", "rain", "Spring"], ["far", "clear", "Summer"]]) });
-  // Three outlines a weather (a fifth, a half, four fifths), none for clear weather.
-  assert.deepEqual(areas.features.map((feature) => [feature.properties.weather, feature.properties.strength]), [["snow", 0.32], ["snow", 0.5], ["snow", 1], ["rain", 0.32], ["rain", 0.5], ["rain", 1]]);
+  // Five outlines a weather (a tenth to nine tenths), none for clear weather; laid one over another they
+  // come to the whole weather in even steps.
+  const levels = PATCH_BANDS.map(([level]) => level);
+  assert.deepEqual(areas.features.map((feature) => [feature.properties.weather, feature.properties.level]), [...levels.map((level) => ["snow", level]), ...levels.map((level) => ["rain", level])]);
+  let left = 1;
+  const steps = PATCH_BANDS.map(([, strength]) => {
+    left *= 1 - strength;
+    return Math.round((1 - left) * 100) / 100;
+  });
+  assert.deepEqual(steps, [0.2, 0.4, 0.6, 0.8, 1]);
   for (const feature of areas.features) {
     for (const polygon of feature.geometry.coordinates) {
       polygon.forEach((ring, index) => {
@@ -79,7 +87,8 @@ test("each zone is a patch of its weather in its own shape; zones that meet, mee
       });
     }
   }
-  const halfOf = (state) => box(areas.features.find((feature) => feature.properties.weather === state && feature.properties.strength === 0.5).geometry.coordinates[0][0]);
+  const atLevel = (state, level) => areas.features.find((feature) => feature.properties.weather === state && feature.properties.level === level);
+  const halfOf = (state) => box(atLevel(state, 0.5).geometry.coordinates[0][0]);
   const snow = halfOf("snow");
   const rain = halfOf("rain");
   // At the half, each patch is its zone: the two meet along the border between them, with no gap and no circle.
@@ -87,7 +96,7 @@ test("each zone is a patch of its weather in its own shape; zones that meet, mee
   assert.ok(Math.abs(snow.west - 22) < 0.5 && Math.abs(rain.east - 38) < 0.5);
   assert.ok(snow.south < 46.5 && snow.north > 51.5, "its whole shape, edge to edge");
   // The faintest outline reaches a little way past the zone's edge, into its neighbour.
-  const faint = box(areas.features.find((feature) => feature.properties.weather === "snow" && feature.properties.strength === 0.32).geometry.coordinates[0][0]);
+  const faint = box(atLevel("snow", 0.1).geometry.coordinates[0][0]);
   assert.ok(faint.east > 30.2 && faint.west < 21.8);
   // A chip in each zone, saying its season and weather; the clear one too.
   assert.deepEqual(chips.features.map((feature) => feature.properties.chip), ["Winter · snow", "Spring · rain", "Summer · clear"]);
@@ -99,11 +108,12 @@ test("each zone is a patch of its weather in its own shape; zones that meet, mee
 
 test("zones of one weather that touch are one patch", () => {
   const { areas } = weatherPatchFeatures({ zones: ZONES, weather: weatherOf([["west", "fog", "Autumn"], ["east", "fog", "Autumn"]]) });
-  const full = areas.features.filter((feature) => feature.properties.weather === "fog" && feature.properties.strength === 1);
+  const full = areas.features.filter((feature) => feature.properties.weather === "fog" && feature.properties.level === 0.9);
   assert.equal(full.length, 1);
   assert.equal(full[0].geometry.coordinates.length, 1, "one shape across both");
   const { west, east } = box(full[0].geometry.coordinates[0][0]);
-  assert.ok(west < 23 && east > 37);
+  // (Its fullest outline lies a little inside the two zones' outer edges, where their blend begins.)
+  assert.ok(west < 23.6 && east > 36.4, `${west} ${east}`);
   // No zone, or no weather known for it: nothing.
   assert.deepEqual(weatherPatchFeatures({ zones: [], weather: new Map() }).areas.features, []);
   assert.deepEqual(weatherPatchFeatures({ zones: ZONES, weather: new Map() }).chips.features, []);
