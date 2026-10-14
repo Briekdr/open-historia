@@ -38,6 +38,7 @@ import {
   resetHubMusicCache,
   trackById,
 } from "./hubMusic.js";
+import { HUB_MUSIC_TAG_KINDS, tagCounts, tracksWithTags } from "./hubMusic.js";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const RELEASES = "https://github.com/Open-Historia/Open-historia-scenarios/releases/download";
@@ -52,6 +53,9 @@ const hubTrack = (extra = {}) => ({
   source: "https://www.scottbuckley.com.au/library/passage-of-time/",
   credit: "'Passage Of Time' by Scott Buckley - released under CC-BY 4.0. www.scottbuckley.com.au",
   fits: ["menu", "loading"],
+  genres: ["Orchestral", "Neoclassical"],
+  moods: ["Bittersweet", "Reflective"],
+  instruments: ["Piano", "Strings"],
   version: 1,
   file: PASSAGE_FILE,
   type: "mp3",
@@ -367,4 +371,59 @@ test("with no localStorage at all, the list is simply read from the hub each ses
   const list = await fetchHubMusic();
   assert.equal(list.listed, true);
   assert.equal(knownHubMusic(), list);
+});
+
+// "make it so for each of the songs, you also scrape the data of how they are
+// sorted from the website ... make it so users can also pick catagories to
+// easily find songs that they need for their scenario" (the owner, 2026-10-14).
+test("a track's genres, moods and instruments are read as names; a list from before them has none", () => {
+  assert.deepEqual([...HUB_MUSIC_TAG_KINDS], ["genres", "moods", "instruments"]);
+  // A list the hub wrote before it had them.
+  const { genres, moods, instruments, ...before } = hubTrack();
+  const old = normalizeHubMusic(hubList([before])).tracks[0];
+  assert.deepEqual([old.genres, old.moods, old.instruments], [[], [], []]);
+  // A stranger's text: names only, each once, cut short; anything else dropped.
+  const odd = normalizeHubMusic(hubList([hubTrack({ genres: ["Orchestral", "Orchestral", 4, null, "  Ambient  ", "x".repeat(300)], moods: "Epic", instruments: { piano: true } })])).tracks[0];
+  assert.deepEqual(odd.genres, ["Orchestral", "Ambient", "x".repeat(60)]);
+  assert.deepEqual([odd.moods, odd.instruments], [[], []]);
+  assert.equal(normalizeHubMusic(hubList([hubTrack({ moods: Array.from({ length: 90 }, (_, index) => `Mood ${index}`) })])).tracks[0].moods.length, 40);
+});
+
+test("tracks are found by a genre, a mood and an instrument together, and each menu counts what it would find", () => {
+  const tracks = [
+    hubTrack({ id: "a", genres: ["Orchestral"], moods: ["Epic", "Heroic"], instruments: ["Choir", "Strings"] }),
+    hubTrack({ id: "b", genres: ["Orchestral", "Ambient"], moods: ["Calm"], instruments: ["Strings"] }),
+    hubTrack({ id: "c", genres: ["Ambient"], moods: ["Calm", "Dreamy"], instruments: ["Synth (Pad)"] }),
+  ];
+  const ids = (found) => found.map((track) => track.id);
+  assert.deepEqual(ids(tracksWithTags(tracks, {})), ["a", "b", "c"]);
+  assert.deepEqual(ids(tracksWithTags(tracks, { genres: "Orchestral" })), ["a", "b"]);
+  assert.deepEqual(ids(tracksWithTags(tracks, { genres: "Orchestral", moods: "Calm" })), ["b"]);
+  assert.deepEqual(ids(tracksWithTags(tracks, { genres: "Orchestral", moods: "Calm", instruments: "Choir" })), []);
+  assert.deepEqual(ids(tracksWithTags(tracks, { genres: "", moods: "", instruments: "Strings" })), ["a", "b"]);
+  // The most used first, then by name.
+  assert.deepEqual(tagCounts(tracks, "genres"), [["Ambient", 2], ["Orchestral", 2]]);
+  assert.deepEqual(tagCounts(tracks, "moods"), [["Calm", 2], ["Dreamy", 1], ["Epic", 1], ["Heroic", 1]]);
+  assert.deepEqual(tagCounts([], "moods"), []);
+});
+
+test("the Music tab's picker narrows the hub's list by genre, mood and instrument", () => {
+  const panel = fs.readFileSync(path.join(ROOT, "src", "Game", "GameUI", "ScenarioMusicPanel.jsx"), "utf8");
+  const picker = panel.slice(panel.indexOf("const TrackPicker = "), panel.indexOf("const ScenarioMusicPanel = "));
+  // One menu for each, each saying "any" until a name is chosen.
+  assert.match(panel, /genres: Object\.freeze\(\{ label: "Genre", any: "Any genre" \}\),/);
+  assert.match(panel, /moods: Object\.freeze\(\{ label: "Mood", any: "Any mood" \}\),/);
+  assert.match(panel, /instruments: Object\.freeze\(\{ label: "Instrument", any: "Any instrument" \}\),/);
+  assert.match(picker, /\{HUB_MUSIC_TAG_KINDS\.map\(\(kind\) => \(\s+<select\s+aria-label=\{TAG_FILTER_TEXTS\[kind\]\.label\}/);
+  assert.match(picker, /<option value="">\{TAG_FILTER_TEXTS\[kind\]\.any\}<\/option>/);
+  // Its choices are the names the other menus' tracks have, counted; the hub's names are never translated.
+  assert.match(picker, /tagCounts\(tracksWithTags\(searched, \{ \.\.\.tags, \[kind\]: "" \}\), kind\)/);
+  assert.match(picker, /<option data-no-translate key=\{name\} value=\{name\}>\{`\$\{name\} \(\$\{count\}\)`\}<\/option>/);
+  // The tracks found have all three, and the search too.
+  assert.match(picker, /const found = tracksWithTags\(searched, tags\);/);
+  assert.match(picker, /\{narrowed \? <button className="oh-tap-row" onClick=\{\(\) => setTags\(NO_TAGS\)\} [^\n]+>\{"Clear filters"\}<\/button> : null\}/);
+  assert.match(picker, /narrowed \? "No track matches the search and filters\." : "No track matches the search\."/);
+  // A list with no names at all shows no menus; each track shows its genres and moods.
+  assert.match(picker, /\{sorted \? \(/);
+  assert.match(picker, /\{tagLineOf\(track\) \? <div data-no-translate style=\{trackDetailStyle\}>\{tagLineOf\(track\)\}<\/div> : null\}/);
 });
