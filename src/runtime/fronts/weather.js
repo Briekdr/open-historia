@@ -53,31 +53,36 @@ export const WEATHER = Object.freeze({
 export const WEATHER_LOSS = 1.2;
 
 // What each season brings in each climate: the odds of each state, adding to 1.
+// Clear skies are the commonest weather nearly everywhere, nearly always ("dont
+// make it so there is always a weather condition, clear skies should be very
+// common", the owner, 2026-10-14): a winter of the north has more clear, hard
+// frosty days than snowy ones, and only the tropics' wet season rains more
+// often than not.
 const odds = (fields) => Object.freeze({ clear: 0, rain: 0, storm: 0, mud: 0, snow: 0, blizzard: 0, frost: 0, heat: 0, fog: 0, ...fields });
 export const WEATHER_ODDS = Object.freeze({
   polar: Object.freeze({
-    winter: odds({ blizzard: 0.3, snow: 0.3, frost: 0.35, clear: 0.05 }),
-    spring: odds({ snow: 0.3, frost: 0.2, mud: 0.2, clear: 0.3 }),
-    summer: odds({ clear: 0.5, rain: 0.25, fog: 0.25 }),
-    autumn: odds({ snow: 0.3, rain: 0.3, frost: 0.2, clear: 0.2 }),
+    winter: odds({ clear: 0.45, frost: 0.25, snow: 0.2, blizzard: 0.1 }),
+    spring: odds({ clear: 0.55, frost: 0.15, snow: 0.15, fog: 0.15 }),
+    summer: odds({ clear: 0.65, fog: 0.2, rain: 0.15 }),
+    autumn: odds({ clear: 0.5, snow: 0.2, frost: 0.15, rain: 0.15 }),
   }),
   continental: Object.freeze({
-    winter: odds({ snow: 0.3, frost: 0.25, blizzard: 0.1, clear: 0.25, fog: 0.1 }),
-    spring: odds({ mud: 0.3, rain: 0.25, clear: 0.35, fog: 0.1 }),
-    summer: odds({ clear: 0.6, rain: 0.2, storm: 0.1, heat: 0.1 }),
-    autumn: odds({ rain: 0.35, mud: 0.25, clear: 0.3, fog: 0.1 }),
+    winter: odds({ clear: 0.5, snow: 0.2, frost: 0.15, blizzard: 0.05, fog: 0.1 }),
+    spring: odds({ clear: 0.55, rain: 0.2, mud: 0.2, fog: 0.05 }),
+    summer: odds({ clear: 0.7, rain: 0.15, storm: 0.08, heat: 0.07 }),
+    autumn: odds({ clear: 0.55, rain: 0.2, mud: 0.15, fog: 0.1 }),
   }),
   arid: Object.freeze({
-    winter: odds({ clear: 0.7, rain: 0.2, fog: 0.1 }),
-    spring: odds({ clear: 0.65, heat: 0.25, storm: 0.1 }),
-    summer: odds({ heat: 0.6, clear: 0.4 }),
-    autumn: odds({ clear: 0.7, heat: 0.2, rain: 0.1 }),
+    winter: odds({ clear: 0.8, rain: 0.12, fog: 0.08 }),
+    spring: odds({ clear: 0.75, heat: 0.18, storm: 0.07 }),
+    summer: odds({ clear: 0.6, heat: 0.4 }),
+    autumn: odds({ clear: 0.82, heat: 0.13, rain: 0.05 }),
   }),
   tropical: Object.freeze({
-    winter: odds({ clear: 0.6, heat: 0.3, fog: 0.1 }),
-    spring: odds({ clear: 0.5, heat: 0.3, rain: 0.2 }),
-    summer: odds({ rain: 0.45, storm: 0.25, mud: 0.15, clear: 0.15 }),
-    autumn: odds({ rain: 0.4, storm: 0.2, mud: 0.15, clear: 0.25 }),
+    winter: odds({ clear: 0.7, heat: 0.22, fog: 0.08 }),
+    spring: odds({ clear: 0.6, heat: 0.2, rain: 0.2 }),
+    summer: odds({ clear: 0.4, rain: 0.35, storm: 0.15, mud: 0.1 }),
+    autumn: odds({ clear: 0.45, rain: 0.3, storm: 0.15, mud: 0.1 }),
   }),
 });
 

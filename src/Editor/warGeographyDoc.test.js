@@ -175,7 +175,7 @@ test("a zone can take its seasons from one of the game's climates", () => {
   assert.deepEqual(polar.map((season) => [season.name, season.start, season.end]), [
     ["Winter", "12-01", "02-28"], ["Spring", "03-01", "05-31"], ["Summer", "06-01", "08-31"], ["Autumn", "09-01", "11-30"],
   ]);
-  assert.deepEqual(polar[0].weather, { snow: 30, blizzard: 30, frost: 35, clear: 5 });
+  assert.deepEqual(polar[0].weather, { clear: 45, frost: 25, snow: 20, blizzard: 10 }, "clear skies the commonest, even in a polar winter");
   assert.equal(polar[0].effects.freezes, true, "a polar winter freezes the water");
   assert.equal(seasonsOfClimate("arid")[0].effects.freezes, undefined, "a desert winter does not");
   assert.deepEqual(seasonsOfClimate("nowhere"), seasonsOfClimate("continental"));

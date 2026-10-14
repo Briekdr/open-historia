@@ -12,6 +12,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 import { zoneMixOn, zoneWeathersOn } from "./fronts/climate.js";
+import { WEATHER_ODDS } from "./fronts/weather.js";
+import { addGameDays } from "./gameDates.js";
 import { zoneWeightAt } from "./warGeography.js";
 import { WORLD_CLIMATE_ZONES, WORLD_TERRAIN_AREAS, climateZonesOf, onBuiltInBasemap, terrainAreasOf } from "./worldGeographyDefaults.js";
 import { zoneWeatherFor } from "./zoneWeather.js";
@@ -31,6 +33,8 @@ const zoneAt = (lng, lat) => {
 };
 const oddsAt = (lng, lat, date) => zoneMixOn(zoneAt(lng, lat), date, lat).odds;
 const share = (odds, states) => states.reduce((sum, state) => sum + (odds[state] ?? 0), 0);
+// Of the days that are not clear, the share that are these.
+const rough = (odds, states) => share(odds, states) / (1 - (odds.clear ?? 0));
 
 test("the world's climates: large zones over the continents, each its own seasons, none dropped", () => {
   assert.ok(WORLD_CLIMATE_ZONES.length >= 30 && WORLD_CLIMATE_ZONES.length <= 48, String(WORLD_CLIMATE_ZONES.length));
@@ -47,17 +51,22 @@ test("the world's climates: large zones over the continents, each its own season
   }
 });
 
-test("a lot of Russia is really cold: Siberia's January is snow and frost; the Sahara's July heat; India's monsoon rain", () => {
+test("a lot of Russia is really cold: Siberia's January, when not clear, is snow and frost; the Sahara's July heat; India's monsoon rain", () => {
   assert.equal(zoneAt(100, 62).name, "Siberia");
-  assert.ok(share(oddsAt(100, 62, "1942-01-15"), ["snow", "blizzard", "frost"]) > 0.95);
-  assert.ok(zoneMixOn(zoneAt(100, 62), "1942-01-15", 62).effects.freezes > 0.9, "and its water freezes");
+  const siberia = oddsAt(100, 62, "1942-01-15");
+  assert.ok(rough(siberia, ["snow", "blizzard", "frost"]) > 0.95, "a Siberian January that is not clear is snow, frost or a blizzard");
+  assert.ok(siberia.clear >= 0.3 && siberia.clear <= 0.6, "and many of its days are clear and bitter");
+  assert.ok(zoneMixOn(zoneAt(100, 62), "1942-01-15", 62).effects.freezes > 0.9, "and its water freezes, clear or not");
   assert.equal(zoneAt(37.6, 55.75).name, "Central & Eastern Europe", "Moscow");
-  assert.ok(share(oddsAt(37.6, 55.75, "1942-01-15"), ["snow", "blizzard", "frost"]) > 0.85);
-  assert.ok(share(oddsAt(37.6, 55.75, "1942-04-01"), ["mud"]) > 0.4, "and its spring thaw turns the roads to mud");
-  assert.ok(share(oddsAt(10, 24, "1942-07-15"), ["heat"]) > 0.6, "the Sahara");
-  assert.ok(share(oddsAt(78, 22, "1942-07-15"), ["rain", "storm", "mud"]) > 0.9, "India's monsoon");
-  assert.ok(share(oddsAt(-60, -5, "1942-02-15"), ["rain", "storm", "fog"]) > 0.9, "the Amazon");
-  assert.ok(share(oddsAt(134, -25, "1942-01-15"), ["heat"]) > 0.5, "the Outback's summer, in January");
+  assert.ok(rough(oddsAt(37.6, 55.75, "1942-01-15"), ["snow", "blizzard", "frost"]) > 0.85);
+  assert.ok(rough(oddsAt(37.6, 55.75, "1942-04-01"), ["mud"]) > 0.6, "and its spring thaw turns the roads to mud");
+  const sahara = oddsAt(10, 24, "1942-07-15");
+  assert.ok(rough(sahara, ["heat"]) > 0.95 && sahara.heat > 0.3, "the Sahara");
+  const monsoon = oddsAt(78, 22, "1942-07-15");
+  assert.ok(share(monsoon, ["rain", "storm", "mud"]) > 0.6 && monsoon.rain > monsoon.clear, "India's monsoon: rain commoner than a clear sky");
+  assert.ok(share(oddsAt(-60, -5, "1942-02-15"), ["rain", "storm", "fog"]) > 0.6, "the Amazon");
+  const outback = oddsAt(134, -25, "1942-01-15");
+  assert.ok(rough(outback, ["heat"]) > 0.95 && outback.heat > 0.3, "the Outback's summer, in January");
   // The open ocean is no zone's.
   assert.equal(zoneAt(-35, 30), null, "the mid-Atlantic");
   // And neighbours' weathers fit one another, on any day.
@@ -65,6 +74,37 @@ test("a lot of Russia is really cold: Siberia's January is snow and frost; the S
     const skies = zoneWeathersOn({ seed: "test", zones: WORLD_CLIMATE_ZONES, date });
     assert.equal(skies.length, WORLD_CLIMATE_ZONES.length);
   }
+});
+
+test("clear skies are very common: the likeliest weather of nearly every season, and most of the world clear on any day", () => {
+  // The engine's own odds by latitude: clear the likeliest in every season of every climate.
+  for (const [climate, seasons] of Object.entries(WEATHER_ODDS)) {
+    for (const [season, odds] of Object.entries(seasons)) assert.ok(odds.clear === Math.max(...Object.values(odds)) && odds.clear >= 0.4, `${climate} ${season}`);
+  }
+  // The world's zones: clear the commonest in every season but the three great wet seasons, and never
+  // rarer than three days in ten.
+  const wetter = [];
+  for (const zone of WORLD_CLIMATE_ZONES) {
+    for (const season of zone.seasons) {
+      const weights = Object.values(season.weather);
+      const clear = season.weather.clear ?? 0;
+      assert.ok(clear / weights.reduce((sum, weight) => sum + weight, 0) >= 0.3, `${zone.name}, ${season.name}`);
+      if (clear < Math.max(...weights)) wetter.push(`${zone.name}, ${season.name}`);
+    }
+  }
+  assert.deepEqual(wetter, ["The Amazon, The rains", "The Indian Subcontinent, Monsoon", "South-East Asia, Wet season"]);
+  // Over a year most of the world is clear, and never is all of it under weather: a quarter of the
+  // zones at least are clear on any day.
+  let clear = 0;
+  let all = 0;
+  for (let at = 0; at < 365; at += 4) {
+    const skies = zoneWeathersOn({ seed: "test", zones: WORLD_CLIMATE_ZONES, date: addGameDays("1942-01-01", at) });
+    const here = skies.filter((sky) => sky.state === "clear").length;
+    assert.ok(here >= skies.length / 4, `day ${at}: ${here} of ${skies.length}`);
+    clear += here;
+    all += skies.length;
+  }
+  assert.ok(clear / all > 0.55, String(clear / all));
 });
 
 test("the world's hard ground: the great ranges, the marshes, the jungles, the sand seas, at 3 to 9", () => {
@@ -100,7 +140,7 @@ test("a scenario on the built-in basemaps gets the world's; one with its own map
   // The turn writes their weather as it writes a scenario's own.
   const written = zoneWeatherFor({}, { seed: "campaign", date: "1942-01-15" });
   assert.equal(written.zones.length, WORLD_CLIMATE_ZONES.length);
-  assert.ok(["snow", "blizzard", "frost"].includes(written.zones.find((entry) => entry.id === "world-siberia").state));
+  assert.ok(["clear", "snow", "blizzard", "frost"].includes(written.zones.find((entry) => entry.id === "world-siberia").state));
   // The engine is handed them (Game/AI/frontTurn.js).
   const turn = fs.readFileSync(new URL("../Game/AI/frontTurn.js", import.meta.url), "utf8");
   assert.match(turn, /climateZones: normalizeClimateZones\(climateZonesOf\(world\)\)/);

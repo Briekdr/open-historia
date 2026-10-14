@@ -144,6 +144,7 @@ Tested on 150 wars nobody trained on, each fought twice with the teams exchanged
 - **What it told its troops**: push 98%, dig in 1%, strike 1%; rest and breach never. It learnt to push, as the others did, and pushes a little worse than the plain habit.
 - **What Pt.2 changed**: always advancing still wins, but by less. Its margin over the scripted staff fell from +48.9 a war on the old engine to +29.5 on this one: tired troops, walls and weather do cost an attacker who pushes everywhere, just not enough for any other plan the league found to pay more.
 - Not shipped: it is not level with always advancing, which was the bar.
+- Its wars were fought under the first weather odds, in which a polar winter was clear one spell in twenty; clear skies were made the likeliest weather of every season after the run, so a war now sees fewer days of mud, snow and storm than the league's did.
 
 ### The first league (2026-10-13), ordering the whole side
 

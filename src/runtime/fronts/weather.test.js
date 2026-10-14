@@ -87,14 +87,16 @@ test("deep mud and a blizzard stop an advance that clear weather would carry; th
 
 test("a storm at sea keeps fleets that would have met apart", () => {
   const fleet = (id, ownerCode, lng, lat) => ({ id, name: id, type: "naval", ownerCode, strength: 100, lng, lat, posture: "assaulting" });
-  const units = [fleet("u1", "Albion", 10, 72), fleet("u2", "Teutonia", 14, 72)];
+  // Both in one five-degree stretch of sea, which has one sky.
+  const units = [fleet("u1", "Albion", 13, 72), fleet("u2", "Teutonia", 17, 72)];
   const sea = (seed, weatherSeed) => runNaval({ fromDate: "1914-01-02", days: 8, seed, wars: [{ id: "war-1", status: "active", sideA: ["Albion"], sideB: ["Teutonia"] }], units, strengthOf: () => 13, weatherSeed });
-  // A run in which they meet in fair weather, and a campaign whose arctic winter is one long storm for those eight days.
+  // A run in which they meet in fair weather, and a campaign whose arctic winter is one long storm for those eight days
+  // (a rare campaign: most arctic winter days are clear).
   const met = Array.from({ length: 60 }, (_, at) => `run ${at}`).find((seed) => sea(seed, null).battles.length > 0);
   assert.ok(met, "fleets that seek battle meet within a week or so");
   const stormyAt = (weatherSeed, lng, lat) => Array.from({ length: 9 }, (_, day) => weatherOn({ seed: weatherSeed, place: `sea ${Math.round(lng / 5)} ${Math.round(lat / 5)}`, lat, date: addGameDays("1914-01-02", day) }).state)
     .every((state) => state === "storm" || state === "blizzard");
-  const storm = Array.from({ length: 4000 }, (_, at) => `campaign ${at}`).find((weatherSeed) => stormyAt(weatherSeed, 10, 72) && stormyAt(weatherSeed, 14, 72));
+  const storm = Array.from({ length: 4000 }, (_, at) => `campaign ${at}`).find((weatherSeed) => stormyAt(weatherSeed, 13, 72) && stormyAt(weatherSeed, 17, 72));
   assert.ok(storm, "some campaign has such a storm");
   assert.ok(sea(met, storm).battles.length < sea(met, null).battles.length || sea(met, storm).battles.length === 0);
 });
