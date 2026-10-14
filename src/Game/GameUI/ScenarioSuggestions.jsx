@@ -45,7 +45,7 @@ import { FEATURE_DEFINITIONS } from "../../../server/gameFeatures.js";
 import { PROMPT_EDITOR_SECTIONS } from "../AI/gameplayPrompts.js";
 import { guidanceSegmentsFor } from "../AI/promptGuidance.js";
 import { REVIEW_SECTIONS, sectionOfChange } from "../../runtime/suggestionSections.js";
-import { MUSIC_SITUATION_LABELS, SCENARIO_MUSIC_SITUATIONS, normalizeScenarioMusic } from "../../runtime/scenarioMusic.js";
+import { MUSIC_SITUATION_LABELS, SCENARIO_MUSIC_SITUATIONS, normalizeScenarioMusic, scenarioMusicVolumes } from "../../runtime/scenarioMusic.js";
 
 // ---- looks (the library's own) -------------------------------------------------
 
@@ -278,8 +278,23 @@ const DetailValue = ({ change, coverBefore }) => {
     const after = normalizeScenarioMusic(change.to);
     const idsOf = (music, situation) => (music?.[situation] ?? []).map((entry) => entry.id).join(", ");
     const changed = SCENARIO_MUSIC_SITUATIONS.filter((situation) => JSON.stringify(before?.[situation] ?? []) !== JSON.stringify(after?.[situation] ?? []));
+    // And each situation whose volume changed, the game's own figure standing
+    // for one a record does not set.
+    const [volumeBefore, volumeAfter] = [scenarioMusicVolumes(before), scenarioMusicVolumes(after)];
+    const louder = SCENARIO_MUSIC_SITUATIONS.filter((situation) => volumeBefore[situation] !== volumeAfter[situation]);
     return (
       <div style={{ display: "grid", gap: "0.2rem" }}>
+        {louder.map((situation) => (
+          <div key={`volume-${situation}`} style={{ fontSize: "0.76rem", lineHeight: 1.45, overflowWrap: "anywhere" }}>
+            <span style={{ color: "rgba(255,255,255,0.55)" }}>{MUSIC_SITUATION_LABELS[situation]}</span>
+            <span data-no-translate style={{ color: "rgba(255,255,255,0.55)" }}>{", "}</span>
+            <span style={{ color: "rgba(255,255,255,0.55)" }}>{"Volume"}</span>
+            <span data-no-translate style={{ color: "rgba(255,255,255,0.55)" }}>{": "}</span>
+            <span data-no-translate style={{ color: "#fecaca", textDecoration: "line-through" }}>{`${volumeBefore[situation]}%`}</span>
+            <span data-no-translate style={{ color: "rgba(255,255,255,0.5)" }}>{" → "}</span>
+            <span data-no-translate style={{ color: "#bbf7d0" }}>{`${volumeAfter[situation]}%`}</span>
+          </div>
+        ))}
         {changed.map((situation) => (
           <div key={situation} style={{ fontSize: "0.76rem", lineHeight: 1.45, overflowWrap: "anywhere" }}>
             <span style={{ color: "rgba(255,255,255,0.55)" }}>{MUSIC_SITUATION_LABELS[situation]}</span>

@@ -15,13 +15,15 @@
 import {
   MAX_SCENARIO_MUSIC_TRACKS,
   SCENARIO_MUSIC_SITUATIONS,
+  SCENARIO_MUSIC_VOLUMES,
   normalizeScenarioMusic,
   scenarioMusicTrackIds,
+  scenarioMusicVolumes,
 } from "../../server/scenarioMusic.js";
-import { musicEnabled, setMusicPlaylists } from "./ambientMusic.js";
+import { musicEnabled, setMusicLevels, setMusicPlaylists } from "./ambientMusic.js";
 import { fetchHubMusic, knownHubMusic, playableAddressOf, trackById } from "./hubMusic.js";
 
-export { MAX_SCENARIO_MUSIC_TRACKS, SCENARIO_MUSIC_SITUATIONS, normalizeScenarioMusic, scenarioMusicTrackIds };
+export { MAX_SCENARIO_MUSIC_TRACKS, SCENARIO_MUSIC_SITUATIONS, SCENARIO_MUSIC_VOLUMES, normalizeScenarioMusic, scenarioMusicTrackIds, scenarioMusicVolumes };
 
 // The four situations as the scenario editor's Music tab and a suggestion's
 // list of changes name them.
@@ -60,6 +62,8 @@ export const creditSiteOf = (address) => {
 export const resolveScenarioPlaylists = (music, list, addressOf = playableAddressOf) => {
   const wanted = normalizeScenarioMusic(music);
   if (!wanted || !list?.listed) return null;
+  // (How loud each situation is does not wait for the hub's list: the
+  // follower below tells the director at once.)
   const lists = {};
   for (const situation of SCENARIO_MUSIC_SITUATIONS) {
     lists[situation] = wanted[situation].flatMap((entry) => {
@@ -84,12 +88,14 @@ export const scenarioMusicCredits = (music, list) => scenarioMusicTrackIds(music
 // Keeps the director's lists those of the open game's scenario. `play` is
 // handed the resolved lists (or null), `enabled` says whether the music is on,
 // `known` gives the hub's list as this device already has it and `ask` reads
-// it from the hub.
+// it from the hub. `level` is handed how loud each situation is (the record's
+// volumes, the game's own where it sets none; scenarioMusicVolumes), at once:
+// it needs nothing of the hub.
 //
 // The list this device already knows is used at once, so the first note of a
 // game opening is the right one. The hub is asked only while the music is on:
 // a player who turned it off downloads nothing, the list included.
-export const createScenarioMusicFollower = ({ play, enabled, known, ask }) => {
+export const createScenarioMusicFollower = ({ play, enabled, known, ask, level = null }) => {
   let followed = null;
   let key = "null";
   let wasEnabled = enabled();
@@ -116,6 +122,7 @@ export const createScenarioMusicFollower = ({ play, enabled, known, ask }) => {
       if (nextKey === key) return;
       followed = next;
       key = nextKey;
+      level?.(scenarioMusicVolumes(next));
       apply();
     },
     // A setting changed. Only the music being switched on matters: the hub is
@@ -134,7 +141,7 @@ let follower = null;
 // the open game or its scenario changes): its `music` record, or null.
 export const followScenarioMusic = (music) => {
   if (!follower) {
-    follower = createScenarioMusicFollower({ play: setMusicPlaylists, enabled: musicEnabled, known: knownHubMusic, ask: fetchHubMusic });
+    follower = createScenarioMusicFollower({ play: setMusicPlaylists, level: setMusicLevels, enabled: musicEnabled, known: knownHubMusic, ask: fetchHubMusic });
     if (typeof window !== "undefined") window.addEventListener("mapSettings:updated", () => follower.settingsChanged());
   }
   follower.follow(music);

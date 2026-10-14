@@ -66,10 +66,14 @@ import {
   subscribeNowPlaying,
 } from "./ambientMusic.js";
 import { MAP_SETTING_KEYS } from "./mapSettings.js";
+import { SCENARIO_MUSIC_VOLUMES, scenarioMusicVolumes } from "../../server/scenarioMusic.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, "..", "..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
+
+// Every situation as loud as the player's own volume.
+const FULL_VOLUMES = Object.freeze({ loading: 100, game: 100, atWar: 100, battle: 100 });
 
 // A clock the test moves, and timers that fire as it passes them.
 const clock = () => {
@@ -106,7 +110,7 @@ const clock = () => {
 // how long a file is (by its address; any other never ends), and `broken`
 // which addresses cannot be played: such a file fails as a browser's does,
 // its element saying so before play() does.
-const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRACKS, memory = null, lengths = {}, broken = [], onNowPlaying = null, trackAddress = null, releaseAddress = null, menuPieces = undefined, gamePieces = [], random = () => 0 } = {}) => {
+const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRACKS, memory = null, lengths = {}, broken = [], onNowPlaying = null, trackAddress = null, releaseAddress = null, menuPieces = undefined, gamePieces = [], random = () => 0, volumes = FULL_VOLUMES } = {}) => {
   const time = clock();
   const settings = { enabled, volume };
   const made = [];
@@ -170,6 +174,10 @@ const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRAC
     // its own, and every pick the first of its choices, unless they say.
     gamePieces,
     random,
+    // And every situation at the player's whole volume, so that a volume read
+    // off an element is the thing the test is about. The game's own figures
+    // (SCENARIO_MUSIC_VOLUMES) are for the tests of them.
+    volumes,
   });
   const of = (name) => director.channels[name].audio;
   const list = (key) => director.lists[key];
@@ -689,11 +697,11 @@ test("a game drawn while the big hit is still far off: the build fades out on it
 // "Add these new tracks to play in the background ingame."
 const HOUR = "/audio/hour-of-the-witch.mp3";
 const HONOUR = "/audio/honour-among-thieves.mp3";
-const GAME_LENGTHS = { [HOUR]: 217, [HONOUR]: 240 };
+const GAME_LENGTHS = { [HOUR]: 217, [HONOUR]: 240, "/audio/frankincense-and-myrrh.mp3": 192.2, "/audio/discovery.mp3": 235.3 };
 const levelOf = (name, at) => calmGainAt(at, { ...PASSAGE_CALM, ...MUSIC_TRACKS[name].loud });
 
 test("in a game the game's own music plays in the background: after a breath of silence, one piece and then the other, levelled", () => {
-  assert.deepEqual(MUSIC_GAME_PIECES, ["hourOfTheWitch", "honourAmongThieves"]);
+  assert.deepEqual(MUSIC_GAME_PIECES, ["hourOfTheWitch", "honourAmongThieves", "frankincenseAndMyrrh", "discovery"]);
   // Each was measured for the whole of it, five seconds at a time.
   assert.equal(MUSIC_TRACKS.hourOfTheWitch.loud.rms.length, Math.ceil(217.06 / 5));
   assert.equal(MUSIC_TRACKS.honourAmongThieves.loud.rms.length, 240 / 5);
@@ -748,8 +756,14 @@ test("in a game the game's own music plays in the background: after a breath of 
   assert.ok(audio.currentTime < 1, `from its start: ${audio.currentTime}`);
   assert.equal(audio.paused, false);
   near(audio.volume, 0.25 * levelOf("honourAmongThieves", audio.currentTime), 0.004);
-  // And round: the first again after it.
+  // The third and the fourth after it, each from its start, and then round: the first again.
   time.advance(240000 + 600);
+  assert.equal(audio.src, "/audio/frankincense-and-myrrh.mp3");
+  assert.ok(audio.currentTime < 2.5, `from its start: ${audio.currentTime}`);
+  time.advance(192200 + 600);
+  assert.equal(audio.src, "/audio/discovery.mp3");
+  near(audio.volume, 0.25 * levelOf("discovery", audio.currentTime), 0.01);
+  time.advance(235300 + 600);
   assert.equal(audio.src, HOUR);
   assert.deepEqual(sounding(), ["game"]);
 });
@@ -786,9 +800,9 @@ test("the war room takes the game's music's place, and the game's carries on fro
 });
 
 // "Have it randomly pick one track or the other, make it do the same for the war room."
-test("each game starts on one of the game's two pieces, picked at random, from its start", () => {
+test("each game starts on one of the game's pieces, picked at random, from its start", () => {
   // The rolls: the menu the game opens on, the first game's piece, the menu come back to, the second game's piece.
-  const { director, time, of, sounding } = stage({ gamePieces: MUSIC_GAME_PIECES, lengths: GAME_LENGTHS, random: rolls(0, 0.7, 0, 0.1) });
+  const { director, time, of, sounding } = stage({ gamePieces: MUSIC_GAME_PIECES, lengths: GAME_LENGTHS, random: rolls(0, 0.3, 0, 0.1) });
   director.unlock();
   director.setScene("game");
   time.advance(40000);
@@ -1219,13 +1233,19 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   // Every piece has its composer's name for it, and the sentence names each of them.
   assert.deepEqual([MUSIC_TRACKS.passage.work, MUSIC_TRACKS.war.work, MUSIC_TRACKS.vanguard.work, MUSIC_TRACKS.clearSkies.work], ["Passage Of Time", "Legionnaire (2022 Remaster)", "Vanguard", "Clear Skies"]);
   assert.deepEqual([MUSIC_TRACKS.hourOfTheWitch.work, MUSIC_TRACKS.honourAmongThieves.work], ["Hour Of The Witch", "Honour Among Thieves"]);
+  assert.deepEqual([MUSIC_TRACKS.frankincenseAndMyrrh.work, MUSIC_TRACKS.discovery.work], ["Frankincense and Myrrh", "Discovery"]);
+  // Every levelled piece was measured for the whole of it, and no figure is nothing (it is divided by).
+  for (const piece of Object.values(MUSIC_TRACKS).filter((track) => track.loud)) {
+    assert.ok(piece.loud.rms.length >= 30, piece.work);
+    assert.ok(piece.loud.rms.every((figure) => figure > 0), piece.work);
+  }
   const pieces = Object.values(MUSIC_TRACKS).filter(Boolean);
-  assert.equal(pieces.length, 6);
+  assert.equal(pieces.length, 8);
   for (const piece of pieces) {
     assert.deepEqual([piece.artist, piece.licence], ["Scott Buckley", "CC BY 4.0"]);
   }
   const credits = read("public/audio/CREDITS.txt");
-  for (const part of ["Passage Of Time", "Clear Skies", "Hour Of The Witch", "Honour Among Thieves", "Legionnaire (2022 Remaster)", "Vanguard", "Scott Buckley", "CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/", "scottbuckley.com.au"]) assert.ok(credits.includes(part), part);
+  for (const part of ["Passage Of Time", "Clear Skies", "Hour Of The Witch", "Honour Among Thieves", "Frankincense and Myrrh", "Discovery", "Legionnaire (2022 Remaster)", "Vanguard", "Scott Buckley", "CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/", "scottbuckley.com.au"]) assert.ok(credits.includes(part), part);
   // Each file by its name, its piece, where it is from, and where it plays.
   const literally = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   for (const piece of pieces) {
@@ -1233,8 +1253,8 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   }
   assert.match(credits, /vanguard\.mp3\r?\n {4}"Vanguard" by Scott Buckley\r?\n {4}https:\/\/www\.scottbuckley\.com\.au\/library\/vanguard\/\r?\n {4}Plays in the war room and while a battlefield is shown\./);
   const readme = read("README.md");
-  assert.ok(readme.includes("\"Passage Of Time\", \"Clear Skies\", \"Hour Of The Witch\", \"Honour Among Thieves\", \"Legionnaire (2022 Remaster)\" and \"Vanguard\", all released under [CC BY 4.0]"));
-  for (const file of ["hour-of-the-witch", "honour-among-thieves"]) {
+  assert.ok(readme.includes("\"Passage Of Time\", \"Clear Skies\", \"Hour Of The Witch\", \"Honour Among Thieves\", \"Frankincense and Myrrh\", \"Discovery\", \"Legionnaire (2022 Remaster)\" and \"Vanguard\", all released under [CC BY 4.0]"));
+  for (const file of ["hour-of-the-witch", "honour-among-thieves", "frankincense-and-myrrh", "discovery"]) {
     assert.match(credits, new RegExp(`${file}\\.mp3\\r?\\n {4}"[^"]+" by Scott Buckley\\r?\\n {4}https://www\\.scottbuckley\\.com\\.au/library/${file}/\\r?\\n {4}Plays in a game, in the background\\.`), file);
   }
   assert.match(credits, /clear-skies\.mp3\r?\n {4}"Clear Skies" by Scott Buckley\r?\n {4}https:\/\/www\.scottbuckley\.com\.au\/library\/clear-skies\/\r?\n {4}Plays on the menu, in turn with Passage Of Time, and from its own build\r?\n {4}on while a game opened under it loads\./);
@@ -1574,6 +1594,115 @@ test("with the music off, or before the first click, the second piece is never f
   const waiting = stage({ lengths: { [CLEAR]: 195 } });
   waiting.time.advance(300000);
   assert.equal(waiting.made.length, 0);
+});
+
+// ---- how loud each situation is ------------------------------------------------------
+// "Background music when in game and in war should be quieter. The volume
+// should be tunable by scenario designers."
+
+test("the music of a game being played is the background: half the player's volume, at peace and at war", () => {
+  assert.deepEqual({ ...SCENARIO_MUSIC_VOLUMES }, { loading: 100, game: 50, atWar: 50, battle: 75 });
+  const { director, time, of, sounding } = stage({ gamePieces: MUSIC_GAME_PIECES, lengths: GAME_LENGTHS, volumes: SCENARIO_MUSIC_VOLUMES });
+  assert.deepEqual(director.levels, { loading: 1, game: 0.5, atWar: 0.5, battle: 0.75 });
+  director.unlock();
+  // The menu is the whole.
+  time.advance(4000);
+  near(of("calm").volume, 0.25 * calmGainAt(of("calm").currentTime), 0.01);
+  director.setScene("game");
+  time.advance(8000);
+  const audio = of("game");
+  assert.deepEqual(sounding(), ["game"]);
+  near(audio.volume, 0.25 * 0.5 * levelOf("hourOfTheWitch", audio.currentTime), 0.006);
+  // At war: the war pieces, as quiet.
+  director.setScene("atWar");
+  time.advance(2000);
+  assert.deepEqual(sounding(), ["war"]);
+  near(of("war").volume, 0.25 * 0.5, 1e-9);
+  // The war room is a screen of its own: louder, and the same piece glides up to it, never restarted.
+  const [plays, at] = [of("war").plays, of("war").currentTime];
+  director.setScene("war");
+  time.advance(450);
+  assert.ok(of("war").volume > 0.25 * 0.5 && of("war").volume < 0.25 * 0.75, "gliding");
+  time.advance(600);
+  near(of("war").volume, 0.25 * 0.75, 1e-9);
+  assert.equal(of("war").plays, plays);
+  near(of("war").currentTime, at + 1.05, 0.05);
+  // And down again, out of it.
+  director.setScene("atWar");
+  time.advance(1000);
+  near(of("war").volume, 0.25 * 0.5, 1e-9);
+  // A game opening is the music's moment: the whole.
+  director.setScene("menu");
+  time.advance(3000);
+  director.setScene("loading");
+  time.advance(2500);
+  near(of("drama").volume, 0.25 * boostAt(of("drama").currentTime, 161.2), 0.01);
+});
+
+test("a scenario sets how loud each situation is, for whatever plays there, and the game's own figures come back after it", () => {
+  const { director, time, of, list, sounding } = stage({ gamePieces: MUSIC_GAME_PIECES, lengths: GAME_LENGTHS, volumes: SCENARIO_MUSIC_VOLUMES });
+  director.unlock();
+  director.setScene("game");
+  time.advance(8000);
+  const audio = of("game");
+  near(audio.volume, 0.25 * 0.5 * levelOf("hourOfTheWitch", audio.currentTime), 0.006);
+  // The scenario's figures, as its record gives them: the game quieter still, the war room at the whole.
+  director.setLevels(scenarioMusicVolumes({ volume: { game: 20, battle: 100 } }));
+  assert.deepEqual(director.levels, { loading: 1, game: 0.2, atWar: 0.5, battle: 1 });
+  // What is sounding glides to it; nothing is restarted.
+  const plays = audio.plays;
+  time.advance(400);
+  assert.ok(audio.volume > 0.25 * 0.2 * 0.5 && audio.volume < 0.25 * 0.5 * 1.6);
+  time.advance(800);
+  near(audio.volume, 0.25 * 0.2 * levelOf("hourOfTheWitch", audio.currentTime), 0.004);
+  assert.equal(audio.plays, plays);
+  director.setScene("war");
+  time.advance(1500);
+  near(of("war").volume, 0.25, 1e-9);
+  // It is the situation's, not the piece's: the scenario's own tracks there are as loud.
+  director.setPlaylists({ game: [hubTrack("a")] });
+  director.setScene("game");
+  time.advance(1500);
+  assert.deepEqual(sounding(), ["scenario:game"]);
+  near(list("game").audio.volume, 0.25 * 0.2, 1e-9);
+  // Silence is a figure too.
+  director.setLevels({ game: 0 });
+  time.advance(1200);
+  assert.equal(list("game").audio.volume, 0);
+  // Never more than the player's own volume, and nonsense is the game's own figure.
+  director.setLevels({ game: 400, atWar: "loud", battle: -3, loading: NaN });
+  assert.deepEqual(director.levels, { loading: 1, game: 1, atWar: 0.5, battle: 0 });
+  // Another scenario with nothing to say, or no game: the game's own figures again.
+  director.setLevels(null);
+  assert.deepEqual(director.levels, { loading: 1, game: 0.5, atWar: 0.5, battle: 0.75 });
+  time.advance(1200);
+  near(list("game").audio.volume, 0.25 * 0.5, 1e-9);
+});
+
+test("a scenario's loading volume is the loading music's, the build's included, and the menu is never a scenario's", () => {
+  const { director, time, of } = stage({ volumes: SCENARIO_MUSIC_VOLUMES });
+  director.unlock();
+  director.setLevels({ loading: 40 });
+  time.advance(4000);
+  // The menu: the whole, whatever the scenario says.
+  near(of("calm").volume, 0.25 * calmGainAt(of("calm").currentTime), 0.01);
+  director.setScene("loading");
+  time.advance(2500);
+  const build = of("drama");
+  near(build.volume, 0.25 * 0.4 * boostAt(build.currentTime, 161.2), 0.006);
+  // It still stops on its hit and dies away.
+  director.setScene("game");
+  time.advance(14000);
+  assert.equal(build.paused, true);
+});
+
+test("the page's music is told the levels through setMusicLevels, with the record and not after the hub's list", () => {
+  const source = read("src/runtime/ambientMusic.js");
+  assert.ok(source.includes("export const setMusicLevels = (levels) => { started?.setLevels(levels); };"));
+  const follower = read("src/runtime/scenarioMusic.js");
+  assert.ok(follower.includes("level?.(scenarioMusicVolumes(next));"));
+  assert.ok(follower.includes("createScenarioMusicFollower({ play: setMusicPlaylists, level: setMusicLevels, enabled: musicEnabled, known: knownHubMusic, ask: fetchHubMusic })"));
+  assert.ok(follower.indexOf("level?.(scenarioMusicVolumes(next));") < follower.indexOf("      apply();\n    },") || follower.includes("level?.(scenarioMusicVolumes(next));\r\n      apply();"));
 });
 
 // ---- a scenario's own lists ------------------------------------------------------
