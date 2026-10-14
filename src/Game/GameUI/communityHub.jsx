@@ -45,6 +45,7 @@ import {
   hubCopyStatus,
 } from "../../runtime/hubPosts.js";
 import { newPublishKey } from "../../runtime/scenarioSuggestion.js";
+import { CommunitySkeleton } from "./menuSkeleton.jsx";
 
 // Reading the hub (the post list, a post's bundle, a post's comments) lives in
 // src/runtime/hubPosts.js, so the library can use it without this tab. The
@@ -858,10 +859,11 @@ const CommunityPanel = ({ fullPage = false, onPlay }) => {
             </a>
           )}
 
+          {/* While the hub's list is on its way: its cards' outlines, in the
+              browse grid they will fill, never the word "Loading"
+              (menuSkeleton.jsx). A screen reader is told in these words. */}
           {!posts && !error && (
-            <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.85rem", padding: "1rem 0" }}>
-              Loading community scenarios…
-            </div>
+            <CommunitySkeleton count={isMobile ? 3 : 8} gridTemplate={COMMUNITY_GRID_TEMPLATE} label="Loading community scenarios…" />
           )}
 
           {rows && (

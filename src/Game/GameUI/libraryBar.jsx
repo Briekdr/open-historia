@@ -91,6 +91,7 @@ import {
   SuggestionsBanner,
   openSuggestionsOf,
 } from "./ScenarioSuggestions.jsx";
+import { CommunitySkeleton, LobbiesSkeleton, MenuCardSkeletons } from "./menuSkeleton.jsx";
 
 const UNIT_TYPE_LABELS = {
   infantry: "Infantry",
@@ -4756,24 +4757,18 @@ const LibraryTopBar = ({ onOpenSettings }) => {
             {activeTab !== "community" && activeTab !== "lobbies" && (
               <SuggestionsBanner scenarios={scenarios} onOpen={(scenario) => openScenarioEditor(scenario.id)} />
             )}
+            {/* While a page, or what it lists, is on its way: the outlines of
+                its cards with a glimmer over them, never the word "Loading"
+                (menuSkeleton.jsx). A screen reader is told in these words. */}
             {activeTab === "lobbies" ? (
-              <Suspense
-                fallback={
-                  <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.85rem", padding: "1rem 0" }}>
-                    Loading lobbies…
-                  </div>
-                }
-              >
+              <Suspense fallback={<LobbiesSkeleton label="Loading lobbies…" />}>
                 <LobbiesTab hosting={lobbyHosting} onHostingChange={setLobbyHosting} onEnterGame={enterActiveGame} />
               </Suspense>
             ) : activeTab === "community" ? (
-              <Suspense
-                fallback={
-                  <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.85rem", padding: "1rem 0" }}>
-                    Loading Community…
-                  </div>
-                }
-              >
+              // The Community tab's browse grid has the library's template
+              // (communityHub.jsx COMMUNITY_GRID_TEMPLATE), which cannot be
+              // read from here without loading the tab.
+              <Suspense fallback={<CommunitySkeleton count={isMobile ? 3 : 8} gridTemplate={LIBRARY_GRID_TEMPLATE} label="Loading Community…" withHeader />}>
                 <CommunityPanel fullPage onPlay={handleScenarioPlay} />
               </Suspense>
             ) : activeTab === "games" ? (
@@ -4822,9 +4817,13 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                       </div>
                     )}
                   >
-                    {browsedGames.map((game) => (
-                      <GameCard key={game.id} active={game.id === activeGameId} busy={isBusy} game={game} onActivate={handleGameActivate} onArchive={handleGameArchive} onClone={handleGameClone} onEdit={openGameEditor} onExport={handleGameExport} />
-                    ))}
+                    {/* Until the library has come, its cards' outlines: one
+                        child either way, so an empty view still says so. */}
+                    {loaded
+                      ? browsedGames.map((game) => (
+                        <GameCard key={game.id} active={game.id === activeGameId} busy={isBusy} game={game} onActivate={handleGameActivate} onArchive={handleGameArchive} onClone={handleGameClone} onEdit={openGameEditor} onExport={handleGameExport} />
+                      ))
+                      : <MenuCardSkeletons count={isMobile ? 3 : 8} kind="game" width={SHELF_CARD_WIDTH} />}
                   </LibraryCollection>
                 </>
               )}
@@ -4871,21 +4870,24 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                   )}
                 >
                   {(scenarioView === "all" || scenarioView === "yours") && !scenarioSearch.trim() ? <CreateScenarioTile busy={isBusy} onCreate={handleCreateScenario} /> : null}
-                  {browsedScenarios.map((scenario) => (
-                    <ScenarioCard
-                      key={scenario.id}
-                      onClone={handleScenarioClone}
-                      onEdit={openScenarioEditor}
-                      onPlay={handleScenarioPlay}
-                      onSelect={selectScenario}
-                      onUpdate={handleScenarioUpdate}
-                      scenario={scenario}
-                      selected={scenario.id === selectedScenarioId}
-                      updateReason={scenarioUpdateReason(scenario)}
-                      updateNote={scenarioUpdateNotes.get(scenario.id) ?? ""}
-                      updating={updatingScenarioIds.has(scenario.id)}
-                    />
-                  ))}
+                  {/* Until the library has come, its cards' outlines, after the + that is already there. */}
+                  {loaded
+                    ? browsedScenarios.map((scenario) => (
+                      <ScenarioCard
+                        key={scenario.id}
+                        onClone={handleScenarioClone}
+                        onEdit={openScenarioEditor}
+                        onPlay={handleScenarioPlay}
+                        onSelect={selectScenario}
+                        onUpdate={handleScenarioUpdate}
+                        scenario={scenario}
+                        selected={scenario.id === selectedScenarioId}
+                        updateReason={scenarioUpdateReason(scenario)}
+                        updateNote={scenarioUpdateNotes.get(scenario.id) ?? ""}
+                        updating={updatingScenarioIds.has(scenario.id)}
+                      />
+                    ))
+                    : <MenuCardSkeletons count={isMobile ? 3 : 7} kind="scenario" width={SHELF_CARD_WIDTH} />}
                 </LibraryCollection>
                 <RecentlyDeletedRow kind="scenario" onChanged={refreshTrash} trash={trash} />
               </>
@@ -4944,8 +4946,11 @@ const LibraryTopBar = ({ onOpenSettings }) => {
         onStatsChange={setEditorStats}
       />
 
+      {/* Until the library has come the Games and Scenarios tabs show their
+          cards' outlines (menuSkeleton.jsx), and nothing on the screen says
+          "Loading": this says it to a screen reader alone. */}
       {!loaded && (
-        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.82rem", position: "fixed", right: "1.25rem", top: "4.35rem", zIndex: 10028 }}>
+        <div className="oh-visually-hidden" role="status">
           Loading games and scenarios...
         </div>
       )}
