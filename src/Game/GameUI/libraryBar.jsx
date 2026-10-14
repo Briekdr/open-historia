@@ -4742,11 +4742,11 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                   alignItems: "center",
                   display: "flex",
                   gap: "0.9rem",
-                  height: `calc(${BAR_HEIGHT}px + ${SAFE_TOP})`,
                   justifyContent: "space-between",
                   margin: "0 auto",
                   maxWidth: APP_SHELL_MAX_WIDTH,
-                  padding: `${SAFE_TOP} calc(1.6rem + ${SAFE_RIGHT}) 0 1.6rem`,
+                  minHeight: `calc(${BAR_HEIGHT}px + ${SAFE_TOP})`,
+                  padding: `calc(0.85rem + ${SAFE_TOP}) calc(1.6rem + ${SAFE_RIGHT}) 0.85rem 1.6rem`,
                   width: "100%",
                 }}
               >
