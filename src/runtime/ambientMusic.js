@@ -49,12 +49,13 @@
 //   game     the game is drawn. The music runs on at least to the big hit,
 //            and to the next hit after it if that one has passed
 //            (PASSAGE_DRAMA.cuts), lets it ring, and stops. After a breath of
-//            silence the game's own music comes in ("add these new tracks to
-//            play in the background ingame": Hour Of The Witch and Honour
-//            Among Thieves, and then Frankincense and Myrrh and Discovery,
-//            MUSIC_GAME_PIECES): one of them picked at random for each game,
-//            the others after it in turn, round and round, LEVELLED as the
-//            menu's are so that it stays in the background. A game
+//            silence the game's own music comes in: Frankincense and Myrrh
+//            and Discovery (MUSIC_GAME_PIECES; "have frankincense and
+//            discovery be the only 2 game songs, get rid of the other two",
+//            which were Hour Of The Witch and Honour Among Thieves): one of
+//            them picked at random for each game, the other after it, round
+//            and round, LEVELLED as the menu's are so that it stays in the
+//            background. A game
 //            drawn while the big hit is still far off does not wait for it:
 //            the build fades out on its next accent (exitAfter).
 //   atWar    in the game, with the player's country at war. The war room's
@@ -173,36 +174,6 @@ export const MUSIC_TRACKS = Object.freeze({
   }),
   // The pieces that play in a game, in the background. `loud` as Clear
   // Skies': they are loud pieces, and levelled they sit under the game.
-  hourOfTheWitch: Object.freeze({
-    file: "audio/hour-of-the-witch.mp3",
-    work: "Hour Of The Witch",
-    ...COMPOSER,
-    loud: Object.freeze({
-      step: 5,
-      rms: Object.freeze([
-        0.079, 0.043, 0.024, 0.063, 0.057, 0.092, 0.036, 0.072, 0.090, 0.040,
-        0.074, 0.080, 0.044, 0.026, 0.155, 0.136, 0.153, 0.140, 0.145, 0.177,
-        0.126, 0.155, 0.176, 0.129, 0.141, 0.161, 0.055, 0.036, 0.165, 0.178,
-        0.179, 0.170, 0.174, 0.192, 0.162, 0.191, 0.200, 0.189, 0.185, 0.186,
-        0.049, 0.029, 0.034, 0.001,
-      ]),
-    }),
-  }),
-  honourAmongThieves: Object.freeze({
-    file: "audio/honour-among-thieves.mp3",
-    work: "Honour Among Thieves",
-    ...COMPOSER,
-    loud: Object.freeze({
-      step: 5,
-      rms: Object.freeze([
-        0.097, 0.107, 0.116, 0.146, 0.137, 0.139, 0.149, 0.143, 0.147, 0.146,
-        0.150, 0.147, 0.148, 0.148, 0.155, 0.146, 0.146, 0.129, 0.161, 0.162,
-        0.171, 0.197, 0.187, 0.185, 0.197, 0.188, 0.196, 0.189, 0.190, 0.184,
-        0.183, 0.191, 0.184, 0.141, 0.159, 0.160, 0.163, 0.164, 0.181, 0.183,
-        0.184, 0.181, 0.183, 0.187, 0.190, 0.170, 0.168, 0.140,
-      ]),
-    }),
-  }),
   frankincenseAndMyrrh: Object.freeze({
     file: "audio/frankincense-and-myrrh.mp3",
     work: "Frankincense and Myrrh",
@@ -241,7 +212,7 @@ export const MUSIC_WAR_PIECES = Object.freeze(["war", "vanguard"]);
 // The pieces that play in a game (names in MUSIC_TRACKS), in the background:
 // one after the other, round again at the end, and which of them a game
 // starts on is picked at random.
-export const MUSIC_GAME_PIECES = Object.freeze(["hourOfTheWitch", "honourAmongThieves", "frankincenseAndMyrrh", "discovery"]);
+export const MUSIC_GAME_PIECES = Object.freeze(["frankincenseAndMyrrh", "discovery"]);
 // The menu's other pieces (names in MUSIC_TRACKS). The menu's pieces are
 // Passage Of Time and these: which of them a visit to the menu plays is
 // picked at random, and on a menu left idle they follow one another, each

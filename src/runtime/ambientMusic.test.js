@@ -695,16 +695,21 @@ test("a game drawn while the big hit is still far off: the build fades out on it
 });
 
 // "Add these new tracks to play in the background ingame."
-const HOUR = "/audio/hour-of-the-witch.mp3";
-const HONOUR = "/audio/honour-among-thieves.mp3";
-const GAME_LENGTHS = { [HOUR]: 217, [HONOUR]: 240, "/audio/frankincense-and-myrrh.mp3": 192.2, "/audio/discovery.mp3": 235.3 };
+// And then: "have frankincense and discovery be the only 2 game songs, get rid of the other two".
+const FRANKINCENSE = "/audio/frankincense-and-myrrh.mp3";
+const DISCOVERY = "/audio/discovery.mp3";
+const GAME_LENGTHS = { [FRANKINCENSE]: 192.2, [DISCOVERY]: 235.3 };
 const levelOf = (name, at) => calmGainAt(at, { ...PASSAGE_CALM, ...MUSIC_TRACKS[name].loud });
 
 test("in a game the game's own music plays in the background: after a breath of silence, one piece and then the other, levelled", () => {
-  assert.deepEqual(MUSIC_GAME_PIECES, ["hourOfTheWitch", "honourAmongThieves", "frankincenseAndMyrrh", "discovery"]);
+  assert.deepEqual(MUSIC_GAME_PIECES, ["frankincenseAndMyrrh", "discovery"]);
+  // The two that were tried first are gone, from the game and from its files.
+  assert.equal(MUSIC_TRACKS.hourOfTheWitch, undefined);
+  assert.equal(MUSIC_TRACKS.honourAmongThieves, undefined);
+  for (const gone of ["hour-of-the-witch.mp3", "honour-among-thieves.mp3"]) assert.equal(fs.existsSync(path.join(root, "public", "audio", gone)), false, gone);
   // Each was measured for the whole of it, five seconds at a time.
-  assert.equal(MUSIC_TRACKS.hourOfTheWitch.loud.rms.length, Math.ceil(217.06 / 5));
-  assert.equal(MUSIC_TRACKS.honourAmongThieves.loud.rms.length, 240 / 5);
+  assert.equal(MUSIC_TRACKS.frankincenseAndMyrrh.loud.rms.length, Math.ceil(192.2 / 5));
+  assert.equal(MUSIC_TRACKS.discovery.loud.rms.length, Math.ceil(235.3 / 5));
   const { director, time, of, sounding } = stage({ gamePieces: MUSIC_GAME_PIECES, lengths: GAME_LENGTHS });
   director.unlock();
   director.setScene("loading");
@@ -716,16 +721,16 @@ test("in a game the game's own music plays in the background: after a breath of 
   assert.equal(of("drama").paused, true);
   assert.deepEqual(sounding(), ["game"]);
   const audio = of("game");
-  assert.equal(audio.src, HOUR);
+  assert.equal(audio.src, FRANKINCENSE);
   assert.equal(audio.loop, false);
   assert.ok(audio.currentTime < 2.5, `from its start: ${audio.currentTime}`);
   // It comes in slowly, to its own level.
-  assert.ok(audio.volume < 0.25 * levelOf("hourOfTheWitch", audio.currentTime));
+  assert.ok(audio.volume < 0.25 * levelOf("frankincenseAndMyrrh", audio.currentTime));
   time.advance(4000);
-  near(audio.volume, 0.25 * levelOf("hourOfTheWitch", audio.currentTime), 0.01);
+  near(audio.volume, 0.25 * levelOf("frankincenseAndMyrrh", audio.currentTime), 0.01);
   // In its loud stretch it is brought down: it is the background.
   time.advance(100000 - audio.currentTime * 1000);
-  near(audio.volume, 0.25 * levelOf("hourOfTheWitch", audio.currentTime), 0.004);
+  near(audio.volume, 0.25 * levelOf("frankincenseAndMyrrh", audio.currentTime), 0.004);
   assert.ok(audio.volume < 0.25 * 0.65, `under the game: ${audio.volume}`);
   // "When in war, it doesnt play the war song": at war the war pieces take
   // its place, and it waits where it was for the peace.
@@ -751,20 +756,15 @@ test("in a game the game's own music plays in the background: after a breath of 
   assert.deepEqual(sounding(), ["game"]);
   near(audio.currentTime, heldAt + 0.9 + 4, 0.2);
   // It ends, and the other piece follows from its start, at its own level.
-  time.advance((217 - audio.currentTime) * 1000 + 600);
-  assert.equal(audio.src, HONOUR);
+  time.advance((192.2 - audio.currentTime) * 1000 + 600);
+  assert.equal(audio.src, DISCOVERY);
   assert.ok(audio.currentTime < 1, `from its start: ${audio.currentTime}`);
   assert.equal(audio.paused, false);
-  near(audio.volume, 0.25 * levelOf("honourAmongThieves", audio.currentTime), 0.004);
-  // The third and the fourth after it, each from its start, and then round: the first again.
-  time.advance(240000 + 600);
-  assert.equal(audio.src, "/audio/frankincense-and-myrrh.mp3");
-  assert.ok(audio.currentTime < 2.5, `from its start: ${audio.currentTime}`);
-  time.advance(192200 + 600);
-  assert.equal(audio.src, "/audio/discovery.mp3");
   near(audio.volume, 0.25 * levelOf("discovery", audio.currentTime), 0.01);
+  // And round: the first again after it, from its start.
   time.advance(235300 + 600);
-  assert.equal(audio.src, HOUR);
+  assert.equal(audio.src, FRANKINCENSE);
+  assert.ok(audio.currentTime < 2.5, `from its start: ${audio.currentTime}`);
   assert.deepEqual(sounding(), ["game"]);
 });
 
@@ -784,7 +784,7 @@ test("the war room takes the game's music's place, and the game's carries on fro
   director.setScene("game");
   time.advance(4000);
   assert.deepEqual(sounding(), ["game"]);
-  assert.equal(audio.src, HOUR);
+  assert.equal(audio.src, FRANKINCENSE);
   near(audio.currentTime, held + 4, 0.1);
   // A scenario's own music for the game takes its place altogether.
   director.setPlaylists({ game: [hubTrack("a")] });
@@ -802,19 +802,19 @@ test("the war room takes the game's music's place, and the game's carries on fro
 // "Have it randomly pick one track or the other, make it do the same for the war room."
 test("each game starts on one of the game's pieces, picked at random, from its start", () => {
   // The rolls: the menu the game opens on, the first game's piece, the menu come back to, the second game's piece.
-  const { director, time, of, sounding } = stage({ gamePieces: MUSIC_GAME_PIECES, lengths: GAME_LENGTHS, random: rolls(0, 0.3, 0, 0.1) });
+  const { director, time, of, sounding } = stage({ gamePieces: MUSIC_GAME_PIECES, lengths: GAME_LENGTHS, random: rolls(0, 0.7, 0, 0.1) });
   director.unlock();
   director.setScene("game");
   time.advance(40000);
   const audio = of("game");
-  assert.equal(audio.src, HONOUR);
+  assert.equal(audio.src, DISCOVERY);
   near(audio.currentTime, 40, 0.1);
   director.setScene("menu");
   time.advance(3000);
   assert.deepEqual(sounding(), ["calm"]);
   director.setScene("game");
   time.advance(5000);
-  assert.equal(audio.src, HOUR);
+  assert.equal(audio.src, FRANKINCENSE);
   near(audio.currentTime, 5, 0.1);
   // The same piece picked again for the next game: from its start, not from where it was left.
   time.advance(60000);
@@ -822,7 +822,7 @@ test("each game starts on one of the game's pieces, picked at random, from its s
   time.advance(3000);
   director.setScene("game");
   time.advance(5000);
-  assert.equal(audio.src, HOUR);
+  assert.equal(audio.src, FRANKINCENSE);
   near(audio.currentTime, 5, 0.1);
 });
 
@@ -1232,7 +1232,6 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   assert.deepEqual([MUSIC_CREDIT.artist, MUSIC_CREDIT.licence, MUSIC_CREDIT.site], ["Scott Buckley", "CC BY 4.0", "www.scottbuckley.com.au"]);
   // Every piece has its composer's name for it, and the sentence names each of them.
   assert.deepEqual([MUSIC_TRACKS.passage.work, MUSIC_TRACKS.war.work, MUSIC_TRACKS.vanguard.work, MUSIC_TRACKS.clearSkies.work], ["Passage Of Time", "Legionnaire (2022 Remaster)", "Vanguard", "Clear Skies"]);
-  assert.deepEqual([MUSIC_TRACKS.hourOfTheWitch.work, MUSIC_TRACKS.honourAmongThieves.work], ["Hour Of The Witch", "Honour Among Thieves"]);
   assert.deepEqual([MUSIC_TRACKS.frankincenseAndMyrrh.work, MUSIC_TRACKS.discovery.work], ["Frankincense and Myrrh", "Discovery"]);
   // Every levelled piece was measured for the whole of it, and no figure is nothing (it is divided by).
   for (const piece of Object.values(MUSIC_TRACKS).filter((track) => track.loud)) {
@@ -1240,12 +1239,12 @@ test("it is on unless the player turns it off, and Settings says whose music it 
     assert.ok(piece.loud.rms.every((figure) => figure > 0), piece.work);
   }
   const pieces = Object.values(MUSIC_TRACKS).filter(Boolean);
-  assert.equal(pieces.length, 8);
+  assert.equal(pieces.length, 6);
   for (const piece of pieces) {
     assert.deepEqual([piece.artist, piece.licence], ["Scott Buckley", "CC BY 4.0"]);
   }
   const credits = read("public/audio/CREDITS.txt");
-  for (const part of ["Passage Of Time", "Clear Skies", "Hour Of The Witch", "Honour Among Thieves", "Frankincense and Myrrh", "Discovery", "Legionnaire (2022 Remaster)", "Vanguard", "Scott Buckley", "CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/", "scottbuckley.com.au"]) assert.ok(credits.includes(part), part);
+  for (const part of ["Passage Of Time", "Clear Skies", "Frankincense and Myrrh", "Discovery", "Legionnaire (2022 Remaster)", "Vanguard", "Scott Buckley", "CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/", "scottbuckley.com.au"]) assert.ok(credits.includes(part), part);
   // The licence asks that a change be said: the files are re-encoded, and nothing else.
   assert.ok(credits.includes("re-encoded at a lower"));
   assert.ok(credits.includes("Nothing else about them is changed"));
@@ -1266,9 +1265,9 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   };
   for (const piece of [MUSIC_TRACKS.passage, ...pieces.filter((entry) => entry.drama)]) assert.equal(kindOf(piece), "constant", piece.file);
   assert.equal(kindOf(MUSIC_TRACKS.clearSkies), "constant");
-  // And they are small: the eight together under 40 MB (they were 71).
+  // And they are small: the six together under 30 MB.
   const total = pieces.reduce((sum, piece) => sum + fs.statSync(path.join(root, "public", piece.file)).size, 0);
-  assert.ok(total < 40 * 1024 * 1024, `${Math.round(total / 1048576)} MB`);
+  assert.ok(total < 30 * 1024 * 1024, `${Math.round(total / 1048576)} MB`);
   // Each file by its name, its piece, where it is from, and where it plays.
   const literally = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   for (const piece of pieces) {
@@ -1276,9 +1275,10 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   }
   assert.match(credits, /vanguard\.mp3\r?\n {4}"Vanguard" by Scott Buckley\r?\n {4}https:\/\/www\.scottbuckley\.com\.au\/library\/vanguard\/\r?\n {4}Plays in the war room and while a battlefield is shown\./);
   const readme = read("README.md");
-  assert.ok(readme.includes("\"Passage Of Time\", \"Clear Skies\", \"Hour Of The Witch\", \"Honour Among Thieves\", \"Frankincense and Myrrh\", \"Discovery\", \"Legionnaire (2022 Remaster)\" and \"Vanguard\", all released under [CC BY 4.0]"));
+  assert.ok(readme.includes("\"Passage Of Time\", \"Clear Skies\", \"Frankincense and Myrrh\", \"Discovery\", \"Legionnaire (2022 Remaster)\" and \"Vanguard\", all released under [CC BY 4.0]"));
+  for (const gone of ["Hour Of The Witch", "Honour Among Thieves"]) assert.ok(!credits.includes(gone) && !readme.includes(gone), gone);
   assert.ok(readme.includes("re-encoded at a lower bitrate to make the game smaller and otherwise unchanged"));
-  for (const file of ["hour-of-the-witch", "honour-among-thieves", "frankincense-and-myrrh", "discovery"]) {
+  for (const file of ["frankincense-and-myrrh", "discovery"]) {
     assert.match(credits, new RegExp(`${file}\\.mp3\\r?\\n {4}"[^"]+" by Scott Buckley\\r?\\n {4}https://www\\.scottbuckley\\.com\\.au/library/${file}/\\r?\\n {4}Plays in a game, in the background\\.`), file);
   }
   assert.match(credits, /clear-skies\.mp3\r?\n {4}"Clear Skies" by Scott Buckley\r?\n {4}https:\/\/www\.scottbuckley\.com\.au\/library\/clear-skies\/\r?\n {4}Plays on the menu, in turn with Passage Of Time, and from its own build\r?\n {4}on while a game opened under it loads\./);
@@ -1636,7 +1636,7 @@ test("the music of a game being played is the background: half the player's volu
   time.advance(8000);
   const audio = of("game");
   assert.deepEqual(sounding(), ["game"]);
-  near(audio.volume, 0.25 * 0.5 * levelOf("hourOfTheWitch", audio.currentTime), 0.006);
+  near(audio.volume, 0.25 * 0.5 * levelOf("frankincenseAndMyrrh", audio.currentTime), 0.006);
   // At war: the war pieces, as quiet.
   director.setScene("atWar");
   time.advance(2000);
@@ -1669,7 +1669,7 @@ test("a scenario sets how loud each situation is, for whatever plays there, and 
   director.setScene("game");
   time.advance(8000);
   const audio = of("game");
-  near(audio.volume, 0.25 * 0.5 * levelOf("hourOfTheWitch", audio.currentTime), 0.006);
+  near(audio.volume, 0.25 * 0.5 * levelOf("frankincenseAndMyrrh", audio.currentTime), 0.006);
   // The scenario's figures, as its record gives them: the game quieter still, the war room at the whole.
   director.setLevels(scenarioMusicVolumes({ volume: { game: 20, battle: 100 } }));
   assert.deepEqual(director.levels, { loading: 1, game: 0.2, atWar: 0.5, battle: 1 });
@@ -1678,7 +1678,7 @@ test("a scenario sets how loud each situation is, for whatever plays there, and 
   time.advance(400);
   assert.ok(audio.volume > 0.25 * 0.2 * 0.5 && audio.volume < 0.25 * 0.5 * 1.6);
   time.advance(800);
-  near(audio.volume, 0.25 * 0.2 * levelOf("hourOfTheWitch", audio.currentTime), 0.004);
+  near(audio.volume, 0.25 * 0.2 * levelOf("frankincenseAndMyrrh", audio.currentTime), 0.004);
   assert.equal(audio.plays, plays);
   director.setScene("war");
   time.advance(1500);
