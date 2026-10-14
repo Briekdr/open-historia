@@ -820,6 +820,8 @@ export const runTurnFronts = async ({
   unitCaps = null,
   // The era the scenario set, 0 to 3, or null to read it off the date (runtime/warSettings.js).
   era = null,
+  // Which of the engine's newer mechanics the scenario has on (runtime/warSettings.js; runtime/fronts/mechanics.js).
+  mechanics = null,
   difficulty = "",
   narratesCombat = null,
   // The fronts a scenario begins with (runtime/fronts/scenarioFronts.js), on
@@ -1029,6 +1031,7 @@ export const runTurnFronts = async ({
       players: asArray(players).map(clean).filter(Boolean),
       difficulty: clean(difficulty),
       ...(Number.isInteger(era) ? { era } : {}),
+      ...(mechanics && typeof mechanics === "object" ? { mechanics } : {}),
       // How short each country is of what comes by sea, by the blockades standing as the period begins
       // (runtime/naval/blockade.js): the side it fights on is weighed for it (runtime/fronts/handicap.js).
       ...(short.size > 0 ? { shortageOf: (name) => short.get(fold(name)) ?? 0 } : {}),

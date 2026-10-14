@@ -50,7 +50,7 @@ const weigh = (battle, side, inside = null) => {
   for (const troop of battle.troops[side]) {
     if (!isLive(troop) || (inside && !inside(troop))) continue;
     const fed = troop.supply === undefined ? 1 : troop.supply;
-    worth += troop.strength * TROOP_ATTACK[troop.kind] * fed;
+    worth += troop.strength * TROOP_ATTACK[troop.kind] * fed * (troop.punch ?? 1);
     strength += troop.strength;
     supply += fed;
     count += 1;

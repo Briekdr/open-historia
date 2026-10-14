@@ -27,6 +27,8 @@ import { addGameDays, compareGameDates, gameDateYear } from "../gameDates.js";
 import { waterTypeIds } from "../regionTypes.js";
 import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf, yearInEra } from "../unitMotion.js";
 import { arenaFor } from "./arena.js";
+import { dawn } from "./dawn.js";
+import { readMechanics } from "./mechanics.js";
 import { absorbUnit, holderOf, keepStart, lineLength, loadBattle, memberIndex, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setHandicap, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
 import { assignCommands } from "./command.js";
@@ -108,6 +110,8 @@ const createRun = (input) => {
     day: 0,
     steps: 0,
     era,
+    // Which of the newer mechanics this run uses (mechanics.js): none unless the input turns them on.
+    mech: readMechanics(input?.mechanics),
     seed: String(input?.seed ?? ""),
     // How many troops are raised, of the usual (troops.js troopsFactor).
     troops: troopsFactor(input?.troops),
@@ -1966,6 +1970,8 @@ const stepDay = (run) => {
       invadeWhereSent(run, battle, day);
       // A side that withdrew and whose orders no longer say so (the war room sent it back) is back.
       if (battle.away[0] || battle.away[1]) comeBack(run, battle, day);
+      // The morning: what the day makes of every troop, before its staff looks (dawn.js).
+      dawn(run, battle, day);
       if (battle.begun || battle.daysRun === 0 || battle.daysRun % STAFF_REVIEW_DAYS === 0) reviewStaff(run, battle, day);
       run.steps += simulateDay(battle, run, day);
       // Whoever was told to withdraw and has got clear is gone from the battlefield.

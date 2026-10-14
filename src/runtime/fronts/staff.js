@@ -65,12 +65,17 @@ const chanceOf = (text) => {
 };
 
 // What a side's troops are worth where `within(troop)` says, as the fight weighs them.
+// What one troop is worth in attack, as the fight weighs it: its strength,
+// kind and supply, and what the day makes of it (dawn.js). Before its side's
+// quality and edge, which are the same for all of a side's troops.
+export const troopWorth = (troop) => troop.strength * TROOP_ATTACK[troop.kind] * troop.supply * troop.punch;
+
 const worthOf = (battle, side, within = null) => {
   let worth = 0;
   let count = 0;
   for (const troop of battle.troops[side]) {
     if (!isLive(troop) || (within && !within(troop))) continue;
-    worth += troop.strength * TROOP_ATTACK[troop.kind] * troop.supply;
+    worth += troopWorth(troop);
     count += 1;
   }
   return { worth: worth * battle.quality[side] * battle.edge[side].power, count };

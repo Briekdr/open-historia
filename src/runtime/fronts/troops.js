@@ -134,6 +134,15 @@ export const createTroop = ({ x = 0, y = 0, strength = 100, kind = KIND_INFANTRY
   squeezed: false,
   besieged: false,
   supply: 1,
+  // Wars and Fronts Pt.2 (dawn.js): how worn out it is, 0 to 1 (fatigue.js),
+  // and what the day's conditions make of its attack, its defence and its
+  // pace, set every morning: each 1 with nothing on.
+  fatigue: 0,
+  punch: 1,
+  guard: 1,
+  legs: 1,
+  // Whether it attacked today (combat.js stepForward).
+  fought: false,
 });
 
 export const isLive = (troop) => troop.strength > 0;

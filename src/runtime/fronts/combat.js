@@ -80,12 +80,13 @@ const terrainDefence = (speed) => 1 + Math.min(0.8, Math.max(0, 1 - speed)) * TE
 
 // What a troop is worth in defence where it stands; `front` is whether the
 // attacker comes at its front, where its works count.
+// (And what the day makes of it, dawn.js: 1 with no newer mechanic on.)
 const defensivePower = (battle, side, troop, front = true) =>
   troop.strength * TROOP_DEFENCE[troop.kind] * (!front ? 1 : troop.dug ? DUG_IN_DEFENCE : 1 + troop.dig)
-  * battle.quality[side] * battle.edge[side].power * troop.supply * (troop.pocket ? POCKET_DEFENCE : 1);
+  * battle.quality[side] * battle.edge[side].power * troop.supply * (troop.pocket ? POCKET_DEFENCE : 1) * troop.guard;
 // And in attack.
 const offensivePower = (battle, side, troop) =>
-  troop.strength * TROOP_ATTACK[troop.kind] * battle.quality[side] * battle.edge[side].power * troop.supply * (troop.pocket ? POCKET_ATTACK : 1);
+  troop.strength * TROOP_ATTACK[troop.kind] * battle.quality[side] * battle.edge[side].power * troop.supply * (troop.pocket ? POCKET_ATTACK : 1) * troop.punch;
 
 // ---- who is near whom ----------------------------------------------------------
 
@@ -233,7 +234,7 @@ export const stepForward = (battle, paceKm, pace) => {
     const kept = battle.kept[entry.side];
     entry.forward = (x, y) => inPlay(x, y) && !spared(spare, x, y) && !(kept && kept[Math.floor(y) * field.cols + Math.floor(x)])
       && (x - troop.x) * troop.axisX + (y - troop.y) * troop.axisY >= 0;
-    entry.dayCells = (paceKm[troop.kind] * arena.speed[cell] * troop.supply * pace * troop.drive * troop.paceFactor * battle.edge[entry.side].pace) / kmAt(troop.y);
+    entry.dayCells = (paceKm[troop.kind] * arena.speed[cell] * troop.supply * pace * troop.drive * troop.paceFactor * battle.edge[entry.side].pace * troop.legs) / kmAt(troop.y);
     parts = Math.max(parts, Math.ceil(entry.dayCells / (entry.radius * 0.5)));
   }
   parts = Math.min(SUBSTEPS_MAX, parts);
@@ -292,6 +293,7 @@ export const stepForward = (battle, paceKm, pace) => {
       // those closing on it.
       if (raw > 0 && attack > 0) {
         troop.loss += troop.strength * share * ATTACK_COST * clampRatio(Math.sqrt(defence / attack));
+        troop.fought = true;
         const theirs = share * clampRatio(Math.sqrt(attack / defence));
         eachNear(standing[1 - side], aheadX, aheadY, (enemy) => {
           if (enemy.besieged || spared(sparing, enemy.x, enemy.y)) return;
@@ -419,6 +421,7 @@ export const closeDay = (battle) => {
       troop.movedKm = 0;
       troop.loss = 0;
       troop.engaged = false;
+      troop.fought = false;
     }
   }
 };

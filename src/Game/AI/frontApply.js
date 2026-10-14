@@ -35,7 +35,7 @@ import { projectorOf } from "../../runtime/fronts/frame.js";
 import { othersOnWay } from "../../runtime/fronts/invade.js";
 import { gameDateYear } from "../../runtime/gameDates.js";
 import { yearInEra } from "../../runtime/unitMotion.js";
-import { eraSettingOf } from "../../runtime/warSettings.js";
+import { eraSettingOf, warSettingsOf } from "../../runtime/warSettings.js";
 import { normalizeBattlefields } from "../../runtime/fronts/record.js";
 import { isUnderWay, normalizeTransports } from "../../runtime/fronts/transports.js";
 import { findWay } from "../../runtime/fronts/wayfinder.js";
@@ -224,6 +224,8 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
     ...(strategyNetOn() && trainedStaffPolicy() ? { staffPolicy: trainedStaffPolicy() } : {}),
     // The era the scenario set, if it set one (runtime/warSettings.js).
     era: eraSettingOf(world),
+    // Which of the engine's newer mechanics it has on: all of them unless it turned one off.
+    mechanics: warSettingsOf(world).mechanics,
     players: humanCountriesOf(game),
     // The difficulty weighs the land war for whoever fights a person's country (runtime/fronts/handicap.js).
     difficulty: normalizeDifficulty(game?.difficulty),

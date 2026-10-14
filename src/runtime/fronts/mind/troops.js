@@ -83,7 +83,7 @@ const pointsOf = (battle, side) => {
   battle.troops[side].forEach((troop, index) => {
     if (!isLive(troop)) return;
     const fed = troop.supply === undefined ? 1 : troop.supply;
-    points.push({ index, troop, x: troop.x, y: troop.y, worth: troop.strength * TROOP_ATTACK[troop.kind] * fed * factor });
+    points.push({ index, troop, x: troop.x, y: troop.y, worth: troop.strength * TROOP_ATTACK[troop.kind] * fed * (troop.punch ?? 1) * factor });
   });
   return points;
 };

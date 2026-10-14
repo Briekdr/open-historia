@@ -49,6 +49,7 @@ import {
 import { holderOf, memberIndex, paintGround, readRegions, sideOfName } from "./battle.js";
 import { findPrey } from "./closing.js";
 import { closeDay, stepForward } from "./combat.js";
+import { dusk } from "./dawn.js";
 import { countHolders, redistance, resampleField, takeCells, traceContour } from "./field.js";
 import { createFrame, frameBounds, latToY, projectorOf, yToLat } from "./frame.js";
 import { measure } from "./ground.js";
@@ -570,6 +571,8 @@ export const simulateDay = (battle, run, day) => {
   const steps = stepForward(battle, run.advanceKm, run.pace);
   settlePockets(battle, date);
   redistance(battle.field);
+  // The evening: what the day did to every troop (dawn.js), before its books are closed.
+  dusk(run, battle, day);
   closeDay(battle);
   if (mopUp(battle, run)) redistance(battle.field);
   ageOrders(battle);
