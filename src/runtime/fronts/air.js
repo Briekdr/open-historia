@@ -1,0 +1,123 @@
+/*! Open Historia — battlefields and fronts: air wings over the battlefield © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
+// Wars and Fronts Pt.2 (mechanics.js "air"). "Air units don't take part in
+// front-line fighting currently: make them part of the actual battlefields."
+//
+// An AIR WING (world.units of type "air") of a country fighting on a
+// battlefield takes part in it while its base lies within its era's reach of
+// the battlefield (AIR_REACH_KM, from its middle): each wing over one
+// battlefield a day, the nearest, and none of a country with no air arm
+// (military.js: air 0). Its weight is its strength, and what its country's
+// air arm is worth (airWorth).
+//
+// Each morning (dawn.js) the two sides' wings contest the sky. The side with
+// the more holds it, by SUPERIORITY s = (A - B) / (A + B), and what it holds
+// it with is the more for there being few troops below to cover (density d,
+// to AIR_PER_TROOP of its weight a troop):
+//
+//   close support   the side that holds the sky attacks and defends harder: 1 + AIR_SUPPORT s d
+//   interdiction    the other's columns are slowed: 1 - AIR_INTERDICT s d
+//
+// What the day's weather lets fly (weather.js "air": 0 in a storm, a
+// blizzard or fog) is what flies. Every evening each wing that flew is worn:
+// the side that lost the sky the more (AIR_LOSS), and a wing worn to nothing
+// is gone. What became of the wings is handed back with the run, once a wing
+// (engine.js snapshot: unitChanges).
+//
+// Only + - * / and comparisons (sqrt for a distance).
+
+import { airWorth } from "./military.js";
+import { isLive } from "./troops.js";
+import { kmBetween } from "./worldGrid.js";
+
+// How far a wing reaches from its base, by era (before 1500, 1500-1849, 1850-1944, from 1945): none before there were any.
+export const AIR_REACH_KM = Object.freeze([0, 0, 500, 900]);
+export const AIR_SUPPORT = 0.25;
+export const AIR_INTERDICT = 0.2;
+// The weight of air a troop takes to cover, and what a day of contesting the sky costs a wing at most.
+export const AIR_PER_TROOP = 8;
+export const AIR_LOSS = 2;
+
+const fold = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+
+// Which battle each wing is over today: once a day for the whole run, the nearest active battle within reach on which its country fights.
+const assignWings = (run, day) => {
+  if (run.airDay === day) return;
+  run.airDay = day;
+  run.airOver = new Map();
+  const reach = AIR_REACH_KM[run.era] ?? 0;
+  if (!(reach > 0)) return;
+  run.wings = run.wings ?? new Map();
+  const flat = run.input?.map?.flat === true;
+  const scale = run.input?.map?.scale;
+  const units = (Array.isArray(run.input?.units) ? run.input.units : []).filter((unit) => fold(unit?.type) === "air" && Number(unit.strength) > 0 && Number.isFinite(Number(unit.lng)) && Number.isFinite(Number(unit.lat)));
+  units.sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0));
+  for (const unit of units) {
+    const id = String(unit.id);
+    if (!run.wings.has(id)) run.wings.set(id, { id, owner: String(unit.ownerCode ?? unit.owner ?? ""), strength: Math.min(100, Number(unit.strength)), began: Math.min(100, Number(unit.strength)), lng: Number(unit.lng), lat: Number(unit.lat) });
+    const wing = run.wings.get(id);
+    if (!(wing.strength > 0) || airWorth(run.militaryOf(wing.owner)) === 0) continue;
+    let best = null;
+    for (const battle of run.battles) {
+      if (battle.status !== "active") continue;
+      const side = [0, 1].find((index) => battle.sides[index].some((member, at) => !battle.gone[index].has(at) && fold(member) === fold(wing.owner)));
+      if (side === undefined) continue;
+      const [lng, lat] = battle.place.toLngLat(battle.field.cols / 2, battle.field.rows / 2);
+      const km = kmBetween(wing.lng, wing.lat, lng, lat, { flat, scale });
+      if (km <= reach && (!best || km < best.km)) best = { battle, side, km };
+    }
+    if (!best) continue;
+    if (!run.airOver.has(best.battle)) run.airOver.set(best.battle, [[], []]);
+    run.airOver.get(best.battle)[best.side].push(wing);
+  }
+};
+
+// The morning: what the sky over a battle does to each side today.
+// { punch: [a, b], guard: [a, b], legs: [a, b], flying: [a, b] }, or null when nobody flies.
+export const skyOfWings = (run, battle, day) => {
+  assignWings(run, day);
+  const wings = run.airOver?.get(battle);
+  battle.wings = null;
+  if (!wings) return null;
+  const flies = battle.sky ? battle.sky.effects.air : 1;
+  if (!(flies > 0)) return null;
+  const weight = wings.map((list) => list.reduce((sum, wing) => sum + (wing.strength > 0 ? wing.strength * airWorth(run.militaryOf(wing.owner)) : 0), 0) * flies);
+  const total = weight[0] + weight[1];
+  if (!(total > 0)) return null;
+  const holds = weight[0] >= weight[1] ? 0 : 1;
+  const superiority = (weight[holds] - weight[1 - holds]) / total;
+  let troops = 0;
+  for (const troop of battle.troops[holds]) if (isLive(troop)) troops += 1;
+  const density = troops > 0 ? Math.min(1, weight[holds] / (AIR_PER_TROOP * troops)) : 1;
+  const edge = superiority * density;
+  const punch = [1, 1];
+  const guard = [1, 1];
+  const legs = [1, 1];
+  punch[holds] = 1 + AIR_SUPPORT * edge;
+  guard[holds] = 1 + AIR_SUPPORT * edge;
+  legs[1 - holds] = 1 - AIR_INTERDICT * edge;
+  battle.wings = { holds, weight, superiority, flying: wings };
+  return { punch, guard, legs };
+};
+
+// The evening: every wing that flew over a battle is worn, the side that lost the sky the more.
+export const wearWings = (run, battle) => {
+  const sky = battle.wings;
+  if (!sky) return;
+  const total = sky.weight[0] + sky.weight[1];
+  for (const side of [0, 1]) {
+    const lost = total > 0 ? sky.weight[1 - side] / total : 0;
+    for (const wing of sky.flying[side]) {
+      if (!(wing.strength > 0)) continue;
+      wing.strength = Math.max(0, wing.strength - AIR_LOSS * (0.25 + lost));
+      wing.changed = true;
+    }
+  }
+};
+
+// What became of the wings in the run, once a wing: their strength, or gone.
+export const wingChanges = (run) => (run.wings ? [...run.wings.values()].filter((wing) => wing.changed).map((wing) => (wing.strength >= 1
+  ? { unitId: wing.id, committedTo: "", strength: Math.round(wing.strength) }
+  : { unitId: wing.id, committedTo: "", remove: true })) : []);
+
+// For the story: who held the sky over a battle, and with how many wings a side.
+export const skyHeld = (battle) => (battle.wings ? { holds: battle.wings.holds, wings: battle.wings.flying.map((list) => list.length), superiority: Math.round(battle.wings.superiority * 100) / 100 } : null);

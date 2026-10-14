@@ -20,6 +20,7 @@ import { guardLeft, legsLeft, punchLeft, tireDay } from "./fatigue.js";
 import { mendBudget } from "./manpower.js";
 import { anyMechanic } from "./mechanics.js";
 import { isLive } from "./troops.js";
+import { skyOfWings, wearWings } from "./air.js";
 import { keptWith, raiseWalls } from "./walls.js";
 import { skyOver } from "./weather.js";
 
@@ -45,6 +46,8 @@ export const dawn = (run, battle, day) => {
   if (!sky) battle.sky = null;
   const pace = sky ? sky.effects.pace : 1;
   const blows = sky ? sky.effects.attack : 1;
+  // Who holds the sky over it, and what that does to each side (air.js).
+  const air = run.mech.air ? skyOfWings(run, battle, day) : null;
   for (const side of [0, 1]) {
     const punch = steered(run, "punch", side);
     const guard = steered(run, "guard", side);
@@ -55,15 +58,17 @@ export const dawn = (run, battle, day) => {
       const worth = battle.worth ? battle.worth[side][troop.owner] ?? 1 : 1;
       // What its fatigue leaves it (fatigue.js).
       const tired = run.mech.fatigue && troop.fatigue > 0;
-      troop.punch = (tired ? punch * punchLeft(troop.fatigue) : punch) * worth * blows;
-      troop.guard = (tired ? guard * guardLeft(troop.fatigue) : guard) * worth;
-      troop.legs = (tired ? legs * legsLeft(troop.fatigue) : legs) * pace;
+      troop.punch = (tired ? punch * punchLeft(troop.fatigue) : punch) * worth * blows * (air ? air.punch[side] : 1);
+      troop.guard = (tired ? guard * guardLeft(troop.fatigue) : guard) * worth * (air ? air.guard[side] : 1);
+      troop.legs = (tired ? legs * legsLeft(troop.fatigue) : legs) * pace * (air ? air.legs[side] : 1);
     }
   }
 };
 
 export const dusk = (run, battle, day) => {
   if (!anyMechanic(run.mech)) return;
+  // The wings that flew over it are worn (air.js).
+  if (run.mech.air) wearWings(run, battle);
   // The day's march and fighting tire every troop that marched or fought, and rest the others (fatigue.js).
   // (And the weather tires them too, and rests them less: weather.js.)
   if (run.mech.fatigue) tireDay(run, battle, battle.sky ? { wear: battle.sky.effects.wear, rest: battle.sky.effects.rest } : undefined);

@@ -31,6 +31,7 @@ import { dawn } from "./dawn.js";
 import { readMechanics } from "./mechanics.js";
 import { levyOwed, musterShare } from "./muster.js";
 import { linesChanged } from "./walls.js";
+import { wingChanges } from "./air.js";
 import { MILITARY_NEUTRAL, airWorth, landWorth, mixOf, readMilitary, seaWorth } from "./military.js";
 import { absorbUnit, holderOf, keepStart, lineLength, loadBattle, memberIndex, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setHandicap, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
@@ -2102,7 +2103,8 @@ const stepDay = (run) => {
 // The result of a run as it stands after the days simulated so far.
 const snapshot = (run) => {
   const day = run.day;
-  const changes = run.unitChanges.map(({ committedTo, ...change }) => ({ ...change, committedTo: typeof committedTo === "string" ? committedTo : committedTo.name }));
+  // (With what became of the air wings that flew over the battlefields: air.js.)
+  const changes = [...run.unitChanges, ...wingChanges(run)].map(({ committedTo, ...change }) => ({ ...change, committedTo: typeof committedTo === "string" ? committedTo : committedTo.name }));
   const records = run.battles.map((battle) => saveBattle(battle, run, day, changes, buildBrief(battle, battle.openedDay > 0 ? battle.openedDate : run.dateOf(0))));
   const open = records.filter((record) => record.status !== "closed").slice(0, MAX_BATTLEFIELDS);
   const closed = records.filter((record) => record.status === "closed").slice(-MAX_CLOSED_BATTLEFIELDS);
