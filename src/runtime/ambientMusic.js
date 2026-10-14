@@ -29,10 +29,10 @@
 //            Skies), each whole and levelled the same way, and after the
 //            last of them Passage Of Time begins again. Few players idle on
 //            a menu for the two minutes and more that takes ("its always
-//            playing passage of time", the owner), so the pieces also take
-//            turns by VISIT: the game opens on the piece after the one it
-//            opened on last time, and each time the menu is come back to
-//            from a game it plays the next one, from its start.
+//            playing passage of time", the owner), so which piece a VISIT to
+//            the menu plays is picked at random ("have it randomly pick one
+//            track or the other"): when the game is started, and each time
+//            the menu is come back to from a game, from the piece's start.
 //            Each of the menu's pieces has a build of ITS OWN for a game
 //            opening ("why do they both crossfade into the same song, they
 //            should crossfade into their own song for the loading"): a game
@@ -49,14 +49,19 @@
 //   game     the game is drawn. The music runs on at least to the big hit,
 //            and to the next hit after it if that one has passed
 //            (PASSAGE_DRAMA.cuts), lets it ring, and stops. After a breath of
-//            silence the in-game piece comes in, when there is one. A game
+//            silence the game's own music comes in ("add these new tracks to
+//            play in the background ingame": Hour Of The Witch and Honour
+//            Among Thieves, MUSIC_GAME_PIECES): one of them picked at random
+//            for each game, the other after it, round and round, LEVELLED as
+//            the menu's are so that it stays in the background. A game
 //            drawn while the big hit is still far off does not wait for it:
 //            the build fades out on its next accent (exitAfter).
 //   atWar    in the game, with the player's troops on a battlefield. Whatever
 //            the game plays, unless the scenario has music of its own for it.
 //   war      the war room is open, or a battlefield is shown. Legionnaire,
-//            then Vanguard, then Legionnaire again (MUSIC_WAR_PIECES): one
-//            after the other, as a list plays.
+//            and Vanguard (MUSIC_WAR_PIECES), one after the other as a list
+//            plays; which of them a game's war room starts on is picked
+//            at random ("make it do the same for the war room").
 //
 // Passage Of Time plays on TWO elements of the one file: `calm` for the menu
 // and `drama` for the build and the loud stretch. Going from one part of a
@@ -144,18 +149,51 @@ export const MUSIC_TRACKS = Object.freeze({
       ]),
     }),
   }),
-  // The piece that plays in a game. None has been chosen yet: until one is,
-  // a game is quiet outside the war room.
-  game: null,
+  // The two pieces that play in a game, in the background. `loud` as Clear
+  // Skies': both are loud pieces, and levelled they sit under the game.
+  hourOfTheWitch: Object.freeze({
+    file: "audio/hour-of-the-witch.mp3",
+    work: "Hour Of The Witch",
+    ...COMPOSER,
+    loud: Object.freeze({
+      step: 5,
+      rms: Object.freeze([
+        0.079, 0.043, 0.024, 0.063, 0.057, 0.092, 0.036, 0.072, 0.090, 0.040,
+        0.074, 0.080, 0.044, 0.026, 0.155, 0.136, 0.153, 0.140, 0.145, 0.177,
+        0.126, 0.155, 0.176, 0.129, 0.141, 0.161, 0.055, 0.036, 0.165, 0.178,
+        0.179, 0.170, 0.174, 0.192, 0.162, 0.191, 0.200, 0.189, 0.185, 0.186,
+        0.049, 0.029, 0.034, 0.001,
+      ]),
+    }),
+  }),
+  honourAmongThieves: Object.freeze({
+    file: "audio/honour-among-thieves.mp3",
+    work: "Honour Among Thieves",
+    ...COMPOSER,
+    loud: Object.freeze({
+      step: 5,
+      rms: Object.freeze([
+        0.097, 0.107, 0.116, 0.146, 0.137, 0.139, 0.149, 0.143, 0.147, 0.146,
+        0.150, 0.147, 0.148, 0.148, 0.155, 0.146, 0.146, 0.129, 0.161, 0.162,
+        0.171, 0.197, 0.187, 0.185, 0.197, 0.188, 0.196, 0.189, 0.190, 0.184,
+        0.183, 0.191, 0.184, 0.141, 0.159, 0.160, 0.163, 0.164, 0.181, 0.183,
+        0.184, 0.181, 0.183, 0.187, 0.190, 0.170, 0.168, 0.140,
+      ]),
+    }),
+  }),
 });
-// The war room's pieces (names in MUSIC_TRACKS), in the order they play: one
-// after the other, round again at the end. A session starts on the first.
+// The war room's pieces (names in MUSIC_TRACKS): one after the other, round
+// again at the end. Which of them a game's war room starts on is picked at
+// random ("make it do the same for the war room").
 export const MUSIC_WAR_PIECES = Object.freeze(["war", "vanguard"]);
-// The menu's other pieces (names in MUSIC_TRACKS), in the order they play.
-// The menu's pieces are Passage Of Time, which is also the music a game opens
-// to, and then these: they take turns, one a visit to the menu (the first
-// ever is Passage Of Time), and on a menu left idle one after the other,
-// each whole, round and round.
+// The pieces that play in a game (names in MUSIC_TRACKS), in the background:
+// one after the other, round again at the end, and which of them a game
+// starts on is picked at random.
+export const MUSIC_GAME_PIECES = Object.freeze(["hourOfTheWitch", "honourAmongThieves"]);
+// The menu's other pieces (names in MUSIC_TRACKS). The menu's pieces are
+// Passage Of Time and these: which of them a visit to the menu plays is
+// picked at random, and on a menu left idle they follow one another, each
+// whole, round and round.
 export const MUSIC_MENU_PIECES = Object.freeze(["clearSkies"]);
 // What Settings names and links (one composer so far).
 export const MUSIC_CREDIT = COMPOSER;
@@ -393,13 +431,16 @@ export const createMusicDirector = ({
   timers,
   now = null,
   memory = null,
-  menuMemory = null,
+  // A number from 0 up to 1, as Math.random gives: which piece a visit to
+  // the menu, a game and its war room start on.
+  random = Math.random,
   onNowPlaying = null,
   trackAddress = null,
   releaseAddress = null,
   tracks = MUSIC_TRACKS,
   warPieces = MUSIC_WAR_PIECES,
   menuPieces = MUSIC_MENU_PIECES,
+  gamePieces = MUSIC_GAME_PIECES,
   drama: passageDrama = PASSAGE_DRAMA,
   calm = PASSAGE_CALM,
 }) => {
@@ -413,17 +454,22 @@ export const createMusicDirector = ({
   // row could not be played, and whether none could (`dead`). A scenario's
   // track is played from the address `trackAddress` answers with: `waiting`
   // while that answer is on its way, and `held` once the element has it.
-  const playlist = (key, items = []) => ({ key, tracks: items, index: 0, loaded: "", turn: 0, misses: 0, dead: false, audio: null, want: false, gain: 0, boost: 1, fade: null, asked: 0, waiting: false, arrived: false, held: "" });
+  // `fresh`: it has not sounded in this game yet (one of the game's own lists
+  // picks the piece it starts on then, at random).
+  const playlist = (key, items = []) => ({ key, tracks: items, index: 0, loaded: "", turn: 0, misses: 0, dead: false, audio: null, want: false, gain: 0, boost: 1, fade: null, asked: 0, waiting: false, arrived: false, held: "", fresh: true });
+  // One of the game's own pieces as a list's track: `loud` is its loudness
+  // table, when it has one and is to be levelled by it.
+  const own = (name) => (tracks[name] ? [{ id: name, src: addressOf(tracks[name].file), loud: tracks[name].loud ?? null }] : []);
   // The game's own: Passage Of Time twice over (the menu's part and the
-  // build, an element each, so one can cross into the other), the menu's
-  // other pieces and the war room's pieces, a list each, and the in-game
-  // piece.
+  // build, an element each, so one can cross into the other), and a list
+  // each for the menu's other pieces, the war room's pieces and the pieces
+  // that play in a game.
   const channels = {
     calm: channel(tracks.passage),
     drama: channel(tracks.passage),
     war: playlist("war", warPieces.flatMap((name) => (tracks[name] ? [{ id: name, src: addressOf(tracks[name].file) }] : []))),
-    themes: playlist("themes", menuPieces.flatMap((name) => (tracks[name] ? [{ id: name, src: addressOf(tracks[name].file), loud: tracks[name].loud ?? null }] : []))),
-    game: channel(tracks.game),
+    themes: playlist("themes", menuPieces.flatMap(own)),
+    game: playlist("ingame", gamePieces.flatMap(own)),
   };
   const quiet = channels.calm;
   const themes = channels.themes;
@@ -446,8 +492,12 @@ export const createMusicDirector = ({
   // A scenario's: one list a situation, of tracks as the hub's list resolved
   // them. One of these that cannot be played gives way to the game's own.
   const lists = Object.fromEntries(SCENARIO_MUSIC_SITUATIONS.map((key) => [key, playlist(key)]));
-  const pieces = [quiet, ...Object.values(builds).map((build) => build.ch), channels.game];
-  const playlists = [channels.war, themes, ...Object.values(lists)];
+  const pieces = [quiet, ...Object.values(builds).map((build) => build.ch)];
+  const playlists = [channels.war, themes, channels.game, ...Object.values(lists)];
+  // The lists whose files are the game's own, beside the page: never asked
+  // of the kept music. And those that start on a piece picked at random.
+  const ownLists = new Set([channels.war, themes, channels.game]);
+  const shuffled = new Set([channels.war, channels.game]);
   const everyChannel = () => [...pieces, ...playlists];
 
   let scene = "menu";
@@ -474,8 +524,6 @@ export const createMusicDirector = ({
   // The menu is on one of its other pieces (MUSIC_MENU_PIECES, `themes.index`
   // says which), not on Passage Of Time.
   let onTheme = false;
-  // The piece the menu was last on, by name, as it is kept between sessions.
-  let remembered = null;
   // How many times the build, found playing far from where it was put, has
   // been put back since this game began to open.
   let strays = 0;
@@ -594,7 +642,7 @@ export const createMusicDirector = ({
     list.turn += 1;
     list.asked += 1;
     list.arrived = false;
-    if (!trackAddress || list === channels.war || list === themes) {
+    if (!trackAddress || ownLists.has(list)) {
       give(list, src);
       return true;
     }
@@ -736,6 +784,11 @@ export const createMusicDirector = ({
   };
   const bring = (ch, ms) => {
     if (ch.tracks ? !usable(ch) : !ch.track) return;
+    if (ch.tracks) {
+      pickFresh(ch);
+      // Levelled from where it is, when it is a piece that is.
+      if (!ch.want) ch.boost = listBoost(ch);
+    }
     ch.want = true;
     refresh();
     fadeTo(ch, 1, ms);
@@ -747,30 +800,42 @@ export const createMusicDirector = ({
     bring(quiet, calm.fadeIn);
   };
 
-  // The menu's other pieces are levelled as Passage Of Time is, each from its
-  // own loudness: where the one the menu is on is now, and what that makes
-  // its level.
-  const themeTime = () => {
-    const track = themes.tracks[themes.index];
-    return track && themes.audio && themes.loaded === track.src ? themes.audio.currentTime : 0;
-  };
-  const themeBoost = () => {
-    const track = themes.tracks[themes.index];
-    return track?.loud ? calmGainAt(themeTime(), { ...calm, ...track.loud }) : 1;
-  };
-  // The piece the menu is on, by name; and the next in turn: Passage Of Time,
-  // then each of the others, then Passage Of Time again. With no other piece
-  // that plays, it is always Passage Of Time.
+  // The menu's other pieces and the game's are levelled as Passage Of Time
+  // is, each from its own loudness: where the piece a list is on is now, and
+  // what that makes its level (1 for a piece with no table: a hub track).
+  function listTime(list) {
+    const track = list.tracks[list.index];
+    return track && list.audio && list.loaded === track.src ? list.audio.currentTime : 0;
+  }
+  function listBoost(list) {
+    const track = list.tracks[list.index];
+    return track?.loud ? calmGainAt(listTime(list), { ...calm, ...track.loud }) : 1;
+  }
+  const themeTime = () => listTime(themes);
+  const themeBoost = () => listBoost(themes);
+  // One of `count` things, picked at random.
+  const oneOf = (count) => Math.max(0, Math.min(count - 1, Math.floor(random() * count)));
+  // A list of the game's own that has not sounded in this game yet (the war
+  // room's, the game's) starts on a piece picked at random, from its start.
+  function pickFresh(list) {
+    if (!shuffled.has(list) || !list.fresh) return;
+    list.fresh = false;
+    list.index = oneOf(list.tracks.length);
+    const track = list.tracks[list.index];
+    if (list.audio && track && list.loaded === track.src) {
+      try { list.audio.currentTime = 0; } catch { /* it plays from where it is */ }
+    }
+  }
+  // The piece the menu is on, by name.
   const menuPiece = () => (onTheme ? themes.tracks[themes.index]?.id ?? "passage" : "passage");
-  const turnMenu = () => {
-    if (!usable(themes)) { onTheme = false; return; }
-    if (!onTheme) { onTheme = true; themes.index = 0; return; }
-    if (themes.index + 1 < themes.tracks.length) { themes.index += 1; return; }
-    onTheme = false;
-    themes.index = 0;
+  // Which of the menu's pieces a visit plays: one of Passage Of Time and the
+  // others that play, picked at random.
+  const pickMenu = () => {
+    const others = usable(themes) ? themes.tracks.length : 0;
+    const pick = oneOf(others + 1);
+    onTheme = pick > 0;
+    themes.index = Math.max(0, pick - 1);
   };
-  // Which piece the menu is on is kept between sessions, so the next one
-  // opens on the piece after it.
   // Points `loud` and `drama` at the build of the piece the menu is on.
   const aim = () => {
     const build = builds[menuPiece()] ?? builds.passage;
@@ -779,42 +844,34 @@ export const createMusicDirector = ({
     drama = build.profile;
     readyAt = null;
   };
-  const rememberMenu = () => {
-    const name = menuPiece();
-    if (name === remembered) return;
-    remembered = name;
-    try { menuMemory?.write(name); } catch { /* the next session opens on Passage Of Time */ }
-  };
   // The menu's music in: the piece the menu is on. Passage Of Time comes in
   // from where it is; another piece at once when it is at its start (its own
   // opening is its way in), and faded in when it is not.
   const bringMenu = () => {
     if (!(onTheme && usable(themes))) {
       onTheme = false;
-      rememberMenu();
       aim();
       bringCalm();
       return;
     }
-    rememberMenu();
     aim();
     themes.boost = themeBoost();
     bring(themes, themeTime() < 0.5 ? 0 : calm.fadeIn);
   };
-  // The menu come back to from a game: the next piece's turn, from its start.
+  // The menu come back to from a game: a piece picked at random, from its
+  // start.
   const nextVisit = () => {
     const before = onTheme ? themes : quiet;
-    turnMenu();
+    pickMenu();
     const after = onTheme ? themes : quiet;
-    if (after === before && after === quiet) return;
     // The piece that was the menu's goes out, should it still be sounding (a
     // game given up as it began to open), and back to its start.
     if (before !== after) silence(before, FADE.cross, { rewind: before === quiet });
     if (after === quiet) { if (!quiet.want) seek(quiet, 0); return; }
     // One of the others: from its start. Another file starts there by itself
-    // (load); the same one is taken back.
+    // (load); the same one is taken back, unless it is still sounding.
     const track = themes.tracks[themes.index];
-    if (themes.audio && themes.loaded === track.src) {
+    if (!themes.want && themes.audio && themes.loaded === track.src) {
       try { themes.audio.currentTime = 0; } catch { /* it plays from where it is */ }
     }
   };
@@ -852,6 +909,9 @@ export const createMusicDirector = ({
       return;
     }
     refresh();
+    // The next piece's own level, from its start.
+    const boost = listBoost(list);
+    if (boost !== list.boost) { list.boost = boost; setVolume(list); }
   };
   // A track that could not be played (said by its element, or by play()
   // itself: `turn` is which file that was, so one failure counts once). The
@@ -896,7 +956,9 @@ export const createMusicDirector = ({
   // What the watch below is for: on the menu, the levelling and the end of
   // the menu's part; while a game opens, the build's growth, the wrap, and
   // how it ends.
-  const watching = () => (scene === "menu" ? quiet.want || themes.want : inDrama || cutAt !== null);
+  // The game's own piece is sounding and is one that is levelled.
+  const levelling = () => channels.game.want && usable(channels.game) && Boolean(channels.game.tracks[channels.game.index]?.loud);
+  const watching = () => (scene === "menu" ? quiet.want || themes.want : inDrama || cutAt !== null || levelling());
   const stopTick = () => { if (tick !== null) { timers.clear(tick); tick = null; } };
   const startTick = () => {
     if (tick !== null) return;
@@ -936,6 +998,17 @@ export const createMusicDirector = ({
         tick = timers.set(beat, Math.max(1, Math.min(dying ? FADE_STEP_MS : CALM_TICK_MS, left)));
         return;
       }
+      if (!inDrama && cutAt === null) {
+        // In a game, with no loading music to see to: the game's own piece,
+        // levelled by where it is, as the menu's are.
+        const piece = channels.game;
+        if (piece.want && piece.audio) {
+          const boost = listBoost(piece);
+          if (boost !== piece.boost) { piece.boost = boost; setVolume(piece); }
+        }
+        tick = timers.set(beat, CALM_TICK_MS);
+        return;
+      }
       const audio = loud.audio;
       if (!audio) return;
       tendCalm();
@@ -967,7 +1040,7 @@ export const createMusicDirector = ({
   // A scene's voice in, and every other voice of a game out. (Passage Of Time
   // is not one of them: the menu and a game opening see to it themselves.)
   const sound = (voice) => {
-    for (const ch of [channels.game, ...playlists]) if (ch !== voice) silence(ch, FADE.cross);
+    for (const ch of playlists) if (ch !== voice) silence(ch, FADE.cross);
     bring(voice, voice === channels.game ? FADE.gameIn : FADE.cross);
   };
   // What a game sounds like once the loading music is out of the way.
@@ -1003,7 +1076,6 @@ export const createMusicDirector = ({
     softExit = false;
     inDrama = false;
     rampFrom = null;
-    silence(channels.game, FADE.cross);
     for (const build of Object.values(builds)) silence(build.ch, FADE.cross);
     // The menu's own element had carried on as the loading music: out, too,
     // and from its start the next time it is that piece's turn.
@@ -1014,22 +1086,15 @@ export const createMusicDirector = ({
       // A list that could not be played is tried again in the next game.
       list.dead = false;
       list.misses = 0;
+      // And the next game's lists start afresh (pickFresh).
+      list.fresh = true;
     }
     nextVisit();
     bringMenu();
   };
 
-  // The session opens on the piece after the one the last session's menu was
-  // on: the first ever on Passage Of Time.
-  try {
-    const last = menuMemory?.read();
-    const at = typeof last === "string" ? themes.tracks.findIndex((track) => track.id === last) : -1;
-    if (last === "passage" || at >= 0) {
-      onTheme = at >= 0;
-      themes.index = Math.max(0, at);
-      turnMenu();
-    }
-  } catch { /* nothing remembered: Passage Of Time */ }
+  // The piece the game opens on: picked at random, like every visit's.
+  pickMenu();
 
   // How much longer the game now opening is expected to take.
   const loadLeft = () => {
@@ -1059,7 +1124,7 @@ export const createMusicDirector = ({
     // What the menu was sounding: Passage Of Time's own part, or another of
     // its pieces.
     const menu = themes.want ? themes : quiet;
-    for (const other of [channels.game, ...playlists]) if (other !== themes) silence(other, FADE.cross);
+    for (const other of playlists) if (other !== themes) silence(other, FADE.cross);
     for (const build of Object.values(builds)) if (build.ch !== loud) silence(build.ch, FADE.cross);
     // The menu's music is sounding: the build starts a little before its
     // entry, under it, and the two cross, so that the middle of the crossing
@@ -1265,18 +1330,6 @@ export const musicSceneOf = ({ inMenu = false, loading = false, atWar = false, w
   return atWar ? "atWar" : "game";
 };
 
-// Which of its pieces the menu was last on (a name in MUSIC_TRACKS), kept
-// between sessions so the next opens on the one after it.
-export const MENU_PIECE_KEY = "audio_menu_piece";
-export const menuPieceMemory = (win) => ({
-  read: () => {
-    try { return win.localStorage.getItem(MENU_PIECE_KEY); } catch { return null; }
-  },
-  write: (name) => {
-    try { win.localStorage.setItem(MENU_PIECE_KEY, name); } catch { /* the next session opens on Passage Of Time */ }
-  },
-});
-
 // How long games took to open on this device, kept between sessions.
 export const LOAD_SECONDS_KEY = "audio_load_seconds";
 export const loadSecondsMemory = (win) => ({
@@ -1373,7 +1426,6 @@ export const startMusic = ({
     timers: { set: (fn, ms) => win.setTimeout(fn, ms), clear: (id) => win.clearTimeout(id) },
     now: () => (typeof win.performance?.now === "function" ? win.performance.now() : Date.now()),
     memory: loadSecondsMemory(win),
-    menuMemory: menuPieceMemory(win),
     onNowPlaying: (track) => {
       nowPlaying = track;
       for (const listener of nowPlayingListeners) listener();

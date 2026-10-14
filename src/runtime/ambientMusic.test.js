@@ -34,9 +34,9 @@ import {
   CLEAR_SKIES_DRAMA,
   DEFAULT_MUSIC_VOLUME,
   LOAD_SECONDS_KEY,
-  MENU_PIECE_KEY,
   MUSIC_CHANNEL,
   MUSIC_CREDIT,
+  MUSIC_GAME_PIECES,
   MUSIC_MENU_PIECES,
   MUSIC_SCENES,
   MUSIC_SWELL,
@@ -57,7 +57,6 @@ import {
   getNowPlaying,
   holdMusic,
   loadSecondsMemory,
-  menuPieceMemory,
   musicAddress,
   musicSceneOf,
   musicVolumeOf,
@@ -107,7 +106,7 @@ const clock = () => {
 // how long a file is (by its address; any other never ends), and `broken`
 // which addresses cannot be played: such a file fails as a browser's does,
 // its element saying so before play() does.
-const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRACKS, memory = null, lengths = {}, broken = [], onNowPlaying = null, trackAddress = null, releaseAddress = null, menuPieces = undefined, menuMemory = null } = {}) => {
+const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRACKS, memory = null, lengths = {}, broken = [], onNowPlaying = null, trackAddress = null, releaseAddress = null, menuPieces = undefined, gamePieces = [], random = () => 0 } = {}) => {
   const time = clock();
   const settings = { enabled, volume };
   const made = [];
@@ -167,7 +166,10 @@ const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRAC
     tracks,
     // Undefined is the game's own (MUSIC_MENU_PIECES); [] is a menu with Passage Of Time alone.
     menuPieces,
-    menuMemory,
+    // Most of these tests are about something else: a game with no music of
+    // its own, and every pick the first of its choices, unless they say.
+    gamePieces,
+    random,
   });
   const of = (name) => director.channels[name].audio;
   const list = (key) => director.lists[key];
@@ -180,6 +182,11 @@ const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRAC
   return { director, made, settings, time, of, list, sounding };
 };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+// The numbers a director's random picks are given, in order; the last again after that.
+const rolls = (...values) => {
+  let next = 0;
+  return () => { const value = values[Math.min(next, values.length - 1)]; next += 1; return value; };
+};
 const near = (actual, expected, by = 0.006) => assert.ok(Math.abs(actual - expected) <= by, `${actual} is not within ${by} of ${expected}`);
 // How long games took to open, as the director keeps it between sessions.
 const remembering = (seconds = []) => {
@@ -610,10 +617,9 @@ test("the game is drawn: the music runs on to the big hit, lets it ring, and sto
   assert.equal(audio.paused, true, "gone");
   assert.deepEqual(sounding(), []);
   assert.deepEqual([director.cutAt, director.inDrama], [null, false]);
-  // No in-game piece has been chosen yet: a game is quiet.
+  // This stage has no in-game pieces: its game is quiet.
   time.advance(10000);
   assert.deepEqual(sounding(), []);
-  assert.equal(MUSIC_TRACKS.game, null);
 });
 
 test("a game that opens fast is not cut off as the music began: the build carries on under it to the big hit", () => {
@@ -648,7 +654,7 @@ test("a game that opens fast is not cut off as the music began: the build carrie
 
 test("a game drawn while the big hit is still far off: the build fades out on its next accent instead", () => {
   // Games take long here, so this one came in at the start of the build.
-  const { director, time, of, sounding } = stage({ memory: remembering([25, 25, 25]), tracks: { ...MUSIC_TRACKS, game: { file: "audio/in-game.mp3" } } });
+  const { director, time, of, sounding } = stage({ memory: remembering([25, 25, 25]), gamePieces: MUSIC_GAME_PIECES });
   director.unlock();
   director.setScene("loading");
   time.advance(200);
@@ -680,27 +686,149 @@ test("a game drawn while the big hit is still far off: the build fades out on it
   assert.deepEqual(sounding(), ["game"]);
 });
 
-test("with an in-game piece, it comes in after a breath of silence", () => {
-  const tracks = { ...MUSIC_TRACKS, game: { file: "audio/in-game.mp3" } };
-  const { director, time, of, sounding } = stage({ tracks });
+// "Add these new tracks to play in the background ingame."
+const HOUR = "/audio/hour-of-the-witch.mp3";
+const HONOUR = "/audio/honour-among-thieves.mp3";
+const GAME_LENGTHS = { [HOUR]: 217, [HONOUR]: 240 };
+const levelOf = (name, at) => calmGainAt(at, { ...PASSAGE_CALM, ...MUSIC_TRACKS[name].loud });
+
+test("in a game the game's own music plays in the background: after a breath of silence, one piece and then the other, levelled", () => {
+  assert.deepEqual(MUSIC_GAME_PIECES, ["hourOfTheWitch", "honourAmongThieves"]);
+  // Each was measured for the whole of it, five seconds at a time.
+  assert.equal(MUSIC_TRACKS.hourOfTheWitch.loud.rms.length, Math.ceil(217.06 / 5));
+  assert.equal(MUSIC_TRACKS.honourAmongThieves.loud.rms.length, 240 / 5);
+  const { director, time, of, sounding } = stage({ gamePieces: MUSIC_GAME_PIECES, lengths: GAME_LENGTHS });
   director.unlock();
   director.setScene("loading");
   time.advance(1000);
+  assert.equal(of("game"), null, "nothing of it is made while the game opens");
   director.setScene("game");
   // Run to the hit, through its dying away and the breath after it.
   time.advance(14000);
   assert.equal(of("drama").paused, true);
   assert.deepEqual(sounding(), ["game"]);
-  assert.equal(of("game").src, "/audio/in-game.mp3");
+  const audio = of("game");
+  assert.equal(audio.src, HOUR);
+  assert.equal(audio.loop, false);
+  assert.ok(audio.currentTime < 2.5, `from its start: ${audio.currentTime}`);
+  // It comes in slowly, to its own level.
+  assert.ok(audio.volume < 0.25 * levelOf("hourOfTheWitch", audio.currentTime));
   time.advance(4000);
-  assert.equal(of("game").volume, 0.25);
+  near(audio.volume, 0.25 * levelOf("hourOfTheWitch", audio.currentTime), 0.01);
+  // In its loud stretch it is brought down: it is the background.
+  time.advance(100000 - audio.currentTime * 1000);
+  near(audio.volume, 0.25 * levelOf("hourOfTheWitch", audio.currentTime), 0.004);
+  assert.ok(audio.volume < 0.25 * 0.65, `under the game: ${audio.volume}`);
   // At war with no music of its own is whatever the game plays: nothing changes.
-  const plays = of("game").plays;
+  const plays = audio.plays;
   director.setScene("atWar");
   time.advance(2000);
   assert.deepEqual(sounding(), ["game"]);
-  assert.equal(of("game").volume, 0.25);
-  assert.equal(of("game").plays, plays);
+  assert.equal(audio.plays, plays);
+  director.setScene("game");
+  // It ends, and the other piece follows from its start, at its own level.
+  time.advance((217 - audio.currentTime) * 1000 + 600);
+  assert.equal(audio.src, HONOUR);
+  assert.ok(audio.currentTime < 1, `from its start: ${audio.currentTime}`);
+  assert.equal(audio.paused, false);
+  near(audio.volume, 0.25 * levelOf("honourAmongThieves", audio.currentTime), 0.004);
+  // And round: the first again after it.
+  time.advance(240000 + 600);
+  assert.equal(audio.src, HOUR);
+  assert.deepEqual(sounding(), ["game"]);
+});
+
+test("the war room takes the game's music's place, and the game's carries on from where it was", () => {
+  const { director, time, of, sounding } = stage({ gamePieces: MUSIC_GAME_PIECES, lengths: GAME_LENGTHS });
+  director.unlock();
+  director.setScene("game");
+  time.advance(30000);
+  const audio = of("game");
+  assert.deepEqual(sounding(), ["game"]);
+  director.setScene("war");
+  time.advance(2000);
+  assert.deepEqual(sounding(), ["war"]);
+  assert.equal(audio.paused, true);
+  const held = audio.currentTime;
+  time.advance(20000);
+  director.setScene("game");
+  time.advance(4000);
+  assert.deepEqual(sounding(), ["game"]);
+  assert.equal(audio.src, HOUR);
+  near(audio.currentTime, held + 4, 0.1);
+  // A scenario's own music for the game takes its place altogether.
+  director.setPlaylists({ game: [hubTrack("a")] });
+  time.advance(2000);
+  assert.deepEqual(sounding(), ["scenario:game"]);
+  director.setPlaylists(null);
+  time.advance(4000);
+  assert.deepEqual(sounding(), ["game"]);
+  // On the menu it is silent, and it is never the menu's music.
+  director.setScene("menu");
+  time.advance(3000);
+  assert.deepEqual(sounding(), ["calm"]);
+});
+
+// "Have it randomly pick one track or the other, make it do the same for the war room."
+test("each game starts on one of the game's two pieces, picked at random, from its start", () => {
+  // The rolls: the menu the game opens on, the first game's piece, the menu come back to, the second game's piece.
+  const { director, time, of, sounding } = stage({ gamePieces: MUSIC_GAME_PIECES, lengths: GAME_LENGTHS, random: rolls(0, 0.7, 0, 0.1) });
+  director.unlock();
+  director.setScene("game");
+  time.advance(40000);
+  const audio = of("game");
+  assert.equal(audio.src, HONOUR);
+  near(audio.currentTime, 40, 0.1);
+  director.setScene("menu");
+  time.advance(3000);
+  assert.deepEqual(sounding(), ["calm"]);
+  director.setScene("game");
+  time.advance(5000);
+  assert.equal(audio.src, HOUR);
+  near(audio.currentTime, 5, 0.1);
+  // The same piece picked again for the next game: from its start, not from where it was left.
+  time.advance(60000);
+  director.setScene("menu");
+  time.advance(3000);
+  director.setScene("game");
+  time.advance(5000);
+  assert.equal(audio.src, HOUR);
+  near(audio.currentTime, 5, 0.1);
+});
+
+test("each game's war room starts on one of its two pieces, picked at random, and carries on with it", () => {
+  // The rolls: the menu, the first game's war room, the menu again, the second game's war room.
+  const { director, time, of, sounding } = stage({ random: rolls(0, 0.9, 0, 0.2) });
+  director.unlock();
+  director.setScene("game");
+  time.advance(1000);
+  director.setScene("war");
+  time.advance(10000);
+  const audio = of("war");
+  assert.deepEqual(sounding(), ["war"]);
+  assert.equal(audio.src, "/audio/vanguard.mp3");
+  // Left and come back to in the same game: the same piece, from where it was.
+  director.setScene("game");
+  time.advance(5000);
+  director.setScene("war");
+  time.advance(3000);
+  assert.equal(audio.src, "/audio/vanguard.mp3");
+  near(audio.currentTime, 13.9, 0.2);
+  // Another game: picked afresh, from its start.
+  director.setScene("menu");
+  time.advance(3000);
+  director.setScene("game");
+  time.advance(1000);
+  director.setScene("war");
+  time.advance(4000);
+  assert.equal(audio.src, "/audio/legionnaire.mp3");
+  near(audio.currentTime, 4, 0.1);
+  // The top of the range is still the last piece, never past it.
+  const edge = stage({ random: rolls(0, 0.999999) });
+  edge.director.unlock();
+  edge.director.setScene("war");
+  edge.time.advance(2000);
+  assert.equal(edge.of("war").src, "/audio/vanguard.mp3");
 });
 
 test("a game still loading at the end of the loud stretch goes round it again, as loud, and never into the build", () => {
@@ -1071,13 +1199,14 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   assert.deepEqual([MUSIC_CREDIT.artist, MUSIC_CREDIT.licence, MUSIC_CREDIT.site], ["Scott Buckley", "CC BY 4.0", "www.scottbuckley.com.au"]);
   // Every piece has its composer's name for it, and the sentence names each of them.
   assert.deepEqual([MUSIC_TRACKS.passage.work, MUSIC_TRACKS.war.work, MUSIC_TRACKS.vanguard.work, MUSIC_TRACKS.clearSkies.work], ["Passage Of Time", "Legionnaire (2022 Remaster)", "Vanguard", "Clear Skies"]);
+  assert.deepEqual([MUSIC_TRACKS.hourOfTheWitch.work, MUSIC_TRACKS.honourAmongThieves.work], ["Hour Of The Witch", "Honour Among Thieves"]);
   const pieces = Object.values(MUSIC_TRACKS).filter(Boolean);
-  assert.equal(pieces.length, 4);
+  assert.equal(pieces.length, 6);
   for (const piece of pieces) {
     assert.deepEqual([piece.artist, piece.licence], ["Scott Buckley", "CC BY 4.0"]);
   }
   const credits = read("public/audio/CREDITS.txt");
-  for (const part of ["Passage Of Time", "Clear Skies", "Legionnaire (2022 Remaster)", "Vanguard", "Scott Buckley", "CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/", "scottbuckley.com.au"]) assert.ok(credits.includes(part), part);
+  for (const part of ["Passage Of Time", "Clear Skies", "Hour Of The Witch", "Honour Among Thieves", "Legionnaire (2022 Remaster)", "Vanguard", "Scott Buckley", "CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/", "scottbuckley.com.au"]) assert.ok(credits.includes(part), part);
   // Each file by its name, its piece, where it is from, and where it plays.
   const literally = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   for (const piece of pieces) {
@@ -1085,7 +1214,10 @@ test("it is on unless the player turns it off, and Settings says whose music it 
   }
   assert.match(credits, /vanguard\.mp3\r?\n {4}"Vanguard" by Scott Buckley\r?\n {4}https:\/\/www\.scottbuckley\.com\.au\/library\/vanguard\/\r?\n {4}Plays in the war room and while a battlefield is shown\./);
   const readme = read("README.md");
-  assert.ok(readme.includes("\"Passage Of Time\", \"Clear Skies\", \"Legionnaire (2022 Remaster)\" and \"Vanguard\", all released under [CC BY 4.0]"));
+  assert.ok(readme.includes("\"Passage Of Time\", \"Clear Skies\", \"Hour Of The Witch\", \"Honour Among Thieves\", \"Legionnaire (2022 Remaster)\" and \"Vanguard\", all released under [CC BY 4.0]"));
+  for (const file of ["hour-of-the-witch", "honour-among-thieves"]) {
+    assert.match(credits, new RegExp(`${file}\\.mp3\\r?\\n {4}"[^"]+" by Scott Buckley\\r?\\n {4}https://www\\.scottbuckley\\.com\\.au/library/${file}/\\r?\\n {4}Plays in a game, in the background\\.`), file);
+  }
   assert.match(credits, /clear-skies\.mp3\r?\n {4}"Clear Skies" by Scott Buckley\r?\n {4}https:\/\/www\.scottbuckley\.com\.au\/library\/clear-skies\/\r?\n {4}Plays on the menu, in turn with Passage Of Time, and from its own build\r?\n {4}on while a game opened under it loads\./);
   // A scenario's own track is the hub's, and its licence asks the same: the
   // one sounding is credited in the hub's words, which are never translated,
@@ -1219,7 +1351,8 @@ test("a game opened early in Clear Skies crosses into Clear Skies' own build, no
 });
 
 test("a game opened while Clear Skies is already in its loud stretch: the same element carries on, and swells", () => {
-  const { director, made, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 } });
+  // The rolls: the menu the game opens on (Passage Of Time), and the two menus come back to further down.
+  const { director, made, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 }, random: rolls(0, 0, 0.9) });
   director.unlock();
   time.advance(143700 + 110000);
   const clear = of("themes");
@@ -1257,7 +1390,7 @@ test("a game opened while Clear Skies is already in its loud stretch: the same e
   time.advance((director.cutAt - clear.currentTime) * 1000 + CLEAR_SKIES_DRAMA.stopFade + 300);
   assert.deepEqual(sounding(), []);
   assert.equal(clear.paused, true);
-  // Back on the menu it is Passage Of Time's turn; and the visit after that, Clear Skies from its start.
+  // Back on the menu Passage Of Time is picked; and for the visit after that, Clear Skies, from its start.
   director.setScene("menu");
   time.advance(3000);
   assert.deepEqual(sounding(), ["calm"]);
@@ -1285,7 +1418,7 @@ test("a game still loading at the end of Clear Skies' loud stretch goes round it
   assert.ok(latest < CLEAR_SKIES_DRAMA.wrapAt + 0.05, `never into its quiet ending: ${latest}`);
   assert.ok(clear.currentTime > CLEAR_SKIES_DRAMA.enter && clear.currentTime < CLEAR_SKIES_DRAMA.wrapAt);
   assert.equal(clear.paused, false);
-  // Given up: the menu, and the other piece's turn.
+  // Given up: the menu, and a piece picked afresh (here Passage Of Time).
   director.setScene("menu");
   time.advance(3000);
   assert.deepEqual(sounding(), ["calm"]);
@@ -1293,7 +1426,8 @@ test("a game still loading at the end of Clear Skies' loud stretch goes round it
 });
 
 test("Passage Of Time still goes into its own build, and each visit's game into the build of that visit's piece", () => {
-  const { director, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 } });
+  // The rolls: Passage Of Time, then Clear Skies, then Passage Of Time.
+  const { director, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 }, random: rolls(0, 0.9, 0.1) });
   director.unlock();
   time.advance(10000);
   director.setScene("loading");
@@ -1302,7 +1436,7 @@ test("Passage Of Time still goes into its own build, and each visit's game into 
   assert.equal(of("clearSkiesDrama"), null);
   director.setScene("game");
   time.advance(20000);
-  // The second visit is Clear Skies': its game opens into Clear Skies' build.
+  // The second visit is Clear Skies: its game opens into Clear Skies' build.
   director.setScene("menu");
   time.advance(10000);
   assert.deepEqual(sounding(), ["themes"]);
@@ -1314,7 +1448,7 @@ test("Passage Of Time still goes into its own build, and each visit's game into 
   director.setScene("game");
   time.advance(20000);
   assert.deepEqual(sounding(), []);
-  // The third is Passage Of Time's again.
+  // The third is Passage Of Time again.
   director.setScene("menu");
   time.advance(10000);
   assert.deepEqual(sounding(), ["calm"]);
@@ -1324,13 +1458,20 @@ test("Passage Of Time still goes into its own build, and each visit's game into 
 });
 
 // "its always playing passage of time": nobody idles on a menu for the two
-// minutes and more the first piece's part takes.
-test("the menu's pieces take turns by visit: back from a game it is the next one, from its start", () => {
-  const { director, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 } });
+// minutes and more the first piece's part takes. And then: "have it randomly
+// pick one track or the other".
+test("which piece a visit to the menu plays is picked at random: back from a game, from the piece's start", () => {
+  // The rolls: Clear Skies to open on, Clear Skies again, Passage Of Time, Clear Skies.
+  const { director, time, of, sounding } = stage({ lengths: { [CLEAR]: 195 }, random: rolls(0.9, 0.9, 0.1, 0.6) });
   director.unlock();
-  // The first visit: Passage Of Time.
   time.advance(20000);
-  assert.deepEqual(sounding(), ["calm"]);
+  const clear = of("themes");
+  assert.deepEqual(sounding(), ["themes"]);
+  near(clear.currentTime, 20, 0.1);
+  assert.equal(of("calm"), null, "Passage Of Time is not even made");
+  // Its own build is held ready under it.
+  assert.deepEqual([of("clearSkiesDrama").paused, of("clearSkiesDrama").plays], [true, 0]);
+  assert.equal(of("drama"), null);
   // A game is opened, played, and left.
   director.setScene("loading");
   time.advance(6000);
@@ -1339,13 +1480,10 @@ test("the menu's pieces take turns by visit: back from a game it is the next one
   assert.deepEqual(sounding(), []);
   director.setScene("menu");
   time.advance(1500);
-  // The second visit: Clear Skies, from its start, and not Passage Of Time.
-  const clear = of("themes");
+  // The same piece can be picked twice running: from its start, not from where it was left.
   assert.deepEqual(sounding(), ["themes"]);
   near(clear.currentTime, 1.5, 0.1);
-  assert.equal(of("calm").paused, true);
   near(clear.volume, 0.25 * clearLevel(clear.currentTime), 0.004);
-  // Another game, part of the way into Clear Skies.
   time.advance(60000);
   director.setScene("loading");
   time.advance(6000);
@@ -1353,11 +1491,11 @@ test("the menu's pieces take turns by visit: back from a game it is the next one
   time.advance(40000);
   director.setScene("menu");
   time.advance(3000);
-  // The third visit: Passage Of Time again, from its start.
+  // Passage Of Time, from its start.
   assert.deepEqual(sounding(), ["calm"]);
   near(of("calm").currentTime, 3, 0.1);
   assert.equal(clear.paused, true);
-  // And the fourth: Clear Skies from its start, not from where it was left.
+  // And Clear Skies again, from its start.
   director.setScene("game");
   time.advance(5000);
   director.setScene("menu");
@@ -1374,67 +1512,22 @@ test("the menu's pieces take turns by visit: back from a game it is the next one
   }
 });
 
-test("the game opens on the piece after the one it was on last time", () => {
-  const kept = (first = null) => {
-    const memory = { name: first, read: () => memory.name, write: (name) => { memory.name = name; } };
-    return memory;
-  };
-  // The first ever: Passage Of Time, and that is remembered once it sounds.
-  const first = kept();
-  const one = stage({ menuMemory: first, lengths: { [CLEAR]: 195 } });
-  assert.equal(first.name, null, "nothing is written before anything sounds");
-  one.director.unlock();
-  one.time.advance(3000);
-  assert.deepEqual(one.sounding(), ["calm"]);
-  assert.equal(first.name, "passage");
-  // The next time the game is started: Clear Skies, at once.
-  const two = stage({ menuMemory: first, lengths: { [CLEAR]: 195 } });
-  two.director.unlock();
-  two.time.advance(3000);
-  assert.deepEqual(two.sounding(), ["themes"]);
-  assert.equal(two.of("calm"), null, "Passage Of Time is not even made");
-  near(two.of("themes").currentTime, 3, 0.1);
-  assert.equal(first.name, "clearSkies");
-  // The build is still held ready under it for a game opening.
-  assert.deepEqual([two.of("clearSkiesDrama").paused, two.of("clearSkiesDrama").plays], [true, 0]);
-  assert.equal(two.of("drama"), null, "and Passage Of Time's build is not made for a menu that is not on it");
-  // And the time after that: Passage Of Time again.
-  const three = stage({ menuMemory: first, lengths: { [CLEAR]: 195 } });
-  three.director.unlock();
-  three.time.advance(3000);
-  assert.deepEqual(three.sounding(), ["calm"]);
-  assert.equal(first.name, "passage");
-  // The turns of one session are remembered too: left on Clear Skies after a game, the next opens on Passage Of Time.
-  three.director.setScene("game");
-  three.time.advance(3000);
-  three.director.setScene("menu");
-  three.time.advance(3000);
-  assert.equal(first.name, "clearSkies");
-  // A name that is no piece of the menu's, or a memory that cannot be read: Passage Of Time.
-  for (const menuMemory of [kept("someone-elses"), { read: () => { throw new Error("refused"); }, write: () => { throw new Error("refused"); } }]) {
-    const odd = stage({ menuMemory, lengths: { [CLEAR]: 195 } });
-    odd.director.unlock();
-    odd.time.advance(3000);
-    assert.deepEqual(odd.sounding(), ["calm"]);
+test("which piece the game opens on is picked at random, evenly between the menu's pieces", () => {
+  for (const [roll, piece] of [[0, "calm"], [0.49, "calm"], [0.5, "themes"], [0.99, "themes"]]) {
+    const { director, time, sounding } = stage({ lengths: { [CLEAR]: 195 }, random: rolls(roll) });
+    director.unlock();
+    time.advance(3000);
+    assert.deepEqual(sounding(), [piece], `a roll of ${roll}`);
   }
-  // With no other piece the menu is always Passage Of Time, whatever was kept.
-  const alone = stage({ menuMemory: kept("passage"), menuPieces: [] });
+  // With no other piece the menu is always Passage Of Time.
+  const alone = stage({ menuPieces: [], random: rolls(0.99) });
   alone.director.unlock();
   alone.time.advance(3000);
   assert.deepEqual(alone.sounding(), ["calm"]);
-});
-
-test("the page keeps the menu's piece in localStorage, and does without it when it is refused", () => {
-  const store = new Map();
-  const memory = menuPieceMemory({ localStorage: { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) } });
-  assert.equal(memory.read(), null);
-  memory.write("clearSkies");
-  assert.equal(store.get(MENU_PIECE_KEY), "clearSkies");
-  assert.equal(memory.read(), "clearSkies");
-  const refused = menuPieceMemory({ localStorage: { getItem: () => { throw new Error("no"); }, setItem: () => { throw new Error("no"); } } });
-  assert.equal(refused.read(), null);
-  assert.doesNotThrow(() => refused.write("passage"));
-  assert.ok(read("src/runtime/ambientMusic.js").includes("menuMemory: menuPieceMemory(win),"));
+  // The page's own director rolls for itself, and keeps nothing about it between sessions.
+  const source = read("src/runtime/ambientMusic.js");
+  assert.ok(source.includes("  random = Math.random,"));
+  assert.ok(!/audio_menu_piece|menuMemory/.test(source));
 });
 
 test("with Clear Skies unplayable the menu is Passage Of Time's alone, round and round as it was", async () => {
