@@ -19,14 +19,24 @@
 // colour with a lit edge and a shaded one, the light coming from the upper
 // left. Nothing here is a gradient.
 //
+// The door is thick. As its leaves part, each one's inner sides come into
+// view, seen from in front of the middle of the screen: the far edge of a side
+// lags behind its near edge, so the steel has depth, and its lit bevel, its
+// groove, the sockets of its locking bolts and the joint where the round door
+// meets the wall all run back toward the middle. Each leaf casts its shadow on
+// the menu behind it. (The owner, 2026-10-14: "the vault doors currently look
+// thin and 2d when they open"; "make a paralax effect on an inner visible side
+// of the vault doors to make it very realistic".) The leaves are moved and the
+// sides drawn frame by frame, together, so that they never drift apart.
+//
 // With Reduce motion on (the game's switch or the system's) nothing shakes or
 // slides: the door is still, and a click fades it away.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { reduceMotionEnabled } from "../../runtime/mapSettings.js";
 import { makeVaultSounds } from "../../runtime/vaultSounds.js";
-import { vaultMetal } from "./vaultMetal.js";
-import { VAULT_LEAVES, VAULT_TIMING } from "./vaultPlan.js";
+import { seeded, vaultMetal } from "./vaultMetal.js";
+import { VAULT_DEPTH, VAULT_EASE, VAULT_LEAVES, VAULT_TIMING, leafOffset, sideLight, vaultSides } from "./vaultPlan.js";
 
 export { VAULT_LEAVES, VAULT_TIMING };
 
@@ -202,6 +212,167 @@ const WheelShadow = () => (
   </svg>
 );
 
+// ---- the leaves' depth, drawn on a canvas under them -------------------------------
+
+// The brushing on a side: fine lines along it, the same ones every time.
+const SIDE_BRUSH = (() => {
+  const random = seeded(1931);
+  return Array.from({ length: 54 }, () => ({ at: random(), light: random() < 0.5, alpha: 0.025 + random() * 0.07 }));
+})();
+
+const lerp = ([ax, ay], [bx, by], share) => [ax + (bx - ax) * share, ay + (by - ay) * share];
+
+// A point on a side: `along` it from its middle end (0) to its outer end (1),
+// and `deep` into it from its front (0) to its back (1).
+const sidePoint = (side, along, deep) => lerp(lerp(side.front[0], side.front[1], along), lerp(side.back[0], side.back[1], along), deep);
+
+const quad = (context, side, from, to, deepFrom = 0, deepTo = 1) => {
+  context.beginPath();
+  context.moveTo(...sidePoint(side, from, deepFrom));
+  context.lineTo(...sidePoint(side, to, deepFrom));
+  context.lineTo(...sidePoint(side, to, deepTo));
+  context.lineTo(...sidePoint(side, from, deepTo));
+  context.closePath();
+};
+
+// The socket of a locking bolt, a round hole in the side with the bolt's end
+// drawn back into it: a circle on the side, so an ellipse as seen. `radius` is
+// its size along the side, in pixels; across, it is foreshortened as the side is.
+const drawSocket = (context, side, along, light, radius) => {
+  const length = Math.hypot(side.front[1][0] - side.front[0][0], side.front[1][1] - side.front[0][1]);
+  if (!(length > 0)) return;
+  const unit = [(side.front[1][0] - side.front[0][0]) / length, (side.front[1][1] - side.front[0][1]) / length];
+  const ellipse = (deep, scale) => {
+    const centre = sidePoint(side, along, deep);
+    const across = sidePoint(side, along, deep + VAULT_DEPTH.socketRadius * scale);
+    context.save();
+    context.transform(unit[0] * radius * scale, unit[1] * radius * scale, across[0] - centre[0], across[1] - centre[1], centre[0], centre[1]);
+    context.beginPath();
+    context.arc(0, 0, 1, 0, Math.PI * 2);
+    context.restore();
+  };
+  // The hole, its rim catching the light on the far side, the bolt's end set back in it.
+  ellipse(0.42, 1.12);
+  context.fillStyle = `rgba(214, 220, 230, ${0.1 + 0.22 * light})`;
+  context.fill();
+  ellipse(0.42, 1);
+  context.fillStyle = "rgba(6, 7, 9, 0.9)";
+  context.fill();
+  ellipse(0.47, 0.74);
+  context.fillStyle = `rgb(${Math.round(46 + 40 * light)}, ${Math.round(50 + 42 * light)}, ${Math.round(57 + 44 * light)})`;
+  context.fill();
+  ellipse(0.44, 0.34);
+  context.fillStyle = `rgba(214, 220, 230, ${0.08 + 0.2 * light})`;
+  context.fill();
+};
+
+// One side of a leaf: steel brushed along it, lit by which way it faces; the
+// bevel of its front edge catching the light; a groove along it; where the
+// round door ends and the wall begins; the sockets of the locking bolts; and
+// its far edge in shadow.
+const drawSide = (context, side, width, height) => {
+  const light = sideLight(side.facing);
+  const short = Math.min(width, height);
+  const length = Math.hypot(side.front[1][0] - side.front[0][0], side.front[1][1] - side.front[0][1]);
+  if (!(length > 0)) return;
+  // How far along the side the round door reaches: the steel beyond is the wall's.
+  const doorEnds = Math.min(1, (VAULT_DEPTH.door * short) / length);
+  context.save();
+  quad(context, side, 0, 1);
+  context.clip();
+  // The steel: the door's lighter, the wall's darker.
+  const tone = (base) => Math.round(base * (0.55 + 0.75 * light));
+  context.fillStyle = `rgb(${tone(52)}, ${tone(57)}, ${tone(65)})`;
+  quad(context, side, 0, doorEnds);
+  context.fill();
+  if (doorEnds < 1) {
+    context.fillStyle = `rgb(${tone(40)}, ${tone(44)}, ${tone(50)})`;
+    quad(context, side, doorEnds, 1);
+    context.fill();
+  }
+  // Brushed along the side: lines of the same depth run back toward the middle.
+  context.lineWidth = 1;
+  for (const line of SIDE_BRUSH) {
+    context.strokeStyle = line.light ? `rgba(230, 236, 245, ${line.alpha * (0.5 + light)})` : `rgba(0, 0, 0, ${line.alpha * 1.4})`;
+    context.beginPath();
+    context.moveTo(...sidePoint(side, 0, line.at));
+    context.lineTo(...sidePoint(side, 1, line.at));
+    context.stroke();
+  }
+  // The groove that runs along the side, and the light on its lower lip.
+  context.fillStyle = "rgba(0, 0, 0, 0.42)";
+  quad(context, side, 0, 1, 0.64, 0.7);
+  context.fill();
+  context.fillStyle = `rgba(214, 220, 230, ${0.05 + 0.14 * light})`;
+  quad(context, side, 0, 1, 0.7, 0.72);
+  context.fill();
+  // The joint where the round door meets the wall, running back to the middle.
+  if (doorEnds < 1) {
+    context.strokeStyle = "rgba(0, 0, 0, 0.7)";
+    context.lineWidth = 3;
+    context.beginPath();
+    context.moveTo(...sidePoint(side, doorEnds, 0));
+    context.lineTo(...sidePoint(side, doorEnds, 1));
+    context.stroke();
+    context.strokeStyle = `rgba(214, 220, 230, ${0.06 + 0.14 * light})`;
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(...sidePoint(side, Math.min(1, doorEnds + 2.5 / length), 0));
+    context.lineTo(...sidePoint(side, Math.min(1, doorEnds + 2.5 / length), 1));
+    context.stroke();
+  }
+  // The locking bolts' sockets, along the round door's part of the side.
+  const radius = VAULT_DEPTH.socketRadius * VAULT_DEPTH.thickness * short;
+  for (const at of VAULT_DEPTH.sockets) {
+    const along = (at * short) / length;
+    if (along * length > radius && along < doorEnds) drawSocket(context, side, along, light, radius);
+  }
+  // The front edge's bevel catches the light; the far edge is in shadow.
+  context.fillStyle = `rgba(222, 228, 238, ${0.18 + 0.42 * light})`;
+  quad(context, side, 0, 1, 0, 0.035);
+  context.fill();
+  context.fillStyle = "rgba(0, 0, 0, 0.5)";
+  quad(context, side, 0, 1, 0.9, 1);
+  context.fill();
+  context.restore();
+};
+
+// A leaf's shadow on the menu behind it: its shape, moved down and to the
+// right (the light is at the upper left), in a few soft steps.
+const drawShadow = (context, leaf, progress, width, height) => {
+  const [dx, dy] = leafOffset(leaf, progress, width, height);
+  const corners = [...leaf.shape.matchAll(/(-?[\d.]+)% (-?[\d.]+)%/g)].map((match) => [(Number(match[1]) / 100) * width + dx, (Number(match[2]) / 100) * height + dy]);
+  const reach = Math.min(width, height) * 0.03 * Math.min(1, progress * 4);
+  for (const step of [1, 0.66, 0.33]) {
+    context.beginPath();
+    corners.forEach(([x, y], index) => context[index ? "lineTo" : "moveTo"](x + reach * step, y + reach * 1.5 * step));
+    context.closePath();
+    context.fillStyle = "rgba(0, 0, 0, 0.16)";
+    context.fill();
+  }
+};
+
+// Everything under the leaves at one moment of their going: their shadows,
+// then their sides (a leaf's own face is always in front of every side).
+const drawDepth = (canvas, progress) => {
+  const context = canvas?.getContext?.("2d");
+  if (!context) return;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  const ratio = Math.min(2, globalThis.devicePixelRatio || 1);
+  const pixelsWide = Math.round(width * ratio);
+  const pixelsHigh = Math.round(height * ratio);
+  if (canvas.width !== pixelsWide || canvas.height !== pixelsHigh) {
+    canvas.width = pixelsWide;
+    canvas.height = pixelsHigh;
+  }
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  if (!(progress > 0)) return;
+  for (const leaf of VAULT_LEAVES) drawShadow(context, leaf, progress, width, height);
+  for (const leaf of VAULT_LEAVES) for (const side of vaultSides(leaf, progress, width, height)) drawSide(context, side, width, height);
+};
+
 // `onOpening`: the wheel has been turned and the leaves start to move (the
 // menu's music may begin). `onOpened`: the door is gone.
 export const VaultDoor = ({ onOpening = null, onOpened = null, logo = `${import.meta.env?.BASE_URL ?? "/"}logo.png`, sounds: givenSounds = null }) => {
@@ -216,6 +387,8 @@ export const VaultDoor = ({ onOpening = null, onOpened = null, logo = `${import.
   if (!soundsRef.current) soundsRef.current = givenSounds ?? makeVaultSounds();
   const timers = useRef([]);
   const later = useCallback((fn, ms) => { timers.current.push(setTimeout(fn, ms)); }, []);
+  const leavesRef = useRef([]);
+  const depthRef = useRef(null);
 
   useEffect(() => () => {
     timers.current.forEach(clearTimeout);
@@ -240,6 +413,32 @@ export const VaultDoor = ({ onOpening = null, onOpened = null, logo = `${import.
     }, VAULT_TIMING.firstShake);
     return () => { clearTimeout(first); clearInterval(again); clearTimeout(stop); setShaking(false); };
   }, [stage, still, touches]);
+
+  // The leaves going, frame by frame: each moved by its share of the way, and
+  // their sides and shadows drawn for that same moment, so that the two never
+  // drift apart.
+  useEffect(() => {
+    if (stage !== "opening" || still) return undefined;
+    let frame = 0;
+    let started = 0;
+    const step = (now) => {
+      if (!started) started = now;
+      const gone = Math.min(1, (now - started) / VAULT_TIMING.open);
+      const progress = VAULT_EASE(gone);
+      const width = depthRef.current?.clientWidth || globalThis.innerWidth || 0;
+      const height = depthRef.current?.clientHeight || globalThis.innerHeight || 0;
+      VAULT_LEAVES.forEach((leaf, index) => {
+        const element = leavesRef.current[index];
+        if (!element) return;
+        const [x, y] = leafOffset(leaf, progress, width, height);
+        element.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+      });
+      drawDepth(depthRef.current, progress);
+      if (gone < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [stage, still]);
 
   const open = () => {
     if (stage !== "closed") return;
@@ -280,9 +479,12 @@ export const VaultDoor = ({ onOpening = null, onOpened = null, logo = `${import.
       }}
     >
       <style>{STYLES}</style>
-      {VAULT_LEAVES.map((leaf) => (
+      {/* Under the leaves: their sides and shadows as they part (drawDepth). */}
+      <canvas ref={depthRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }} />
+      {VAULT_LEAVES.map((leaf, index) => (
         <div
           key={leaf.name}
+          ref={(element) => { leavesRef.current[index] = element; }}
           data-oh-vault-leaf={leaf.name}
           style={{
             position: "absolute", inset: 0,
@@ -291,8 +493,8 @@ export const VaultDoor = ({ onOpening = null, onOpened = null, logo = `${import.
             backgroundSize: "256px 256px",
             clipPath: leaf.shape,
             WebkitClipPath: leaf.shape,
-            transform: opening && !still ? leaf.away : "translate(0%, 0%)",
-            transition: still ? "none" : `transform ${VAULT_TIMING.open}ms cubic-bezier(0.55, 0.05, 0.3, 1)`,
+            // Moved frame by frame as the door opens (the effect above), with
+            // its sides: not by a transition, which the sides could not follow.
             willChange: "transform",
           }}
         >

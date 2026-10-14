@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { VAULT_LEAVES, VAULT_TIMING } from "./vaultPlan.js";
+import { VAULT_DEPTH, VAULT_EASE, VAULT_LEAVES, VAULT_TIMING, cubicBezier, leafOffset, sideLight, vaultSides } from "./vaultPlan.js";
 import { DISC_SIZE, PLATE_SIZE, brushedDisc, brushedPlate, seeded, vaultMetal } from "./vaultMetal.js";
 
 const read = (file) => readFileSync(new URL(file, import.meta.url), "utf8");
@@ -110,15 +110,17 @@ test("with Reduce motion on nothing shakes, turns or slides: a click fades the d
   assert.match(door, /const still = useMemo\(\(\) => reduceMotionEnabled\(\), \[\]\);/);
   assert.match(door, /if \(stage !== "closed" \|\| still\) return undefined;/);
   assert.match(door, /if \(still\) \{[\s\S]+?voice\?\.unlock\(\);[\s\S]+?VAULT_TIMING\.fade\);\s+return;\s+\}/);
-  assert.match(door, /transform: opening && !still \? leaf\.away : "translate\(0%, 0%\)"/);
+  // The leaves are moved, and their sides drawn, only when they may move.
+  assert.match(door, /if \(stage !== "opening" \|\| still\) return undefined;/);
 });
 
 test("the app shows the door once the startup screen is done, over the menu, and takes it away when it has opened", () => {
   assert.match(app, /\{isReady && doorShut && \(\s+<DoorFrame onFailed=\{doorGone\}>\s+<VaultDoor onOpening=\{letMusicIn\} onOpened=\{doorGone\} \/>/);
   // The menu is already there behind it.
   assert.ok(app.indexOf("{isReady && (\r\n      <UI") > 0 || app.indexOf("{isReady && (\n      <UI") > 0);
-  // The menu's music waits behind the door and begins as it opens.
-  assert.match(app, /useState\(\(\) => \{\s+holdMusicBehindDoor\(true\);\s+return true;\s+\}\)/);
+  // The menu's music waits behind the door and begins as it opens; with the
+  // door turned off there is no door, and nothing waits.
+  assert.match(app, /useState\(\(\) => \{\s+if \(!vaultDoorEnabled\(\)\) return false;\s+holdMusicBehindDoor\(true\);\s+return true;\s+\}\)/);
   assert.match(app, /const letMusicIn = useCallback\(\(\) => holdMusicBehindDoor\(false\), \[\]\);/);
   // A door that cannot be drawn does not shut the menu in.
   assert.match(app, /componentDidCatch\(error\) \{[\s\S]+?this\.props\.onFailed\?\.\(\);/);
@@ -189,4 +191,84 @@ test("where no picture can be made the door is drawn in its flat colours", () =>
   assert.deepEqual(vaultMetal(), { disc: null, plate: null });
   assert.match(door, /\{metal\.disc \? \(/);
   assert.match(door, /backgroundImage: metal\.plate \? `url\(\$\{metal\.plate\}\)` : "none"/);
+});
+
+// "the vault doors currently look thin and 2d when they open"; "make a paralax
+// effect on an inner visible side of the vault doors to make it very
+// realistic" (the owner, 2026-10-14).
+test("each leaf moves where its `away` says, on the leaves' own curve", () => {
+  for (const leaf of VAULT_LEAVES) assert.deepEqual(leaf.move.map((share) => Math.round(share * 100)), moveOf(leaf.away), leaf.name);
+  // As CSS draws cubic-bezier(0.55, 0.05, 0.3, 1): still at the start, there at the end, slow to begin.
+  assert.equal(VAULT_EASE(0), 0);
+  assert.equal(VAULT_EASE(1), 1);
+  assert.ok(VAULT_EASE(0.25) < 0.15, `a quarter of the time in, ${VAULT_EASE(0.25)} of the way`);
+  assert.ok(VAULT_EASE(0.75) > 0.85);
+  for (let t = 0; t < 1; t += 0.05) assert.ok(VAULT_EASE(t + 0.05) >= VAULT_EASE(t), "never back");
+  // The straight curve is the time itself.
+  const straight = cubicBezier(0.25, 0.25, 0.75, 0.75);
+  for (const t of [0.1, 0.33, 0.5, 0.9]) assert.ok(Math.abs(straight(t) - t) < 1e-4);
+  assert.deepEqual(leafOffset(VAULT_LEAVES[0], 0.5, 1000, 800), [0, -264]);
+});
+
+test("a leaf's inner sides are seen as it leaves: their far edge lags behind the near one", () => {
+  const [width, height] = [1600, 900];
+  for (const leaf of VAULT_LEAVES) {
+    // Shut, its sides are no more than its seams: nothing of them is seen.
+    for (const side of vaultSides(leaf, 0, width, height)) {
+      assert.deepEqual(side.front[0], [800, 450]);
+      assert.deepEqual(side.back[0], [800, 450]);
+    }
+    for (const side of vaultSides(leaf, 0.5, width, height)) {
+      const [dx, dy] = leafOffset(leaf, 0.5, width, height);
+      // The near edge goes with the leaf; the far edge goes by less, toward the middle.
+      assert.deepEqual(side.front[0], [800 + dx, 450 + dy]);
+      const far = side.back[0];
+      assert.ok(Math.abs(far[0] - (800 + dx * (1 - VAULT_DEPTH.back))) < 1e-9 && Math.abs(far[1] - (450 + dy * (1 - VAULT_DEPTH.back))) < 1e-9);
+      // And not by much less: "it shifts too much" at 0.2 (the owner).
+      assert.ok(VAULT_DEPTH.back <= 0.08);
+      // The farther the leaf has gone, the more of its side is seen.
+      const seen = (progress) => {
+        const at = vaultSides(leaf, progress, width, height)[0];
+        return Math.hypot(at.back[0][0] - at.front[0][0], at.back[0][1] - at.front[0][1]);
+      };
+      assert.ok(seen(0.2) < seen(0.5) && seen(0.5) < seen(0.9));
+      // A side looks back toward the middle of the screen.
+      assert.ok(side.facing[0] * -dx + side.facing[1] * -dy > 0, `${leaf.name} faces the middle`);
+    }
+  }
+  // Lit from the upper left: a side turned up and left is bright, one turned down is dark.
+  assert.ok(sideLight([-Math.SQRT1_2, -Math.SQRT1_2]) > 0.85);
+  assert.ok(sideLight([0, 1]) < 0.15);
+  // The locking bolts' sockets are on the round door, which is inside the door's own circle.
+  assert.ok(VAULT_DEPTH.sockets.every((at) => at > 0 && at < VAULT_DEPTH.door));
+});
+
+test("the sides and shadows are drawn under the leaves, for the same moment as the leaves are moved", () => {
+  const canvasAt = door.indexOf("<canvas ref={depthRef}");
+  const leavesAt = door.indexOf("{VAULT_LEAVES.map((leaf, index) => (");
+  assert.ok(canvasAt > 0 && canvasAt < leavesAt, "the canvas is under the leaves");
+  const loop = door.slice(door.indexOf("const step = (now) => {"), door.indexOf("const open = () => {"));
+  assert.match(loop, /const progress = VAULT_EASE\(gone\);/);
+  assert.match(loop, /element\.style\.transform = `translate\(\$\{x\.toFixed\(1\)\}px, \$\{y\.toFixed\(1\)\}px\)`;/);
+  assert.match(loop, /drawDepth\(depthRef\.current, progress\);/);
+  // No transition of its own that the sides could not follow.
+  const leaves = door.slice(leavesAt, door.indexOf("<DoorFace metal={metal} />"));
+  assert.doesNotMatch(leaves, /transition:/);
+  // Shadows first, then the sides; every leaf's face is in front of every side.
+  const depth = door.slice(door.indexOf("const drawDepth = "), door.indexOf("// `onOpening`"));
+  assert.ok(depth.indexOf("drawShadow(") < depth.indexOf("drawSide("));
+});
+
+// "make a setting to turn off the opening doors animation" (the owner, 2026-10-14).
+test("the vault door can be turned off: on by default, in Settings → General → Display", () => {
+  const settings = read("./settings.jsx");
+  const mapSettings = read("../../runtime/mapSettings.js");
+  assert.match(mapSettings, /vaultDoor: "vault_door_at_start",/);
+  assert.match(mapSettings, /export const vaultDoorEnabled = \(\) => \{\s+try \{\s+return getMapSettingDefaultOn\(MAP_SETTING_KEYS\.vaultDoor\);/);
+  assert.match(mapSettings, /\[MAP_SETTING_KEYS\.vaultDoor\]: "Vault door at start",/);
+  const display = settings.slice(settings.indexOf('<SettingsSection title="Display"'), settings.indexOf('<SettingsSection title="Accessibility"'));
+  assert.match(display, /<Toggle\s+label="Vault door at start"\s+enabled=\{mapSettings\.vaultDoor\}\s+onToggle=\{\(\) => updateMapSetting\("vaultDoor", MAP_SETTING_KEYS\.vaultDoor, !mapSettings\.vaultDoor\)\}/);
+  assert.match(display, /\{"Off, the game opens straight onto the main menu\."\}/);
+  assert.match(settings, /vaultDoor: getMapSettingDefaultOn\(MAP_SETTING_KEYS\.vaultDoor\),/);
+  assert.match(app, /import \{ vaultDoorEnabled \} from "\.\/runtime\/mapSettings\.js";/);
 });

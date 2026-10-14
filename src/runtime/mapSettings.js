@@ -96,6 +96,11 @@ export const MAP_SETTING_KEYS = {
     // getMapSettingDefaultOn. Settings → General → Sound. (The chat's chime
     // has a switch of its own, in the chat.)
     soundEffects: "audio_sound_effects",
+    // The vault door the app opens on (GameUI/VaultDoor.jsx). ON by default —
+    // read with getMapSettingDefaultOn (vaultDoorEnabled). Off, the app opens
+    // straight onto the main menu (the owner, 2026-10-14: "make a setting to
+    // turn off the opening doors animation"). Settings → General → Display.
+    vaultDoor: "vault_door_at_start",
 };
 
 // Families the label-font pickers suggest — Settings → Map and the game and
@@ -122,14 +127,23 @@ export function getMapSetting(key) {
 // A default-on setting CANNOT use getMapSetting above — an absent key reads as
 // "1" !== null, i.e. off — so every consumer of such a key must come through here.
 //
-// lookupFunctions, liveSkipEvents, discordPresence, ambientMusic and
-// soundEffects ship on;
+// lookupFunctions, liveSkipEvents, discordPresence, ambientMusic,
+// soundEffects and vaultDoor ship on;
 // limitAiGeneration and chunkLongJumps, which used to, went default-off in the
 // beta.
 export function getMapSettingDefaultOn(key) {
     if (typeof localStorage === "undefined") return true;
     return localStorage.getItem(key) !== "0";
 }
+
+// Whether the app opens on the vault door (on unless the player turned it off).
+export const vaultDoorEnabled = () => {
+    try {
+        return getMapSettingDefaultOn(MAP_SETTING_KEYS.vaultDoor);
+    } catch {
+        return true;
+    }
+};
 
 // Storage keys are what the game persists; they are not what a maintainer wants
 // to read in a bug report. Kept beside MAP_SETTING_KEYS so a new setting that
@@ -148,6 +162,7 @@ const SETTING_LABELS = {
     [MAP_SETTING_KEYS.discordPresence]: "Show what I am playing on Discord",
     [MAP_SETTING_KEYS.ambientMusic]: "Music",
     [MAP_SETTING_KEYS.soundEffects]: "Sound effects",
+    [MAP_SETTING_KEYS.vaultDoor]: "Vault door at start",
 };
 
 export function setMapSetting(key, value) {
