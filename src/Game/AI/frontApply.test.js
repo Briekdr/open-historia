@@ -223,6 +223,22 @@ test("the period is fought before its story is asked for: what is foreseen is wh
   const cancelled = new AbortController();
   cancelled.abort(new DOMException("Timeline jump cancelled.", "AbortError"));
   await assert.rejects(quietly(() => forecastTurnFronts({ ...asked, toDate: "2024-05-30", requestedDays: 75, signal: cancelled.signal })), { name: "AbortError" });
+
+  // How the war is fought is part of the period (Wars and Fronts Pt.2): the
+  // scenario's rules for its wars, its fortified lines, a country's military
+  // figures changed, the period is fought again, and that one is then kept.
+  const base = await quietly(() => forecastTurnFronts(asked));
+  assert.equal(await quietly(() => forecastTurnFronts(asked)), base);
+  for (const [what, changed] of [
+    ["the scenario's rules for its wars", { ...next, warSettings: { mechanics: { weather: false } } }],
+    ["a fortified line", { ...next, fortifications: [{ id: "line-1", name: "The Line", owner: "Borduria", level: 5, points: [[21.2, 51.6], [21.2, 50.6]] }] }],
+    ["a country's military figures", { ...next, countryStats: { ...next.countryStats, Borduria: { ...next.countryStats.Borduria, military: { quality: 80 } } } }],
+    ["what the scenario's author gave a country", { ...next, polityOverrides: { Aland: { military: { technology: 30 } } } }],
+  ]) {
+    const refought = await quietly(() => forecastTurnFronts({ ...asked, world: changed }));
+    assert.notEqual(refought, base, `${what}: fought again`);
+    assert.equal(await quietly(() => forecastTurnFronts({ ...asked, world: changed })), refought, `${what}: and kept`);
+  }
 });
 
 test("the formations a run took in, or gave back, are written with the standing orders a committed one no longer has", () => {

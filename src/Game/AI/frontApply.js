@@ -241,6 +241,22 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
 
 // ---- the period, fought before its story is written -------------------------------------
 
+// What a period's fighting reads of the world besides its battlefields, wars,
+// transports and formations: the scenario's rules for its wars, its terrain,
+// fortified lines, climate zones and water that freezes, and every country's
+// and group's military figures.
+const warGroundOf = (world) => [
+  world?.warSettings ?? null,
+  world?.terrainAreas ?? null,
+  world?.fortifications ?? null,
+  world?.climateZones ?? null,
+  world?.freezingRegions ?? null,
+  world?.frozenRegions ?? null,
+  ...["polityOverrides", "groups", "countryStats"].map((field) => Object.entries(world?.[field] && typeof world[field] === "object" ? world[field] : {})
+    .filter(([, record]) => record?.military)
+    .map(([key, record]) => [key, record?.name ?? "", record.military])),
+];
+
 // The last period worked out, kept while the same turn is being asked for: a
 // request that is retried, or asked of the next model on the list, finds it done.
 let foreseen = { key: "", value: null };
@@ -275,8 +291,11 @@ export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "
       hashOf(JSON.stringify(asArray(planned?.battlefields))),
       hashOf(JSON.stringify(asArray(world?.wars))),
       hashOf(JSON.stringify(asArray(world?.transports))),
-      hashOf(JSON.stringify(asArray(world?.units).map((unit) => [unit?.id, unit?.committedTo, unit?.lng, unit?.lat, unit?.strength]))),
+      hashOf(JSON.stringify(asArray(world?.units).map((unit) => [unit?.id, unit?.type, unit?.committedTo, unit?.lng, unit?.lat, unit?.strength]))),
       hashOf(JSON.stringify(asArray(given))),
+      // How the scenario's wars are fought, the ground and the weather they are
+      // fought in, and each country's military figures (Wars and Fronts Pt.2).
+      hashOf(JSON.stringify(warGroundOf(world))),
     ].join("|");
     if (foreseen.key === key) return foreseen.value;
     const startedAt = Date.now();
