@@ -6,7 +6,8 @@ import { Presence } from "./presence.jsx";
 import { LibraryTopBar, TOP_BAR_OFFSET, openLibraryTab, useMainMenuOpen } from "./libraryBar";
 import { ApiSetupPrompt } from "./apiSetupPrompt.jsx";
 import { GameLoadingScreen, LOADING_CEILING_MS, useGameLoading } from "./gameLoadingScreen.jsx";
-import { useLibraryState } from "../../runtime/library.js";
+import { setOpenGameCountry, useLibraryState } from "../../runtime/library.js";
+import { playerAtWar } from "../../runtime/playerAtWar.js";
 import { enterGame, useGameEntered } from "../../runtime/gameEntry.js";
 import { useActiveFeatures, isActiveFeatureEnabled } from "../../runtime/gameFeatures.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
@@ -296,6 +297,9 @@ const WarRoomButton = ({ open, isMobile, onToggle }) => (
 const HUD_IN_SIGHT = Object.freeze({ display: "contents" });
 const HUD_OUT_OF_SIGHT = Object.freeze({ display: "none" });
 
+// The country a game's own record names, or null while there is no record yet.
+const selectPlayedCountry = (game) => (game ? String(game.country ?? "").trim() : null);
+
 const Main = ({
   mapRef,
   isGlobeEnabled,
@@ -345,6 +349,16 @@ const Main = ({
   // played: none of the game's own controls is mounted, and nothing here reads
   // it, reports it or runs anything for it.
   const gameEntered = useGameEntered();
+  // Which country the open game is played as, from the game's own record: the
+  // library's list has it as it stood when the list was last read, and it
+  // changes in play (the Play As Country cheat first of all). Told to the
+  // library, so everything that reads the list's entry, here and elsewhere,
+  // names the country the game is really played as. Null until the record is
+  // read; a game with no country says so with an empty name.
+  const playedCountry = useRuntimeState("game", selectPlayedCountry);
+  useEffect(() => {
+    if (gameEntered && activeGame?.id && playedCountry !== null) setOpenGameCountry(activeGame.id, playedCountry);
+  }, [gameEntered, activeGame?.id, playedCountry]);
   // The game menu names the campaign the way the library does. (Not before a
   // game is opened: looking the name up reads the game's world and the country
   // tiles.)
@@ -639,6 +653,10 @@ const Main = ({
   const playerCountry = gameEntered ? activeGame?.country || "" : "";
   const warFronts = useRuntimeState("world", (world) => playerFrontsKey(world?.battlefields, playerCountry), playerCountry);
   const atWar = Boolean(warFronts) && isActiveFeatureEnabled("fronts");
+  // For the music, at war is wider than the war room's button: the player's
+  // country on a side of a war being fought (the war ledger), whether or not
+  // there is a battlefield for it or fronts are switched on.
+  const inWar = useRuntimeState("world", (world) => playerAtWar(world?.wars, playerCountry), playerCountry);
   // The music plays the open game's scenario's own tracks where the scenario
   // names any (runtime/scenarioMusic.js). Told again only when the record
   // itself changes, since the library hands out a new object on every refresh;
@@ -653,7 +671,7 @@ const Main = ({
   // and the war room or a battlefield being shown, which the war room's own
   // store knows.
   const battlefieldShown = useWarRoom((room) => room.open || Boolean(room.battlefield));
-  const musicScene = musicSceneOf({ inMenu: mainMenuOpen || hasNoGames, loading: showGameLoading, atWar, war: battlefieldShown });
+  const musicScene = musicSceneOf({ inMenu: mainMenuOpen || hasNoGames, loading: showGameLoading, atWar: atWar || inWar, war: battlefieldShown });
   useEffect(() => { setMusicScene(musicScene); }, [musicScene]);
   const closeWarRoomPanel = useCallback(() => setIsWarRoomOpen(false), []);
   const toggleWarRoom = () => {

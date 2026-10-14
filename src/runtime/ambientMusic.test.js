@@ -679,11 +679,11 @@ test("a game drawn while the big hit is still far off: the build fades out on it
   assert.deepEqual(sounding(), []);
   assert.deepEqual([director.cutAt, director.softExit, director.inDrama], [null, false, false]);
   assert.ok(audio.currentTime > 151.3 && audio.currentTime < 151.6, `gone by ${audio.currentTime}, long before the big hit`);
-  // The breath, and then the game's own music, as after a stop.
+  // The breath, and then the music of a game at war, as after a stop.
   time.advance(1300);
   assert.deepEqual(sounding(), []);
   time.advance(400);
-  assert.deepEqual(sounding(), ["game"]);
+  assert.deepEqual(sounding(), ["war"]);
 });
 
 // "Add these new tracks to play in the background ingame."
@@ -719,13 +719,29 @@ test("in a game the game's own music plays in the background: after a breath of 
   time.advance(100000 - audio.currentTime * 1000);
   near(audio.volume, 0.25 * levelOf("hourOfTheWitch", audio.currentTime), 0.004);
   assert.ok(audio.volume < 0.25 * 0.65, `under the game: ${audio.volume}`);
-  // At war with no music of its own is whatever the game plays: nothing changes.
-  const plays = audio.plays;
+  // "When in war, it doesnt play the war song": at war the war pieces take
+  // its place, and it waits where it was for the peace.
+  const heldAt = audio.currentTime;
   director.setScene("atWar");
   time.advance(2000);
-  assert.deepEqual(sounding(), ["game"]);
-  assert.equal(audio.plays, plays);
+  assert.deepEqual(sounding(), ["war"]);
+  assert.equal(of("war").src, "/audio/legionnaire.mp3");
+  assert.equal(audio.paused, true);
+  // Into the war room and out of it, still at war: the same piece, never broken off.
+  const war = of("war");
+  const [plays, pauses] = [war.plays, war.pauses];
+  director.setScene("war");
+  time.advance(3000);
+  director.setScene("atWar");
+  time.advance(3000);
+  assert.deepEqual(sounding(), ["war"]);
+  assert.deepEqual([war.plays, war.pauses, war.volume], [plays, pauses, 0.25]);
+  near(war.currentTime, 8, 0.1);
+  // Peace: the game's own piece again, from where it was.
   director.setScene("game");
+  time.advance(4000);
+  assert.deepEqual(sounding(), ["game"]);
+  near(audio.currentTime, heldAt + 0.9 + 4, 0.2);
   // It ends, and the other piece follows from its start, at its own level.
   time.advance((217 - audio.currentTime) * 1000 + 600);
   assert.equal(audio.src, HONOUR);
@@ -898,10 +914,13 @@ test("the war room, or a battlefield shown: Legionnaire; back in the game it sto
   director.setScene("game");
   time.advance(1500);
   assert.deepEqual(sounding(), []);
-  // And back from it into a game at war.
+  // And back from it into a game at war: the war pieces carry on.
   director.setScene("war");
   time.advance(1500);
   director.setScene("atWar");
+  time.advance(1500);
+  assert.deepEqual(sounding(), ["war"]);
+  director.setScene("game");
   time.advance(1500);
   assert.deepEqual(sounding(), []);
   // Opened while the loading music is still running to its hit: that music
@@ -964,11 +983,11 @@ test("the war room's music is a list of the game's own: Legionnaire, then Vangua
   // Leaving the war room fades it out where it is, and coming back carries on with the piece it was on.
   time.advance(60000);
   const leftAt = audio.currentTime;
-  director.setScene("atWar");
+  director.setScene("game");
   time.advance(400);
   assert.ok(audio.volume > 0 && audio.volume < 0.25, "fading, not cut");
   time.advance(1100);
-  assert.deepEqual(sounding(), [], "at war outside the war room is the game's music, not the war pieces");
+  assert.deepEqual(sounding(), [], "at peace outside the war room there are no war pieces");
   assert.equal(audio.paused, true);
   time.advance(30000);
   director.setScene("war");
@@ -1142,7 +1161,7 @@ test("the scene is where the player is", () => {
   assert.ok(screen.includes("const battlefieldShown = useWarRoom((room) => room.open || Boolean(room.battlefield));"));
   // At war is what puts the war room's button on the screen: the player's troops on a battlefield.
   assert.ok(screen.includes("const atWar = Boolean(warFronts) && isActiveFeatureEnabled(\"fronts\");"));
-  assert.ok(screen.includes("musicSceneOf({ inMenu: mainMenuOpen || hasNoGames, loading: showGameLoading, atWar, war: battlefieldShown })"));
+  assert.ok(screen.includes("musicSceneOf({ inMenu: mainMenuOpen || hasNoGames, loading: showGameLoading, atWar: atWar || inWar, war: battlefieldShown })"));
   assert.ok(screen.includes("useEffect(() => { setMusicScene(musicScene); }, [musicScene]);"));
   // The open game's scenario's own music, told before the scene it is for.
   // Of the OPEN game: the game last played has no say before the player opens one (gameEntry.js).
