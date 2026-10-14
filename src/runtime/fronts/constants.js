@@ -277,6 +277,9 @@ export const WITHDRAW_KM = 60;
 // side defending needs the larger figures to do either. Under the last figure
 // any side digs in. A stretch of line needs this many troops to be attacked from.
 export const STAFF_MARK = "staff";
+// EXPERIMENT, in the lab (mind/policy.js createTroopPolicy): what a trained staff
+// that orders troops one by one marks its orders with (engine.js orderTroopsByMind).
+export const MIND_MARK = "mind";
 // A FRONT'S POSTURE, AS ITS SCENARIO SET IT. The order each side of a front
 // begins under (runtime/fronts/scenarioFronts.js: hold, dig in or advance) is
 // what its author made that front: a dug-in line, a quiet one, one being

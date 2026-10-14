@@ -4,16 +4,18 @@
 // each scenario each staff leads each team once (arena.mjs match). The answer
 // is how much better the first did than the second.
 //
-// A staff is said as { params, prior } (a network's weights), { habit } (a
-// plain habit: "advance", "hold", "dig") or { staff: true } (the engine's own
-// scripted staff).
+// A staff is said as { params, prior } (a network that orders the side as a
+// whole), { params, troops: true } (one that orders every troop by itself),
+// { habit } (a plain habit: "advance", "hold", "dig") or { staff: true } (the
+// engine's own scripted staff).
 
 import { parentPort } from "node:worker_threads";
 
-import { MIND_SHAPE, createStaffPolicy } from "../../src/runtime/fronts/mind/policy.js";
+import { MIND_SHAPE, TROOP_SHAPE, createStaffPolicy, createTroopPolicy } from "../../src/runtime/fronts/mind/policy.js";
 import { HABITS, REWARD_PARTS, makeScenario, match } from "./arena.mjs";
 
 const staffOf = (said) => {
+  if (said?.params && said.troops) return createTroopPolicy({ shape: TROOP_SHAPE, params: Float64Array.from(said.params) });
   if (said?.params) return createStaffPolicy({ shape: MIND_SHAPE, params: Float64Array.from(said.params), prior: Number(said.prior) || 0 });
   if (said?.habit) return HABITS[said.habit] ?? null;
   return null;

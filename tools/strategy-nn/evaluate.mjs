@@ -2,10 +2,12 @@
 // EXPERIMENT, in the lab only. Fights a trained network against every other
 // kind of staff on wars the league never saw, each leading each team of each
 // war once (arena.mjs match), and says how it did: against the engine's
-// scripted staff, against the plain habits, and, of the same wars, how the
-// scripted staff does against the best habit.
+// scripted staff, against the plain habits, against the habit of going for
+// the cities troop by troop, against the earlier trained staff that orders the
+// side as a whole (runs/league), and, of the same wars, how the scripted staff
+// does against the best habit.
 //
-//   node tools/strategy-nn/evaluate.mjs --name league --wars 150 --workers 12
+//   node tools/strategy-nn/evaluate.mjs --name troops --wars 150 --workers 12
 //
 // It prints a table and keeps it in tools/strategy-nn/runs/<name>/evaluation.json.
 
@@ -13,8 +15,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { MIND_ACTIONS } from "../../src/runtime/fronts/mind/features.js";
 import { readWeights } from "../../src/runtime/fronts/mind/net.js";
+import { TROOP_ACTIONS } from "../../src/runtime/fronts/mind/troops.js";
 import { REWARD, REWARD_PARTS } from "./arena.mjs";
 import { createPool, playMatch } from "./pool.mjs";
 
@@ -23,7 +25,7 @@ const args = Object.fromEntries(process.argv.slice(2).join(" ").split("--").map(
   const [key, ...rest] = part.split(/\s+/);
   return [key, rest.join(" ") || "1"];
 }));
-const name = args.name ?? "league";
+const name = args.name ?? "troops";
 const wars = Number(args.wars ?? 150);
 const workers = Number(args.workers ?? 12);
 const file = args.file ?? "best.json";
@@ -35,12 +37,18 @@ if (!weights) throw new Error(`runs/${name}/${file} holds no weights this build 
 // Wars nobody trained on and no champion was picked on.
 const SEEDS = Array.from({ length: wars }, (_, index) => 5000000 + index);
 const pool = createPool(workers);
-const network = { params: Array.from(weights.params), prior: weights.prior };
+const troops = weights.shape.head > 0;
+const network = troops ? { params: Array.from(weights.params), troops: true } : { params: Array.from(weights.params), prior: weights.prior };
+// The earlier trained staff, that orders the side as a whole, where it is kept.
+const sideFile = path.join(here, "runs", "league", "best.json");
+const sideWeights = troops && fs.existsSync(sideFile) ? readWeights(JSON.parse(fs.readFileSync(sideFile, "utf8"))) : null;
 const others = [
   ["the scripted staff", { staff: true }],
   ["always advancing", { habit: "advance" }],
   ["always holding", { habit: "hold" }],
   ["always digging in", { habit: "dig" }],
+  ["going for the cities, troop by troop", { habit: "cities" }],
+  ...(sideWeights ? [["the trained staff of the whole side", { params: Array.from(sideWeights.params), prior: sideWeights.prior }]] : []),
 ];
 const played = await Promise.all(others.map(([, staff]) => playMatch(pool, network, staff, SEEDS, { detail: true })));
 // And the mark the network is held to: what the best plain habit makes of the scripted staff on the same wars.
@@ -66,7 +74,7 @@ const sum = (games) => {
 };
 const cut = (games, label, test) => ({ label, ...sum(games.filter(test)) });
 const versusStaff = played[0].games;
-const said = [0, 0, 0, 0];
+const said = new Array(TROOP_ACTIONS.length).fill(0);
 for (const game of versusStaff) game.said.forEach((count, at) => { said[at] += count; });
 const total = said.reduce((all, count) => all + count, 0);
 
@@ -85,10 +93,16 @@ const report = {
     cut(versusStaff, "the team that began is much the weaker (under 0.7)", (game) => game.odds < 0.7),
     cut(versusStaff, "about even (0.7 to 1.4)", (game) => game.odds >= 0.7 && game.odds <= 1.4),
     cut(versusStaff, "the team that began is much the stronger (over 1.4)", (game) => game.odds > 1.4),
+    cut(versusStaff, "contested (two to one or closer)", (game) => game.odds >= 0.5 && game.odds <= 2),
     cut(versusStaff, "before 1900", (game) => game.year < 1900),
     cut(versusStaff, "from 1900", (game) => game.year >= 1900),
   ],
-  whatItSaid: Object.fromEntries(MIND_ACTIONS.map((word, at) => [word, total > 0 ? round(said[at] / total) : 0])),
+  whatItSaid: Object.fromEntries(TROOP_ACTIONS.map((word, at) => [word, total > 0 ? round(said[at] / total) : 0])),
+  // Against always advancing, by the kind of war, too: the mark to beat.
+  againstAlwaysAdvancingBy: [
+    cut(played[1].games, "contested (two to one or closer)", (game) => game.odds >= 0.5 && game.odds <= 2),
+    cut(played[1].games, "lopsided", (game) => game.odds < 0.5 || game.odds > 2),
+  ],
 };
 fs.writeFileSync(path.join(folder, "evaluation.json"), `${JSON.stringify(report, null, 2)}\n`);
 
@@ -100,7 +114,7 @@ console.log(row(["---", "---", "---", "---"]));
 for (const [label, entry] of Object.entries(report.against)) console.log(row([label, signed(entry.margin), entry.error, `${entry.better} / ${entry.level} / ${entry.worse}`]));
 const mark = report.alwaysAdvancingAgainstTheScriptedStaff;
 console.log(row(["(always advancing against the scripted staff)", signed(mark.margin), mark.error, `${mark.better} / ${mark.level} / ${mark.worse}`]));
-console.log("\nwhat the network's team came to against the scripted staff, a war (shares; a capital counts three):");
+console.log("\nwhat the network's team came to against the scripted staff, a war (land in thousands of km², towns and capitals counted, troops and encircling as shares):");
 console.log(row(REWARD_PARTS));
 console.log(row(REWARD_PARTS.map(() => "---")));
 console.log(row(REWARD_PARTS.map((key) => report.against["the scripted staff"].parts[key])));
@@ -108,4 +122,8 @@ console.log("\nagainst the scripted staff, by the kind of war:");
 console.log(row(["where", "wars", "margin a war", "better / level / worse"]));
 console.log(row(["---", "---", "---", "---"]));
 for (const entry of report.againstTheScriptedStaffBy) console.log(row([entry.label, entry.wars, signed(entry.margin), `${entry.better} / ${entry.level} / ${entry.worse}`]));
-console.log(`\nwhat the network told its sides to do: ${Object.entries(report.whatItSaid).map(([word, part]) => `${word} ${Math.round(part * 100)}%`).join(", ")}`);
+console.log("\nagainst always advancing, by the kind of war:");
+console.log(row(["where", "wars", "margin a war", "better / level / worse"]));
+console.log(row(["---", "---", "---", "---"]));
+for (const entry of report.againstAlwaysAdvancingBy) console.log(row([entry.label, entry.wars, signed(entry.margin), `${entry.better} / ${entry.level} / ${entry.worse}`]));
+console.log(`\nwhat the network told its ${troops ? "troops" : "sides"} to do: ${Object.entries(report.whatItSaid).map(([word, part]) => `${word} ${Math.round(part * 100)}%`).join(", ")}`);

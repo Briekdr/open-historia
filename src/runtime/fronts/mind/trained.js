@@ -8,7 +8,7 @@
 // strategyNetOn): in the browser's console, localStorage.setItem("oh:strategyNet", "1").
 
 import { readWeights } from "./net.js";
-import { createStaffPolicy } from "./policy.js";
+import { createStaffPolicy, createTroopPolicy } from "./policy.js";
 import { TRAINED_STAFF } from "./weights.js";
 
 let made = false;
@@ -18,9 +18,10 @@ export const trainedStaffPolicy = () => {
   if (made) return policy;
   made = true;
   const weights = readWeights(TRAINED_STAFF);
-  policy = weights ? createStaffPolicy(weights) : null;
+  // (Weights with a head order troops one by one; without, the side as a whole.)
+  policy = !weights ? null : weights.shape.head > 0 ? createTroopPolicy(weights) : createStaffPolicy(weights);
   return policy;
 };
 
-// What is shipped, for whoever looks: { run, round, score, overStaff, overAdvance } or null.
-export const trainedStaffInfo = () => (TRAINED_STAFF ? { run: TRAINED_STAFF.run, round: TRAINED_STAFF.round, score: TRAINED_STAFF.score, overStaff: TRAINED_STAFF.overStaff, overAdvance: TRAINED_STAFF.overAdvance } : null);
+// What is shipped, for whoever looks: { run, round, score, overStaff, overAdvance, troops } or null.
+export const trainedStaffInfo = () => (TRAINED_STAFF ? { run: TRAINED_STAFF.run, round: TRAINED_STAFF.round, score: TRAINED_STAFF.score, overStaff: TRAINED_STAFF.overStaff, overAdvance: TRAINED_STAFF.overAdvance, troops: TRAINED_STAFF.shape?.head > 0 } : null);

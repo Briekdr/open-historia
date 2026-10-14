@@ -15,8 +15,9 @@ import { runFronts } from "../engine.js";
 import { normalizeBattlefield } from "../record.js";
 import { frontInput, syntheticMap } from "../syntheticMap.js";
 import { FEATURE_COUNT, FEATURE_NAMES, MIND_ACTIONS, SEEN_COUNT, countGround, groundOf, homeTableOf, staffFeatures } from "./features.js";
-import { blankState, packWeights, paramCount, readWeights, step } from "./net.js";
-import { MIND_OUTPUTS, MIND_SHAPE, createStaffPolicy } from "./policy.js";
+import { blankState, headStep, packWeights, paramCount, readWeights, step } from "./net.js";
+import { MIND_ORDERS_MOST, MIND_OUTPUTS, MIND_SHAPE, TROOP_SHAPE, createStaffPolicy, createTroopPolicy } from "./policy.js";
+import { DIG_IN, GUARD, HOLD, PUSH, TAKE_CAPITAL, TAKE_CITY, TROOP_ACTIONS, TROOP_FEATURE_COUNT, TROOP_FEATURE_NAMES, troopView } from "./troops.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -197,6 +198,170 @@ test("a network whose weights were trained to may call up fresh formations, and 
   assert.deepEqual(drafting.notes.filter((note) => String(note.kind).startsWith("reinforce")), [], "a draft it could not have is not a note on the turn");
 });
 
+// ---- a staff that orders every troop by itself ----------------------------------------
+
+test("the head: its weights are counted after the side's, kept with the file, and add what the side leans to", () => {
+  const shape = { inputs: 3, hidden: 2, outputs: 2, head: 4, headHidden: 3 };
+  const side = 2 * 2 * (3 + 2 + 1) + 2 * (2 + 3 + 1);
+  assert.equal(paramCount(shape), side + 3 * (4 + 2 + 1) + 2 * (3 + 1));
+  assert.equal(paramCount({ inputs: 3, hidden: 2, outputs: 2 }), side, "a network without a head is counted as it always was");
+  // Nothing in the head: a troop's scores are what the side leans to.
+  const params = new Float64Array(paramCount(shape));
+  assert.deepEqual(Array.from(headStep(shape, params, Float64Array.from([0.5, -0.5]), Float64Array.from([0.25, -1]), Float64Array.from([1, 0, 0, 0]))), [0.25, -1]);
+  // A bias on the second thing it may say, after everything else.
+  params[params.length - 1] = 2;
+  assert.deepEqual(Array.from(headStep(shape, params, Float64Array.from([0, 0]), null, Float64Array.from([1, 0, 0, 0]))), [0, 2]);
+  const packed = packWeights(TROOP_SHAPE, weightsOf(5, 0.5, TROOP_SHAPE), { round: 3 });
+  assert.deepEqual(packed.shape, { ...TROOP_SHAPE });
+  const read = readWeights(JSON.parse(JSON.stringify(packed)));
+  assert.deepEqual(read.shape, { ...TROOP_SHAPE });
+  assert.equal(read.params.length, paramCount(TROOP_SHAPE));
+  assert.equal(readWeights({ ...packed, shape: { ...packed.shape, headHidden: 15 } }), null, "weights for another head are no weights");
+});
+
+// The even sheet with cities: a capital each, within a troop's reach of the border, and a town of Borduria's by it.
+const CITIES = [
+  { name: "Aland Capital", lng: 22.5, lat: 50.75, population: 900000, capital: true },
+  { name: "Borduria Capital", lng: 25.5, lat: 50.75, population: 900000, capital: true },
+  { name: "Border Town", lng: 24.5, lat: 51.25, population: 40000 },
+];
+const citySheet = () => syntheticMap({ layout: ["AAAABBBB", "AAAABBBB", "AAAABBBB", "AAAABBBB"], legend, west: 20, north: 52, step: 1, stepLat: 0.5, cities: CITIES, key: "mind-cities" });
+const liveOf = (battle, side) => battle.troops[side].map((troop, index) => (troop.strength > 0 ? index : -1)).filter((index) => index >= 0);
+
+test("what each troop is shown: every live troop once, numbers in range, and somewhere real to go for each order it may be given", () => {
+  const views = [];
+  runFronts(war(citySheet(), {
+    staffPolicy: (battle, side) => {
+      views.push({ side, view: troopView(battle, side), live: liveOf(battle, side).length, battle });
+      return undefined;
+    },
+  }));
+  assert.equal(TROOP_FEATURE_NAMES.length, TROOP_FEATURE_COUNT);
+  assert.ok(views.length >= 2);
+  for (const { view, live } of views) {
+    assert.equal(view.rows.length, live, "every live troop, and none that is not");
+    assert.equal(new Set(view.rows.map((row) => row.index)).size, view.rows.length);
+    for (const row of view.rows) {
+      assert.equal(row.t.length, TROOP_FEATURE_COUNT);
+      row.t.forEach((value, at) => assert.ok(Number.isFinite(value) && value >= -1 && value <= 1.5, TROOP_FEATURE_NAMES[at] + " = " + value));
+      assert.equal(row.t[0], 1);
+      assert.equal(row.valid[HOLD], true, "a troop may always hold");
+      assert.equal(row.valid[DIG_IN], true);
+      row.valid.forEach((may, action) => {
+        if (!may || action === HOLD || action === DIG_IN || action === PUSH) return;
+        const goal = view.places.get(row.goal[action]);
+        assert.ok(goal && goal.way.length > 0, TROOP_ACTIONS[action] + " goes somewhere");
+      });
+    }
+  }
+  // The other side's capital is somewhere to go for, from either side; the town is Borduria's, for Aland to take.
+  const aland = views.find((entry) => entry.battle.sides[entry.side][0] === "Aland");
+  const borduria = views.find((entry) => entry.battle.sides[entry.side][0] === "Borduria");
+  assert.ok(aland.view.rows.some((row) => row.valid[TAKE_CAPITAL]) && borduria.view.rows.some((row) => row.valid[TAKE_CAPITAL]));
+  assert.ok(aland.view.rows.some((row) => row.valid[TAKE_CITY]));
+  const goals = new Set(aland.view.rows.flatMap((row) => [row.goal[TAKE_CITY], row.goal[TAKE_CAPITAL]]).filter(Boolean));
+  const named = [...goals].map((key) => aland.battle.arena.cities[Number(key.split(" ")[1])].name);
+  assert.ok(named.length > 0 && named.every((city) => city === "Borduria Capital" || city === "Border Town"), named.join(", "));
+  // Aland's own capital is somewhere to guard, for a troop not already at it.
+  const guards = new Set(aland.view.rows.map((row) => row.goal[GUARD]).filter(Boolean));
+  assert.ok([...guards].every((key) => aland.battle.arena.cities[Number(key.split(" ")[1])].name === "Aland Capital"), [...guards].join(", "));
+});
+
+test("a staff that orders troops one by one: each body goes where it was sent, under the mind's own orders, and the line stands under none", () => {
+  const toward = [[25.5, 50.75]];
+  // What stood on each side when its staff next looked: the orders, and what its troops were doing.
+  const later = [];
+  const result = runFronts(war(citySheet(), {
+    days: 30,
+    staffPolicy: (battle, side) => {
+      const picked = liveOf(battle, side);
+      const name = battle.sides[side][0];
+      if (battle.daysRun > 0) {
+        later.push({
+          name,
+          orders: battle.orders.filter((order) => order.s === side).map((order) => ({ ...order })),
+          onTheRoute: picked.filter((index) => JSON.stringify(battle.troops[side][index].order?.standing?.way) === JSON.stringify(toward)).length,
+          dug: picked.filter((index) => battle.troops[side][index].dug === true).length,
+          live: picked.length,
+        });
+      }
+      if (name === "Borduria") return { troops: [{ order: "dig in", picked }], said: [] };
+      const half = Math.ceil(picked.length / 2);
+      return { troops: [{ order: "advance", picked: picked.slice(0, half), way: toward }, { order: "advance", picked: picked.slice(half) }], said: [] };
+    },
+  }));
+  const aland = later.filter((entry) => entry.name === "Aland");
+  const borduria = later.filter((entry) => entry.name === "Borduria");
+  assert.ok(aland.length > 0 && borduria.length > 0);
+  for (const entry of aland) {
+    // Nothing stands for a stretch of its line: two bodies of its troops, under the mind's own orders.
+    assert.equal(entry.orders.length, 2, JSON.stringify(entry.orders));
+    assert.ok(entry.orders.every((order) => order.chosen === true && order.mark === "mind" && order.order === "advance"));
+    assert.equal(entry.orders.filter((order) => JSON.stringify(order.way) === JSON.stringify(toward)).length, 1, "the route it was given");
+    assert.ok(entry.onTheRoute > 0, "and troops on it");
+    assert.ok(entry.orders.every((order) => !order.attacks && !order.crosses));
+  }
+  // Borduria's troops stand dug in where they were, under no order at all.
+  for (const entry of borduria) {
+    assert.deepEqual(entry.orders, []);
+    assert.equal(entry.dug, entry.live);
+  }
+  // And what is saved stands under nothing for a stretch of line either.
+  assert.deepEqual(result.battlefields[0].orders.filter((order) => !order.chosen), []);
+});
+
+test("a route the mind draws never takes a war into a country outside it", () => {
+  const sheetWithNeutral = () => syntheticMap({ layout: ["AAAANNNN", "AAAABBBB", "AAAABBBB", "AAAABBBB"], legend: { A: "Aland", B: "Borduria", N: "Neutralia" }, west: 20, north: 52, step: 1, stepLat: 0.5, key: "mind-neutral" });
+  // Straight into Neutralia's ground, every Aland troop.
+  const into = [[26.5, 51.75]];
+  let sent = 0;
+  const result = runFronts(war(sheetWithNeutral(), {
+    days: 30,
+    staffPolicy: (battle, side) => {
+      if (battle.sides[side][0] !== "Aland") return { troops: [], said: [] };
+      sent += 1;
+      return { troops: [{ order: "advance", picked: liveOf(battle, side), way: into }], said: [] };
+    },
+  }));
+  assert.ok(sent > 0);
+  for (const record of result.battlefields) {
+    assert.deepEqual(record.log.filter((entry) => entry.k === "attacked" || entry.k === "invaded"), []);
+    assert.ok(record.sides.flat().every((name) => name !== "Neutralia"), "Neutralia is in no battle");
+    for (const order of record.orders) assert.ok(!order.attacks && !order.crosses);
+  }
+});
+
+test("a network that orders troops one by one: the same war twice, every troop given one order, and a body for each place it sends troops", () => {
+  const params = weightsOf(33, 0.6, TROOP_SHAPE);
+  const answers = [];
+  const spy = (inner) => (battle, side, context, run) => {
+    const live = liveOf(battle, side).length;
+    const decided = inner(battle, side, context, run);
+    answers.push({ decided, live });
+    return decided;
+  };
+  const first = runFronts(war(citySheet(), { staffPolicy: spy(createTroopPolicy({ shape: TROOP_SHAPE, params })) }));
+  assert.ok(answers.length >= 2);
+  for (const { decided, live } of answers) {
+    assert.ok(Array.isArray(decided.troops));
+    const picked = decided.troops.flatMap((body) => body.picked);
+    assert.equal(picked.length, live, "every live troop once");
+    assert.equal(new Set(picked).size, picked.length);
+    assert.equal(decided.said.length, TROOP_ACTIONS.length);
+    assert.equal(decided.said.reduce((sum, value) => sum + value, 0), live);
+    assert.ok(decided.troops.filter((body) => body.order === "advance").length <= MIND_ORDERS_MOST);
+    for (const body of decided.troops) {
+      assert.ok(["hold", "dig in", "advance"].includes(body.order), body.order);
+      for (const [lng, lat] of body.way ?? []) assert.ok(Number.isFinite(lng) && Number.isFinite(lat));
+    }
+  }
+  assert.deepEqual(runFronts(war(citySheet(), { staffPolicy: createTroopPolicy({ shape: TROOP_SHAPE, params }) })).battlefields, first.battlefields, "the same weights, the same war");
+  // Its memory is the side's, as the other kind's is.
+  assert.deepEqual(first.battlefields[0].mind.map((list) => list.length), [TROOP_SHAPE.hidden + SEEN_COUNT, TROOP_SHAPE.hidden + SEEN_COUNT]);
+  // Weights for another network are no staff: the engine's own decides.
+  assert.deepEqual(runFronts(war(citySheet(), { staffPolicy: createTroopPolicy({ shape: MIND_SHAPE, params: weightsOf(1) }) })).battlefields, runFronts(war(citySheet())).battlefields);
+});
+
 test("the game uses a trained staff only in the lab, only when its switch is on, and only when one is shipped", async () => {
   const root = path.join(here, "../../..");
   const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8").split("\r\n").join("\n");
@@ -219,19 +384,21 @@ test("the game uses a trained staff only in the lab, only when its switch is on,
     assert.equal(trainedStaffInfo(), null);
   } else {
     assert.equal(typeof trainedStaffPolicy(), "function");
-    assert.deepEqual(TRAINED_STAFF.shape, { ...MIND_SHAPE }, "trained for the network this build has");
+    const shape = TRAINED_STAFF.shape?.head > 0 ? TROOP_SHAPE : MIND_SHAPE;
+    assert.deepEqual(TRAINED_STAFF.shape, { ...shape }, "trained for a network this build has");
     assert.equal(TRAINED_STAFF.drafts, false, "a staff that calls up troops by itself is not shipped: the scripted staff never does");
     assert.equal(trainedStaffInfo().run, TRAINED_STAFF.run);
     // And it leads a war without a hitch.
     const led = runFronts(war(sheet(), { staffPolicy: trainedStaffPolicy() }));
     assert.equal(led.battlefields.length, 1);
-    assert.deepEqual(led.battlefields[0].mind.map((list) => list.length), [MIND_SHAPE.hidden + SEEN_COUNT, MIND_SHAPE.hidden + SEEN_COUNT]);
+    assert.deepEqual(led.battlefields[0].mind.map((list) => list.length), [shape.hidden + SEEN_COUNT, shape.hidden + SEEN_COUNT]);
+    assert.equal(trainedStaffInfo().troops, shape === TROOP_SHAPE);
   }
 });
 
 test("the network decides with the engine's own arithmetic: nothing that differs between machines", () => {
   const forbidden = ["Math.random", "Math.sin", "Math.cos", "Math.tan", "Math.atan", "Math.exp", "Math.pow", "Math.log", "Math.hypot", "Math.tanh", "**", "Date.now", "new Date", "performance.now"];
-  for (const name of ["net.js", "features.js", "policy.js"]) {
+  for (const name of ["net.js", "features.js", "policy.js", "troops.js"]) {
     const source = fs.readFileSync(path.join(here, name), "utf8").split("\n").filter((line) => !line.trim().startsWith("//")).join("\n");
     for (const word of forbidden) assert.equal(source.includes(word), false, `${word} in mind/${name}`);
   }

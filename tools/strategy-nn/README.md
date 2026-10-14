@@ -6,111 +6,178 @@ The owner asked, on 2026-10-13:
 
 > separately in the lab lets experiment with training an rnn or other type of nn to learn military stratagy so it powers the game engine for ai countries. it should factor in needing to defend its own territory
 
-and then, for how it is trained:
+then, for how it is trained:
 
 > train the ais against each other and which ever wins advances. add penalties for losing city territory, for losing troops, and for losing land, have the models train across various different country combos, add bonuses for taking enemy cities, encompassing, taking troops, and taking land
 
-## What was built
+and on 2026-10-14:
 
-**The thing it replaces.** A side of a battlefield that nobody plays has a *staff* (`src/runtime/fronts/staff.js`): a few written rules, looked at every ten days, that have it dig in, hold, attack the stretch of line where it is strongest, or advance along the whole line, by how strong it is against its enemy and whether it began the war.
+> adjust the weights, taking a city should matter much more tactically. make sure taking land doesnt mean claiming a territory, it should be consistant by an actual certain amount of area of land. losing a capital city should matter even more
+>
+> train the model to manage individual troops to turn it into a strategic master.
 
-**The network** (`src/runtime/fronts/mind/`). A small recurrent network that is asked the same question at the same moments and may give the same four answers.
+## In short
 
-- `net.js`: a gated recurrent unit of 12 units with a straight path from input to output, 1,230 weights. Its gates are clipped lines, not exponentials, so it uses only `+ - * /` and comparisons like the rest of the engine: the same weights decide the same thing on every machine, which a multiplayer host needs.
-- `features.js`: the 28 numbers it is shown. The odds along the line and on its best and worst stretch; each side's troops, strength, reserves, supply, and how many are cut off or dug in; **how much of its own home ground the enemy holds, how much of the enemy's it holds, and how both moved since it last looked**; whether it began the war; how long the war has run; how its countries stand on their other fronts; and what the scripted staff would say. Home ground is read by who is *sovereign* there, so ground lost long ago is still known to be its own.
-- `policy.js`: turns the network into a staff. Its memory is kept on the battlefield (`mind`, saved with the record), so it remembers from one turn of the game to the next.
-- The engine asks it through one hook (`engine.js reviewStaff`, `input.staffPolicy`). Without one, nothing changes.
+- Two kinds of network have been trained by self-play against each other and against the engine's scripted staff. The first orders a side's whole line, with one of four words. The second orders **every troop by itself**, with one of nine orders.
+- Both beat the scripted staff by a wide margin. **Neither beats the plain habit of always advancing along the whole line.** The troop-by-troop champion is level with it: −3.0 a war, with a standard error of 4.8, over 150 wars it never saw.
+- So no "strategic master" came out of this. What did come out is a fact about the engine. In it, attacking everywhere is as good as any plan these networks could find. Holding or digging in is very much worse, even for the weaker side. Section 4 says what that means and what would change it.
+- The troop-by-troop champion is shipped in this branch behind the lab's switch, which is off by default.
 
-**The arena** (`arena.mjs`). Wars for two staffs to fight each other in, drawn from a seed:
+## 1. The reward (as of 2026-10-14)
 
-- two to four countries side by side, each a small state, a middling one or a great power, with a capital and up to three towns;
-- one against one, two against one, one against two, two against two, or one against one with a neighbour looking on;
-- an age from 1200 to 2024, four to six months, fought by the game's own front engine a month at a time.
-
-**What is rewarded and charged**, each as a share:
+Everything is counted as things stand at the end of the war (`arena.mjs REWARD`):
 
 | | weight |
 |---|---|
-| land taken | +1.0 |
-| land lost | −1.5 |
-| cities taken (a capital counts three, a large town two) | +0.6 |
-| cities lost | −0.9 |
-| enemy troops lost | +0.4 |
-| own troops lost | −0.5 |
-| encompassing: the largest share of the enemy's troops cut off at once, and each pocket that gave up | +0.5 |
+| land taken: every **thousand square kilometres** of the other team's home ground its troops hold | +0.2 |
+| land lost: every thousand km² of its own the other team holds | −0.3 |
+| a town of the other team's whose ground it holds (one of 100,000 or more counts 1.5) | +4 |
+| a town of its own the other team holds | −5 |
+| the other team's capital, held | **+12** |
+| its own capital, held by the other team | **−30** |
+| the other team's losses, as a share of the strength it began with | +3 |
+| its own losses | −4 |
+| encompassing: the largest share of the other team's troops it had cut off at once, plus a quarter for each pocket of them that gave up | +2 |
 
-Losing counts for more than taking, because the owner asked that it weigh defending its own territory. The weights are a first guess and nobody has tuned them.
+- **Land is area, not regions.** The engine already moves the front a cell at a time, by troops walking over ground. The reward counts the cells of the other team's home ground that a team holds, each by the area it covers (`kmAt(row)²`). That is an absolute amount: the same ground is worth the same whichever country it is in and however large that country is.
+  - The first league counted land as a share of the enemy's home ground, which made a small country's border strip worth as much as half of a great power.
+  - Home ground is read by sovereignty, so ground lost stays "its own".
+  - A region changing hands on the map counts for nothing by itself.
+- **Cities count far more than ground.**
+  - A town is worth as much as 20,000 km² of ground.
+  - Taking a capital is worth 60,000 km².
+  - Losing your own capital costs as much as losing 100,000 km², which is more than anything else in the table.
+  - A city counts if its cell is held at the end, so a city taken and lost again counts for nothing.
+- **What was measured before the weights were set**: the scripted staff's wars, and always advancing against it, over 60 wars. A team takes about 15,000 km² a war, and none at all in half of them. It takes about one town in two wars and a capital in about one war in two (the arena's countries are small).
 
-**The league** (`league.mjs`). Twelve networks. Each round they are drawn into pairs and each pair fights a match: five wars drawn afresh from every combination above, each fought twice with the teams exchanged. Whichever did better advances; the loser is replaced by a child of one that advanced (a copy with some weights nudged, now and then a mixture of two). Four networks a round are drawn against a gatekeeper in place of another network (the scripted staff, the habit of always advancing, or a past champion) and advance only if they beat it. Every ten rounds the networks with the longest runs of wins are tried on sixteen wars kept aside, and the best becomes the champion.
+## 2. A staff that orders every troop by itself
 
-## What happened
+Files: `src/runtime/fronts/mind/troops.js`, the head in `net.js`, and `createTroopPolicy` in `policy.js`.
 
-### 1. One network against the scripted staff (the first attempt)
+**What a troop may be told**, at each of the staff's looks (every ten days):
 
-Before the league, a single network was trained by an evolution strategy against the scripted staff and a few plain habits, with a simpler reward (ground taken, less twice the home ground lost). It learned one thing in five generations and nothing after: **always advance**. On 240 wars it had not seen it told its side to advance 100% of the time and scored exactly what the habit of always advancing scores (`runs/first/evaluation.json`). A second run that began from "always advance" and had only to learn when not to did not improve on it in twenty generations (`runs/lean/log.jsonl`).
+| order | what the troop does |
+|---|---|
+| hold | stays, and fights what comes |
+| dig in | digs in where it stands |
+| push | goes straight out into the other side's ground (what "advance" does for the whole line) |
+| strike | goes at the weakest place in the other side's line near it, and through it |
+| go round | goes past the flank of the nearest mass of the other side's troops and in behind it. Troops either side of the same mass go round opposite flanks, which closes a ring |
+| take a city | goes for the nearest city the other side holds |
+| take a capital | goes for the nearest capital the other side holds, its own or one it took |
+| guard a city | goes to the city of the side's own that is most in danger near it |
+| shore up | goes to where the side's own line is weakest near it |
 
-### 2. The league (the owner's design)
+**The places a troop may be sent** are worked out once a look for the whole side. They are up to four weak places in the enemy line, two enemy masses, the cities, and four weak places in the side's own line. A place more than 250 km away is not a troop's to go for.
 
-Forty minutes, 237 rounds, 1,425 networks (`runs/league/log.jsonl`). The champion, on 150 wars the league never saw, each fought twice with the teams exchanged (`runs/league/evaluation.json`):
+**What each troop is shown** (28 numbers):
+
+- its strength, kind, supply, whether it is cut off or dug in, and how deep behind its own line it stands;
+- the odds round it, its own troops round it and the other side's;
+- for each place it could be sent: how far it is, and how strongly held it is (or how much in danger, for a city of its own);
+- how far back it stands among its own troops, whether it is attacking now, and whether it stands at a city of its own.
+
+**The network**: 2,162 weights in all.
+
+- The side's recurrent network, as before, is shown the side as a whole (the 28 side numbers, own home ground lost included). It keeps the memory from one look to the next and says how the whole side leans (nine numbers).
+- A **head** of 16 units, the same weights for every troop, is shown that troop's 28 numbers and the side's memory. It adds what that troop makes of each order to how the side leans. Each troop is given the order with the highest score among those it may be given.
+- Troops sent to the same place go as one body: one order on the battlefield, at most twelve bodies at once.
+
+**In the engine** (`engine.js orderTroopsByMind`, `MIND_MARK`):
+
+- Nothing stands for a stretch of the side's line any more. Each body is an order for the troops picked out, marked `mind`.
+- What the staff ordered last time is over when it looks again. A body sent on to where it was already going sets off without waiting.
+- **A route the network draws never takes the war into a country outside it.** In the engine a hand-drawn route into a neutral country's land declares war on it. A test checks both sides of this: the same route without the mark brings the neutral country into the war, and with it nobody new is attacked.
+
+## 3. What happened
+
+### The troop-by-troop league (2026-10-14)
+
+Settings: 120 minutes, 630 rounds, 3,480 networks (`runs/troops/log.jsonl`).
+
+- **Opponents**: matches of five *contested* wars (two to one or closer: in more lopsided ones what is ordered hardly matters), each fought twice with the teams exchanged.
+- **Gatekeepers**: the scripted staff, always advancing, going for the cities troop by troop, the first league's champion, and the league's own past champions.
+- **Picking the champion**: every fifteen rounds the four networks with the longest runs of wins are tried on 24 contested wars kept aside. The champion is from round 285.
+
+It was then tested on 150 wars nobody trained on, each fought twice with the teams exchanged (`runs/troops/evaluation.json`):
 
 | the network against | margin a war | standard error | better / level / worse |
 |---|---|---|---|
-| the scripted staff | **+1.84** | 0.31 | 75 / 2 / 73 |
-| always advancing | **−0.27** | 0.20 | 27 / 95 / 28 |
-| always holding | +7.28 | 0.19 | 150 / 0 / 0 |
-| always digging in | +6.23 | 0.23 | 148 / 0 / 2 |
-| *(always advancing against the scripted staff)* | *+1.97* | *0.32* | *72 / 0 / 78* |
+| the scripted staff | +47.1 | 8.4 | 92 / 0 / 58 |
+| always advancing | **−3.0** | 4.8 | 85 / 0 / 65 |
+| always holding | +160.6 | 6.8 | 150 / 0 / 0 |
+| always digging in | +134.2 | 6.9 | 147 / 0 / 3 |
+| going for the cities, troop by troop | +53.4 | 8.1 | 93 / 0 / 57 |
+| the first league's champion (orders the whole side) | +3.8 | 5.1 | 77 / 0 / 73 |
+| *(always advancing against the scripted staff)* | *+48.9* | *8.5* | *69 / 0 / 81* |
 
-It told its sides to advance 94% of the time and to hold 6%.
+- Against always advancing, by the kind of war:
+  - contested wars (85): −5.6, better in 47 and worse in 38;
+  - lopsided wars (65): +0.4.
+- Against the scripted staff, nearly all of the margin is in wars that are about even (+143.6 a war over 47 wars). In lopsided ones it is +2 to +4.
+- **What it told its troops**: push 72%, go round 16%, strike 8%, dig in 2%, take a city 1%, guard a city 1%; hold, take a capital and shore up almost never.
+- It does not ignore cities: its margins come with more towns and capitals taken than the scripted staff takes, and fewer lost. But it gets them by pushing everywhere, as always advancing does, not by sending bodies at them. When the hand-written habit sends every troop that can go at a city, it does worse than pushing (−53 against the champion).
 
-Against the scripted staff, by the kind of war:
+**Over the run**, its margin over always advancing in the trials moved between −22 and +28 on 24 wars, without a trend upward. The league found variations on pushing that are as good as pushing, and none that is better.
 
-| where | wars | margin a war | better / level / worse |
-|---|---|---|---|
-| one against one | 85 | +1.72 | 39 / 0 / 46 |
-| two against one, or one against two | 51 | +1.09 | 26 / 2 / 23 |
-| two against two | 14 | +5.29 | 10 / 0 / 4 |
-| the team that began is much the weaker | 61 | +0.24 | 20 / 0 / 41 |
-| about even | 47 | **+5.16** | 38 / 0 / 9 |
-| the team that began is much the stronger | 42 | +0.44 | 17 / 2 / 23 |
+### The first league (2026-10-13), ordering the whole side
 
-## What it shows, and what it does not
+The first league ran under the older reward: shares of the enemy's home ground, towns weighed by share, a capital counting three. Its runs (`runs/first`, `runs/lean`, `runs/league`) cannot be re-run with the arena as it now is.
 
-1. **The league did not find a strategy.** Its champion is the habit of always advancing with a little noise in it. It is no better than that habit against the scripted staff (+1.84 against +1.97, well inside the error) and, if anything, slightly worse against the habit itself (−0.27, a little over one standard error). Nothing here is evidence that a learned staff beats the best plain habit.
-2. **The scripted staff is too passive at even odds, and that is the real finding.** Almost the whole of the +1.8 comes from wars that are about even (+5.2 a war): the scripted staff holds, its enemy attacks, and it loses ground and towns it need not have. In lopsided wars attacking is a wash. With both sides scripted, an even war is often not fought at all (nobody attacks for the whole of it). This could be changed in `staff.js` by a few constants, with no network; nobody has been asked whether it should be, and it has not been done.
-3. **Why nothing better was found**, as far as this can say: the four answers a staff may give are coarse (one order for the whole line, or for one stretch), and in this engine who is stronger decides most of a war whatever is ordered. In the arena as it stands, attacking costs the attacker little. The reward's seven parts all move together with winning ground, so they do not pull a staff toward anything subtler. And forty minutes on one machine is a small search.
-4. **It does weigh its own territory, in the sense asked**: the network is shown its home ground lost and losing is charged more than taking is rewarded. But what the league converged on does not *use* that: it attacks whether or not it is losing ground.
+- 40 minutes, 237 rounds.
+- Its champion said "advance" 94% of the time.
+- On 150 unseen wars it was +1.84 a war over the scripted staff (standard error 0.31) and −0.27 against always advancing (0.20).
+- An evolution strategy before it collapsed to exactly "always advance".
+
+## 4. What it shows, and what it does not
+
+1. **Neither network learned a strategy better than attacking everywhere.**
+   - That holds for both answer sets: four words for the whole line, and nine orders troop by troop, with routes, flanking moves and city objectives.
+   - It holds for both training methods: an evolution strategy, and a self-play league in which the winner advances.
+   - It holds for both rewards.
+   - A "strategic master" is not what came out.
+2. **In this engine attacking everywhere is as good as any plan found, and standing still is far worse even when weaker.**
+   - Always holding lost every one of 150 wars to the champion, and always digging in 147.
+   - The arena's wars are four to six months long. Holding and digging in protect no ground and take none, and the engine gives a defender too little for it.
+   - Pulling troops off the line to strike, go round or make for a city leaves gaps, and the enemy's straight push goes through them. That is why the hand-written strike habit does far worse than pushing.
+   - That is a fact about the game's front engine more than about the networks. A staff can only be as clever as the engine lets cleverness pay.
+3. **The scripted staff is the weak link in the game as it is.** Both networks and the plain habit beat it by the same margin, almost all of it in even wars. In those wars it holds, its enemy attacks, and it loses ground, towns and capitals it need not. Making the scripted staff attack at even odds (a few constants in `staff.js`) would capture nearly all of what the networks gain, with no network at all. Nobody has asked for that and it has not been done.
+4. **What might let a strategy pay**, if this is taken further:
+   - give dug-in troops and cities a real defensive edge, so that holding a city line against a stronger enemy can work;
+   - make a failed attack cost the attacker more than it does now;
+   - longer wars, with supply that runs out for a side that over-extends;
+   - targets that matter beyond their ground (a capital lost should collapse a side's supply or its will to fight);
+   - routes found over the ground (the network's routes are straight lines, and walls stop them).
+
+   Then train again. With the engine as it is, more training of the same kind is unlikely to find more: 120 minutes and 3,480 networks did not move the margin over always advancing.
 
 ## Trying it in a game
 
-The champion is shipped in this branch (`src/runtime/fronts/mind/weights.js`) behind a switch that is off. In the lab build, in the browser's console:
+The troop-by-troop champion is shipped in this branch (`src/runtime/fronts/mind/weights.js`) behind a switch that is off. In the lab build, in the browser's console:
 
 ```js
-localStorage.setItem("oh:strategyNet", "1")   // on: sides nobody plays are led by the network
+localStorage.setItem("oh:strategyNet", "1")   // on: sides nobody plays are led by the network, troop by troop
 localStorage.removeItem("oh:strategyNet")     // off: the engine's scripted staff, as ever
 ```
 
-There is no setting for it and no scenario can ask for it. With it on, expect countries nobody plays to attack nearly always. A side a person plays is never led by it, and an order the story gave a side still stands for 45 days, as with the scripted staff.
-
-The network may also call up fresh formations by itself (a draft), which the scripted staff never does; that is off, and no shipped weights were trained with it, because a staff that can draft is not being compared with the scripted one like for like.
+- There is no setting for it, and no scenario can ask for it.
+- With it on, expect countries nobody plays to attack nearly everywhere, with some troops going round the flanks of the enemy's masses.
+- A side a person plays is never led by it. An order the story gave a side still stands for 45 days, as with the scripted staff.
+- Its bodies of troops are orders for troops picked out, as a player's routes are. A war room that can see an enemy's plans would show them as routes.
+- Its routes are straight lines. On a real map they may be stopped by sea or mountains; an order that stops getting nearer is dropped when the turn is saved, and the staff orders afresh ten days later.
+- Nothing of it has been tried in a running game in the browser. It has been run only in the engine, by the tests and the arena.
 
 ## Running it
 
 ```bash
-node tools/strategy-nn/peek.mjs 1 8                                   # a look at eight wars
-node tools/strategy-nn/league.mjs --name league --minutes 40 --workers 12
-node tools/strategy-nn/evaluate.mjs --name league --wars 150 --workers 12
-node tools/strategy-nn/export.mjs --name league                       # ship a champion behind the switch
-node tools/strategy-nn/export.mjs --none                              # take it out again
+node tools/strategy-nn/peek.mjs 1 8                                     # a look at eight wars
+node tools/strategy-nn/league.mjs --name troops --minutes 120 --workers 12
+node tools/strategy-nn/league.mjs --name side --kind side --minutes 40  # the kind that orders the whole side
+node tools/strategy-nn/evaluate.mjs --name troops --wars 150 --workers 12
+node tools/strategy-nn/export.mjs --name troops                         # ship a champion behind the switch
+node tools/strategy-nn/export.mjs --none                                # take it out again
 node --test src/runtime/fronts/mind/mind.test.js
 ```
 
-A war takes about half a second, so a round of the league is a few seconds on twelve workers.
-
-## If it is taken further
-
-- Fix the scripted staff's passivity at even odds first, and train against *that*: a league whose gatekeeper is easy to beat by attacking learns to attack.
-- Give a staff more to decide: where to put its weight along the line, when to encircle, when to fall back, how much effort, when to draft. With four coarse answers there may be nothing to learn.
-- Make attacking cost something in the arena when it fails (it barely does now), or the best habit will stay "always advance".
-- Tune the reward. Its parts were chosen from the owner's list and never varied.
-- Train for hours, not minutes, and keep more past champions as gatekeepers.
+- A war takes 0.5 to 2 seconds. A round of the league takes about ten seconds on twelve workers.
+- Stop a training run before running the whole test suite: under that load `src/multiplayer/client/gameClient.test.js` can hang.

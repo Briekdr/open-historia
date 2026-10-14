@@ -17,39 +17,60 @@
 // or a plain habit. The same staff leads every country and every battlefield
 // of its team.
 //
-// WHAT A TEAM IS REWARDED AND CHARGED (REWARD below), each a share from 0 up:
+// WHAT A TEAM IS REWARDED AND CHARGED (REWARD below), all of it as things
+// stand at the end of the war:
 //
-//   land taken        the share of the other team's home ground it holds at the end
-//   land lost         the share of its own the other team holds
-//   cities taken      the cities it took, a capital counting three and a large
-//                     town two, as a share of what the other team had
-//   cities lost       the same, of its own
-//   troops taken      the other team's losses in strength, against what it began with
+//   land taken        every THOUSAND SQUARE KILOMETRES of the other team's home
+//                     ground it holds: ground its troops walked over and hold,
+//                     cell by cell, by the area each cell covers. Not regions,
+//                     and not a share: the same ground is worth the same
+//                     whichever country it is in and however large that is.
+//   land lost         every thousand square kilometres of its own the other holds
+//   town taken        every town of the other team's whose ground it holds (a
+//                     town of a hundred thousand or more counts LARGE_TOWN_COUNTS times)
+//   town lost         every town of its own the other holds
+//   capital taken     the other team's capital, held
+//   capital lost      its own, held by the other: the worst there is
+//   troops taken      the other team's losses in strength, as a share of what it began with
 //   troops lost       its own
 //   encompassing      the largest share of the other team's troops it had cut
 //                     off at once, and every pocket of them that gave up
 //
-// Losing counts for more than taking: "it should factor in needing to defend
-// its own territory".
+// A city is worth a great deal of ground, and a capital more than any city:
+// "taking a city should matter much more tactically", "losing a capital city
+// should matter even more". Losing counts for more than taking: "it should
+// factor in needing to defend its own territory".
 //
 // Everything is drawn from the scenario's seed: the same scenario and the same
 // two staffs are the same war.
 
 import { addGameDays } from "../../src/runtime/gameDates.js";
 import { runFronts } from "../../src/runtime/fronts/engine.js";
-import { countGround, homeTableOf } from "../../src/runtime/fronts/mind/features.js";
+import { homeTableOf } from "../../src/runtime/fronts/mind/features.js";
+import { DIG_IN, HOLD, PUSH, STRIKE, TAKE_CAPITAL, TAKE_CITY, TROOP_ACTIONS, troopView } from "../../src/runtime/fronts/mind/troops.js";
 import { syntheticMap } from "../../src/runtime/fronts/syntheticMap.js";
 
+// (Measured on the scripted staff's wars and always advancing against it, a
+// team in a war takes about fifteen thousand square kilometres, half the time
+// none; a town in one war of two; a capital in about one war of two.)
 export const REWARD = Object.freeze({
-  landTaken: 1,
-  landLost: 1.5,
-  cityTaken: 0.6,
-  cityLost: 0.9,
-  troopsTaken: 0.4,
-  troopsLost: 0.5,
-  encompassed: 0.5,
+  landTaken: 0.2,
+  landLost: 0.3,
+  townTaken: 4,
+  townLost: 5,
+  capitalTaken: 12,
+  capitalLost: 30,
+  troopsTaken: 3,
+  troopsLost: 4,
+  encompassed: 2,
 });
-export const REWARD_PARTS = Object.freeze(["landTaken", "landLost", "cityTaken", "cityLost", "troopsTaken", "troopsLost", "encompassed"]);
+export const REWARD_PARTS = Object.freeze(["landTaken", "landLost", "townTaken", "townLost", "capitalTaken", "capitalLost", "troopsTaken", "troopsLost", "encompassed"]);
+// The parts a team is charged for (its rewards are what it is given).
+export const CHARGES = Object.freeze(new Set(["landLost", "townLost", "capitalLost", "troopsLost"]));
+// What a town of a hundred thousand or more counts for beside a smaller one.
+export const LARGE_TOWN_COUNTS = 1.5;
+// Land is counted by the thousand square kilometres.
+export const LAND_UNIT_KM2 = 1000;
 // What a pocket that gave up adds to the share cut off, and the most any one share counts for.
 export const POCKET_GAVE_UP = 0.25;
 export const SHARE_MOST = 1.5;
@@ -156,24 +177,67 @@ export const makeScenario = (seed) => {
   };
 };
 
-// The plain habits a staff is tried against beside the scripted one.
+// What a team came to, as a number: each part by its weight, charges taken off.
+export const rewardOf = (part) => REWARD_PARTS.reduce((sum, key) => sum + (CHARGES.has(key) ? -1 : 1) * REWARD[key] * (Number(part[key]) || 0), 0);
+
+// A habit that orders troops one by one: each troop is given the first of a
+// list of orders it may be given (troops.js), as a trained network's are.
+export const troopHabit = (prefer) => (battle, side) => {
+  const view = troopView(battle, side);
+  const bodies = new Map();
+  const said = new Array(TROOP_ACTIONS.length).fill(0);
+  for (const row of view.rows) {
+    const chosen = prefer.find((action) => row.valid[action]) ?? HOLD;
+    said[chosen] += 1;
+    const key = chosen === HOLD ? "hold" : chosen === DIG_IN ? "dig in" : chosen === PUSH ? "push" : row.goal[chosen];
+    if (!bodies.has(key)) bodies.set(key, []);
+    bodies.get(key).push(row.index);
+  }
+  const troops = [...bodies.entries()].map(([key, picked]) => (key === "hold" || key === "dig in" ? { order: key, picked }
+    : key === "push" ? { order: "advance", picked }
+      : { order: "advance", picked, way: view.places.get(key).way.map(([x, y]) => battle.place.toLngLat(x, y)) }));
+  return { troops, said };
+};
+
+// The plain habits a staff is tried against beside the scripted one. The
+// best of them: the whole line always advancing. And one that orders troops
+// one by one: every troop that can goes for a capital, else a city, else the
+// weakest place near it, else straight on.
 export const HABITS = Object.freeze({
   advance: () => ({ order: "advance", sector: "all" }),
   hold: () => ({ order: "hold", sector: "all" }),
   dig: () => ({ order: "dig in", sector: "all" }),
+  cities: troopHabit([TAKE_CAPITAL, TAKE_CITY, STRIKE, PUSH]),
 });
+
+// How the two teams of a scenario stand by what their countries are: the
+// stronger's weight over the weaker's. A war of 2 or less is one that orders
+// can decide; in one much more lopsided, what is ordered hardly matters.
+export const lopsidedness = (scenario) => {
+  const sums = scenario.teams.map((members) => members.reduce((sum, index) => sum + scenario.weights[index], 0));
+  return Math.max(sums[0], sums[1]) / Math.max(1e-9, Math.min(sums[0], sums[1]));
+};
+// `count` seeds from `from` on whose scenarios are contested (lopsidedness 2 or less).
+export const contestedSeeds = (from, count) => {
+  const seeds = [];
+  for (let seed = from; seeds.length < count; seed += 1) if (lopsidedness(makeScenario(seed)) <= 2) seeds.push(seed);
+  return seeds;
+};
 
 const fold = (value) => String(value ?? "").trim().toLowerCase();
 const capped = (value) => Math.max(0, Math.min(SHARE_MOST, value));
 // A country's people from its weight: what countryWeight reads back (2 * sqrt(millions)).
 const peopleOfWeight = (weight) => Math.round(((weight / 2) * (weight / 2)) * 1e6);
-const cityWorth = (city) => (city.capital ? 3 : (Number(city.population) || 0) >= LARGE_TOWN ? 2 : 1);
+const townCounts = (city) => ((Number(city.population) || 0) >= LARGE_TOWN ? LARGE_TOWN_COUNTS : 1);
+// What a staff that decides for the side as a whole said, as the nearest of what a troop may be told.
+const SIDE_WORDS = Object.freeze({ "dig in": DIG_IN, hold: HOLD });
 
 // Fights a scenario between two staffs.
 //   staffs   [the staff of the team that began the war, the other team's]: each a
 //            (battle, side, context, run) => decision | undefined, or null for the
 //            engine's own scripted staff
-// Returns { rewards: [a, b], parts: [{ landTaken, ... }, { ... }], looks: [n, n], said: [[4 counts], [4 counts]] }.
+// Returns { rewards: [a, b], parts: [{ landTaken, ... }, { ... }], looks: [n, n],
+// said: [[a count for each of TROOP_ACTIONS], [...]], land: [km² taken, km² taken] }.
 export const fight = (scenario, staffs = [null, null]) => {
   const legend = Object.fromEntries(scenario.countries.map((name, index) => [LETTERS[index], name]));
   const world = syntheticMap({ layout: scenario.layout, legend, west: 20, north: 52, step: scenario.step, stepLat: scenario.stepLat, cities: scenario.cities.map(({ country, ...city }) => city), key: `arena-${scenario.seed}` });
@@ -185,17 +249,19 @@ export const fight = (scenario, staffs = [null, null]) => {
   const weights = new Map(names.map((name, index) => [fold(name), scenario.weights[index]]));
 
   const looks = [0, 0];
-  const said = [[0, 0, 0, 0], [0, 0, 0, 0]];
-  // What is known of each battlefield: whose home each cell is, which team each of its sides is, and the tallies.
+  const said = [new Array(TROOP_ACTIONS.length).fill(0), new Array(TROOP_ACTIONS.length).fill(0)];
+  // What is known of each battlefield: the battle as the engine last had it, which team each of its sides is, and the tallies.
   const fields = new Map();
   const fieldOf = (name) => {
-    if (!fields.has(name)) fields.set(name, { homes: null, teams: [-1, -1], ground: null, before: [new Map(), new Map()], began: [0, 0], lost: [0, 0], cut: [0, 0], run: -1 });
+    if (!fields.has(name)) fields.set(name, { live: null, liveRun: null, teams: [-1, -1], before: [new Map(), new Map()], began: [0, 0], lost: [0, 0], cut: [0, 0], run: -1 });
     return fields.get(name);
   };
   let period = 0;
   const staffPolicy = (battle, side, context, run) => {
     const field = fieldOf(battle.name);
-    field.homes = homeTableOf(battle, run);
+    field.live = battle;
+    field.liveRun = run;
+    homeTableOf(battle, run);
     field.teams = [teamOf(battle.sides[0][0]), teamOf(battle.sides[1][0])];
     const team = field.teams[side];
     if (team < 0) return undefined;
@@ -203,13 +269,13 @@ export const fight = (scenario, staffs = [null, null]) => {
     const staff = staffs[team];
     if (!staff) return undefined;
     const decided = staff(battle, side, context, run);
-    if (decided && Number.isInteger(decided.action)) said[team][decided.action] += 1;
+    if (Array.isArray(decided?.said)) decided.said.forEach((count, at) => { said[team][at] += count; });
+    else if (decided?.order) said[team][SIDE_WORDS[decided.order] ?? (decided.sector === "all" ? PUSH : STRIKE)] += 1;
     return decided;
   };
-  // Every day of every battlefield: who holds what, what each side's troops lost, and how many are cut off.
+  // Every day of every battlefield: what each side's troops lost, and how many are cut off.
   const watch = (seen) => {
     const field = fieldOf(seen.battlefield);
-    if (field.homes && seen.holders && field.homes.length === seen.holders.length) field.ground = [countGround(seen.holders, field.homes, 0), countGround(seen.holders, field.homes, 1)];
     for (const side of [0, 1]) {
       const troops = seen.troops?.[side] ?? [];
       // (A month's troops are read afresh from the record: what they were the month before is not theirs to lose again.)
@@ -235,7 +301,6 @@ export const fight = (scenario, staffs = [null, null]) => {
   };
 
   const arenas = new Map();
-  const cityTaken = [0, 0];
   const gaveUp = [0, 0];
   let saved = [];
   let fromDate = `${String(scenario.year).padStart(4, "0")}-03-01`;
@@ -269,12 +334,8 @@ export const fight = (scenario, staffs = [null, null]) => {
     for (const entry of result.news ?? []) {
       const field = fields.get(entry.battlefield);
       if (!field || (entry.s !== 0 && entry.s !== 1)) continue;
-      // A town taken is its taker's; troops cut off that gave up are the other side's doing.
-      if (entry.k === "city") {
-        const team = field.teams[entry.s];
-        const city = scenario.cities.find((candidate) => `city: ${candidate.name}` === entry.at);
-        if (team >= 0 && city) cityTaken[team] += cityWorth(city);
-      } else if (entry.k === "pocket") {
+      // Troops cut off that gave up are the other side's doing.
+      if (entry.k === "pocket") {
         const team = field.teams[1 - entry.s];
         if (team >= 0) gaveUp[team] += 1;
       }
@@ -284,11 +345,13 @@ export const fight = (scenario, staffs = [null, null]) => {
   }
 
   // The tallies, team by team.
-  const home = [0, 0];
-  const held = [0, 0];
   const began = [0, 0];
   const lost = [0, 0];
   const cut = [0, 0];
+  // Square kilometres of each team's home ground the other holds at the end, cell by cell.
+  const landLostKm2 = [0, 0];
+  // The teams that hold each city at the end: a city may stand on more than one battlefield's ground.
+  const cityHolders = new Map();
   for (const field of fields.values()) {
     for (const side of [0, 1]) {
       const team = field.teams[side];
@@ -297,34 +360,58 @@ export const fight = (scenario, staffs = [null, null]) => {
       lost[team] += field.lost[side];
       // (The largest share of a team's troops cut off at once, on any of its battlefields.)
       if (field.cut[side] > cut[team]) cut[team] = field.cut[side];
-      if (field.ground) {
-        home[team] += 1;
-        held[team] += field.ground[side].lost;
-      }
+    }
+    const battle = field.live;
+    const holders = battle?.field?.holders;
+    const homes = battle ? homeTableOf(battle, field.liveRun) : null;
+    if (!holders || !homes || homes.length !== holders.length) continue;
+    const { cols } = battle.field;
+    const { kmAt } = battle.place;
+    for (let cell = 0; cell < holders.length; cell += 1) {
+      const home = homes[cell];
+      if ((home !== 0 && home !== 1) || holders[cell] !== 1 - home) continue;
+      const team = field.teams[home];
+      if (team < 0) continue;
+      const km = kmAt(Math.floor(cell / cols) + 0.5);
+      landLostKm2[team] += km * km;
+    }
+    for (const city of battle.arena?.cities ?? []) {
+      const holder = city.cell >= 0 && city.cell < holders.length ? holders[city.cell] : -1;
+      const team = holder === 0 || holder === 1 ? field.teams[holder] : -1;
+      if (team < 0) continue;
+      if (!cityHolders.has(city.name)) cityHolders.set(city.name, new Set());
+      cityHolders.get(city.name).add(team);
     }
   }
-  const cityValue = [0, 0];
+  const towns = [[0, 0], [0, 0]];
+  const capitals = [[0, 0], [0, 0]];
   for (const city of scenario.cities) {
-    const team = teamOf(names[city.country]);
-    if (team >= 0) cityValue[team] += cityWorth(city);
+    const owner = teamOf(names[city.country]);
+    // (Taken on any battlefield it stands on is taken.)
+    const holder = owner < 0 ? undefined : [...(cityHolders.get(city.name) ?? [])].find((team) => team !== owner);
+    if (holder === undefined) continue;
+    // [what the holder took, what the owner lost]
+    if (city.capital) capitals[holder][0] += 1;
+    else towns[holder][0] += townCounts(city);
+    if (city.capital) capitals[owner][1] += 1;
+    else towns[owner][1] += townCounts(city);
   }
   const parts = [0, 1].map((team) => {
     const other = 1 - team;
     return {
-      landTaken: capped(home[other] > 0 ? held[other] / home[other] : 0),
-      landLost: capped(home[team] > 0 ? held[team] / home[team] : 0),
-      cityTaken: capped(cityValue[other] > 0 ? cityTaken[team] / cityValue[other] : 0),
-      cityLost: capped(cityValue[team] > 0 ? cityTaken[other] / cityValue[team] : 0),
+      landTaken: landLostKm2[other] / LAND_UNIT_KM2,
+      landLost: landLostKm2[team] / LAND_UNIT_KM2,
+      townTaken: towns[team][0],
+      townLost: towns[team][1],
+      capitalTaken: capitals[team][0],
+      capitalLost: capitals[team][1],
       troopsTaken: capped(began[other] > 0 ? lost[other] / began[other] : 0),
       troopsLost: capped(began[team] > 0 ? lost[team] / began[team] : 0),
       encompassed: capped(cut[other] + POCKET_GAVE_UP * gaveUp[team]),
     };
   });
-  const rewards = parts.map((part) => REWARD.landTaken * part.landTaken - REWARD.landLost * part.landLost
-    + REWARD.cityTaken * part.cityTaken - REWARD.cityLost * part.cityLost
-    + REWARD.troopsTaken * part.troopsTaken - REWARD.troopsLost * part.troopsLost
-    + REWARD.encompassed * part.encompassed);
-  return { rewards, parts, looks, said };
+  const rewards = parts.map(rewardOf);
+  return { rewards, parts, looks, said, land: [landLostKm2[1], landLostKm2[0]] };
 };
 
 // Two staffs against each other in one scenario, each leading each team once:

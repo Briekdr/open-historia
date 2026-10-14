@@ -55,6 +55,7 @@ import {
   MAX_TROOPS_PER_SIDE,
   POOL_PER_TROOP,
   STAFF_MARK,
+  MIND_MARK,
   STAFF_REVIEW_DAYS,
   STANDING_QUIET_DAYS,
   TROOPS_PER_STRENGTH,
@@ -68,7 +69,7 @@ import { redistance, takeCapsule, traceContour } from "./field.js";
 import { pointInFrame } from "./frame.js";
 import { landWithin, othersOnWay } from "./invade.js";
 import { draw, formationsLeft, manpowerReport, menPerFormation, sendHome } from "./manpower.js";
-import { applyOrder, assignOrder, landCarried, putAshore, readSieges, setStandingOrder } from "./orders.js";
+import { applyOrder, assignOrder, landCarried, putAshore, readSieges, setStandingOrder, standingOf } from "./orders.js";
 import { foldBattlefieldName, normalizeBattlefields } from "./record.js";
 import { authoredName } from "./scenarioFronts.js";
 import { sideIsPlayed, staffDecision, staffMayOrder, staffStanding } from "./staff.js";
@@ -1199,6 +1200,12 @@ const markAttacks = (run, battle) => {
   if (battle.status !== "active") return;
   for (const order of battle.orders) {
     if (!order.chosen || !Array.isArray(order.way) || order.way.length === 0) continue;
+    // (A trained staff's routes bring nobody into the war: the ground outside it is a wall to them. mind/policy.js.)
+    if (order.mark === MIND_MARK) {
+      delete order.attacks;
+      delete order.crosses;
+      continue;
+    }
     const troops = battle.troops[order.s];
     let midX = 0;
     let midY = 0;
@@ -1837,6 +1844,37 @@ const assignStanding = (run, battle) => {
   }
 };
 
+// EXPERIMENT, in the lab (mind/policy.js createTroopPolicy): a trained staff
+// may order a side's troops one by one, as bodies of them it names: { order,
+// picked, way } each, `order` "hold", "dig in" or "advance" (straight out from
+// where they stand, or along `way`, points as stored). What it ordered last
+// time is over, and nothing stands for a stretch of the side's line any more:
+// its troops do what it gave each of them. A body sent on to where it was
+// going already sets off without waiting.
+const orderTroopsByMind = (run, battle, side, bodies, day, today, lead) => {
+  const date = run.dateOf(day);
+  const troops = battle.troops[side];
+  const endOf = (order) => (!order || order.mark !== MIND_MARK ? "" : Array.isArray(order.way) && order.way.length > 0 ? order.way[order.way.length - 1].join(",") : "out");
+  const was = troops.map((troop) => (isLive(troop) ? endOf(standingOf(battle, troop)) : ""));
+  battle.orders = battle.orders.filter((order) => order.s !== side || (order.chosen && order.mark !== MIND_MARK));
+  for (const body of bodies) {
+    const picked = (Array.isArray(body?.picked) ? body.picked : []).filter((index) => troops[index] && isLive(troops[index]));
+    if (picked.length === 0) continue;
+    if (body.order === "hold" || body.order === "dig in") {
+      assignOrder(battle, run, { s: side, sector: "all", order: body.order, since: date, age: 0 }, { ...today, date, run }, { picked });
+      continue;
+    }
+    const way = Array.isArray(body.way) && body.way.length > 0 ? body.way.map((point) => [Number(point[0]), Number(point[1])]) : null;
+    const order = { s: side, sector: "all", order: "advance", since: date, age: 0, chosen: true, mark: MIND_MARK, ...(lead ? { by: lead } : {}), ...(way ? { way } : {}) };
+    battle.orders.push(order);
+    const end = endOf(order);
+    assignOrder(battle, run, order, { ...today, date, run }, { picked, lagless: picked.every((index) => was[index] === end) });
+  }
+  battle.ordersChanged += 1;
+  battle.touched = true;
+  battle.planKey = "";
+};
+
 // The staff of each side nobody plays looks at how it stands and decides what
 // it does (staff.js): on a battle's first day of a run and every
 // STAFF_REVIEW_DAYS after. Before the day is fought, and after whatever the
@@ -1888,6 +1926,11 @@ const reviewStaff = (run, battle, day) => {
     const decided = own === undefined ? staffDecision(battle, side, context) : own;
     if (!decided) continue;
     const lead = battle.sides[side].find((member, at) => !battle.gone[side].has(at)) ?? "";
+    // (Or it orders the side's troops one by one.)
+    if (Array.isArray(decided.troops)) {
+      orderTroopsByMind(run, battle, side, decided.troops, day, today, lead);
+      continue;
+    }
     // Such a staff may call up fresh formations too (reinforceOnFront): as many as a draft usually brings,
     // within what a side may be brought to and the men its country has. One refused says nothing.
     if (decided.draft === true && lead) {
