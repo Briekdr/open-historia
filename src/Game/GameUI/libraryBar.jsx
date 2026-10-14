@@ -406,7 +406,7 @@ const MenuRail = ({ activeTab, onTab, onOpenSettings }) => (
       width: `calc(${MENU_RAIL_WIDTH} + ${SAFE_LEFT})`,
     }}
   >
-    <div style={{ alignItems: "center", display: "flex", flexDirection: "column", flexShrink: 0, gap: "0.45rem", marginBottom: "0.8rem" }}>
+    <div style={{ alignItems: "center", display: "flex", flexDirection: "column", flexShrink: 0, gap: "0.45rem" }}>
       <div style={{ alignItems: "center", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", display: "flex", height: "3.15rem", justifyContent: "center", overflow: "hidden", width: "3.15rem" }}>
         <img alt="" src="/logo.png" style={{ height: "2.05rem", width: "2.05rem" }} />
       </div>
@@ -414,6 +414,7 @@ const MenuRail = ({ activeTab, onTab, onOpenSettings }) => (
         Open Historia
       </div>
     </div>
+    <div style={{ flex: 1, minHeight: "0.6rem" }} />
     {MENU_TABS.map((tab) => (
       <button
         key={tab.id}
