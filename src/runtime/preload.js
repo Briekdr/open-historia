@@ -99,6 +99,12 @@ const buildInitialViewportTextureUrls = (
 // carries no abort signal — the time budget is a ceiling on the wait, and must
 // not cancel work nothing is waiting on. Only warms qualify: a background task
 // may make the map faster later, but the map has to render correctly without it.
+//
+// (They no longer run as the page starts. The page starts on the main menu
+// with no game loaded, and App.jsx runs these when the first game is opened,
+// in the background, beside the map that is being drawn. No screen waits for
+// any of them now: a "gating" task is one that is counted in the progress and
+// is cancelled at the time budget, and every one of them is a warm.)
 const STARTUP_TASKS = [
   {
     id: "state",
@@ -234,21 +240,23 @@ const buildStepState = (activeIds, completedIds) =>
       : "pending",
   }));
 
-export const createInitialStartupState = () => ({
-  activeId: null,
-  completed: 0,
-  done: false,
-  elapsedMs: 0,
-  errors: [],
+// What the startup screen shows while the page starts (App.jsx). The page
+// starts on the main menu, which needs the list of games and scenarios and
+// nothing of a game, so that is its one step. The tasks above are a GAME's
+// warm-ups: they run when the first game is opened (runtime/gameEntry.js),
+// with no screen of their own.
+export const createMenuStartupState = () => ({
   loadedBytes: 0,
   progress: 0,
-  stage: "Starting preload",
-  steps: buildStepState(new Set(), new Set()),
+  stage: "Syncing games and scenarios",
+  steps: [{ id: "library", label: "Syncing games and scenarios", status: "active" }],
   timeBudgetMs: STARTUP_TIME_BUDGET_MS,
   timedOut: false,
-  total: GATING_TASKS.length,
 });
 
+// Runs the warm-ups for the game being opened. Called once a page, when the
+// first game is entered, and not awaited by anything on screen: `onProgress`
+// is there for a caller that wants to show it.
 export const runStartupPreload = async ({
   onProgress,
   timeBudgetMs = STARTUP_TIME_BUDGET_MS,

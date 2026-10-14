@@ -42,6 +42,7 @@ import {
   withSingleLibraryRefresh,
   writeGameSnapshotsText,
 } from "../../runtime/library.js";
+import { enterGame, useGameEntered } from "../../runtime/gameEntry.js";
 import { loadCountryNames, readJson, writeJson, JSON_URLS } from "../../runtime/assets.js";
 import { LABEL_FONT_SUGGESTIONS } from "../../runtime/mapSettings.js";
 import FactionCreator from "./FactionCreator.jsx";
@@ -135,7 +136,9 @@ export const openLibraryTab = (tab) => {
 // Whether the main menu is showing. Lives at module scope because the whole UI
 // tree (this component included) remounts whenever the active game changes —
 // per-component state would reset to "open" mid game-start and the menu would
-// pop back over the freshly activated game. The app boots into the menu.
+// pop back over the freshly activated game. The app boots into the menu, and
+// with no game loaded behind it: one is loaded when the player opens it
+// (runtime/gameEntry.js), which is also the only way the menu closes.
 let menuOpenDefault = true;
 // For background work that should not run for a game the player hasn't
 // actually entered (e.g. pre-game history generation while browsing the menu).
@@ -2125,6 +2128,10 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   // The Lobbies tab's host settings, opened by its "Host a lobby" action.
   const [lobbyHosting, setLobbyHosting] = useState(false);
   const [menuOpen, setMenuOpenState] = useState(menuOpenDefault);
+  // Whether the player has opened a game since the page started
+  // (runtime/gameEntry.js). Until then the library's active game is only the
+  // one last played, and nothing of it is loaded behind this menu.
+  const gameEntered = useGameEntered();
   // Whether the menu was opened from inside a game (⌂ Exit Game, or the game
   // menu's Game Management), so that a phone's Back can close it again and
   // return to the game. Opened any other way, above all at boot, the menu is
@@ -2156,6 +2163,17 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   const exitToMenu = () => {
     setMenuOverGame(true);
     setMenuOpen(true);
+  };
+  // The menu closes over the game that is ALREADY the active one, with the
+  // library opening nothing: hosting a lobby (the game the player has is the
+  // lobby) and joining one (the host's game is shown in a stand-in that is
+  // activated later, when the host has answered). At startup that game is not
+  // loaded (runtime/gameEntry.js), and nothing else here would load it: every
+  // other way out of the menu goes through activateGame or
+  // createGame({ setActive }), which enter the game they open.
+  const enterActiveGame = () => {
+    enterGame();
+    setMenuOpen(false);
   };
   // Bridge for outside callers: open the main menu on a library tab.
   _openLibraryTab = (tab) => {
@@ -2211,9 +2229,11 @@ const LibraryTopBar = ({ onOpenSettings }) => {
 
   // A game played on a scenario whose community basemap could not be
   // downloaded tries it again too (runtime/missingBasemap.js), once a session.
+  // Played, not merely last played: at startup no game is open, and its
+  // scenario's basemap is not this menu's to download.
   useEffect(() => {
-    if (runtimeScenario?.missingBasemap) retryMissingBasemap(runtimeScenario);
-  }, [runtimeScenario]);
+    if (gameEntered && runtimeScenario?.missingBasemap) retryMissingBasemap(runtimeScenario);
+  }, [gameEntered, runtimeScenario]);
 
   const resetEditor = () => {
     setEditorKind(null);
@@ -3375,8 +3395,9 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     }
   };
 
-  // Full country name in the summary, never the code.
-  const activeCountryName = useCountryDisplayName(activeGame?.country || "");
+  // Full country name in the summary, never the code. The summary is the
+  // in-game bar's, so nothing is looked up before a game is opened.
+  const activeCountryName = useCountryDisplayName(activeGame?.country || "", { wait: !gameEntered });
   const summaryText = useMemo(() => {
     if (activeGame) {
       return `${activeGame.name} / ${activeCountryName || "No country"} / ${activeGame.currentDate || "No date"}`;
@@ -3538,7 +3559,9 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   // unsaved fields behind a screen the player cannot see through. The Workshop
   // itself has no Back of its own here: its close button saves first and asks
   // before dropping work, and that lives in src/Editor/MapEditor.jsx.
-  useBackToClose(menuOpen && menuOverGame && Boolean(activeGame), () => setMenuOpen(false));
+  // (Back to the game the menu was opened over, which is entered already: the
+  // menu has no way to be closed at startup but by opening a game.)
+  useBackToClose(menuOpen && menuOverGame && Boolean(activeGame), enterActiveGame);
   useBackToClose(Boolean(editorKind && editorDetails && editorState) && !isMapEditorOpen, closeEditor);
   useBackToClose(Boolean(countryPicker), closeCountryPicker);
   // The difficulty step goes back to the country step, as its own Back does.
@@ -3741,12 +3764,21 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     // the seed's, which is only the map's first owner (a Japan scenario started
     // as Afghanistan whenever the picker was dismissed).
     setMenuOpen(false);
-    const gameDetails = await createGame({
-      name: `${scenario.name} Session`,
-      scenarioId,
-      ...(scenarioCountry ? { gamePatch: { country: scenarioCountry } } : null),
-      setActive: true,
-    });
+    let gameDetails;
+    try {
+      gameDetails = await createGame({
+        name: `${scenario.name} Session`,
+        scenarioId,
+        ...(scenarioCountry ? { gamePatch: { country: scenarioCountry } } : null),
+        setActive: true,
+      });
+    } catch (nextError) {
+      // No game was opened: the menu is what is behind the Workshop again,
+      // which says what went wrong. (A closed menu with no game behind it
+      // would be the opening cover, over the Workshop and its message.)
+      setMenuOpen(true);
+      throw nextError;
+    }
     const newGameId = gameDetails.game.id;
 
     // Tear down all the library UI so the freshly-activated game is visible.
@@ -4624,7 +4656,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                   </div>
                 }
               >
-                <LobbiesTab hosting={lobbyHosting} onHostingChange={setLobbyHosting} onEnterGame={() => setMenuOpen(false)} />
+                <LobbiesTab hosting={lobbyHosting} onHostingChange={setLobbyHosting} onEnterGame={enterActiveGame} />
               </Suspense>
             ) : activeTab === "community" ? (
               <Suspense

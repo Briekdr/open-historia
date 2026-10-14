@@ -82,6 +82,7 @@ const discordPresenceState = () => {
 registerSettingsSnapshot("Sound", () => [
     ["Music", onOff(musicEnabled())],
     ["Music volume", `${musicVolume()}%`],
+    ["Sound effects", onOff(getMapSettingDefaultOn(MAP_SETTING_KEYS.soundEffects))],
 ]);
 
 registerSettingsSnapshot("Privacy", () => [

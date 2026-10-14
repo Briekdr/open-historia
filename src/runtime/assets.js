@@ -15,6 +15,11 @@ import { isNativeBuild } from "./native/bridge.js";
 // browser even after the files on disk were updated. Bumping the name
 // flushes everyone once; the HEAD check below keeps it fresh from now on.
 const PRELOAD_CACHE_NAME = "open-historia-preload-v2";
+// The music a scenario played, kept so it is not downloaded again
+// (keptMusic.js KEPT_MUSIC_CACHE; named here, not imported, because nearly
+// every file imports this one and a worker among them). It is not an older
+// version's cache: the sweep below must leave it.
+const KEPT_MUSIC_CACHE_NAME = "oh-music-v1";
 
 // Drop caches from older versions once.
 if (typeof caches !== "undefined" && caches?.keys) {
@@ -22,7 +27,7 @@ if (typeof caches !== "undefined" && caches?.keys) {
     .keys()
     .then((keys) => {
       for (const key of keys) {
-        if (key !== PRELOAD_CACHE_NAME) caches.delete(key).catch(() => {});
+        if (key !== PRELOAD_CACHE_NAME && key !== KEPT_MUSIC_CACHE_NAME) caches.delete(key).catch(() => {});
       }
     })
     .catch(() => {});

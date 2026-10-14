@@ -32,6 +32,8 @@ import {
 } from "./hubProvenance.js";
 import { planRestorePointSlots, publicRestorePointIndex } from "./restorePoints.js";
 import { scenarioMusicField } from "./scenarioMusic.js";
+import { musicTracksDropped, usedMusicTrackIds } from "./keptMusic.js";
+import { musicLibraryUsage, sweepMusicLibrary } from "./musicLibrary.js";
 const SCENARIOS_DIR = path.join(SERVER_DATA_DIR, "scenarios");
 const GAMES_DIR = path.join(SERVER_DATA_DIR, "games");
 const SCENARIO_MANIFEST_PATH = path.join(SERVER_DATA_DIR, "scenario-manifest.json");
@@ -882,6 +884,28 @@ const readScenarioMeta = (scenarioId) => {
   };
 };
 
+// The music kept on this machine follows the scenarios that use it
+// (musicLibrary.js, keptMusic.js): once a scenario is deleted, or stops naming
+// a track (its music saved with tracks taken out, a hub Update that replaced
+// it), every kept file that was a game's and that no scenario left in the
+// library names any more is deleted; a track another scenario still names
+// stays. Left in the library means not in the trash: a scenario moved to
+// Recently deleted is one the player deleted, so a song it alone used goes
+// then, and a restored scenario simply downloads its music again the first
+// time it is played. Games have no say of their own: a game carries no music
+// (it plays its scenario's, read from the library when it is open), and a
+// scenario a game still uses cannot be deleted.
+const sweepKeptMusic = () => {
+  try {
+    if (!musicLibraryUsage().tracks) return;
+    const scenarioIds = resolveOrderedIds(getScenarioManifest().order, SCENARIOS_DIR, DEFAULT_SCENARIO_ID);
+    sweepMusicLibrary(usedMusicTrackIds(scenarioIds.map((id) => readScenarioMeta(id).music)));
+  } catch (error) {
+    // Kept music is a convenience: a sweep that fails must not fail the delete or the save.
+    console.warn(`[music] could not sweep the kept music: ${error.message}`);
+  }
+};
+
 // `touch: false` is for bookkeeping that is not an edit of the scenario — the
 // hub post it was found under, a suggestion reviewed — so it neither moves the
 // scenario up "Last Updated" nor marks a downloaded copy as changed.
@@ -928,6 +952,8 @@ const writeScenarioMeta = (scenarioId, updates, { touch = true } = {}) => {
   Object.assign(next, scenarioMusicField(updates?.music !== undefined ? updates.music : current.music));
 
   writeJsonFile(getScenarioMetaPath(scenarioId), next);
+  // A track this scenario named and no longer does may be nobody's now.
+  if (musicTracksDropped(current.music, next.music)) sweepKeptMusic();
   return next;
 };
 
@@ -2934,6 +2960,8 @@ const deleteScenario = (scenarioId) => {
     order: nextOrder,
     selectedScenarioId: nextSelectedScenarioId,
   });
+  // Its songs go with it, unless another scenario plays them too.
+  sweepKeptMusic();
 
   return getLibraryCatalog();
 };

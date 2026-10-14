@@ -292,6 +292,16 @@ export const hubFileAddress = (url, env = import.meta.env ?? {}) => {
   return base ? `${base}/hub/file${query}` : "";
 };
 
+// A file in the hub's own releases, by its own address, through the same
+// proxy: for what the hub lists elsewhere than in its index, which is a track
+// of its music list (hubMusic.js; fetched once to be kept, keptMusic.js). The
+// address is held to the hub's releases here as it is where the list is read.
+export const fetchHubRelease = async (releaseUrl) => {
+  const release = hubReleaseUrl(releaseUrl);
+  if (!release) throw new Error(HUB_FILE_TEXTS.notReleased);
+  return proxied(release);
+};
+
 // A hub file's Response, through the /api/hub/file proxy (GitHub's files send
 // no CORS headers): its checked copy in the hub's releases, always. A file
 // with no copy is not fetched from its post instead: the call fails, with a

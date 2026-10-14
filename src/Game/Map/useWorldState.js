@@ -350,7 +350,10 @@ const installListeners = () => {
   window.addEventListener("oh:active-game-changed", onActiveGameChanged);
 };
 
-export function useWorldState() {
+// `wait` is for a caller that is on screen before any game is opened (the
+// cover a game opens under, mounted with the main menu: runtime/gameEntry.js):
+// while it is set nothing is subscribed and world.json is not read.
+export function useWorldState({ wait = false } = {}) {
   const [state, setState] = useState(() => {
     if (publishedState) return publishedState;
     const current = effectiveState();
@@ -358,6 +361,7 @@ export function useWorldState() {
   });
 
   useEffect(() => {
+    if (wait) return undefined;
     installListeners();
     const handler = (data) => setState(data);
     subscribers.add(handler);
@@ -373,7 +377,7 @@ export function useWorldState() {
     return () => {
       subscribers.delete(handler);
     };
-  }, []);
+  }, [wait]);
 
   return state;
 }

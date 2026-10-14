@@ -82,6 +82,13 @@ import {
   touchEntry,
 } from "./hubCache.js";
 import {
+  MUSIC_LIBRARY_DIR,
+  clearMusicLibrary,
+  createMusicLibrary,
+  musicLibraryUsage,
+  tidyMusicLibrary,
+} from "./musicLibrary.js";
+import {
   allowedCorsOrigin,
   allowedHostNames,
   crossOriginWriteAllowed,
@@ -1586,10 +1593,37 @@ const sendHubFile = (res, filePath, contentType, { removeAfter = false } = {}) =
   stream.pipe(res);
 };
 
+// Opens a hub download and hands back its response, ready to be read. The
+// redirects are followed here, one hop at a time, so every hop is re-checked
+// against the host allowlist: `redirect: "follow"` would chase a github.com
+// redirect to an attacker-controlled host (SSRF); GitHub's own release redirect
+// (github.com -> objects.githubusercontent.com) stays inside the allowlist.
+// What it refuses, it throws with the status to answer with. One loop for both
+// routes that download from the hub (/api/hub/file and /api/music), so the
+// allowlist cannot come to differ between them.
+const HUB_REFUSAL_STATUSES = new Set([400, 413]);
+const hubRefusal = (status, message) => Object.assign(new Error(message), { status });
+const openHubDownload = async (start) => {
+  let current = start;
+  let upstream;
+  for (let hop = 0; ; hop += 1) {
+    if (hop > 5) throw hubRefusal(502, "Too many redirects fetching scenario file.");
+    upstream = await fetchHubHop(current);
+    if (upstream.status < 300 || upstream.status >= 400) break;
+    const location = upstream.headers.get("location");
+    if (!location) break;
+    const next = new URL(location, current);
+    if (!isAllowedHubUrl(next, HUB_DOWNLOAD_HOSTS)) throw hubRefusal(400, "Scenario file redirected off GitHub.");
+    current = next;
+  }
+  if (!upstream.ok) throw hubRefusal(502, `Hub file fetch failed (HTTP ${upstream.status}).`);
+  return upstream;
+};
+
 app.get("/api/hub/file", async (req, res) => {
   try {
     const fileUrl = String(req.query.url ?? "");
-    let current = new URL(fileUrl);
+    const current = new URL(fileUrl);
     if (!isAllowedHubUrl(current, HUB_DOWNLOAD_HOSTS)) {
       return sendError(res, 400, new Error("Only GitHub-hosted scenario files can be fetched."));
     }
@@ -1620,28 +1654,7 @@ app.get("/api/hub/file", async (req, res) => {
       return sendHubFile(res, cache.body, cachedType);
     }
 
-    // Follow redirects manually so every hop is re-checked against the host
-    // allowlist. `redirect: "follow"` would chase a github.com redirect to an
-    // attacker-controlled host (SSRF); GitHub's own release redirect
-    // (github.com -> objects.githubusercontent.com) stays inside the allowlist.
-    let upstream;
-    for (let hop = 0; ; hop += 1) {
-      if (hop > 5) {
-        return sendError(res, 502, new Error("Too many redirects fetching scenario file."));
-      }
-      upstream = await fetchHubHop(current);
-      if (upstream.status < 300 || upstream.status >= 400) break;
-      const location = upstream.headers.get("location");
-      if (!location) break;
-      const next = new URL(location, current);
-      if (!isAllowedHubUrl(next, HUB_DOWNLOAD_HOSTS)) {
-        return sendError(res, 400, new Error("Scenario file redirected off GitHub."));
-      }
-      current = next;
-    }
-    if (!upstream.ok) {
-      return sendError(res, 502, new Error(`Hub file fetch failed (HTTP ${upstream.status}).`));
-    }
+    const upstream = await openHubDownload(current);
 
     // Refuse before reading a byte when the size is declared; saveCappedBody
     // stops mid-body when it is not.
@@ -1672,7 +1685,7 @@ app.get("/api/hub/file", async (req, res) => {
     sendHubFile(res, cache.body, contentType);
     pruneHubCache(HUB_CACHE_DIR, undefined, { keep: cache.body });
   } catch (error) {
-    sendError(res, error?.status === 413 ? 413 : 502, error);
+    sendError(res, HUB_REFUSAL_STATUSES.has(error?.status) ? error.status : 502, error);
   }
 });
 
@@ -1685,6 +1698,75 @@ app.get("/api/hub/cache", (_req, res) => {
 
 app.delete("/api/hub/cache", (_req, res) => {
   res.json(clearHubCache(HUB_CACHE_DIR));
+});
+
+// ---- Music a scenario plays ------------------------------------------------
+// A hub track is downloaded once and kept in the server's own music folder by
+// its sha256 (server/musicLibrary.js), so the same song is never fetched again
+// for another scenario, another track id or another day. The page's <audio>
+// plays it from here: served from disk with byte ranges and its own audio type,
+// which is what lets it seek and start at once (the hub proxy above sends
+// neither, and its cache would have dropped the songs to make room for bundles).
+//
+// The download is the hub proxy's own: only a file in the hub's releases
+// (musicLibrary.js checks the address before anything is asked), every redirect
+// hop re-checked against the same allowlist, and stopped at the size a track may
+// be. Like the proxy, the GET answers whoever the server listens to (a phone
+// playing over the LAN needs its music too).
+const downloadHubTrack = async (fileUrl, destination, maxBytes) => {
+  const upstream = await openHubDownload(new URL(fileUrl));
+  const declared = Number(upstream.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await upstream.body?.cancel().catch(() => {});
+    throw hubRefusal(413, "That track is too large to keep.");
+  }
+  return saveCappedBody(upstream.body, destination, maxBytes);
+};
+const musicLibrary = createMusicLibrary({ download: downloadHubTrack });
+// Downloads a crash cut short, and anything past the limit, go at startup.
+tidyMusicLibrary(MUSIC_LIBRARY_DIR);
+
+app.get("/api/music/:sha256", async (req, res) => {
+  try {
+    const kept = await musicLibrary.keep({
+      sha256: req.params.sha256,
+      url: String(req.query.url ?? ""),
+      // Which hub track it is asked for as, so the kept file is known to be a
+      // scenario's; a preview in the scenario editor says so and is nobody's.
+      trackId: String(req.query.track ?? ""),
+      preview: req.query.preview === "1",
+    });
+    // The type is the library's own, from the file's first bytes; nothing is
+    // left for a browser to guess.
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    streamBinaryFile(req, res, kept.filePath, kept.contentType);
+  } catch (error) {
+    sendError(res, HUB_REFUSAL_STATUSES.has(error?.status) ? error.status : 502, error);
+  }
+});
+
+// Settings → General → Sound: how much music is kept, and deleting it. From
+// this machine only, like the trash: what is on its disk is for the person at
+// the computer.
+const refuseRemoteMusic = (req, res) => {
+  if (isLoopbackAddress(req.socket?.remoteAddress)) return false;
+  sendError(res, 403, new Error("Only the machine running the server can manage its downloaded music."));
+  return true;
+};
+
+app.get("/api/music", (req, res) => {
+  if (refuseRemoteMusic(req, res)) return;
+  res.setHeader("Cache-Control", "no-store");
+  res.json(musicLibraryUsage(MUSIC_LIBRARY_DIR));
+});
+
+app.delete("/api/music", (req, res) => {
+  if (refuseRemoteMusic(req, res)) return;
+  try {
+    res.json(clearMusicLibrary(MUSIC_LIBRARY_DIR));
+  } catch (error) {
+    sendError(res, 500, error);
+  }
 });
 
 // Imports are no longer reported from here. A scenario's import count is how many

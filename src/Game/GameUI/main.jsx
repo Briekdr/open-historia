@@ -5,8 +5,9 @@ import { SettingsButton, SettingsMenu } from "./settings";
 import { Presence } from "./presence.jsx";
 import { LibraryTopBar, TOP_BAR_OFFSET, openLibraryTab, useMainMenuOpen } from "./libraryBar";
 import { ApiSetupPrompt } from "./apiSetupPrompt.jsx";
-import { GameLoadingScreen, useGameLoading } from "./gameLoadingScreen.jsx";
+import { GameLoadingScreen, LOADING_CEILING_MS, useGameLoading } from "./gameLoadingScreen.jsx";
 import { useLibraryState } from "../../runtime/library.js";
+import { enterGame, useGameEntered } from "../../runtime/gameEntry.js";
 import { useActiveFeatures, isActiveFeatureEnabled } from "../../runtime/gameFeatures.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
 import { brushedMetalUrl } from "./brushedMetal.js";
@@ -338,8 +339,16 @@ const Main = ({
 
   const [aiSetup, setAiSetup] = useState(readAiSetup);
   const { activeGame, games, loaded, runtimeScenario } = useLibraryState();
-  // The game menu names the campaign the way the library does.
-  const activeCountryName = useCountryDisplayName(activeGame?.country || "");
+  // The page starts on the main menu with no game loaded behind it, and this
+  // UI is what draws that menu. Until the player opens a game
+  // (runtime/gameEntry.js) the library's active game is only the one last
+  // played: none of the game's own controls is mounted, and nothing here reads
+  // it, reports it or runs anything for it.
+  const gameEntered = useGameEntered();
+  // The game menu names the campaign the way the library does. (Not before a
+  // game is opened: looking the name up reads the game's world and the country
+  // tiles.)
+  const activeCountryName = useCountryDisplayName(activeGame?.country || "", { wait: !gameEntered });
   // No games -> nothing to simulate (the main menu covers the empty world).
   const hasNoGames = loaded && (games?.length ?? 0) === 0;
 
@@ -347,17 +356,30 @@ const Main = ({
   // per session, offering the AI settings. It goes away the moment a key is
   // typed into the settings, because every edit announces itself.
   const mainMenuOpen = useMainMenuOpen();
+  // The menu was closed to open the page's first game, and that game has not
+  // landed yet (the library enters it when it has; a flow that fails opens the
+  // menu again). There is no game to show under the closed menu, so the cover
+  // is up from the press itself.
+  const awaitingGame = !gameEntered && !mainMenuOpen;
+  // And it does not stay up over nothing: should the game never land and the
+  // menu never come back, the game the library holds is entered once the
+  // cover's own ceiling has passed.
+  useEffect(() => {
+    if (!awaitingGame) return undefined;
+    const timer = setTimeout(enterGame, LOADING_CEILING_MS);
+    return () => clearTimeout(timer);
+  }, [awaitingGame]);
   // The screen a game opens under, until the map has drawn it (this UI is
   // remounted per game, so it starts over with every game opened).
   const gameLoading = useGameLoading();
-  const showGameLoading = gameLoading.active && Boolean(activeGame?.id);
+  const showGameLoading = awaitingGame || (gameLoading.active && Boolean(activeGame?.id));
   // Discord's "Playing Open Historia", with who, where and when under it
   // (runtime/discordPresence.js; the desktop app and the local server only).
   useDiscordPresence(presenceFor({
     activeGame,
     playerName: activeCountryName || activeGame?.country || "",
     scenarioName: runtimeScenario?.name || "",
-    inMenu: mainMenuOpen || hasNoGames,
+    inMenu: mainMenuOpen || hasNoGames || !gameEntered,
   }));
   const providerReady = aiSetup.ready;
   const [apiPromptAnsweredFor, setApiPromptAnsweredFor] = useState(() => {
@@ -431,7 +453,10 @@ const Main = ({
     // previously active campaign may still exist underneath. Idle diplomacy is
     // gameplay activity, not background app activity, so do not let a country
     // message the player while they are browsing/editing outside the campaign.
-    if (hasNoGames || mainMenuOpen) return undefined;
+    // Nor for a game that has not been opened: the menu is closed for a moment
+    // while the page's first game is on its way, and the active game is still
+    // the one last played.
+    if (hasNoGames || mainMenuOpen || !gameEntered) return undefined;
     const activity = createPlayerActivity();
     const listenerOptions = { capture: true, passive: true };
     for (const type of PLAYER_ACTIVITY_EVENTS) window.addEventListener(type, activity.note, listenerOptions);
@@ -447,7 +472,7 @@ const Main = ({
       clearInterval(iv);
       for (const type of PLAYER_ACTIVITY_EVENTS) window.removeEventListener(type, activity.note, listenerOptions);
     };
-  }, [hasNoGames, mainMenuOpen]);
+  }, [hasNoGames, mainMenuOpen, gameEntered]);
 
   // Spy reports, on the same rhythm and with the same guards: a roll each
   // minute the tab is visible, at odds that work out to roughly one report
@@ -459,7 +484,7 @@ const Main = ({
   // Not in the main menu or the Workshop: each report is an AI request, spent
   // on a campaign the player has not entered.
   useEffect(() => {
-    if (hasNoGames || mainMenuOpen) return undefined;
+    if (hasNoGames || mainMenuOpen || !gameEntered) return undefined;
     const iv = setInterval(() => {
       if (document.visibilityState !== "visible" || inSharedGame()) return;
       import("../AI/gameplay.js")
@@ -467,7 +492,7 @@ const Main = ({
         .catch(() => {});
     }, 60000);
     return () => clearInterval(iv);
-  }, [hasNoGames, mainMenuOpen]);
+  }, [hasNoGames, mainMenuOpen, gameEntered]);
 
   useEffect(() => {
     if (isAdvisorOpen) setShouldLoadAdvisor(true);
@@ -610,15 +635,18 @@ const Main = ({
   // battlefield where a war is being fought or is frozen by a ceasefire
   // (warRoomData.js), and fronts are switched on for this game.
   useActiveFeatures();
-  const playerCountry = activeGame?.country || "";
+  // Nobody is playing a game that has not been opened: no country, so no war.
+  const playerCountry = gameEntered ? activeGame?.country || "" : "";
   const warFronts = useRuntimeState("world", (world) => playerFrontsKey(world?.battlefields, playerCountry), playerCountry);
   const atWar = Boolean(warFronts) && isActiveFeatureEnabled("fronts");
   // The music plays the open game's scenario's own tracks where the scenario
   // names any (runtime/scenarioMusic.js). Told again only when the record
   // itself changes, since the library hands out a new object on every refresh;
   // and told before the scene below, so a game opening starts on the right
-  // music rather than changing to it.
-  const scenarioMusicKey = JSON.stringify((activeGame?.id && runtimeScenario?.music) || null);
+  // music rather than changing to it. No game is open before one is entered:
+  // the game last played has no say in the music, and nothing of its
+  // scenario's is asked of the hub.
+  const scenarioMusicKey = JSON.stringify((gameEntered && activeGame?.id && runtimeScenario?.music) || null);
   useEffect(() => { followScenarioMusic(JSON.parse(scenarioMusicKey)); }, [scenarioMusicKey]);
   // And it follows where the player is (runtime/ambientMusic.js): the menu, a
   // game opening under its cover, the game, the game with the player at war,
@@ -729,43 +757,50 @@ const Main = ({
           setSettingsInitialSection("general");
           setIsSettingsOpen(true);
         }} />
-        <DateWidget
-          activePanel={activeBottomPanel}
-          mapRef={mapRef}
-          onSetPanel={setActiveBottomPanel}
-          onTogglePanel={toggleBottomPanel}
-          dockStyle={advisorDockStyle}
-          topOffset={TOP_BAR_OFFSET}
-          onToggleCountry={toggleCountry}
-          countryOpen={isCountryOpen}
-        />
-        <Toolbar
-          onOpenAdvisor={openAdvisor}
-          activePanel={activeBottomPanel}
-          onTogglePanel={toggleBottomPanel}
-          mapRef={mapRef}
-        />
-        <Other
-          dockStyle={advisorDockStyle}
-          active={isCountryOpen}
-          onToggle={toggleCountry}
-        />
-        <Search mapRef={mapRef} besideWarRoom={atWar} />
-        <ForcesPanel
-          mapRef={mapRef}
-          topOffset={TOP_BAR_OFFSET}
-          open={isForcesOpen}
-          onToggle={() => setIsForcesOpen((v) => !v)}
-        />
-        <AdvisorButton
-          isAdvisorOpen={isAdvisorOpen}
-          dockStyle={advisorDockStyle}
-          onToggle={() => {
-            setIsWarRoomOpen(false);
-            setIsCountryOpen(false);
-            setIsAdvisorOpen((open) => !open);
-          }}
-        />
+        {/* The game's own controls, and with them everything they run (the
+            date widget runs the game), are mounted when a game is opened and
+            not before: at startup the menu above is all there is. */}
+        {gameEntered && (
+          <>
+            <DateWidget
+              activePanel={activeBottomPanel}
+              mapRef={mapRef}
+              onSetPanel={setActiveBottomPanel}
+              onTogglePanel={toggleBottomPanel}
+              dockStyle={advisorDockStyle}
+              topOffset={TOP_BAR_OFFSET}
+              onToggleCountry={toggleCountry}
+              countryOpen={isCountryOpen}
+            />
+            <Toolbar
+              onOpenAdvisor={openAdvisor}
+              activePanel={activeBottomPanel}
+              onTogglePanel={toggleBottomPanel}
+              mapRef={mapRef}
+            />
+            <Other
+              dockStyle={advisorDockStyle}
+              active={isCountryOpen}
+              onToggle={toggleCountry}
+            />
+            <Search mapRef={mapRef} besideWarRoom={atWar} />
+            <ForcesPanel
+              mapRef={mapRef}
+              topOffset={TOP_BAR_OFFSET}
+              open={isForcesOpen}
+              onToggle={() => setIsForcesOpen((v) => !v)}
+            />
+            <AdvisorButton
+              isAdvisorOpen={isAdvisorOpen}
+              dockStyle={advisorDockStyle}
+              onToggle={() => {
+                setIsWarRoomOpen(false);
+                setIsCountryOpen(false);
+                setIsAdvisorOpen((open) => !open);
+              }}
+            />
+          </>
+        )}
       </div>
       {(atWar || isWarRoomOpen) && (
         <WarRoomButton open={warRoomShown} isMobile={isMobile} onToggle={toggleWarRoom} />

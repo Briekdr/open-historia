@@ -30,8 +30,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ADDRESS_WAIT_MS,
   DEFAULT_MUSIC_VOLUME,
   LOAD_SECONDS_KEY,
+  MUSIC_CHANNEL,
   MUSIC_CREDIT,
   MUSIC_SCENES,
   MUSIC_TRACKS,
@@ -42,6 +44,8 @@ import {
   boostAt,
   calmGainAt,
   createMusicDirector,
+  createMusicHolds,
+  createMusicTurn,
   cutTimeAfter,
   entryFor,
   exitAfter,
@@ -98,7 +102,7 @@ const clock = () => {
 // how long a file is (by its address; any other never ends), and `broken`
 // which addresses cannot be played: such a file fails as a browser's does,
 // its element saying so before play() does.
-const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRACKS, memory = null, lengths = {}, broken = [], onNowPlaying = null } = {}) => {
+const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRACKS, memory = null, lengths = {}, broken = [], onNowPlaying = null, trackAddress = null, releaseAddress = null } = {}) => {
   const time = clock();
   const settings = { enabled, volume };
   const made = [];
@@ -153,6 +157,8 @@ const stage = ({ enabled = true, volume = 25, refuse = null, tracks = MUSIC_TRAC
     now: () => time.now,
     memory,
     onNowPlaying,
+    trackAddress,
+    releaseAddress,
     tracks,
   });
   const of = (name) => director.channels[name].audio;
@@ -1003,7 +1009,8 @@ test("the scene is where the player is", () => {
   assert.ok(screen.includes("musicSceneOf({ inMenu: mainMenuOpen || hasNoGames, loading: showGameLoading, atWar, war: battlefieldShown })"));
   assert.ok(screen.includes("useEffect(() => { setMusicScene(musicScene); }, [musicScene]);"));
   // The open game's scenario's own music, told before the scene it is for.
-  assert.ok(screen.includes("const scenarioMusicKey = JSON.stringify((activeGame?.id && runtimeScenario?.music) || null);"));
+  // Of the OPEN game: the game last played has no say before the player opens one (gameEntry.js).
+  assert.ok(screen.includes("const scenarioMusicKey = JSON.stringify((gameEntered && activeGame?.id && runtimeScenario?.music) || null);"));
   assert.ok(screen.includes("useEffect(() => { followScenarioMusic(JSON.parse(scenarioMusicKey)); }, [scenarioMusicKey]);"));
   assert.ok(screen.indexOf("followScenarioMusic(JSON.parse(scenarioMusicKey))") < screen.indexOf("setMusicScene(musicScene)"));
   // Started once, for every build, where the page starts; and no page, no music, no error.
@@ -1413,4 +1420,291 @@ test("the lists can arrive, change and go while a game is open", () => {
   time.advance(1500);
   assert.deepEqual(sounding(), []);
   assert.equal(list("game").tracks.length, 0);
+});
+
+// ---- a scenario's track, played from the copy kept on this device ----------------------
+//
+// "If you already have a song downloaded from another scenario, it doesnt
+// redownload it for you when another scenario uses the same song": the director
+// asks one function where a track is played from (keptMusic.js keptMusicAddress,
+// which knows the platform), when the track is about to play, and gives its
+// element the answer when it comes.
+
+// An asking that the test answers when it chooses to.
+const asking = () => {
+  const asks = [];
+  const answers = new Map();
+  return {
+    asks,
+    trackAddress: (track) => {
+      asks.push(track.id);
+      return new Promise((resolve, reject) => answers.set(track.id, { resolve, reject }));
+    },
+    answer: (id, address) => answers.get(id).resolve(address),
+    fail: (id) => answers.get(id).reject(new Error("no copy")),
+  };
+};
+
+test("a scenario's track is asked for when it is about to play, and started from the kept copy when the answer comes", async () => {
+  const kept = asking();
+  const released = [];
+  const lengths = { "kept:a": 30, "kept:b": 20 };
+  const said = [];
+  const { director, made, time, list, sounding } = stage({ lengths, trackAddress: kept.trackAddress, releaseAddress: (address) => released.push(address), onNowPlaying: (track) => said.push(track?.id ?? null) });
+  director.setPlaylists({ loading: [hubTrack("intro")], game: [hubTrack("a"), hubTrack("b")] });
+  director.unlock();
+  time.advance(2000);
+  await settle();
+  assert.deepEqual(kept.asks, [], "nothing is asked for on the menu: a file is fetched only when it is about to play");
+
+  director.setScene("game");
+  time.advance(1500);
+  await settle();
+  assert.deepEqual(kept.asks, ["a"], "the track that is about to play, and only that one");
+  const audio = list("game").audio;
+  assert.deepEqual([audio.src, audio.plays, audio.paused], ["", 0, true], "while its copy is on its way nothing is played, least of all from another address");
+  assert.deepEqual(said, [], "and nothing is credited as sounding yet");
+  kept.answer("a", "kept:a");
+  await settle();
+  assert.deepEqual([audio.src, audio.paused, audio.plays], ["kept:a", false, 1]);
+  assert.deepEqual(sounding(), ["scenario:game"]);
+  assert.deepEqual(said, ["a"]);
+
+  // It ends: the next one is asked for, and the first one's address is given back once the element has the next.
+  time.advance(30500);
+  await settle();
+  assert.deepEqual(kept.asks, ["a", "b"]);
+  assert.deepEqual(released, []);
+  assert.equal(audio.plays, 1, "not started again on the file that has just ended");
+  kept.answer("b", "kept:b");
+  await settle();
+  assert.deepEqual([audio.src, audio.paused, audio.plays], ["kept:b", false, 2]);
+  assert.deepEqual(released, ["kept:a"]);
+  assert.equal(made.filter((element) => element === audio).length, 1, "one element for the list");
+});
+
+test("a copy that cannot be had, or does not come, is the track's own address: the music still plays", async () => {
+  // The asking fails, or answers with nothing.
+  for (const outcome of ["fail", "nothing"]) {
+    const kept = asking();
+    const { director, time, list } = stage({ trackAddress: kept.trackAddress });
+    director.setPlaylists({ game: [hubTrack("a")] });
+    director.unlock();
+    director.setScene("game");
+    time.advance(1500);
+    await settle();
+    if (outcome === "fail") kept.fail("a");
+    else kept.answer("a", "");
+    await settle();
+    assert.deepEqual([list("game").audio.src, list("game").audio.paused], ["/hub/a.mp3", false], outcome);
+  }
+
+  // It does not come at all: after ADDRESS_WAIT_MS the track's own address, and a late answer is given back unused.
+  const kept = asking();
+  const released = [];
+  const { director, time, list } = stage({ trackAddress: kept.trackAddress, releaseAddress: (address) => released.push(address) });
+  director.setPlaylists({ game: [hubTrack("a")] });
+  director.unlock();
+  director.setScene("game");
+  time.advance(ADDRESS_WAIT_MS - 200);
+  await settle();
+  const audio = list("game").audio;
+  assert.deepEqual([audio.src, audio.plays], ["", 0]);
+  time.advance(400);
+  assert.deepEqual([audio.src, audio.paused, audio.plays], ["/hub/a.mp3", false, 1]);
+  kept.answer("a", "kept:late");
+  await settle();
+  assert.deepEqual([audio.src, audio.plays], ["/hub/a.mp3", 1], "it is not started over on a copy that came too late");
+  assert.deepEqual(released, ["kept:late"]);
+  assert.equal(ADDRESS_WAIT_MS, 20000);
+});
+
+test("an answer for a track the list has left is given back, and the game's own pieces are never asked for", async () => {
+  const kept = asking();
+  const released = [];
+  const { director, time, list, of } = stage({ trackAddress: kept.trackAddress, releaseAddress: (address) => released.push(address) });
+  director.setPlaylists({ game: [hubTrack("a")] });
+  director.unlock();
+  director.setScene("game");
+  time.advance(1500);
+  await settle();
+  // Another game's scenario, before the first track's copy arrived.
+  director.setPlaylists({ game: [hubTrack("z")] });
+  time.advance(1500);
+  await settle();
+  assert.deepEqual(kept.asks, ["a", "z"]);
+  kept.answer("a", "kept:a");
+  await settle();
+  assert.equal(list("game").audio.src, "", "the element is still waiting for the track it is on");
+  assert.deepEqual(released, ["kept:a"]);
+  kept.answer("z", "kept:z");
+  await settle();
+  assert.deepEqual([list("game").audio.src, list("game").audio.paused], ["kept:z", false]);
+
+  // The war room's own pieces are the game's files, beside the page: played at once, with nothing asked.
+  director.setScene("war");
+  time.advance(1500);
+  await settle();
+  assert.equal(of("war").src, "/audio/legionnaire.mp3");
+  assert.equal(of("war").paused, false);
+  assert.deepEqual(kept.asks, ["a", "z"]);
+
+  // Without the function (a stand-in director), a track is played from its own address, as it always was.
+  const plain = stage();
+  plain.director.setPlaylists({ game: [hubTrack("a")] });
+  plain.director.unlock();
+  plain.director.setScene("game");
+  plain.time.advance(1500);
+  assert.deepEqual([plain.list("game").audio.src, plain.list("game").audio.paused], ["/hub/a.mp3", false]);
+});
+
+// ---- one page of the game sounds at a time ----------------------------------------------
+//
+// "Why is it playing the song 2 times rn": two windows of the game were open,
+// and each played the music. The pages of one browser profile share a channel;
+// the one the player turns to says so, and the others hold their music until
+// the player turns to them again (createMusicTurn, wired in startMusic).
+
+// A BroadcastChannel standing in: what one end posts, every other end hears.
+const sharedChannel = () => {
+  const ends = [];
+  return () => {
+    const listeners = [];
+    const end = {
+      listeners,
+      addEventListener: (type, listener) => { if (type === "message") listeners.push(listener); },
+      postMessage: (data) => { for (const other of ends) if (other !== end) for (const listener of other.listeners) listener({ data }); },
+    };
+    ends.push(end);
+    return end;
+  };
+};
+
+// A page of the game: its own director, its holds, and its turn on `channel`.
+// `click()` is what startMusic does on a pointerdown, a keydown or a touchend.
+const page = (id, channel, { wanted = () => true } = {}) => {
+  const { director, time, sounding } = stage();
+  const holdFor = createMusicHolds((held) => director.setHeld(held));
+  const turn = createMusicTurn({ channel, id, hold: (held) => holdFor("elsewhere", held), wanted });
+  return {
+    director, sounding, turn, holdFor,
+    click: () => { turn.claim(); director.unlock(); time.advance(3000); },
+    focus: () => { turn.claim(); time.advance(3000); },
+    wait: () => time.advance(3000),
+  };
+};
+
+test("two pages of the game: the one the player turns to plays, and the other falls silent", () => {
+  const open = sharedChannel();
+  const first = page("first", open());
+  const second = page("second", open());
+
+  first.click();
+  assert.deepEqual(first.sounding(), ["calm"]);
+  assert.deepEqual(second.sounding(), [], "the second has not been touched: no browser lets it sound yet");
+
+  // The second to be clicked plays, and the first falls silent.
+  second.click();
+  first.wait();
+  assert.deepEqual(second.sounding(), ["calm"]);
+  assert.deepEqual(first.sounding(), []);
+  assert.equal(first.turn.elsewhere, true);
+
+  // Clicking the first again swaps them.
+  first.click();
+  second.wait();
+  assert.deepEqual(first.sounding(), ["calm"]);
+  assert.deepEqual(second.sounding(), []);
+  assert.equal(first.turn.elsewhere, false);
+  assert.equal(second.turn.elsewhere, true);
+
+  // Focus alone (the window brought to the front) takes the music back too.
+  second.focus();
+  first.wait();
+  assert.deepEqual(second.sounding(), ["calm"]);
+  assert.deepEqual(first.sounding(), []);
+  // A page that says it again changes nothing for one already silent.
+  second.click();
+  first.wait();
+  assert.deepEqual(first.sounding(), []);
+});
+
+test("a third page takes the music from both; a page with its music off claims nothing and silences nobody", () => {
+  const open = sharedChannel();
+  const first = page("first", open());
+  const second = page("second", open());
+  let thirdOn = false;
+  const third = page("third", open(), { wanted: () => thirdOn });
+  first.click();
+  second.click();
+  first.wait();
+  // The third page's music is switched off: clicking in it leaves the second playing.
+  third.click();
+  second.wait();
+  assert.deepEqual(second.sounding(), ["calm"]);
+  // Switched on, it is the one the player is using.
+  thirdOn = true;
+  third.click();
+  first.wait();
+  second.wait();
+  assert.deepEqual([first.sounding(), second.sounding(), third.sounding()], [[], [], ["calm"]]);
+});
+
+test("with no channel every page plays, as it always did", () => {
+  const first = page("first", null);
+  const second = page("second", null);
+  first.click();
+  second.click();
+  first.wait();
+  assert.deepEqual(first.sounding(), ["calm"]);
+  assert.deepEqual(second.sounding(), ["calm"]);
+  // And a channel that throws when spoken on is no channel.
+  const broken = page("broken", { addEventListener() {}, postMessage() { throw new Error("closed"); } });
+  broken.click();
+  assert.deepEqual(broken.sounding(), ["calm"]);
+});
+
+test("silent for another page and silent for a preview are two reasons: letting go of one keeps the other", () => {
+  const open = sharedChannel();
+  const first = page("first", open());
+  const second = page("second", open());
+  first.click();
+  // A track is tried out in the first page's scenario editor.
+  first.holdFor("preview", true);
+  first.wait();
+  assert.deepEqual(first.sounding(), []);
+  // Meanwhile the player clicks the other page.
+  second.click();
+  first.wait();
+  // The preview ends: the first page stays silent, for the other page is playing.
+  first.holdFor("preview", false);
+  first.wait();
+  assert.deepEqual(first.sounding(), []);
+  assert.deepEqual(second.sounding(), ["calm"]);
+  // Back in the first page with a preview running: it takes the music back, and still waits for the preview.
+  first.holdFor("preview", true);
+  first.click();
+  second.wait();
+  assert.deepEqual(first.sounding(), []);
+  assert.deepEqual(second.sounding(), []);
+  first.holdFor("preview", false);
+  first.wait();
+  assert.deepEqual(first.sounding(), ["calm"]);
+});
+
+test("the page's music is wired to the channel beside its other listeners, not into the director", () => {
+  const source = read("src/runtime/ambientMusic.js");
+  assert.equal(MUSIC_CHANNEL, "oh-music");
+  assert.ok(source.includes("channel = typeof win.BroadcastChannel === \"function\" ? new win.BroadcastChannel(MUSIC_CHANNEL) : null;"));
+  assert.ok(source.includes("win.addEventListener(type, () => { turn.claim(); director.unlock(); }, { capture: true, passive: true });"));
+  assert.ok(source.includes("win.addEventListener(\"focus\", () => turn.claim());"));
+  assert.ok(source.includes("hold: (held) => holdFor(\"elsewhere\", held),"));
+  assert.ok(source.includes("wanted: () => musicEnabled() && musicVolume() > 0,"));
+  assert.ok(source.includes("export const holdMusic = (held) => { holdFor?.(\"preview\", Boolean(held)); };"));
+  // The director's core knows nothing of other pages.
+  const core = source.slice(source.indexOf("export const createMusicDirector"), source.indexOf("// The scene, from what the game's screen knows"));
+  assert.ok(!/BroadcastChannel|createMusicTurn|elsewhere/.test(core));
+  // Before the page's music has started there is nothing to hold.
+  holdMusic(true);
+  holdMusic(false);
 });

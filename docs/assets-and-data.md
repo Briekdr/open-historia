@@ -309,6 +309,8 @@ See [web-build.md §8](web-build.md) for why the site carries its own copy of th
 
 ## 8. Startup preload + the ~162 MB prime
 
+**When it runs.** Not as the page starts any more: the page starts on the main menu with no game loaded, and `App.jsx` runs these tasks when the first game is opened (`src/runtime/gameEntry.js`, [architecture.md §3c](architecture.md)), once a page, in the background beside the map that is being drawn. No screen waits for them; the startup screen has one step of its own, the library catalog (`createMenuStartupState`). What follows describes the tasks themselves.
+
 `src/runtime/preload.js` warms the map before React fully mounts, inside a **30 s time budget** (`STARTUP_TIME_BUDGET_MS`). Tasks run serially, each with an `AbortController` wired to the remaining budget; the budget expiring aborts the current task and leaves the rest to load lazily in-game.
 
 | # | id | Label | Weight | Warms | Skipped on custom map? |

@@ -1,6 +1,7 @@
 /*! Open Historia — portions (scenario-map editor seeding) © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 import { useSyncExternalStore } from "react";
 import { announceGameOpening, setReadinessGame } from "./mapReadiness.js";
+import { enterGame } from "./gameEntry.js";
 import {
   JSON_URLS,
   readJson,
@@ -536,6 +537,12 @@ export const createGame = async (payload) => {
   // Card text edits translate (and reach the server language pack) right away.
   enqueueContentStrings(payload);
   await refreshLibraryCatalog({ force: true });
+  // A game made to be played at once (a new game, a clone, Apply & Play) is
+  // the game the player opened: entered once the library holds it as the
+  // active one, never before, so the map does not start on the game that is
+  // on its way out (gameEntry.js). One made without `setActive` (a shared
+  // game's stand-in) is opened by activateGame below.
+  if (payload?.setActive) enterGame();
   return details;
 };
 
@@ -557,7 +564,14 @@ export const activateGame = async (gameId) => {
     body: { gameId },
     method: "PUT",
   });
-  return applyLibraryCatalog(catalog);
+  const state = applyLibraryCatalog(catalog);
+  // Opening a game is what enters one (gameEntry.js): the page loads no game
+  // until the player opens it, and this is every Play. After the catalog is
+  // applied, so the map mounts for the game that was asked for; and whether or
+  // not the active id changed, since Play on the game that was already the
+  // active one changes nothing else.
+  enterGame();
+  return state;
 };
 
 export const removeGame = async (gameId) => {
