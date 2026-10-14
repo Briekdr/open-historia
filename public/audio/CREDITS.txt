@@ -1,6 +1,6 @@
 The music of Open Historia
 
-All four pieces are by Scott Buckley (https://www.scottbuckley.com.au/) and are
+All six pieces are by Scott Buckley (https://www.scottbuckley.com.au/) and are
 released under the Creative Commons Attribution 4.0 International License
 (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
 The files are the composer's own, unchanged.
@@ -16,6 +16,16 @@ clear-skies.mp3
     https://www.scottbuckley.com.au/library/clear-skies/
     Plays on the menu, in turn with Passage Of Time, and from its own build
     on while a game opened under it loads.
+
+hour-of-the-witch.mp3
+    "Hour Of The Witch" by Scott Buckley
+    https://www.scottbuckley.com.au/library/hour-of-the-witch/
+    Plays in a game, in the background.
+
+honour-among-thieves.mp3
+    "Honour Among Thieves" by Scott Buckley
+    https://www.scottbuckley.com.au/library/honour-among-thieves/
+    Plays in a game, in the background.
 
 legionnaire.mp3
     "Legionnaire (2022 Remaster)" by Scott Buckley
