@@ -235,17 +235,15 @@ const overlaps = (a, b) => a.x0 < b.x0 + b.width && b.x0 < a.x0 + a.width && a.y
 //   zones     world.climateZones
 //   weather   Map of zone id to { state, season } (zoneWeatherById)
 //   label     (text, kind) -> the text in the player's language
-// Returns { areas, chips, drifting }: the patches (polygons, each with its
-// weather, its strength, and its picture and wash where it has them), a chip
-// in each zone saying its season and weather, and the weathers that move with
-// the box each is in ([{ state, west, south, east, north }]).
+// Returns { areas, chips }: the patches (polygons, each with its weather, its
+// strength, and its picture and wash where it has them) and a chip in each
+// zone saying its season and weather.
 export const weatherPatchFeatures = ({ zones = [], weather = new Map(), label } = {}) => {
   const areas = [];
   const chips = [];
-  const drifting = [];
   const kept = normalizeClimateZones(zones);
   const known = kept.filter((zone) => weather.get(zone.id) && WEATHER_STATES.includes(weather.get(zone.id).state));
-  if (known.length === 0) return { areas: { type: "FeatureCollection", features: areas }, chips: { type: "FeatureCollection", features: chips }, drifting };
+  if (known.length === 0) return { areas: { type: "FeatureCollection", features: areas }, chips: { type: "FeatureCollection", features: chips } };
   const grid = gridFor(known);
   const top = latToY(grid.topLat);
   const lngOf = (x) => round6(((x + 0.5) / grid.width) * 360 - 180);
@@ -327,10 +325,6 @@ export const weatherPatchFeatures = ({ zones = [], weather = new Map(), label } 
     const field = new Float32Array(width * height);
     for (let at = 0; at < field.length; at += 1) field[at] = total[at] > 1 ? own[at] / total[at] : own[at];
 
-    let west = Infinity;
-    let east = -Infinity;
-    let south = Infinity;
-    let north = -Infinity;
     for (const [level, strength] of PATCH_BANDS) {
       const polygons = ringsToPolygons(contourRings(field, width, height, level).map((ring) => smoothRing(ring)));
       if (polygons.length === 0) continue;
@@ -339,12 +333,6 @@ export const weatherPatchFeatures = ({ zones = [], weather = new Map(), label } 
         // An outline one way round, a hole the other (as GeoJSON has them: outlines anticlockwise).
         if ((signedArea(placedRing) < 0) === (index === 0)) placedRing.reverse();
         placedRing.push([...placedRing[0]]);
-        for (const [lng, lat] of placedRing) {
-          if (lng < west) west = lng;
-          if (lng > east) east = lng;
-          if (lat < south) south = lat;
-          if (lat > north) north = lat;
-        }
         return placedRing;
       }));
       areas.push({
@@ -359,7 +347,6 @@ export const weatherPatchFeatures = ({ zones = [], weather = new Map(), label } 
         },
       });
     }
-    if (overlay.drifts && west < east) drifting.push({ state, west, south, east, north });
   }
-  return { areas: { type: "FeatureCollection", features: areas }, chips: { type: "FeatureCollection", features: chips }, drifting };
+  return { areas: { type: "FeatureCollection", features: areas }, chips: { type: "FeatureCollection", features: chips } };
 };

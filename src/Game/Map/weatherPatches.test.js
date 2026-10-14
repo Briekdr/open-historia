@@ -68,7 +68,7 @@ const ZONES = [zone("west", "The West", 22, 30), zone("east", "The East", 30, 38
 const weatherOf = (entries) => new Map(entries.map(([id, state, season]) => [id, { state, season }]));
 
 test("each zone is a patch of its weather in its own shape; zones that meet, meet, each fading into the other", () => {
-  const { areas, chips, drifting } = weatherPatchFeatures({ zones: ZONES, weather: weatherOf([["west", "snow", "Winter"], ["east", "rain", "Spring"], ["far", "clear", "Summer"]]) });
+  const { areas, chips } = weatherPatchFeatures({ zones: ZONES, weather: weatherOf([["west", "snow", "Winter"], ["east", "rain", "Spring"], ["far", "clear", "Summer"]]) });
   // Five outlines a weather (a tenth to nine tenths), none for clear weather; laid one over another they
   // come to the whole weather in even steps.
   const levels = PATCH_BANDS.map(([level]) => level);
@@ -102,8 +102,6 @@ test("each zone is a patch of its weather in its own shape; zones that meet, mee
   assert.deepEqual(chips.features.map((feature) => feature.properties.chip), ["Winter · snow", "Spring · rain", "Summer · clear"]);
   const [lng, lat] = chips.features[0].geometry.coordinates;
   assert.ok(lng > 22 && lng < 30 && lat > 46 && lat < 52);
-  // The weather that moves, with the box it is in.
-  assert.deepEqual(drifting.map((entry) => entry.state).sort(), ["rain", "snow"]);
 });
 
 test("zones of one weather that touch are one patch", () => {

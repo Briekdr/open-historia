@@ -69,6 +69,10 @@ export const MAP_LAYER_ORDER = [
   "ice-hint-repair",
   "ice-fill",
   "ice-fill-repair",
+  "ice-cracks",
+  "ice-cracks-repair",
+  "ice-cracks-b",
+  "ice-cracks-b-repair",
   "ice-edge",
   "ice-edge-repair",
   // Ground a scenario made harder to cross (WarGeographyLayers.jsx): a shade
@@ -96,6 +100,8 @@ export const MAP_LAYER_ORDER = [
   // ground and its walls, under the ways its troops came and every label.
   "fronts-weather-wash",
   "fronts-weather-pattern",
+  "fronts-weather-pattern-b",
+  "fronts-weather-pattern-c",
   // The ways a battlefield's troops have come: a faint line along what they
   // walked long ago, and arrows raised off the map (shadow, edge, face) along
   // their last days, over the borders and under every label.

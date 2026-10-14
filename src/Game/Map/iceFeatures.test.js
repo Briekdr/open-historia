@@ -46,7 +46,7 @@ test("a region the map repaired is iced on the repair, where it is drawn, and no
 
 test("the ice lies over the season's tint and under the borders, on the regions' own sources, and the scene mounts it", () => {
   const index = (id) => MAP_LAYER_ORDER.indexOf(id);
-  const layers = ["ice-hint", "ice-hint-repair", "ice-fill", "ice-fill-repair", "ice-edge", "ice-edge-repair"];
+  const layers = ["ice-hint", "ice-hint-repair", "ice-fill", "ice-fill-repair", "ice-cracks", "ice-cracks-repair", "ice-cracks-b", "ice-cracks-b-repair", "ice-edge", "ice-edge-repair"];
   for (const id of layers) assert.ok(index(id) >= 0, `${id} is missing from the map's order`);
   assert.deepEqual([...layers].sort((a, b) => index(a) - index(b)), layers);
   for (const id of layers) {
@@ -57,7 +57,9 @@ test("the ice lies over the season's tint and under the borders, on the regions'
   assert.deepEqual([...component.matchAll(/id="([a-z-]+)"/g)].map((match) => match[1]), layers, "every layer it declares is in the order, and no other");
   assert.match(component, /const OWN = "custom-regions-source";/);
   assert.match(component, /const REPAIR = "custom-regions-repair-source";/);
-  assert.match(component, /"fill-pattern": ICE_IMAGE/);
+  // A thin tint the basemap shows through, and two tiles of cracks over it.
+  assert.match(component, /const ICE_PAINT = \{ "fill-color": ICE_TINT, "fill-opacity": 0\.3 \};/);
+  assert.match(component, /"fill-pattern": iceImageId\(layer\)/);
   // The ice is shown whatever the switch says; the water that could freeze only with it.
   assert.match(component, /hint: switchedOn && seasons/);
   assert.match(component, /map\.on\("styleimagemissing", asked\);/);

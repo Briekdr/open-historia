@@ -1,9 +1,7 @@
 /*! Open Historia — the weather as the map shows it © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
-// How each weather is drawn, so it can be told at a glance: rain in slanting
-// streaks, a storm in dense streaks under a darker wash, snow in flakes, a
-// blizzard in driven flakes under a white veil, fog as a grey veil, mud as
-// brown blotches, heat as a pale warm shimmer, frost as an icy speckle. Clear
-// weather draws nothing. And the chip that says a season and a weather:
+// How each weather is drawn, so it can be told at a glance: each as a still
+// speckle the way frost is (mapPatterns.js), over at most a faint wash of its
+// colour. Clear weather draws nothing. And the chip that says a season and a weather:
 // "Winter · snow".
 //
 // The weather is drawn in the shapes of the climate zones a scenario's
@@ -17,7 +15,7 @@
 
 import { WEATHER_STATES } from "../../runtime/fronts/weather.js";
 import { normalizeFrame, projectorOf } from "../../runtime/fronts/frame.js";
-import { weatherDrifts, weatherImageId } from "./mapPatterns.js";
+import { weatherImageId } from "./mapPatterns.js";
 
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -29,13 +27,13 @@ const round6 = (value) => Math.round(value * 1e6) / 1e6;
 export const WEATHER_OVERLAYS = Object.freeze({
   clear: Object.freeze({ chipLabel: "clear", pattern: false, wash: null }),
   rain: Object.freeze({ chipLabel: "rain", pattern: true, wash: null }),
-  storm: Object.freeze({ chipLabel: "storm", pattern: true, wash: Object.freeze({ color: "#1b2532", opacity: 0.28 }) }),
-  mud: Object.freeze({ chipLabel: "mud", pattern: true, wash: Object.freeze({ color: "#6b4a2a", opacity: 0.12 }) }),
-  snow: Object.freeze({ chipLabel: "snow", pattern: true, wash: Object.freeze({ color: "#eef4fb", opacity: 0.1 }) }),
-  blizzard: Object.freeze({ chipLabel: "blizzard", pattern: true, wash: Object.freeze({ color: "#f1f5fa", opacity: 0.36 }) }),
+  storm: Object.freeze({ chipLabel: "storm", pattern: true, wash: Object.freeze({ color: "#1b2532", opacity: 0.1 }) }),
+  mud: Object.freeze({ chipLabel: "mud", pattern: true, wash: Object.freeze({ color: "#6b4a2a", opacity: 0.06 }) }),
+  snow: Object.freeze({ chipLabel: "snow", pattern: true, wash: Object.freeze({ color: "#eef4fb", opacity: 0.06 }) }),
+  blizzard: Object.freeze({ chipLabel: "blizzard", pattern: true, wash: Object.freeze({ color: "#f1f5fa", opacity: 0.12 }) }),
   frost: Object.freeze({ chipLabel: "frost", pattern: true, wash: Object.freeze({ color: "#d4e6f7", opacity: 0.1 }) }),
-  heat: Object.freeze({ chipLabel: "heat", pattern: true, wash: Object.freeze({ color: "#ffc070", opacity: 0.15 }) }),
-  fog: Object.freeze({ chipLabel: "fog", pattern: true, wash: Object.freeze({ color: "#bfc5cc", opacity: 0.36 }) }),
+  heat: Object.freeze({ chipLabel: "heat", pattern: true, wash: Object.freeze({ color: "#ffc070", opacity: 0.06 }) }),
+  fog: Object.freeze({ chipLabel: "fog", pattern: true, wash: Object.freeze({ color: "#bfc5cc", opacity: 0.1 }) }),
 });
 // The world's own seasons, as a chip says them.
 export const SEASON_CHIPS = Object.freeze({
@@ -45,12 +43,12 @@ export const SEASON_CHIPS = Object.freeze({
   autumn: Object.freeze({ chipLabel: "Autumn" }),
 });
 
-// How a weather is drawn: { pattern (an image id, or null), wash ({ color,
-// opacity }, or null), drifts }, or null for what is not weather.
+// How a weather is drawn: { pattern (the id of the first of its three tiles,
+// or null), wash ({ color, opacity }, or null) }, or null for what is not weather.
 export const weatherOverlayOf = (state) => {
   if (!WEATHER_STATES.includes(state) || !Object.hasOwn(WEATHER_OVERLAYS, state)) return null;
   const overlay = WEATHER_OVERLAYS[state];
-  return { pattern: overlay.pattern ? weatherImageId(state) : null, wash: overlay.wash, drifts: overlay.pattern && weatherDrifts(state) };
+  return { pattern: overlay.pattern ? weatherImageId(state) : null, wash: overlay.wash };
 };
 
 // The battlefields to draw weather over, as the world keeps them: those being

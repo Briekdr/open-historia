@@ -1,44 +1,48 @@
 /*! Open Historia — the map's weather and ice, drawn as tiles © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 // The small pictures the map repeats over an area to say what is there
-// (fill-pattern): ice with cracks in it, water that can freeze, and each kind
-// of weather over a battlefield, and the chip a battlefield's weather is
-// written on. Each is drawn here pixel by pixel in flat colours, with no fade
-// anywhere, and wraps at its edges, so the tiles meet without a seam.
+// (fill-pattern): the cracks in ice, water that can freeze, each kind of
+// weather, and the chip a weather is written on. Each is drawn here pixel by
+// pixel in flat colours, with no fade anywhere, and wraps at its edges, so the
+// tiles meet without a seam.
 //
-// A weather picture is drawn at a STEP of its drift: rain falls aslant, snow
-// drifts down, a blizzard is driven across, fog creeps and the heat's shimmer
-// runs along its lines, each by moving the same marks a few pixels a step. The
-// map sets the weather going by handing it the next step
-// (FrontWeatherLayers.jsx); the same step is always the same picture, and a
-// state that lies on the ground (mud, frost) does not move.
+// THE WEATHER is a speckle, as frost is ("I like how frost looks, the other
+// effects look bad", then "make the frost better tho. make it less
+// repetitive. make it procedural": the owner, 2026-10-14). Each weather is
+// three tiles of prime sizes laid one over another (WEATHER_LAYERS), so that
+// what they make together repeats only every few million pixels and no repeat
+// can be seen; on each the marks gather and thin out by a smooth noise that
+// wraps with the tile, so the speckle lies in drifts and clear patches as frost
+// does on a pane. Each weather has its own marks: frost a fine icy speckle,
+// snow soft flakes, a blizzard many more, rain fine slanting drops, a storm
+// more and darker, fog a fine grey haze, mud brown clots, heat a few warm
+// motes. None of it moves.
+//
+// ICE is a light tint the basemap shows through (ICE_TINT, IceLayers.jsx) with
+// cracks over it ("also make the crack visuals in frozen water procedural.
+// also, the frozen water doesnt show the basemap behind it, it should"): the
+// cracks are wandering, branching lines on clear tiles of two prime sizes laid
+// one over the other (ICE_LAYERS), so they do not repeat to the eye either.
 //
 // The map draws at one pixel to a pixel (World.jsx pixelRatio), so these are
 // added at a pixel ratio of 1: a line a pixel wide stays one.
 //
 // Pure: { width, height, data } a picture, as map.addImage takes it.
 
-export const WEATHER_TILE = 64;
-export const ICE_TILE = 128;
+// The three tiles of a weather, and the two of the ice's cracks, each a prime number of pixels across.
+export const WEATHER_LAYERS = Object.freeze([97, 131, 173]);
+export const ICE_LAYERS = Object.freeze([181, 241]);
 export const ICE_HINT_TILE = 32;
 export const CHIP_TILE = 24;
 
-export const ICE_IMAGE = "oh-ice";
+// The ice's colour, laid thin under its cracks so the map shows through it.
+export const ICE_TINT = "#dcecf8";
 export const ICE_HINT_IMAGE = "oh-ice-hint";
 export const WEATHER_CHIP_IMAGE = "oh-weather-chip";
-export const weatherImageId = (state) => `oh-weather-${state}`;
-
-// How far a weather picture moves from one step to the next, in pixels,
-// [across, down]: rain falls the way its streaks lean, a storm's faster; snow
-// drifts down and a blizzard is driven across; fog creeps, and the heat's
-// shimmer runs along its lines. Mud and frost lie on the ground and keep still.
-export const WEATHER_DRIFT = Object.freeze({
-  rain: Object.freeze([-1, 3]),
-  storm: Object.freeze([-2, 5]),
-  snow: Object.freeze([0, 1]),
-  blizzard: Object.freeze([4, 1]),
-  fog: Object.freeze([1, 0]),
-  heat: Object.freeze([1, 0]),
-});
+// A tile on the map: the first "oh-weather-frost", the others "-b" and "-c" after it.
+const layerSuffix = (layer) => (layer > 0 ? `-${"abc"[layer]}` : "");
+export const weatherImageId = (state, layer = 0) => `oh-weather-${state}${layerSuffix(layer)}`;
+export const iceImageId = (layer = 0) => `oh-ice${layerSuffix(layer)}`;
+export const ICE_IMAGE = iceImageId(0);
 export const WEATHER_DRAWN = Object.freeze(["rain", "storm", "snow", "blizzard", "fog", "mud", "heat", "frost"]);
 
 const picture = (width, height = width) => ({ width, height, data: new Uint8Array(width * height * 4) });
@@ -101,163 +105,167 @@ const marks = (seed) => {
   };
 };
 
-const RAIN = [198, 218, 240, 220];
-const STORM_RAIN = [178, 198, 226, 235];
-const FLAKE = [250, 252, 255, 240];
-const DRIVEN = [236, 242, 250, 210];
-const FOG = [208, 213, 220, 120];
-const MUD = [112, 80, 46, 205];
-const MUD_DARK = [86, 60, 34, 225];
-const SHIMMER = [255, 230, 176, 170];
-const FROST = [226, 240, 255, 235];
+// A number for a name, to seed its marks by (FNV-1a).
+const seedOf = (text) => {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
 
-// Each weather's marks, drawn moved by (shiftX, shiftY).
-const DRAW = {
-  // Streaks leaning the way the rain falls.
-  rain: (image, shiftX, shiftY) => {
-    const next = marks(11);
-    for (let count = 0; count < 12; count += 1) {
-      const x = next() * WEATHER_TILE + shiftX;
-      const y = next() * WEATHER_TILE + shiftY;
-      const length = 7 + Math.floor(next() * 4);
-      line(image, x, y, x - length / 3, y + length, RAIN);
+// A smooth noise from 0 to 1 that wraps with its tile: `cells` values across
+// and down, eased from one to the next.
+const noiseOf = (seed, size, cells) => {
+  const next = marks(seed);
+  const lattice = Float32Array.from({ length: cells * cells }, () => next());
+  const ease = (t) => t * t * (3 - 2 * t);
+  const at = (i, j) => lattice[wrap(j, cells) * cells + wrap(i, cells)];
+  return (x, y) => {
+    const u = (x / size) * cells;
+    const v = (y / size) * cells;
+    const i = Math.floor(u);
+    const j = Math.floor(v);
+    const fx = ease(u - i);
+    const fy = ease(v - j);
+    const top = at(i, j) + (at(i + 1, j) - at(i, j)) * fx;
+    const bottom = at(i, j + 1) + (at(i + 1, j + 1) - at(i, j + 1)) * fx;
+    return top + (bottom - top) * fy;
+  };
+};
+
+// ---- the weather -----------------------------------------------------------------------
+
+// What each weather's speckle is: its colour and how opaque, how many marks a
+// thousand pixels its three tiles bring together, how strongly the noise
+// gathers them into drifts (0 evenly, 1 into drifts with bare ground between),
+// and the mark each one is.
+export const SPECKLES = Object.freeze({
+  frost: Object.freeze({ colour: [226, 240, 255], alpha: 235, per: 11, gather: 0.8, mark: "frost" }),
+  snow: Object.freeze({ colour: [248, 251, 255], alpha: 240, per: 6, gather: 0.7, mark: "flake" }),
+  blizzard: Object.freeze({ colour: [242, 246, 252], alpha: 245, per: 17, gather: 0.45, mark: "flake" }),
+  rain: Object.freeze({ colour: [176, 202, 232], alpha: 215, per: 7, gather: 0.7, mark: "drop" }),
+  storm: Object.freeze({ colour: [128, 152, 188], alpha: 235, per: 15, gather: 0.55, mark: "drop" }),
+  fog: Object.freeze({ colour: [214, 219, 226], alpha: 150, per: 30, gather: 1, mark: "haze" }),
+  mud: Object.freeze({ colour: [112, 80, 46], alpha: 215, per: 6, gather: 1, mark: "clot" }),
+  heat: Object.freeze({ colour: [255, 214, 146], alpha: 190, per: 3, gather: 0.6, mark: "mote" }),
+});
+
+// One mark at (x, y), in a colour already varied.
+const MARKS = {
+  // A grain of ice, now and then with two more under it, as frost forms.
+  frost: (image, x, y, colour, next) => {
+    plot(image, x, y, colour);
+    if (next() < 0.25) {
+      plot(image, x + 1, y + 1, colour);
+      plot(image, x - 1, y + 1, colour);
     }
   },
-  // More of them, longer and closer.
-  storm: (image, shiftX, shiftY) => {
-    const next = marks(23);
-    for (let count = 0; count < 26; count += 1) {
-      const x = next() * WEATHER_TILE + shiftX;
-      const y = next() * WEATHER_TILE + shiftY;
-      const length = 11 + Math.floor(next() * 4);
-      line(image, x, y, x - length / 3, y + length, STORM_RAIN);
+  // A flake: a dot, or a dot with four arms.
+  flake: (image, x, y, colour, next) => {
+    plot(image, x, y, colour);
+    if (next() < 0.55) {
+      plot(image, x - 1, y, colour);
+      plot(image, x + 1, y, colour);
+      plot(image, x, y - 1, colour);
+      plot(image, x, y + 1, colour);
     }
   },
-  // Flakes: a dot with four arms, or a single dot.
-  snow: (image, shiftX, shiftY) => {
-    const next = marks(37);
-    for (let count = 0; count < 16; count += 1) {
-      const x = Math.round(next() * WEATHER_TILE + shiftX);
-      const y = Math.round(next() * WEATHER_TILE + shiftY);
-      plot(image, x, y, FLAKE);
-      if (next() < 0.6) {
-        plot(image, x - 1, y, FLAKE);
-        plot(image, x + 1, y, FLAKE);
-        plot(image, x, y - 1, FLAKE);
-        plot(image, x, y + 1, FLAKE);
-      }
-    }
-  },
-  // Many flakes, and streaks of it driven across.
-  blizzard: (image, shiftX, shiftY) => {
-    const next = marks(41);
-    for (let count = 0; count < 34; count += 1) {
-      const x = Math.round(next() * WEATHER_TILE + shiftX);
-      const y = Math.round(next() * WEATHER_TILE + shiftY);
-      plot(image, x, y, FLAKE);
-      plot(image, x + 1, y, FLAKE);
-    }
-    for (let count = 0; count < 9; count += 1) {
-      const x = next() * WEATHER_TILE + shiftX;
-      const y = next() * WEATHER_TILE + shiftY;
-      line(image, x, y, x + 9, y + 2, DRIVEN);
-    }
-  },
-  // Long low banks, two pixels deep.
-  fog: (image, shiftX, shiftY) => {
-    const next = marks(53);
-    for (let count = 0; count < 8; count += 1) {
-      const x = next() * WEATHER_TILE + shiftX;
-      const y = Math.round(next() * WEATHER_TILE + shiftY);
-      const length = 18 + Math.floor(next() * 18);
-      line(image, x, y, x + length, y, FOG);
-      line(image, x + 3, y + 1, x + length - 3, y + 1, FOG);
-    }
-  },
-  // Brown blotches, and specks between them.
-  mud: (image, shiftX, shiftY) => {
-    const next = marks(67);
-    for (let count = 0; count < 9; count += 1) {
-      blot(image, next() * WEATHER_TILE + shiftX, next() * WEATHER_TILE + shiftY, 3.5 + next() * 3.5, 2.5 + next() * 2, MUD);
-    }
-    for (let count = 0; count < 12; count += 1) plot(image, next() * WEATHER_TILE + shiftX, next() * WEATHER_TILE + shiftY, MUD_DARK);
-  },
-  // Thin wavering lines across it, as air shimmers over hot ground.
-  heat: (image, shiftX, shiftY) => {
-    for (let band = 0; band < 4; band += 1) {
-      const middle = 8 + band * 16 + shiftY;
-      for (let x = 0; x < WEATHER_TILE; x += 1) {
-        // (Two whole waves across a tile, and breaks in the line a quarter of
-        // a tile apart, so the lines meet at its edges.)
-        const lift = Math.round(2 * Math.sin(((x + band * 7) * 4 * Math.PI) / WEATHER_TILE));
-        if ((x + band * 5) % 16 < 12) plot(image, x + shiftX, middle + lift, SHIMMER);
-      }
-    }
-  },
-  // An icy speckle.
-  frost: (image, shiftX, shiftY) => {
-    const next = marks(79);
-    for (let count = 0; count < 46; count += 1) {
-      const x = Math.round(next() * WEATHER_TILE + shiftX);
-      const y = Math.round(next() * WEATHER_TILE + shiftY);
-      plot(image, x, y, FROST);
-      if (next() < 0.25) {
-        plot(image, x + 1, y + 1, FROST);
-        plot(image, x - 1, y + 1, FROST);
-      }
-    }
+  // A drop, three pixels falling aslant down and to the left.
+  drop: (image, x, y, colour) => line(image, x, y, x - 1, y + 2, colour),
+  // A grain of haze, fainter or less faint.
+  haze: (image, x, y, colour, next) => plot(image, x, y, [colour[0], colour[1], colour[2], Math.round(colour[3] * (0.55 + 0.45 * next()))]),
+  // A clot of mud, a pixel or two across.
+  clot: (image, x, y, colour, next) => blot(image, x, y, 1 + next(), 0.8 + next() * 0.8, colour),
+  // A warm mote, a pixel or two along.
+  mote: (image, x, y, colour, next) => {
+    plot(image, x, y, colour);
+    if (next() < 0.5) plot(image, x + 1, y, colour);
   },
 };
 
-// A weather's picture at a step of its drift, or null for weather that draws
-// nothing (clear) or that is not weather.
-export const weatherPattern = (state, step = 0) => {
-  const draw = Object.hasOwn(DRAW, state) ? DRAW[state] : null;
-  if (!draw) return null;
-  const image = picture(WEATHER_TILE);
-  const [across, down] = WEATHER_DRIFT[state] ?? [0, 0];
-  const at = Math.max(0, Math.floor(Number(step) || 0));
-  draw(image, across * at, down * at);
+// One of a weather's three tiles (layer 0, 1 or 2), or null for weather that
+// draws nothing (clear) or that is not weather. The same every time.
+export const weatherPattern = (state, layer = 0) => {
+  const recipe = Object.hasOwn(SPECKLES, state) ? SPECKLES[state] : null;
+  const size = WEATHER_LAYERS[layer];
+  if (!recipe || !size) return null;
+  const image = picture(size);
+  const next = marks(seedOf(`${state}|${layer}`));
+  // Two noises, broad drifts and smaller ones, that wrap with the tile.
+  const broad = noiseOf(seedOf(`${state}|${layer}|broad`), size, 3 + layer);
+  const fine = noiseOf(seedOf(`${state}|${layer}|fine`), size, 7 + 2 * layer);
+  const chance = recipe.per / 1000 / WEATHER_LAYERS.length;
+  const mark = MARKS[recipe.mark];
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const lay = 0.65 * broad(x, y) + 0.35 * fine(x, y);
+      const weight = Math.max(0, 1 + recipe.gather * (2 * lay - 1) * 1.4);
+      if (next() >= chance * weight) continue;
+      // Each mark a little brighter or darker, a little more or less opaque.
+      const light = 0.88 + next() * 0.18;
+      const colour = [
+        Math.min(255, Math.round(recipe.colour[0] * light)),
+        Math.min(255, Math.round(recipe.colour[1] * light)),
+        Math.min(255, Math.round(recipe.colour[2] * light)),
+        Math.round(recipe.alpha * (0.75 + next() * 0.25)),
+      ];
+      mark(image, x, y, colour, next);
+    }
+  }
   return image;
 };
 
-// Whether a weather's picture moves from step to step.
-export const weatherDrifts = (state) => Object.hasOwn(WEATHER_DRIFT, state);
+// ---- the ice ---------------------------------------------------------------------------
 
-const ICE = [214, 233, 247, 238];
-const CRACK = [118, 154, 188, 255];
-const GLINT = [248, 252, 255, 255];
+const CRACK = [92, 132, 172, 235];
+const HAIRLINE = [146, 182, 214, 190];
+const GLINT = [248, 252, 255, 225];
 
-// Ice: pale blue-white, with dark cracks running across it and branching,
-// and a few bright glints.
-export const icePattern = () => {
-  const image = picture(ICE_TILE);
-  for (let at = 0; at < image.data.length; at += 4) image.data.set(ICE, at);
-  const next = marks(97);
-  for (let crack = 0; crack < 7; crack += 1) {
-    let x = next() * ICE_TILE;
-    let y = next() * ICE_TILE;
-    let heading = next() * 2 * Math.PI;
-    const legs = 5 + Math.floor(next() * 4);
-    for (let leg = 0; leg < legs; leg += 1) {
-      const length = 6 + next() * 10;
-      heading += (next() - 0.5) * 1.2;
-      const toX = x + Math.cos(heading) * length;
-      const toY = y + Math.sin(heading) * length;
-      line(image, x, y, toX, toY, CRACK);
-      if (next() < 0.35) {
-        const side = heading + (next() < 0.5 ? -1 : 1) * (0.6 + next() * 0.6);
-        const reach = 4 + next() * 6;
-        line(image, toX, toY, toX + Math.cos(side) * reach, toY + Math.sin(side) * reach, CRACK);
-      }
-      x = toX;
-      y = toY;
+// One wandering crack from (x, y): legs of a few pixels, each turned a little
+// from the last, a hairline branching off now and then, and those branching again.
+const crack = (image, next, x, y, heading, legs, colour, depth) => {
+  let atX = x;
+  let atY = y;
+  let way = heading;
+  for (let leg = 0; leg < legs; leg += 1) {
+    const length = 5 + next() * 14;
+    way += (next() - 0.5) * 1.1;
+    const toX = atX + Math.cos(way) * length;
+    const toY = atY + Math.sin(way) * length;
+    line(image, atX, atY, toX, toY, colour);
+    if (depth < 2 && next() < 0.4) {
+      const side = way + (next() < 0.5 ? -1 : 1) * (0.5 + next() * 0.8);
+      crack(image, next, toX, toY, side, 1 + Math.floor(next() * 3), HAIRLINE, depth + 1);
     }
+    atX = toX;
+    atY = toY;
   }
-  for (let glint = 0; glint < 12; glint += 1) {
-    const x = next() * ICE_TILE;
-    const y = next() * ICE_TILE;
-    line(image, x, y, x + 2 + Math.floor(next() * 3), y, GLINT);
+};
+
+// One of the ice's two tiles of cracks (layer 0 or 1), clear between them, so
+// the tint and the map under it show. The same every time.
+export const icePattern = (layer = 0) => {
+  const size = ICE_LAYERS[layer];
+  if (!size) return null;
+  const image = picture(size);
+  const next = marks(seedOf(`ice|${layer}`));
+  const where = noiseOf(seedOf(`ice|${layer}|where`), size, 3);
+  // The cracks start where the noise says the ice is under most strain, so they gather.
+  const cracks = Math.round((size * size) / 7000);
+  for (let made = 0, tries = 0; made < cracks && tries < cracks * 40; tries += 1) {
+    const x = next() * size;
+    const y = next() * size;
+    if (next() > where(x, y) * 1.4) continue;
+    crack(image, next, x, y, next() * 2 * Math.PI, 4 + Math.floor(next() * 6), CRACK, 0);
+    made += 1;
+  }
+  const glints = Math.round((size * size) / 2500);
+  for (let glint = 0; glint < glints; glint += 1) {
+    const x = next() * size;
+    const y = next() * size;
+    line(image, x, y, x + 1 + Math.floor(next() * 3), y, GLINT);
   }
   return image;
 };
@@ -271,11 +279,13 @@ export const iceHintPattern = () => {
   return image;
 };
 
+// ---- the chip --------------------------------------------------------------------------
+
 const CHIP_FILL = [14, 17, 22, 228];
 const CHIP_EDGE = [232, 238, 245, 72];
 const CHIP_RADIUS = 7;
 
-// The chip a battlefield's season and weather are written on: a dark rounded
+// The chip a weather's season and weather are written on: a dark rounded
 // box with a faint light edge, stretched to its text (icon-text-fit) by its
 // middle, so the corners keep their shape.
 export const chipPicture = () => {
