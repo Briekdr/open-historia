@@ -19,7 +19,10 @@
 //     and his Board have of the other side's;
 //   - the TROOP TOOLS, which are not in the drawer: they are on a rail that
 //     comes out of the left edge of the screen, beside the map they are used
-//     on (warRoomRail.jsx).
+//     on (warRoomRail.jsx). At its foot, Fortify draws a fortified line to be
+//     built (warRoomFortify.jsx) and Fleets commands the player's fleets
+//     (warRoomFleets.jsx), each on a plate beside the rail; the drawer lists
+//     the player's lines and fleets as they stand.
 //   - the TALK with the generals: one request a message (AI/gameplay.js
 //     generateWarRoomReply). They answer, push back, and take orders.
 //
@@ -28,7 +31,7 @@
 // goes through runtime/warRoomWrites.js.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { generateWarRoomReply, warRoomRouteAttacks, warRoomTransportWays } from "../AI/gameplayLazy.js";
+import { generateWarRoomReply, warRoomChart, warRoomRouteAttacks, warRoomTransportWays } from "../AI/gameplayLazy.js";
 import { warRoomIntel, warRoomPlans } from "../AI/frontPlans.js";
 import { isSimulationBusy } from "../AI/simulationStatus.js";
 import { closeWarRoom, getWarRoom, onWarRoomWay, openWarRoom, setWarRoom, showBattlefield, takeTool, useWarRoom } from "../Map/warRoomStore.js";
@@ -47,9 +50,13 @@ import { useLibraryState } from "../../runtime/library.js";
 import { SAFE_BOTTOM, SAFE_LEFT, SAFE_RIGHT, SAFE_TOP } from "../../runtime/mobileUi.js";
 import { useIsMobile } from "../../runtime/useIsMobile.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
-import { sendWarRoomOp } from "../../runtime/warRoomWrites.js";
+import { convoysOf, enemiesOf, fleetsOf } from "../../runtime/naval/fleetOps.js";
+import { sendFleetOp, sendFortifyOp, sendWarRoomOp } from "../../runtime/warRoomWrites.js";
+import { warSettingsOf } from "../../runtime/warSettings.js";
 import { ADVISOR_SLIDE } from "./advisorSlide.js";
 import { placeName, playerFronts } from "./warRoomData.js";
+import { FleetsList, FleetsPlate } from "./warRoomFleets.jsx";
+import { FortifyPlate, LinesList } from "./warRoomFortify.jsx";
 import { WarRoomRail } from "./warRoomRail.jsx";
 import {
   AMBER,
@@ -182,6 +189,12 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   const selected = useWarRoom((state) => state.selected);
   const highlight = useWarRoom((state) => state.highlight);
   const pointed = useWarRoom((state) => state.pointed);
+  // The fortified line drawn and waiting for its level, and the fleets' plate.
+  const draft = useWarRoom((state) => state.draft);
+  const level = useWarRoom((state) => state.level);
+  const fleetsOut = useWarRoom((state) => state.fleets);
+  const pickedFleet = useWarRoom((state) => state.fleet);
+  const station = useWarRoom((state) => state.station);
 
   // ---- which battlefield ---------------------------------------------------------------
   const fronts = useMemo(() => playerFronts(world?.battlefields, game.country), [world?.battlefields, game.country]);
@@ -331,6 +344,14 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   useEffect(() => {
     if (open) setWarRoom({ transportWays });
   }, [open, transportWays]);
+
+  // ---- fortified lines and fleets ------------------------------------------------------------
+  // A line can be drawn where the scenario's wars have them (runtime/warSettings.js "walls").
+  const canFortify = useMemo(() => warSettingsOf({ warSettings: world?.warSettings }).mechanics.walls === true, [world?.warSettings]);
+  // The player's fleets, the countries they may blockade, and the convoys they may cover (runtime/naval/fleetOps.js).
+  const fleets = useMemo(() => fleetsOf({ units: world?.units, pendingUnitOrders: world?.pendingUnitOrders }, game.country), [world?.units, world?.pendingUnitOrders, game.country]);
+  const enemies = useMemo(() => enemiesOf({ wars: world?.wars }, game.country), [world?.wars, game.country]);
+  const convoys = useMemo(() => convoysOf({ transports: world?.transports }, game.country), [world?.transports, game.country]);
   // What the nearest town to a place on the map is called, if one is near: a
   // transporter is told where it is bound in words as well.
   const placeNear = (lng, lat) => {
@@ -353,6 +374,23 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
     setNotice("");
     try {
       await sendWarRoomOp(op, { turnRunning: isSimulationBusy });
+      return true;
+    } catch (error) {
+      setNotice(String(error?.message || error));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+  // The fortified lines and the fleets have seams of their own (runtime/
+  // warRoomWrites.js sendFortifyOp, sendFleetOp): they are held to the map,
+  // which is read for them (AI/gameplay.js warRoomChart) only where this page
+  // writes the world itself.
+  const orderWith = useCallback(async (send, op) => {
+    setBusy(true);
+    setNotice("");
+    try {
+      await send(op, { turnRunning: isSimulationBusy, readChart: () => warRoomChart() });
       return true;
     } catch (error) {
       setNotice(String(error?.message || error));
@@ -385,9 +423,22 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
         // The place that was clicked: the troops picked out are carried there, by what was chosen.
         const [lng, lat] = way[0];
         if (await act({ op: "transport", battlefield: name, troops: selectedRef.current, medium: extra.medium, to: [lng, lat], name: placeNearRef.current(lng, lat) })) setWarRoom({ selected: [] });
+      } else if (drawn === "fortify") {
+        // A fortified line: it waits beside the rail for the level it is to be built to (warRoomFortify.jsx).
+        setWarRoom({ draft: way });
+      } else if (drawn === "fleet" && extra?.fleet && way[0]) {
+        // The place clicked at sea: the fleet picked out sails there, or patrols it.
+        await orderWith(sendFleetOp, { op: "station", unit: extra.fleet, to: way[0], order: extra.station === "patrol" ? "patrol" : "move" });
       }
     });
-  }, [open, name, act]);
+  }, [open, name, act, orderWith]);
+
+  // A line drawn is built at the level picked for it, under the name given it, once confirmed.
+  const buildLine = async (title) => {
+    const { draft: points, level: height } = getWarRoom();
+    if (!points) return;
+    if (await orderWith(sendFortifyOp, { op: "fortify", points, level: height, name: title })) setWarRoom({ draft: null });
+  };
 
   const orderPicked = async (order) => {
     if (await act({ op: "order", battlefield: name, troops: selected, order })) setWarRoom({ selected: [] });
@@ -488,6 +539,12 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   // folding the panel down to its tools.
   const [folded, setFolded] = useState(false);
   const foldedNow = isMobile && folded;
+  // A fleet picked out, in the drawer or on its plate: the plate comes out beside
+  // the rail, and on a phone the drawer folds down to the map it is beside.
+  const pickFleet = useCallback((id) => {
+    setWarRoom({ fleet: id, fleets: true });
+    if (isMobile) setFolded(true);
+  }, [isMobile]);
   const nameOf = (command) => generals.find((general) => general.command === command)?.name || "";
   const locked = turnRunning || busy;
   const other = record ? record.sides[1 - side] ?? [] : [];
@@ -584,7 +641,46 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
         onClear={() => setWarRoom({ selected: [] })}
         carriers={carriers}
         onCarrier={(medium) => takeTool("transport", { medium })}
+        canFortify={canFortify}
+        drafted={Boolean(draft)}
+        fleets={fleets.length}
+        fleetsOut={fleetsOut}
+        onFleets={() => setWarRoom({ fleets: !getWarRoom().fleets })}
+        station={station}
       />
+
+      {/* A fortified line drawn, waiting for its level and the word to build it; or else the fleets' plate. Both beside the rail. */}
+      {railShown && draft && (
+        <FortifyPlate
+          isMobile={isMobile}
+          draft={draft}
+          level={level}
+          world={world}
+          country={game.country}
+          gameDate={game.gameDate}
+          locked={locked}
+          onLevel={(value) => setWarRoom({ level: value })}
+          onConfirm={buildLine}
+          onRedraw={() => takeTool("fortify")}
+          onCancel={() => setWarRoom({ draft: null })}
+        />
+      )}
+      {railShown && !draft && fleetsOut && (
+        <FleetsPlate
+          isMobile={isMobile}
+          fleets={fleets}
+          picked={pickedFleet}
+          enemies={enemies}
+          convoys={convoys}
+          locked={locked}
+          tool={tool}
+          station={station}
+          onPick={pickFleet}
+          onOrder={(op) => orderWith(sendFleetOp, op)}
+          onPlace={(kind) => takeTool("fleet", { station: kind })}
+          onClose={() => setWarRoom({ fleets: false })}
+        />
+      )}
 
       {/* The frame of plate round the map: its bar says which battlefield this
           is and what day it is, now that the date widget is out of sight. */}
@@ -855,6 +951,10 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
                       })}
                     </>
                   )}
+
+                  {/* The player's fleets, commanded from the plate beside the rail, and its fortified lines (warRoomFleets.jsx, warRoomFortify.jsx). */}
+                  <FleetsList fleets={fleets} picked={pickedFleet} onPick={pickFleet} />
+                  <LinesList world={world} country={game.country} gameDate={game.gameDate} locked={locked} onStop={(id) => orderWith(sendFortifyOp, { op: "unfortify", id })} />
 
                   <Heading style={{ marginTop: "0.8rem" }}>What is known of theirs</Heading>
                   {theirEdge && (

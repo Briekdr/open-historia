@@ -163,3 +163,7 @@ export const warRoomRouteAttacks = async (...args) => (await gameplay()).warRoom
 // The war room: the way each transporter deployed there would take. Read from
 // the map, with no request made and nothing written.
 export const warRoomTransportWays = async (...args) => (await gameplay()).warRoomTransportWays(...args);
+// The war room: what its fortified lines and fleets are held to on the map
+// (where the sea is, whose the ground). Read from the map, with no request made
+// and nothing written.
+export const warRoomChart = async (...args) => (await gameplay()).warRoomChart(...args);

@@ -28,6 +28,8 @@ import { deployFor, disbandFor, revertOrderFor } from "./forces.js";
 import { agentOrderFor } from "./agents.js";
 import { acceptStructure, canSettleStructure, moveStructure } from "../../runtime/structurePlacement.js";
 import { applyWarRoomOp, cleanWarRoomOp } from "../../runtime/fronts/warRoomOps.js";
+import { applyFortifyOp, cleanFortifyOp } from "../../runtime/fronts/fortifyOps.js";
+import { applyFleetOp, cleanFleetOp } from "../../runtime/naval/fleetOps.js";
 import { eraSettingOf } from "../../runtime/warSettings.js";
 import { humanCountriesOf } from "../../runtime/humanPolities.js";
 import { playerDiplomacy } from "../../Game/AI/warAndPeace.js";
@@ -80,6 +82,10 @@ export const createGameHost = ({
   // Write a country's stat sheet (the game's own, on the host's AI key);
   // rejects with the reason when it cannot.
   readCountry = async () => {},
+  // The host's own chart of the map (runtime/warRoomChart.js: where the sea
+  // is, whose the ground), which the war room's fortified lines and fleets
+  // are held to; resolves with null when the map could not be read.
+  readChart = async () => null,
   onStatus = () => {},
   log = () => {},
   now = () => Date.now(),
@@ -353,6 +359,46 @@ export const createGameHost = ({
           return null;
         }
         return { world: { ...world, battlefields: result.battlefields, ...(result.transports ? { transports: result.transports } : null) } };
+      });
+      round.touch(seat.country);
+      return refusal;
+    },
+    // The war room's fortified lines (runtime/fronts/fortifyOps.js) and fleets
+    // (runtime/naval/fleetOps.js), by the same rule: a line is the seat's
+    // country's and a fleet must be, whatever the op says, and both are held
+    // to the host's own map (readChart), read before the write. Taken whenever
+    // a round is not being resolved: a line is built and a fleet sails as time
+    // passes.
+    fortify: async (connection, { op }, seat) => {
+      if (round.status().phase === "resolving") return "The round is being resolved: order it once it has landed.";
+      const sent = cleanFortifyOp(op);
+      if (!sent) return "Nothing was asked.";
+      const chart = sent.op === "fortify" ? await Promise.resolve().then(readChart).catch(() => null) : null;
+      let refusal = "";
+      await store.updateForces(({ world, game }) => {
+        const result = applyFortifyOp(world, sent, { player: seat.country, date: clean(game?.gameDate), chart });
+        if (result.error) {
+          refusal = result.error;
+          return null;
+        }
+        return { world: result.world };
+      });
+      round.touch(seat.country);
+      return refusal;
+    },
+    fleet: async (connection, { op }, seat) => {
+      if (round.status().phase === "resolving") return "The round is being resolved: order it once it has landed.";
+      const sent = cleanFleetOp(op);
+      if (!sent) return "Nothing was asked.";
+      const chart = ["station", "blockade", "escort"].includes(sent.op) ? await Promise.resolve().then(readChart).catch(() => null) : null;
+      let refusal = "";
+      await store.updateForces(({ world, game }) => {
+        const result = applyFleetOp(world, sent, { player: seat.country, date: clean(game?.gameDate), round: game?.round, chart, at: new Date(now()).toISOString() });
+        if (result.error) {
+          refusal = result.error;
+          return null;
+        }
+        return { world: result.world };
       });
       round.touch(seat.country);
       return refusal;

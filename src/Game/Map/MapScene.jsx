@@ -7,6 +7,7 @@ import MarkersLayer from "./MarkersLayer.jsx";
 import Units from "./Units";
 import FrontLayers from "./FrontLayers.jsx";
 import WarRoomLayers from "./WarRoomLayers.jsx";
+import WarRoomMarks from "./WarRoomMarks.jsx";
 import WarRoomTools from "./WarRoomTools.jsx";
 import TransportLayers from "./TransportLayers.jsx";
 import StrikeLayers from "./StrikeLayers.jsx";
@@ -156,6 +157,7 @@ const MapScene = ({ isGlobe = false }) => {
       <Cities />
       <MarkersLayer />
       <WarRoomLayers />
+      <WarRoomMarks />
       <FrontLayers />
       <WarRoomTools />
       <TransportLayers />

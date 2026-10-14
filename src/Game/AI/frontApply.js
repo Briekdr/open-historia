@@ -41,6 +41,7 @@ import { isUnderWay, normalizeTransports } from "../../runtime/fronts/transports
 import { findWay } from "../../runtime/fronts/wayfinder.js";
 import { buildWorldGrid, worldSheetKey } from "../../runtime/fronts/worldGrid.js";
 import { waterTypeIds } from "../../runtime/regionTypes.js";
+import { chartOf } from "../../runtime/warRoomChart.js";
 import { logDebugEvent } from "../../runtime/debugLog.js";
 import { createFrontRun } from "../../runtime/fronts/engine.js";
 import { getActiveWorldDirection, isActiveFeatureEnabled } from "../../runtime/gameFeatures.js";
@@ -705,6 +706,34 @@ export const transportWaysFor = async ({ world = {}, game = {}, campaignId = "",
     console.warn("[fronts] the ways of the transporters that have not set out could not be found; each is found when it sets out.", error);
   }
   return found;
+};
+
+// What the war room's fortified lines and fleets are held to on the map
+// (runtime/warRoomChart.js): where the sea is and whose the ground is, on the
+// same sheet the transporters sail on and the fleets fight on, kept with it
+// once drawn. The page and a shared game's host each read it for themselves.
+// No request is made. null when the map could not be read.
+export const warRoomChartFor = async ({ world = {}, game = {}, campaignId = "", loadRegions = null } = {}) => {
+  try {
+    const front = await readFrontMap(world, game, campaignId);
+    const kept = arenasFor(front.map.key);
+    const water = waterTypeIds(world?.regionTypes);
+    const sheet = worldSheetKey(front.map.key, water);
+    let grid = kept.get(sheet) ?? null;
+    if (!grid) {
+      const shapes = typeof loadRegions === "function" ? await loadRegions() : null;
+      const regions = shapes ? engineRegionsOf(shapes, { nameOf: (id) => front.names.get(id) }) : null;
+      if (asArray(regions).length === 0) return null;
+      grid = buildWorldGrid(regions, { flat: front.map.flat === true, scale: front.map.scale, water });
+      if (grid) kept.set(sheet, grid);
+    }
+    if (!grid) return null;
+    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, regionIds: front.regionIds, groups: isActiveFeatureEnabled("groups") });
+    return chartOf({ grid, controllerOf: readers.controllerOf, groupOf: (id) => clean(readers.groupAreas?.[id]) });
+  } catch (error) {
+    console.warn("[fronts] the war room could not read the map for its fortified lines and fleets; they wait until it can.", error);
+    return null;
+  }
 };
 
 // Builds a new game's battlefields from the fronts its scenario begins with

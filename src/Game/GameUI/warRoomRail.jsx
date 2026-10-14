@@ -2,7 +2,9 @@
 // The troop tools: a thin plate that comes out of the left edge of the screen
 // while the war room is open, with a key a tool. What is done ON the map is
 // beside the map, and not in the drawer across the screen from it: the drawer
-// keeps what is read (the generals, the plans, the talk).
+// keeps what is read (the generals, the plans, the talk). At its foot, two that
+// are not for troops: Fortify, a line drawn to be built (warRoomFortify.jsx),
+// and Fleets, the plate that commands the player's fleets (warRoomFleets.jsx).
 //
 // Beside the rail, a small plate says what the tool in hand wants done, how
 // many troops are picked out, and why nothing can be ordered when it cannot.
@@ -60,6 +62,10 @@ const CarrierWord = ({ medium }) => {
 };
 // A movement that is not meant.
 const DiversionIcon = () => <Icon dashed><path d="M4 18c2-7 6-9 14-10" /><path d="M14.5 4.6L18.4 8l-3.2 3.9" strokeDasharray="0" /></Icon>;
+// A wall and its battlements.
+const FortifyIcon = () => <Icon><path d="M3.5 20.5v-11h3v-3h3v3h5v-3h3v3h3v11z" /><path d="M10 20.5v-4.5h4v4.5" /></Icon>;
+// A hull and its sail, from the side.
+const FleetIcon = () => <Icon><path d="M3 15.5h18l-2.8 4.5H5.8z" /><path d="M12 3.5v12" /><path d="M12 5.5l6.5 8H12" /></Icon>;
 
 const keyLook = (on, disabled) => ({
   alignItems: "center",
@@ -113,7 +119,12 @@ const Rule = () => <div aria-hidden="true" style={{ background: STEEL.seam, boxS
 //   away         the player's troops have all withdrawn from it
 //   onWithdraw   the troops picked out leave the battlefield (all of the player's, with none picked)
 //   onReturn     a side that withdrew is sent back
-const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning, notice, carriers = [], own = 0, away = false, onTool, onOrder, onRelease, onClear, onCarrier, onWithdraw, onReturn }) => {
+//   canFortify   fortified lines are part of this scenario's wars, so one may be drawn
+//   drafted      a line has been drawn and waits for its level (warRoomFortify.jsx)
+//   fleets       how many fleets the player has; fleetsOut, the fleets' plate is out (warRoomFleets.jsx)
+//   onFleets     the fleets' plate is put out, or away
+//   station      what a click orders for the fleet picked out, while the fleet tool is in hand
+const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning, notice, carriers = [], own = 0, away = false, onTool, onOrder, onRelease, onClear, onCarrier, onWithdraw, onReturn, canFortify = false, drafted = false, fleets = 0, fleetsOut = false, onFleets = () => {}, station = "" }) => {
   const none = selected.length === 0;
   const drawing = tool !== "pan";
   // The choice of carrier, open beside the rail.
@@ -217,6 +228,10 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
         {/* Carried to where their side holds no land: by ship, rail or air, then a click on the map for where. */}
         <RailKey label="Transport" title="Transport: carry these troops by ship, rail or air to a place your side has no border with" on={tool === "transport" || choice} disabled={locked || none} onClick={() => (tool === "transport" ? onTool("pan") : setChoosing((value) => !value))}><ShipIcon /></RailKey>
         <RailKey label="Diversion" title="Draw a diversion: a movement you want the other side to believe" on={tool === "diversion"} disabled={locked} onClick={() => onTool("diversion")}><DiversionIcon /></RailKey>
+        <Rule />
+        {/* What is built and what sails: a fortified line drawn on the map (its level is chosen once it is drawn), and the fleets. */}
+        <RailKey label="Fortify" title="Fortify: draw a line to be built, then choose how strong it is to be" on={tool === "fortify" || drafted} disabled={locked || !canFortify} onClick={() => onTool("fortify")}><FortifyIcon /></RailKey>
+        <RailKey label="Fleets" title="Fleets: command your fleets at sea" on={fleetsOut || tool === "fleet"} disabled={fleets === 0} onClick={onFleets}><FleetIcon /></RailKey>
         <span aria-hidden="true" style={rivetStyle({ left: `calc(0.16rem + ${SAFE_LEFT})`, top: "0.16rem" }, "0.34rem")} />
         <span aria-hidden="true" style={rivetStyle({ right: "0.16rem", top: "0.16rem" }, "0.34rem")} />
       </div>
@@ -343,6 +358,9 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
           {!turnRunning && tool === "diversion" && <>Draw the movement you want the other side to believe.</>}
           {!turnRunning && tool === "replan" && <>Draw the operation’s way anew.</>}
           {!turnRunning && tool === "transport" && <>Click the place the {selected.length} picked out are to be carried to. Drag to move the map. They board when time next passes.</>}
+          {!turnRunning && tool === "fortify" && <>Draw the fortified line on the map. You choose how strong it is to be once it is drawn.</>}
+          {!turnRunning && tool === "fleet" && station === "patrol" && <>Click the place at sea the fleet is to patrol. Drag to move the map.</>}
+          {!turnRunning && tool === "fleet" && station !== "patrol" && <>Click the place at sea the fleet is to sail to. Drag to move the map.</>}
           {!turnRunning && !drawing && selected.length > 0 && (
             <>{selected.length} picked out. <button type="button" onClick={onClear} style={linkStyle}>Clear</button></>
           )}

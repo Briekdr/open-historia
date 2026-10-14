@@ -69,6 +69,17 @@ export const PLAYER_REQUESTS = Object.freeze({
   // cuts it to an op's own fields and sizes (cleanWarRoomOp) before it reads
   // a word of it, and the session holds the message to its own size limit.
   warroom: obj({ t: literal("warroom"), id: REQUEST_ID, op: json(4) }),
+  // The war room's fortified lines (runtime/fronts/fortifyOps.js): a line the
+  // player drew, to be built at a level, or one of theirs still being built
+  // given up. Plain JSON as the war room's ops are: the host cuts it to an op's
+  // own fields (cleanFortifyOp), builds it for the seat's country only, and on
+  // ground its own map says that country holds.
+  fortify: obj({ t: literal("fortify"), id: REQUEST_ID, op: json(4) }),
+  // And its fleets (runtime/naval/fleetOps.js): a posture, a place at sea to
+  // sail to or patrol, a blockade, an escort, or a standing order called off,
+  // for one of the seat's own fleets (cleanFleetOp), sent only where the
+  // host's own map says there is sea.
+  fleet: obj({ t: literal("fleet"), id: REQUEST_ID, op: json(3) }),
   // The player's agents: place one in `target`, call `spy` home, send a
   // caught one home or turn it, and say what a turned one reports.
   agent: obj({

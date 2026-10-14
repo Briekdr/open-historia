@@ -4,7 +4,8 @@
 // out and ways are drawn (WarRoomTools.jsx, WarRoomLayers.jsx). They are in
 // different parts of the tree, so what they share is kept here, outside React:
 // which battlefield is open, which tool is in hand, which troops are picked,
-// which general's troops are lit, and the plans to draw.
+// which general's troops are lit, the plans to draw, a fortified line drawn
+// and waiting to be ordered built, and the fleet picked out.
 //
 // Nothing here is saved, and nothing here writes the game: a way that has been
 // drawn is handed to whoever is listening (onWay), which is the panel.
@@ -17,7 +18,9 @@ import { useSyncExternalStore } from "react";
 //   diversion  draw a movement to be stolen and never made
 //   replan     draw a Board operation's arrow anew (`replan` holds which)
 //   transport  click where the troops picked out are to be carried (`medium` holds by what)
-export const WAR_ROOM_TOOLS = Object.freeze(["pan", "select", "route", "diversion", "replan", "transport"]);
+//   fortify    draw a fortified line to be built (it waits as `draft` for its level)
+//   fleet      click where the fleet picked out (`fleet`) is to sail, or to patrol (`station`)
+export const WAR_ROOM_TOOLS = Object.freeze(["pan", "select", "route", "diversion", "replan", "transport", "fortify", "fleet"]);
 
 const CLOSED = Object.freeze({
   open: false,
@@ -33,6 +36,16 @@ const CLOSED = Object.freeze({
   replan: "",
   // What the troops picked out are to be carried by ("sea", "land" or "air"), while that tool is in hand.
   medium: "",
+  // A fortified line drawn and not yet ordered built, as [lng, lat] points, or
+  // null; and the level it is to be built to (GameUI/warRoomFortify.jsx).
+  draft: null,
+  level: 5,
+  // Whether the fleets' plate is out beside the rail, the fleet picked out on
+  // it (its id), and what a click on the map orders for that fleet while the
+  // fleet tool is in hand ("move" or "patrol"): GameUI/warRoomFleets.jsx.
+  fleets: false,
+  fleet: "",
+  station: "",
   // The ways found for the player's transporters that have not set out, by
   // their ids: { way, km, days, from } or { error, from } (AI/frontApply.js transportWaysFor).
   transportWays: null,
@@ -95,10 +108,15 @@ export const showBattlefield = (battlefield, side) => {
 };
 
 // The tool in hand. Taking up the one already in hand puts it down.
-export const takeTool = (tool, { replan = "", medium = "" } = {}) => {
+export const takeTool = (tool, { replan = "", medium = "", station = "" } = {}) => {
   if (!WAR_ROOM_TOOLS.includes(tool)) return;
-  const same = state.tool === tool && (tool !== "replan" || state.replan === replan) && (tool !== "transport" || state.medium === medium);
-  setWarRoom({ tool: same ? "pan" : tool, replan: !same && tool === "replan" ? replan : "", medium: !same && tool === "transport" ? medium : "" });
+  const same = state.tool === tool && (tool !== "replan" || state.replan === replan) && (tool !== "transport" || state.medium === medium) && (tool !== "fleet" || state.station === station);
+  setWarRoom({
+    tool: same ? "pan" : tool,
+    replan: !same && tool === "replan" ? replan : "",
+    medium: !same && tool === "transport" ? medium : "",
+    station: !same && tool === "fleet" ? station : "",
+  });
 };
 
 export const useWarRoom = (select = (value) => value) => useSyncExternalStore(subscribeWarRoom, () => select(state), () => select(CLOSED));

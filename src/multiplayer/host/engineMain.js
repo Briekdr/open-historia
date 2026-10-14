@@ -30,7 +30,7 @@ import { setHostingSharedGame } from "../../runtime/humanPolities.js";
 import { discardHeldTurns } from "../../Game/AI/simulationStatus.js";
 import { getDebugLogEntries, logDebugEvent, setDebugLogPersistence, subscribeToDebugLog } from "../../runtime/debugLog.js";
 import { GENERATION_COMPLETE_EVENT } from "../../Game/AI/telemetry.js";
-import { generateCountryStatSheet, readCountryForPlayer, runChatActionBatch, simulateTimelineJump } from "../../Game/AI/gameplay.js";
+import { generateCountryStatSheet, readCountryForPlayer, runChatActionBatch, simulateTimelineJump, warRoomChart } from "../../Game/AI/gameplay.js";
 import { lendBoards, returnBoards } from "./seatBoards.js";
 import { createLoopbackEngineSide } from "../transport/loopback.js";
 import { createHostSession } from "../session/host.js";
@@ -312,6 +312,8 @@ const boot = async () => {
         if (fresh) await generateCountryStatSheet({ code: name, name, forceReassess: true });
         else await readCountryForPlayer(name);
       },
+      // The map as this game's own engine reads it, for the war room's lines and fleets.
+      readChart: () => warRoomChart(),
       replyTo,
       onStatus: (status) => {
         hostStatus = status;

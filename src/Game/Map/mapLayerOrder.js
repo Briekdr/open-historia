@@ -106,6 +106,13 @@ export const MAP_LAYER_ORDER = [
   // formations that have counters of their own.
   // The war room's planned movements lie under the troops that are to make
   // them (WarRoomLayers.jsx); its marks on the troops are among their layers.
+  // Under the movements, the fortified lines it builds and the one drawn and
+  // waiting to be ordered built (WarRoomMarks.jsx).
+  "warroom-lines-casing",
+  "warroom-lines",
+  "warroom-lines-building",
+  "warroom-lines-draft",
+  "warroom-lines-label",
   "warroom-plans-casing",
   "warroom-plans",
   "warroom-plans-decoy",
@@ -134,6 +141,13 @@ export const MAP_LAYER_ORDER = [
   "seabattles-mark",
   "seabattles-label",
   "blockades-label",
+
+  // The war room's marks on the player's fleets: the stations and courses
+  // they are told, and a ring round each, under its counter (WarRoomMarks.jsx).
+  "warroom-fleets-station",
+  "warroom-fleets-course",
+  "warroom-fleets-head",
+  "warroom-fleets-ring",
 
   // Unit counters are interactive operational objects and remain topmost.
   "units-fill",

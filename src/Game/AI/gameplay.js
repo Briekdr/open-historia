@@ -202,7 +202,7 @@ import {
   withoutGroupOps,
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
-import { applyTurnFronts, citiesFollowCountries, withFrontManpower, withBlockadeEconomy, turnBlockades, regionHoldingsOf, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { applyTurnFronts, citiesFollowCountries, withFrontManpower, withBlockadeEconomy, turnBlockades, regionHoldingsOf, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomChartFor, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { withTurnStrikes } from "../../runtime/strikes.js";
 import { playerDiplomacy, turnDays, turnWarAndPeace } from "./warAndPeace.js";
 import { PEACE_BLOCK_HEADING, buildPeaceBlock } from "./peacePrompt.js";
@@ -13052,6 +13052,15 @@ export const warRoomRouteAttacks = ({ world, game, record } = {}) =>
 // set out (frontApply.js transportWaysFor): found from the map, with no request.
 export const warRoomTransportWays = ({ world, game } = {}) =>
   transportWaysFor({ world, game, campaignId: activeCampaignId(), loadRegions: createRenderedRegionsReader() });
+
+// What the war room's fortified lines and fleets are held to on the map
+// (frontApply.js warRoomChartFor): where the sea is, and whose the ground is.
+// Read from the map, with no request made; of the world as it stands when none
+// is handed over. (A shared game's host reads its own: multiplayer/host/engineMain.js.)
+export const warRoomChart = async ({ world = null, game = null } = {}) => {
+  const bundle = world && game ? { world, game } : await readGameStateBundle({ force: true });
+  return warRoomChartFor({ world: bundle.world, game: bundle.game, campaignId: activeCampaignId(), loadRegions: createRenderedRegionsReader() });
+};
 
 // What the player's generals answer when he speaks to them over one battlefield
 // (GameUI/warRoom.jsx). One request a message and no lookup functions: the

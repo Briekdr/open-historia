@@ -121,6 +121,7 @@ const setup = (options = {}) => {
       if (info.country === ESTONIA && options.sheetFails) throw new Error("The model did not answer.");
       store.docs.world = { ...store.docs.world, countryStats: { ...store.docs.world.countryStats, [info.country]: { capital: "A capital", stability: 50 } } };
     },
+    ...(options.readChart ? { readChart: options.readChart } : {}),
     now: clock.now,
     timers: clock.timers,
   });
@@ -576,4 +577,80 @@ test("what a player does in the war room is written for its own side, and its wa
   assert.doesNotMatch(JSON.stringify(hostSees), /Hold the river|Gen\. Orlov/);
   // The troops themselves are seen by both: there is no fog of war.
   assert.equal(hostSees.troops[0], record().troops[0]);
+});
+
+test("the war room's fortified lines and fleets are the seat's own, held to the host's own map", async () => {
+  // The host's chart of its map: Russia's ground west of 22°E, Latvia's east of it, and the sea north of 55°N.
+  let readable = true;
+  const reads = [];
+  const fold = (name) => String(name).toLowerCase();
+  const chart = {
+    sea: (lng, lat) => lat > 55,
+    joins: (from, to) => to[1] > 55,
+    holds: (country, lng, lat) => (lat > 55 ? null : fold(country) === fold(lng < 22 ? RUSSIA : LATVIA)),
+    coastOff: (country) => (fold(country) === fold(LATVIA) ? [23.5, 55.6] : null),
+  };
+  const s = setup({ readChart: async () => { reads.push(true); return readable ? chart : null; } });
+  s.store.docs.world.units = [
+    { id: "ru-fleet", name: "Baltic Fleet", type: "naval", ownerCode: RUSSIA, strength: 90, lng: 20.5, lat: 56.5, status: "idle", posture: "patrol" },
+    { id: "lv-fleet", name: "Latvian Navy", type: "naval", ownerCode: LATVIA, strength: 30, lng: 23.5, lat: 56.5, status: "idle", posture: "holding" },
+  ];
+  s.store.docs.world.wars = [{ id: "war-1", status: "active", sideA: [RUSSIA], sideB: [LATVIA] }];
+  s.host.join(s.hostPlayer);
+  s.host.join(s.guest);
+  await s.request(s.guest, { t: "pick", id: id(1), country: RUSSIA });
+  await s.host.control.start();
+  const lines = () => s.store.docs.world.fortifications ?? [];
+  const orderOf = (unitId) => (s.store.docs.world.pendingUnitOrders ?? []).find((entry) => entry.unitId === unitId) ?? null;
+
+  // The guest plays Russia: a line for Latvia, or on Latvia's ground, is refused.
+  await s.request(s.guest, { t: "fortify", id: id(2), op: { op: "fortify", points: [[20, 50], [20.6, 50.4]], level: 6, owner: LATVIA } });
+  assert.match(s.ack(s.guest, id(2)).error, /your own country/);
+  await s.request(s.guest, { t: "fortify", id: id(3), op: { op: "fortify", points: [[22.5, 50], [23.2, 50.4]], level: 6 } });
+  assert.match(s.ack(s.guest, id(3)).error, /ground you hold/);
+  assert.deepEqual(lines(), []);
+  // On its own ground it is built, for Russia, from the game's date.
+  await s.request(s.guest, { t: "fortify", id: id(4), op: { op: "fortify", points: [[20, 50], [20.6, 50.4]], level: 6, name: "The Western Line" } });
+  assert.equal(s.ack(s.guest, id(4)).ok, true);
+  assert.deepEqual(lines().map((line) => [line.owner, line.level, line.name, line.building.since]), [[RUSSIA, 6, "The Western Line", "2014-04-01"]]);
+  assert.ok(lines()[0].building.days >= 1);
+  // Latvia cannot give up Russia's line; Russia can.
+  await s.request(s.hostPlayer, { t: "fortify", id: id(5), op: { op: "unfortify", id: lines()[0].id } });
+  assert.match(s.ack(s.hostPlayer, id(5)).error, /not one of yours/);
+  assert.equal(lines().length, 1);
+  // And the line is there for all to see.
+  assert.equal(s.shown(s.hostPlayer).world.fortifications.length, 1);
+
+  // A fleet: only the seat's own.
+  await s.request(s.guest, { t: "fleet", id: id(6), op: { op: "posture", unit: "lv-fleet", posture: "withdrawing" } });
+  assert.match(s.ack(s.guest, id(6)).error, /not a fleet of yours/);
+  assert.equal(s.store.docs.world.units[1].posture, "holding");
+  // Sent only to the sea.
+  await s.request(s.guest, { t: "fleet", id: id(7), op: { op: "station", unit: "ru-fleet", to: [21, 54], order: "move" } });
+  assert.match(s.ack(s.guest, id(7)).error, /not at sea/);
+  await s.request(s.guest, { t: "fleet", id: id(8), op: { op: "station", unit: "ru-fleet", to: [21, 57.5], order: "move" } });
+  assert.equal(s.ack(s.guest, id(8)).ok, true);
+  assert.deepEqual([orderOf("ru-fleet").kind, orderOf("ru-fleet").toLng, orderOf("ru-fleet").toLat], ["move", 21, 57.5]);
+  // A blockade of the enemy, from the water off its coast that the host's map finds.
+  await s.request(s.guest, { t: "fleet", id: id(9), op: { op: "blockade", unit: "ru-fleet", country: LATVIA } });
+  assert.equal(s.ack(s.guest, id(9)).ok, true);
+  assert.deepEqual([s.store.docs.world.units[0].posture, orderOf("ru-fleet").toLng, orderOf("ru-fleet").toLat], ["blockade", 23.5, 55.6]);
+  // The host's own fleet is the host's to command.
+  await s.request(s.hostPlayer, { t: "fleet", id: id(10), op: { op: "posture", unit: "lv-fleet", posture: "assaulting" } });
+  assert.equal(s.ack(s.hostPlayer, id(10)).ok, true);
+  // Each sees its own fleet's standing order, and not the other's.
+  assert.deepEqual(s.shown(s.guest).world.pendingUnitOrders.map((entry) => entry.unitId), ["ru-fleet"]);
+  assert.deepEqual(s.shown(s.hostPlayer).world.pendingUnitOrders ?? [], []);
+  // A posture needs no map; a station cannot be checked when the host's map could not be read.
+  const asked = reads.length;
+  await s.request(s.guest, { t: "fleet", id: id(11), op: { op: "posture", unit: "ru-fleet", posture: "patrol" } });
+  assert.equal(reads.length, asked);
+  readable = false;
+  await s.request(s.guest, { t: "fleet", id: id(12), op: { op: "station", unit: "ru-fleet", to: [21, 57.5] } });
+  assert.match(s.ack(s.guest, id(12)).error, /could not be read/);
+  await s.request(s.guest, { t: "fortify", id: id(13), op: { op: "fortify", points: [[20, 51], [20.6, 51.4]], level: 4 } });
+  assert.match(s.ack(s.guest, id(13)).error, /could not be read/);
+  // What is no op of theirs is refused in words.
+  await s.request(s.guest, { t: "fleet", id: id(14), op: { op: "sink", unit: "lv-fleet" } });
+  assert.match(s.ack(s.guest, id(14)).error, /Nothing was asked/);
 });
