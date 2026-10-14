@@ -130,14 +130,16 @@ test("on the map: the lines lie under the planned movements, and the marks on th
   const index = (id) => MAP_LAYER_ORDER.indexOf(id);
   const marks = read("../Map/WarRoomMarks.jsx");
   const drawn = [...marks.matchAll(/id="([a-z-]+)"/g)].map((match) => match[1]).filter((id) => !id.endsWith("-source"));
-  assert.deepEqual(drawn, ["warroom-lines-casing", "warroom-lines", "warroom-lines-building", "warroom-lines-draft", "warroom-lines-label", "warroom-fleets-station", "warroom-fleets-course", "warroom-fleets-head", "warroom-fleets-ring"]);
+  assert.deepEqual(drawn, ["warroom-lines-casing", "warroom-lines-draft", "warroom-lines-label", "warroom-fleets-station", "warroom-fleets-course", "warroom-fleets-head", "warroom-fleets-ring"]);
+  // The lines themselves are the map's own, in the war room as out of it, with their breaches (WarGeographyLayers.jsx).
+  assert.match(marks, /id="warroom-lines-casing"\s*type="line"\s*filter=\{IS\("draft"\)\}/);
   for (const id of drawn) assert.ok(index(id) >= 0, `${id} is missing from the map's order`);
   assert.deepEqual([...drawn].sort((a, b) => index(a) - index(b)), drawn, "in the order they are declared");
-  for (const id of drawn.slice(0, 5)) {
+  for (const id of drawn.slice(0, 3)) {
     assert.ok(index(id) > index("cities-labels"), "over the map's own names");
     assert.ok(index(id) < index("warroom-plans-casing"), "under the planned movements");
   }
-  for (const id of drawn.slice(5)) {
+  for (const id of drawn.slice(3)) {
     assert.ok(index(id) > index("transports-icons"));
     assert.ok(index(id) < index("units-fill"), "under the fleets' own counters");
   }

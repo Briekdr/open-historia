@@ -1,9 +1,11 @@
 /*! Open Historia — the war room's fortified lines and fleets on the map © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 // What the war room builds and what it sails, marked on its map while it is
-// open (warRoomMarks.js): every fortified line, the one drawn and waiting to be
-// ordered built, and the player's own fleets with the stations and courses
-// they are told. Read from the world as it stands; nothing is drawn while the
-// war room is shut. The lines lie under the planned movements, and the marks
+// open (warRoomMarks.js): the name of every fortified line, the one drawn and
+// waiting to be ordered built, and the player's own fleets with the stations
+// and courses they are told. The lines themselves are the map's own, the same
+// in the war room as out of it, with their breaches and what is built of them
+// (WarGeographyLayers.jsx). Read from the world as it stands; nothing is drawn
+// while the war room is shut. The lines lie under the planned movements, and the marks
 // on the fleets under the fleets' own counters (mapLayerOrder.js).
 
 import React, { useEffect, useMemo } from "react";
@@ -64,22 +66,9 @@ const WarRoomMarks = () => {
         <Layer
           id="warroom-lines-casing"
           type="line"
+          filter={IS("draft")}
           layout={{ "line-cap": "round", "line-join": "round" }}
           paint={{ "line-color": "rgba(5, 8, 13, 0.8)", "line-width": CASING_WIDTH }}
-        />
-        <Layer
-          id="warroom-lines"
-          type="line"
-          filter={IS("line")}
-          layout={{ "line-cap": "round", "line-join": "round" }}
-          paint={{ "line-color": ["get", "colour"], "line-width": LINE_WIDTH }}
-        />
-        <Layer
-          id="warroom-lines-building"
-          type="line"
-          filter={IS("building")}
-          layout={{ "line-cap": "butt", "line-join": "round" }}
-          paint={{ "line-color": ["get", "colour"], "line-width": LINE_WIDTH, "line-dasharray": [1.6, 1.2] }}
         />
         <Layer
           id="warroom-lines-draft"

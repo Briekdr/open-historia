@@ -135,11 +135,10 @@ export const MAP_LAYER_ORDER = [
   // formations that have counters of their own.
   // The war room's planned movements lie under the troops that are to make
   // them (WarRoomLayers.jsx); its marks on the troops are among their layers.
-  // Under the movements, the fortified lines it builds and the one drawn and
-  // waiting to be ordered built (WarRoomMarks.jsx).
+  // Under the movements, the fortified line drawn and waiting to be ordered
+  // built, and the names of those there are (WarRoomMarks.jsx; the lines
+  // themselves are the map's own, war-walls-* above).
   "warroom-lines-casing",
-  "warroom-lines",
-  "warroom-lines-building",
   "warroom-lines-draft",
   "warroom-lines-label",
   "warroom-plans-casing",
