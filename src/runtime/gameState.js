@@ -8,6 +8,7 @@ import { normalizeCallsToArms } from "./alliances.js";
 import { normalizePeaceOffers, normalizePeaceTreaties, normalizeReparations } from "./peaceTerms.js";
 import { normalizeWarWeariness } from "./warWeariness.js";
 import { eraSettingOf, normalizeWarSettings } from "./warSettings.js";
+import { normalizeMilitaryStats } from "./militaryStats.js";
 import { MAX_GROUPS, applyGroupOps, canRenameGroup, findGroupKey, normalizeGroupAreas, normalizeGroupOp, normalizeGroups } from "./groups.js";
 import { enqueueEventStrings } from "./translator.js";
 import { normalizeTagList } from "./countryTags.js";
@@ -3734,6 +3735,8 @@ const normalizePolityOverride = (key, value) => {
     note: normalizeOptionalString(value.note),
     // Its people when the scenario begins, where its author says (runtime/populationFigure.js).
     ...(populationFigureOf(value) > 0 ? { population: populationFigureOf(value) } : {}),
+    // Its own military figures, where its author gives them (runtime/militaryStats.js).
+    ...(normalizeMilitaryStats(value.military) ? { military: normalizeMilitaryStats(value.military) } : {}),
     ...(POLITY_STATUS_SET.has(status) ? { status } : {}),
     ...(value.verbatim === true ? { verbatim: true } : {}),
   };

@@ -1,5 +1,6 @@
 import { astronomicalYear, compareGameDates, isGameDate, parseGameDate } from "./gameDates.js";
 import { STATS_BACKEND_FIELD, statsBackendPatch } from "./statsBackend.js";
+import { normalizeMilitaryStats } from "./militaryStats.js";
 import { DEFAULT_STAT_INDEX_KEYS, DEFAULT_STAT_INDEX_ROWS, MAX_STAT_INDICES, STAT_INDEX_KEY_PATTERN } from "./statIndexDefinitions.js";
 
 /*! Open Historia — native persistent country statistics and economic aggregation. */
@@ -468,6 +469,10 @@ export const normalizeCountryStatSheet = (value, { indexKeys: expectedIndexKeys 
   const continuity = normalizeCountryStatContinuity(value.continuity);
   if (continuity) out.continuity = continuity;
 
+  // Its military figures in the backend (militaryStats.js): what a war is fought with.
+  const military = normalizeMilitaryStats(value.military);
+  if (military) out.military = military;
+
   const declaredVersion = Number(value.statsSchemaVersion);
   out.statsSchemaVersion = Number.isInteger(declaredVersion) && declaredVersion > 0
     ? declaredVersion
@@ -515,6 +520,8 @@ export const finalizeCountryStatSheet = (value, { indexKeys: expectedIndexKeys }
 
   if (components.length || hasExplicitComponents) out.territorialComponents = components;
   if (continuity) out.continuity = continuity;
+  const military = normalizeMilitaryStats(value.military);
+  if (military) out.military = military;
 
   if (aggregate) {
     out.population = {

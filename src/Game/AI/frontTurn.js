@@ -26,6 +26,7 @@
 
 import { diffGameDays, gameDateYear } from "../../runtime/gameDates.js";
 import { yearInEra } from "../../runtime/unitMotion.js";
+import { militaryLookup } from "../../runtime/militaryStats.js";
 import { fundingFactor, middleFundingPerHead } from "../../runtime/militaryFunding.js";
 import { countryWeight } from "../../runtime/countryWeight.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
@@ -358,6 +359,9 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
     groupAreas,
     isGroup: (name) => groupNames.has(fold(name)),
     strengthOf: (name) => countryWeight({ population: peopleOf(name), regions: heldBy(name), funding: fundingOf(name) }),
+    // A country's own military figures, where its author or its sheet gives them (runtime/militaryStats.js;
+    // what they do: runtime/fronts/military.js).
+    militaryOf: militaryLookup(world),
     // A country's people, where its sheet says: what its troops are raised from (runtime/fronts/manpower.js).
     peopleOf: (name) => {
       const people = Number(peopleOf(name));
@@ -703,6 +707,8 @@ const TRANSPORT_REFUSALS = {
   "not-yet": "nothing of that kind exists yet",
   "too-many": "too many transporters are out already",
   "nothing-aboard": "it was given nothing to carry",
+  "no-navy": "its sender has no navy to carry it by sea",
+  "no-air-force": "its sender has no air arm to carry it by air",
   incomplete: "its order is incomplete",
 };
 export const transportRefusal = (code) => TRANSPORT_REFUSALS[clean(code)] ?? "it could not set out";
@@ -822,6 +828,9 @@ export const runTurnFronts = async ({
   era = null,
   // Which of the engine's newer mechanics the scenario has on (runtime/warSettings.js; runtime/fronts/mechanics.js).
   mechanics = null,
+  // The men a counter stands for and the share of people who can fight, where the scenario set them (runtime/fronts/manpower.js).
+  menEach = null,
+  manpowerShare = null,
   difficulty = "",
   narratesCombat = null,
   // The fronts a scenario begins with (runtime/fronts/scenarioFronts.js), on
@@ -1032,6 +1041,10 @@ export const runTurnFronts = async ({
       difficulty: clean(difficulty),
       ...(Number.isInteger(era) ? { era } : {}),
       ...(mechanics && typeof mechanics === "object" ? { mechanics } : {}),
+      // Each country's own military figures, where the scenario weighs them (runtime/fronts/military.js).
+      ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
+      ...(Number(menEach) >= 1 ? { menEach: Number(menEach) } : {}),
+      ...(Number(manpowerShare) > 0 ? { manpowerShare: Number(manpowerShare) } : {}),
       // How short each country is of what comes by sea, by the blockades standing as the period begins
       // (runtime/naval/blockade.js): the side it fights on is weighed for it (runtime/fronts/handicap.js).
       ...(short.size > 0 ? { shortageOf: (name) => short.get(fold(name)) ?? 0 } : {}),
@@ -1084,6 +1097,7 @@ export const runTurnFronts = async ({
         caps: unitCaps ?? {},
         raised: asArray(world?.naviesRaised),
         era: Number.isInteger(era) ? era : null,
+        ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
       });
       // (How long the period was, for what its blockades cost: frontApply.js withBlockadeEconomy.)
       sea.days = days;

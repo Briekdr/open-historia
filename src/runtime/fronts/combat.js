@@ -402,7 +402,10 @@ export const closeDay = (battle) => {
         else if (!busy && troop.dig < DIG_MAX_HOLD) troop.dig = Math.min(DIG_MAX_HOLD, troop.dig + DIG_PER_DAY_HOLD);
         // Reserves reach every troop that is not cut off.
         if (!troop.pocket && troop.strength < 100 && battle.pool[side] > 0) {
-          const sent = Math.min(REINFORCE_PER_DAY * battle.edge[side].mend, 100 - troop.strength, battle.pool[side]);
+          // (And, weighing countries' own military figures, only with men its country still has: dawn.js dusk.)
+          const budget = battle.mendOf ? battle.mendOf(side, troop.owner) : null;
+          const sent = budget ? Math.min(REINFORCE_PER_DAY * battle.edge[side].mend, 100 - troop.strength, battle.pool[side], budget.left()) : Math.min(REINFORCE_PER_DAY * battle.edge[side].mend, 100 - troop.strength, battle.pool[side]);
+          if (budget) budget.spend(sent);
           troop.strength += sent;
           battle.pool[side] -= sent;
           // (Men sent to make good a loss are recruits like any others: manpower.js counts them.)

@@ -226,6 +226,9 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
     era: eraSettingOf(world),
     // Which of the engine's newer mechanics it has on: all of them unless it turned one off.
     mechanics: warSettingsOf(world).mechanics,
+    // The men a counter stands for and the share of people who can fight, where it set them.
+    menEach: warSettingsOf(world).menPerCounter,
+    manpowerShare: warSettingsOf(world).manpowerShare,
     players: humanCountriesOf(game),
     // The difficulty weighs the land war for whoever fights a person's country (runtime/fronts/handicap.js).
     difficulty: normalizeDifficulty(game?.difficulty),

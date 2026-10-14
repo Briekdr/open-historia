@@ -47,7 +47,8 @@ import { readGenerals, readTalk } from "./command.js";
 import { FAIR_EDGE, handicapOf, shortEdge, sideShortage } from "./handicap.js";
 import { standingOf } from "./orders.js";
 import { leftOnLeg } from "./way.js";
-import { draw, sideFormationsLeft } from "./manpower.js";
+import { draw, formationsLeft, menOf, partLeft, sideFormationsLeft } from "./manpower.js";
+import { landWorth, mixOf } from "./military.js";
 import { authoredTroops } from "./scenarioFronts.js";
 import { projectorOf } from "./frame.js";
 import { drawLine, measureLine } from "./line.js";
@@ -163,6 +164,10 @@ export const setHandicap = (battle, run) => {
   // And what a side is short of because its countries are cut off from the
   // sea (handicap.js shortEdge): the same four figures, weighed down.
   battle.edge = edges.map((edge, side) => shortEdge(edge, sideShortage(sides[side], run.shortageOf, run.strengthOf)));
+  // Weighing countries' own military figures (military.js), what each member's
+  // troops fight with on land, against what every country had before: by its
+  // place in its side's list, as a troop's owner is. Not kept: read again with the edge.
+  battle.worth = run.mech?.military ? battle.sides.map((members) => members.map((member) => landWorth(run.militaryOf(member)))) : null;
 };
 
 const createBattle = (run, { name, warId, sides, frame, arena, openedDate, openedDay }) => ({
@@ -373,6 +378,23 @@ const settleRaised = (battle, side, raised) => {
   }
 };
 
+// A side's counters shared among its members by their weights (shareOut),
+// each held to what it can raise itself (`caps`): what one cannot take goes to
+// the next that can, in the order of the side's list.
+const capQuota = (quota, caps) => {
+  const kept = quota.map((count, at) => Math.min(count, caps[at]));
+  let spare = quota.reduce((sum, count) => sum + count, 0) - kept.reduce((sum, count) => sum + count, 0);
+  for (let at = 0; spare > 0 && at < kept.length; at += 1) {
+    const room = caps[at] - kept[at];
+    if (room > 0) {
+      const take = Math.min(room, spare);
+      kept[at] += take;
+      spare -= take;
+    }
+  }
+  return kept;
+};
+
 // Raises both sides' troops on a battle that has just opened, and stands them
 // along the line: nobody has ordered anything yet, so the weight is even, and
 // what makes the line uneven is the troops themselves.
@@ -390,8 +412,14 @@ export const raiseTroops = (battle, run, only = -1) => {
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     // (On a border fortified in peace only the side that deploys there raises troops.)
     if (only >= 0 && side !== only) continue;
-    // (No more than its members have the men for: manpower.js.)
-    const room = Math.max(0, Math.min(counts[side], MAX_TROOPS_PER_SIDE - battle.troops[side].length, sideFormationsLeft(run, battle, side)));
+    // (No more than its members have the men for: manpower.js. Weighing countries' own military figures,
+    // each member only what it has itself, its last men as a counter at part strength, and a member with
+    // no army nothing: military.js.)
+    const military = run.mech?.military === true;
+    const wholes = military ? battle.sides[side].map((member, at) => (battle.gone[side].has(at) || landWorth(run.militaryOf(member)) === 0 ? 0 : formationsLeft(run, member))) : null;
+    const parts = military ? battle.sides[side].map((member, at) => (battle.gone[side].has(at) || landWorth(run.militaryOf(member)) === 0 ? 0 : partLeft(run, member))) : null;
+    const caps = military ? wholes.map((whole, at) => whole + (parts[at] > 0 ? 1 : 0)) : null;
+    const room = Math.max(0, Math.min(counts[side], MAX_TROOPS_PER_SIDE - battle.troops[side].length, military ? caps.reduce((sum, cap) => sum + cap, 0) : sideFormationsLeft(run, battle, side)));
     battle.base[side] = round3(members[side].reduce((sum, weight) => sum + weight, 0));
     battle.pool[side] += room * POOL_PER_TROOP * battle.edge[side].reserves;
     const first = battle.troops[side].length;
@@ -417,7 +445,8 @@ export const raiseTroops = (battle, run, only = -1) => {
     settleRaised(battle, side, raised);
     // Each member's share of the counters, the ally whose ground a counter
     // stands on taking it where it still has some to take.
-    const quota = shareOut(raised.length, members[side].some((weight) => weight > 0) ? members[side] : members[side].map((weight, index) => (battle.gone[side].has(index) ? 0 : 1)));
+    const shared = shareOut(raised.length, members[side].some((weight) => weight > 0) ? members[side] : members[side].map((weight, index) => (battle.gone[side].has(index) ? 0 : 1)));
+    const quota = military ? capQuota(shared, caps) : shared;
     const waiting = [];
     for (const troop of raised) {
       const cell = Math.max(0, ownCell(battle.field, side, troop.x, troop.y));
@@ -433,8 +462,19 @@ export const raiseTroops = (battle, run, only = -1) => {
       troop.owner = owner;
       quota[owner] -= 1;
     }
+    // Weighing countries' own military figures, each member's counters are of its
+    // own unit mix, and the last of a member that had only part of one more is at that part.
+    if (military) {
+      battle.sides[side].forEach((member, owner) => {
+        const mine = raised.filter((troop) => troop.owner === owner);
+        if (mine.length === 0) return;
+        const kinds = kindsFor(mine.length, run.era, mixOf(run.militaryOf(member)));
+        mine.forEach((troop, index) => { troop.kind = kinds[index]; });
+        if (mine.length > wholes[owner] && parts[owner] > 0) mine[mine.length - 1].strength = Math.round(100 * parts[owner]);
+      });
+    }
     // Each is drawn from the people of the country it is.
-    for (const troop of raised) draw(run, battle.sides[side][troop.owner], run.menEach);
+    for (const troop of raised) draw(run, battle.sides[side][troop.owner], military ? (troop.strength / 100) * menOf(run, battle.sides[side][troop.owner]) : run.menEach);
   }
   battle.planKey = "";
 };
@@ -451,6 +491,8 @@ export const absorbUnit = (battle, run, unit, { anyDistance = false } = {}) => {
   const unitId = String(unit?.id ?? "").trim();
   const side = sideOfName(battle, unit?.ownerCode ?? unit?.owner);
   if (kind === undefined || !unitId || side < 0) return false;
+  // (Weighing countries' own military figures, one with no army fields none: military.js.)
+  if (run.mech?.military && landWorth(run.militaryOf(unit?.ownerCode ?? unit?.owner)) === 0) return false;
   if (battle.named.some((entry) => entry.unitId === unitId)) return false;
   if (battle.troops[side].length >= MAX_TROOPS_PER_SIDE || battle.named.length >= MAX_NAMED_TROOPS) return false;
   const lng = Number(unit.lng);

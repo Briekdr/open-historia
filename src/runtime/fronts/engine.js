@@ -29,6 +29,7 @@ import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf, yearInEra } from "../un
 import { arenaFor } from "./arena.js";
 import { dawn } from "./dawn.js";
 import { readMechanics } from "./mechanics.js";
+import { MILITARY_NEUTRAL, airWorth, landWorth, mixOf, readMilitary, seaWorth } from "./military.js";
 import { absorbUnit, holderOf, keepStart, lineLength, loadBattle, memberIndex, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setHandicap, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
 import { assignCommands } from "./command.js";
@@ -70,7 +71,7 @@ import { REGIONS_NEEDED, growToHold, prepare, recordDay, settleRegions, simulate
 import { redistance, takeCapsule, traceContour } from "./field.js";
 import { pointInFrame } from "./frame.js";
 import { landWithin, othersOnWay } from "./invade.js";
-import { draw, formationsLeft, manpowerReport, menPerFormation, sendHome } from "./manpower.js";
+import { draw, formationsLeft, manpowerReport, menOf, menPerFormation, partLeft, sendHome } from "./manpower.js";
 import { applyOrder, assignOrder, landCarried, putAshore, readSieges, setStandingOrder, standingOf } from "./orders.js";
 import { foldBattlefieldName, normalizeBattlefields } from "./record.js";
 import { authoredName } from "./scenarioFronts.js";
@@ -115,8 +116,11 @@ const createRun = (input) => {
     seed: String(input?.seed ?? ""),
     // How many troops are raised, of the usual (troops.js troopsFactor).
     troops: troopsFactor(input?.troops),
-    // The men a formation is, and what each country has been charged and given back this run (manpower.js).
-    menEach: menPerFormation(era),
+    // The men a formation is (the scenario's where it set them, else its era's), and what each
+    // country has been charged and given back this run (manpower.js).
+    menEach: Number(input?.menEach) >= 1 ? Math.round(Number(input.menEach)) : menPerFormation(era),
+    // The share of a country's people who can fight, where the scenario set it: else MANPOWER_SHARE (manpower.js).
+    manpowerShare: Number(input?.manpowerShare) > 0 && Number(input.manpowerShare) <= 100 ? Number(input.manpowerShare) / 100 : 0,
     manpower: new Map(),
     pace: Math.min(3, Math.max(0.1, Number(input?.pace) || 1)),
     // The weights that bend a troop's step, for a test or the rig to set aside.
@@ -161,6 +165,15 @@ const createRun = (input) => {
     },
     setController: (id, name) => controller.set(id, clean(name)),
     setGroup: (id, name) => group.set(id, clean(name)),
+  };
+  // Each country's own military figures (military.js): read once a run, and
+  // only where the run weighs them; every country is neutral otherwise.
+  const figures = new Map();
+  run.militaryOf = (name) => {
+    if (!run.mech.military) return MILITARY_NEUTRAL;
+    const key = fold(name);
+    if (!figures.has(key)) figures.set(key, readMilitary(input?.militaryOf?.(name)));
+    return figures.get(key);
   };
   // A region changed hands: every battlefield it lies on reads its side again.
   run.regionChanged = (id) => {
@@ -370,9 +383,15 @@ const examineWar = (run, war, day) => {
 // along the line: as many as its own strength brings, while the line has room
 // for them.
 const raiseFor = (battle, run, side, owner) => {
+  const member = battle.sides[side][owner];
+  const military = run.mech.military;
+  // (A country with no army raises none: military.js.)
+  if (military && landWorth(run.militaryOf(member)) === 0) return;
   const wanted = Math.round(TROOPS_PER_STRENGTH * run.troops * memberWeights(battle, run, side)[owner] * EFFORT_FACTORS[battle.effort[side]]);
   const room = Math.min(MAX_TROOPS_PER_SIDE - battle.troops[side].length, troopsCap(battle.lineKm, run.troops) - liveCount(battle.troops[side]));
-  const count = Math.max(0, Math.min(room, Math.max(2, wanted), formationsLeft(run, battle.sides[side][owner])));
+  const whole = formationsLeft(run, member);
+  const part = military ? partLeft(run, member) : 0;
+  const count = Math.max(0, Math.min(room, Math.max(2, wanted), whole + (part > 0 ? 1 : 0)));
   const contour = traceContour(battle.field);
   const own = side === HOLDER_SIDE_A ? contour.cellA : contour.cellB;
   let cells = [];
@@ -386,11 +405,16 @@ const raiseFor = (battle, run, side, owner) => {
   });
   if (home.length > 0) cells = home;
   if (cells.length === 0) return;
+  const kinds = military ? kindsFor(count, run.era, mixOf(run.militaryOf(member))) : null;
+  let men = 0;
   for (let index = 0; index < count; index += 1) {
     const cell = cells[Math.min(cells.length - 1, Math.floor(((index + 0.5) * cells.length) / count))];
-    battle.troops[side].push(createTroop({ x: (cell % battle.field.cols) + 0.5, y: Math.floor(cell / battle.field.cols) + 0.5, owner }));
+    // (Its last men, fewer than a counter's: a counter at part strength.)
+    const strength = military && index === count - 1 && count > whole ? Math.round(100 * part) : 100;
+    battle.troops[side].push(createTroop({ x: (cell % battle.field.cols) + 0.5, y: Math.floor(cell / battle.field.cols) + 0.5, owner, strength, ...(kinds ? { kind: kinds[index] } : {}) }));
+    men += (strength / 100) * menOf(run, member);
   }
-  draw(run, battle.sides[side][owner], count * run.menEach);
+  draw(run, member, military ? men : count * run.menEach);
   battle.pool[side] += count * POOL_PER_TROOP * battle.edge[side].reserves;
 };
 
@@ -837,8 +861,14 @@ const reinforceOnFront = (run, battle, moment, day) => {
     REINFORCED_SIZE_MOST * usual - live,
     REINFORCED_LINE_MOST * troopsCap(battle.lineKm, run.troops) - live,
   );
-  // And the men have to be there to call up (manpower.js).
-  const men = formationsLeft(run, battle.sides[side][owner]);
+  // And the men have to be there to call up (manpower.js): weighing military figures, a country's last men too, as a
+  // counter at part strength, and a country with no army has nobody to call up (military.js).
+  const military = run.mech.military;
+  const drafted = battle.sides[side][owner];
+  const noArmy = military && landWorth(run.militaryOf(drafted)) === 0;
+  const fullCounters = noArmy ? 0 : formationsLeft(run, drafted);
+  const lastPart = military && !noArmy ? partLeft(run, drafted) : 0;
+  const men = fullCounters + (lastPart > 0 ? 1 : 0);
   const said = Number(moment.count);
   const asked = Number.isFinite(said) && said >= 1 ? Math.min(REINFORCE_MOST, Math.round(said)) : Math.max(2, Math.round(usual * REINFORCE_USUAL_SHARE));
   const count = Math.max(0, Math.min(asked, room, men));
@@ -871,11 +901,14 @@ const reinforceOnFront = (run, battle, moment, day) => {
     return;
   }
   const first = battle.troops[side].length;
-  kindsFor(count, run.era).forEach((kind, index) => {
+  let called = 0;
+  kindsFor(count, run.era, military ? mixOf(run.militaryOf(drafted)) : null).forEach((kind, index) => {
     const cell = cells[Math.min(cells.length - 1, Math.floor(((index + 0.5) * cells.length) / count))];
-    battle.troops[side].push(createTroop({ x: (cell % cols) + 0.5, y: Math.floor(cell / cols) + 0.5, kind, owner }));
+    const strength = military && index === count - 1 && count > fullCounters ? Math.round(100 * lastPart) : 100;
+    battle.troops[side].push(createTroop({ x: (cell % cols) + 0.5, y: Math.floor(cell / cols) + 0.5, kind, owner, strength }));
+    called += (strength / 100) * menOf(run, drafted);
   });
-  draw(run, battle.sides[side][owner], count * run.menEach);
+  draw(run, drafted, military ? called : count * run.menEach);
   battle.pool[side] += count * POOL_PER_TROOP * battle.edge[side].reserves;
   // They come under what their stretch of the line is told: an order for that stretch before one for the whole line.
   const standing = battle.orders.filter((order) => order.s === side && !order.chosen && order.order !== "assault" && order.order !== "withdraw");
@@ -1532,6 +1565,10 @@ const departTransport = (run, index, day) => {
     run.transports[index] = { ...transport, status: "refused", note, ended: date };
     tellVoyage(run, day, "refused", transport, { why: note });
   };
+  // (Weighing countries' own military figures, one with no navy sends nothing by sea and one with no
+  // air arm nothing by air: military.js.)
+  if (run.mech.military && transport.medium === "sea" && seaWorth(run.militaryOf(transport.owner)) === 0) return refuse("no-navy");
+  if (run.mech.military && transport.medium === "air" && airWorth(run.militaryOf(transport.owner)) === 0) return refuse("no-air-force");
   let war = transportWar(run, transport);
   const grid = worldGridOf(run);
   // Its owner is fighting no war: bound for land of a country it is at peace
@@ -1576,8 +1613,8 @@ const departTransport = (run, index, day) => {
     load = picked.map((at) => [Math.round(battle.troops[side][at].strength), battle.troops[side][at].kind]);
     boarding = { battle, side, picked };
   } else if (load.length === 0) {
-    load = kindsFor(Math.max(1, transport.raise || 1), run.era).map((kind) => [100, kind]);
-    draw(run, transport.owner, load.length * run.menEach);
+    load = kindsFor(Math.max(1, transport.raise || 1), run.era, run.mech.military ? mixOf(run.militaryOf(transport.owner)) : null).map((kind) => [100, kind]);
+    draw(run, transport.owner, load.length * menOf(run, transport.owner));
     if (origins.length === 0) origins = originsOf(run, grid, war, transport);
   }
   if (origins.length === 0) return refuse("no-origin");

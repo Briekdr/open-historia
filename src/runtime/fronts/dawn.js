@@ -17,6 +17,7 @@
 // Only + - * / and comparisons.
 
 import { guardLeft, legsLeft, punchLeft, tireDay } from "./fatigue.js";
+import { mendBudget } from "./manpower.js";
 import { anyMechanic } from "./mechanics.js";
 import { isLive } from "./troops.js";
 
@@ -38,10 +39,12 @@ export const dawn = (run, battle, day) => {
     const legs = steered(run, "legs", side);
     for (const troop of battle.troops[side]) {
       if (!isLive(troop)) continue;
+      // What its country's soldiers fight with (military.js: setHandicap).
+      const worth = battle.worth ? battle.worth[side][troop.owner] ?? 1 : 1;
       // What its fatigue leaves it (fatigue.js).
       const tired = run.mech.fatigue && troop.fatigue > 0;
-      troop.punch = tired ? punch * punchLeft(troop.fatigue) : punch;
-      troop.guard = tired ? guard * guardLeft(troop.fatigue) : guard;
+      troop.punch = (tired ? punch * punchLeft(troop.fatigue) : punch) * worth;
+      troop.guard = (tired ? guard * guardLeft(troop.fatigue) : guard) * worth;
       troop.legs = tired ? legs * legsLeft(troop.fatigue) : legs;
     }
   }
@@ -51,4 +54,9 @@ export const dusk = (run, battle, day) => {
   if (!anyMechanic(run.mech)) return;
   // The day's march and fighting tire every troop that marched or fought, and rest the others (fatigue.js).
   if (run.mech.fatigue) tireDay(run, battle);
+  // Weighing countries' own military figures, reserves make good a country's losses only with men it still has (manpower.js).
+  if (run.mech.military) {
+    const budget = mendBudget(run, day);
+    battle.mendOf = (side, owner) => budget(battle.sides[side][owner]);
+  } else battle.mendOf = null;
 };
