@@ -61,6 +61,20 @@ export const moveFeatureCoords = (features, from, to) => (Array.isArray(features
 // The starting units (and anything else kept as { lng, lat }).
 export const moveUnits = (units, from, to) => movePlaces(Array.isArray(units) ? units : [], (lon, lat) => convertDisplayPoint(from, to, lon, lat));
 
+// The war geography's shapes (warGeographyDoc.js): every point of a terrain
+// area's or a climate zone's rings, or of a fortified line, at its new place,
+// so they stay on the regions they were drawn over.
+export const moveWarShapes = (shapes, from, to) => {
+  const move = (point) => (Array.isArray(point) && point.length >= 2 && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1]))
+    ? convertDisplayPoint(from, to, Number(point[0]), Number(point[1]))
+    : point);
+  return (Array.isArray(shapes) ? shapes : []).map((shape) => {
+    if (Array.isArray(shape?.rings)) return { ...shape, rings: shape.rings.map((ring) => (Array.isArray(ring) ? ring.map(move) : ring)) };
+    if (Array.isArray(shape?.points)) return { ...shape, points: shape.points.map(move) };
+    return shape;
+  });
+};
+
 // A shape typed as "16:9", "16 x 9", "1.78" or "2" as width / height, or null.
 export const parseAspect = (text) => {
   const value = String(text ?? "").trim().replace(",", ".");

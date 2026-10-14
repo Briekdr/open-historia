@@ -25,6 +25,10 @@ const EVERY_FIELD = {
   units: [{ id: "u1", owner: "Vinland", strength: 40 }],
   groups: { rebels: { name: "Rebels" } },
   puppets: [{ puppet: "Markland", overlord: "Vinland" }],
+  terrainAreas: [{ id: "hills", name: "Hills", level: 6, rings: [[[0, 0], [1, 0], [1, 1], [0, 0]]] }],
+  fortifications: [{ id: "wall", name: "Wall", owner: "Vinland", level: 5, points: [[0, 0], [1, 1]], breaches: [], wear: [] }],
+  climateZones: [{ id: "north", name: "North", color: "#4f8fd6", rings: [[[0, 0], [1, 0], [1, 1], [0, 0]]], blendKm: 100, transitionDays: 14, seasons: [], events: [] }],
+  freezingRegions: ["lake"],
   ownerSchema: 4,
 };
 
@@ -45,6 +49,10 @@ test("a create keeps what it was sent and fills what it was not", () => {
     units: [],
     groups: {},
     puppets: [],
+    terrainAreas: [],
+    fortifications: [],
+    climateZones: [],
+    freezingRegions: [],
     ownerSchema: 1,
   });
   const wrongShapes = documentFieldsFromBody({ puppets: { a: 1 }, units: "u1", flags: "none" });

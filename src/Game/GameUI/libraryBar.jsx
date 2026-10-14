@@ -82,6 +82,7 @@ import { buildScenarioCountryOptions, isOfferedCountry, seededWorldOf, worldWith
 import { saveBlobToDisk } from "../../runtime/saveFile.js";
 import { acceptFor } from "../../runtime/fileAccept.js";
 import { playerCountryAfterSave, scenarioAfterWorkshopRenames } from "../../Editor/playerCountryAfterSave.js";
+import { warGeographyOf, warGeographyWorldPatch } from "../../Editor/warGeographyDoc.js";
 import { downloadHubScenario, fetchHubPosts, fetchPostComments, hubUpdateReason, readScenarioBundleBytes, refreshPublishedRecord } from "../../runtime/hubPosts.js";
 import { isBlockedContributor, missingBasemapOfBundle, scenarioCopyOfHubFile, withContributorBlocked } from "../../../server/hubProvenance.js";
 import { reconcileMapPolityAuthoringOps } from "../../../server/polityRename.js";
@@ -3648,6 +3649,9 @@ const LibraryTopBar = ({ onOpenSettings }) => {
         // here, for the Countries and Groups panels: the era its wars are
         // fought in, and the scenario's own settings (militaryForm.js).
         militaryDefaults: militaryDefaultsFor(warSettings === undefined ? world.warSettings : warSettings, gameDate),
+        // What it draws on its map for war: terrain areas, fortified lines,
+        // climate zones and the water that can freeze, for the War map panel.
+        ...warGeographyOf(world),
       });
     }).catch((error) => {
       if (!isCurrent()) return;
@@ -3815,6 +3819,9 @@ const LibraryTopBar = ({ onOpenSettings }) => {
         ...(Array.isArray(seed.world?.puppets) ? { puppets: seed.world.puppets } : {}),
         // The region types, which the game draws and the AI's placement reads.
         ...(Array.isArray(seed.world?.regionTypes) ? { regionTypes: seed.world.regionTypes } : {}),
+        // What it draws on its map for war, opened with the world's own and so
+        // handed back whole (warGeographyDoc.js).
+        ...warGeographyWorldPatch(seed.world),
       },
       game: {
         ...currentGame,

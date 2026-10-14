@@ -20,7 +20,8 @@ import { useEffect, useMemo, useState } from "react";
 import Panel from "./Panel.jsx";
 import Icon from "./Icon.jsx";
 import { pillButton } from "./editorStyles.js";
-import { Row, TextField, SelectField, ColorField, TagField } from "./fields.jsx";
+import { Row, TextField, SelectField, ColorField, TagField, Toggle } from "./fields.jsx";
+import { isWaterType } from "../runtime/regionTypes.js";
 import { TAG_SUGGESTIONS } from "../runtime/countryTags.js";
 import { rgbToHex } from "./fields.jsx";
 import { normalizeGroups } from "../runtime/groups.js";
@@ -35,7 +36,9 @@ const commonOr = (arr, blank = "") => {
 
 const foldPolityName = (value) => String(value ?? "").trim().toLowerCase();
 
-const SelectionInspector = ({ api, selection, types, colors, colorOverrides, setColorOverride, flags, setFlag, onOpenFlagPicker, tags, setTags, setSelection, polities = {}, upsertPolity, regionEpoch = 0, onOpenPolities, groups = {}, onOpenGroups, onCopyToClipboard = null }) => {
+// freezingRegions / onSetFreezing(ids, on): the water regions that can freeze
+// (warGeographyDoc.js), offered for a selection that is all water.
+const SelectionInspector = ({ api, selection, types, colors, colorOverrides, setColorOverride, flags, setFlag, onOpenFlagPicker, tags, setTags, setSelection, polities = {}, upsertPolity, regionEpoch = 0, onOpenPolities, groups = {}, onOpenGroups, onCopyToClipboard = null, freezingRegions = [], onSetFreezing = null }) => {
   const summaries = useMemo(
     () => (api ? selection.map((id) => api.getRegionSummary(id)).filter(Boolean) : []),
     [api, selection, regionEpoch],
@@ -78,6 +81,12 @@ const SelectionInspector = ({ api, selection, types, colors, colorOverrides, set
   if (!selection.length) return null;
   const groupRegistry = normalizeGroups(groups);
   const single = selection.length === 1;
+  // Water that can freeze: offered when every region selected is of a water
+  // type, and on when every one of them is marked.
+  const typesById = Object.fromEntries((types || []).map((type) => [type.id, type]));
+  const allWater = summaries.length > 0 && summaries.every((s) => isWaterType(typesById[s.typeId]));
+  const freezing = new Set((freezingRegions || []).map(String));
+  const allFreeze = allWater && summaries.every((s) => freezing.has(String(s.id)));
   const apply = (patch) => api?.setRegionAttrs(selection, patch);
   const ownerRgb = form.owner && colors[form.owner];
   // Only offer Reset when there is something to reset to — i.e. the map-maker set
@@ -168,6 +177,11 @@ const SelectionInspector = ({ api, selection, types, colors, colorOverrides, set
           width={160}
         />
       </Row>
+      {allWater && onSetFreezing && (
+        <Row label="Can freeze" title="Ices over in a season of its climate zone whose effects say Water freezes (the War map panel's Climate tab).">
+          <Toggle value={allFreeze} onChange={(on) => onSetFreezing(summaries.map((s) => String(s.id)), on)} />
+        </Row>
+      )}
       <Row label="Polity" title="The polity that owns these regions. Type an existing polity's name, or a name that does not exist yet and press Enter to create it — a country that has never existed is one keystroke away. Rename and manage polities in the Polities panel; changing a display name there keeps all territory attached.">
         <span style={{ display: "flex", flexDirection: "column", gap: 4, width: "100%" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>

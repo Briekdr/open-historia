@@ -34,6 +34,7 @@ import Translate from "ol/interaction/Translate";
 import Snap from "ol/interaction/Snap";
 import PointerInteraction from "ol/interaction/Pointer";
 import DragBox from "ol/interaction/DragBox";
+import { primaryAction } from "ol/events/condition";
 import { fromExtent as polygonFromExtent } from "ol/geom/Polygon";
 import Feature from "ol/Feature";
 import { samePolityName } from "../../server/polityRename.js";
@@ -56,6 +57,9 @@ import { ownersMatchingQuery, regionMatchesQuery } from "./regionSearch.js";
 import { newId } from "./useMapDocument.js";
 import { mergeRegionFeatures, trackMove } from "./shapeEdits.js";
 import { resolvePastedIds } from "./regionClipboard.js";
+import { createWarGeographyLayers, drawTypeOf, pointsOfLine, ringsOfPolygon, shapeNear, syncShapes } from "./warGeographyLayers.js";
+import { isWarTool, mostCommon } from "./warGeographyDoc.js";
+import { isWaterType } from "../runtime/regionTypes.js";
 import {
   unionGeoms,
   translatedClone,
@@ -84,6 +88,10 @@ const BASEMAP_BG = {
 const WORLD_EXTENT_3857 = [-20037508.342789244, -20037508.342789244, 20037508.342789244, 20037508.342789244];
 
 const LABEL_MIN_ZOOM = 4;
+
+// One empty list for every war-geography prop left out, so an effect keyed on
+// one does not run again on every render.
+const NO_SHAPES = Object.freeze([]);
 
 // City markers. Module scope because the style cache below needs them and it
 // outlives any single map instance; nothing here depends on the component.
@@ -498,6 +506,19 @@ const OlMap = ({
   referenceImage = null,
   referenceAdjust = false,
   referencePlaceNonce = 0,
+  // What the scenario draws on its map for war (warGeographyDoc.js): the
+  // document's four lists, the shape the designer has picked ({ kind, id }, or
+  // null), and what drawing, reshaping and removing a shape does to the
+  // document. Those three answer the step for the undo stack (documentUndo.js).
+  terrainAreas = NO_SHAPES,
+  fortifications = NO_SHAPES,
+  climateZones = NO_SHAPES,
+  freezingRegions = NO_SHAPES,
+  warSelection = null,
+  onWarSelect,
+  onWarShapeCreate,
+  onWarShapeChange,
+  onWarShapeRemove,
 }) => {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -565,6 +586,23 @@ const OlMap = ({
   const onRegionsChangedRef = useRef(onRegionsChanged);
   const scenarioModeRef = useRef(scenarioMode);
   const selectionKey = (selectionIds || []).join("|");
+  // The war geography's layers (warGeographyLayers.js), the shape picked, the
+  // regions that can freeze, and what the hatch over them is redrawn by.
+  const warLayersRef = useRef(null);
+  const warSelectionRef = useRef(warSelection);
+  warSelectionRef.current = warSelection;
+  const warSelectedKey = warSelection ? `${warSelection.kind}:${warSelection.id}` : "";
+  const freezingRef = useRef(freezingRegions);
+  freezingRef.current = freezingRegions;
+  const rebuildFreezingRef = useRef(null);
+  const onWarSelectRef = useRef(onWarSelect);
+  onWarSelectRef.current = onWarSelect;
+  const onWarShapeCreateRef = useRef(onWarShapeCreate);
+  onWarShapeCreateRef.current = onWarShapeCreate;
+  const onWarShapeChangeRef = useRef(onWarShapeChange);
+  onWarShapeChangeRef.current = onWarShapeChange;
+  const onWarShapeRemoveRef = useRef(onWarShapeRemove);
+  onWarShapeRemoveRef.current = onWarShapeRemove;
 
   typesByIdRef.current = toTypesById(types);
   colorsRef.current = colors || {};
@@ -592,6 +630,9 @@ const OlMap = ({
     const n = regionSourceRef.current?.getFeatures().length ?? 0;
     onRegionsChangedRef.current?.(n, { loaded });
     scheduleGroupOutlines();
+    // The hatch over water that can freeze follows a region reshaped, retyped,
+    // deleted or brought back.
+    rebuildFreezingRef.current?.();
   };
 
   // ---- undo/redo command stack (discrete region operations) ---------------
@@ -823,10 +864,24 @@ const OlMap = ({
     });
     borderAssistLayer.setZIndex(70);
 
+    // What the scenario draws on its map for war (warGeographyLayers.js), each
+    // kind of shape in a source of its own: the Terrain, Fortified line and
+    // Climate zone tools draw into those, never into the regions'.
+    const war = createWarGeographyLayers({
+      getZoom,
+      selectedId: (kind) => (warSelectionRef.current?.kind === kind ? String(warSelectionRef.current.id) : null),
+    });
+    warLayersRef.current = war;
+    rebuildFreezingRef.current = () => war.rebuildHatch(
+      regionSource,
+      freezingRef.current,
+      (region) => isWaterType(typesByIdRef.current[region.get("typeId") || "land"]),
+    );
+
     const map = new Map({
       target: containerRef.current,
       controls: defaultControls({ rotate: false }),
-      layers: [regionLayer, groupOutlineLayer, labelLayer, pointLayer, unitLayer, importPreviewLayer, paintPreviewLayer, topologyLayer, borderAssistLayer],
+      layers: [regionLayer, ...war.layers, groupOutlineLayer, labelLayer, pointLayer, unitLayer, importPreviewLayer, paintPreviewLayer, topologyLayer, borderAssistLayer],
       view: new View({ center: fromLonLat([0, 20]), zoom: 2.1, minZoom: 1, maxZoom: 20 }),
     });
 
@@ -845,8 +900,10 @@ const OlMap = ({
     borderAssistSourceRef.current = borderAssistSource;
     borderAssistLayerRef.current = borderAssistLayer;
     mapRef.current = map;
-    // "features" is every point marker: cities and map features alike.
-    const toggleableLayers = { regions: regionLayer, labels: labelLayer, features: pointLayer, units: unitLayer, groups: groupOutlineLayer };
+    // "features" is every point marker: cities and map features alike. The war
+    // geography's are terrain, fortifications, climate (the zones' colours and
+    // outlines together) and freezing.
+    const toggleableLayers = { regions: regionLayer, labels: labelLayer, features: pointLayer, units: unitLayer, groups: groupOutlineLayer, ...war.toggles };
     requestAnimationFrame(() => map.updateSize());
     if (typeof window !== "undefined") window.__editorMap = map;
 
@@ -917,6 +974,16 @@ const OlMap = ({
         const point = pointAtPixel(evt.pixel);
         if (point) {
           const cmd = onFeatureRemoveRef.current?.(point.getId());
+          if (cmd) pushCmd(cmd);
+          return;
+        }
+        // So does a fortified line, or the outline of a terrain area or a
+        // climate zone, while its layer is shown (warGeographyLayers.js).
+        const reach = (map.getView().getResolution() || 1) * 6;
+        for (const kind of ["fortification", "terrain", "climate"]) {
+          const shape = war.shown(kind) ? shapeNear(war.sources[kind], evt.coordinate, reach) : null;
+          if (!shape) continue;
+          const cmd = onWarShapeRemoveRef.current?.(kind, String(shape.getId()));
           if (cmd) pushCmd(cmd);
           return;
         }
@@ -1045,7 +1112,7 @@ const OlMap = ({
         layerFilter: (l) => l === regionLayerRef.current,
       });
       const tool = activeToolRef.current;
-      if (tool === "lasso" || tool === "draw" || tool === "modify" || tool === "paint" || tool === "feature-box") {
+      if (tool === "lasso" || tool === "draw" || tool === "modify" || tool === "paint" || tool === "feature-box" || isWarTool(tool)) {
         map.getTargetElement().style.cursor = "crosshair";
       } else if (tool === "feature" || tool === "marker" || tool === "delete" || tool === "unit") {
         // City-aware tools: pointer over an existing city (edit/remove target).
@@ -1102,6 +1169,39 @@ const OlMap = ({
           return;
         }
         if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); doRedo(); return; }
+      }
+      // In a war tool (terrain, fortified line, climate zone) these keys are
+      // about its shapes, never the regions selected underneath: Escape lets go
+      // of the outline being drawn, or else of the shape picked; Backspace takes
+      // the last point of an outline back; Delete and Backspace remove the
+      // shape picked, as one undo step.
+      const warTool = activeToolRef.current;
+      if (isWarTool(warTool) && !typing) {
+        const drawing = activeDrawRef.current && placedPointsRef.current.length > 0;
+        if (e.key === "Escape") {
+          if (drawing) {
+            activeDrawRef.current.abortDrawing();
+            placedPointsRef.current = [];
+          } else if (warSelectionRef.current) {
+            onWarSelectRef.current?.(null);
+          }
+          return;
+        }
+        if (e.key !== "Delete" && e.key !== "Backspace") return;
+        e.preventDefault();
+        if (drawing) {
+          if (e.key === "Backspace") {
+            activeDrawRef.current.removeLastPoint();
+            placedPointsRef.current.pop();
+          }
+          return;
+        }
+        const picked = warSelectionRef.current;
+        if (picked?.kind === warTool) {
+          const cmd = onWarShapeRemoveRef.current?.(picked.kind, picked.id);
+          if (cmd) pushCmd(cmd);
+        }
+        return;
       }
       // Delete / Backspace removes the current selection
       if (e.key !== "Delete" && e.key !== "Backspace") return;
@@ -1869,6 +1969,11 @@ const OlMap = ({
           ext = [Math.min(ext[0], e[0]), Math.min(ext[1], e[1]), Math.max(ext[2], e[2]), Math.max(ext[3], e[3])];
         }
         map.getView().fit(ext, { padding: [80, 80, 80, 80], duration: 350, maxZoom: 8 });
+      },
+      // A terrain area, fortified line or climate zone, by its kind and id.
+      zoomToWarShape: (kind, id) => {
+        const extent = war.sources[kind]?.getFeatureById(String(id))?.getGeometry()?.getExtent();
+        if (extent && Number.isFinite(extent[0])) map.getView().fit(extent, { padding: [80, 80, 80, 80], duration: 350, maxZoom: 8 });
       },
       // `patch.claimants` may be a function of the region's own list, so one
       // edit over a selection with differing claims keeps each region's rest.
@@ -2700,6 +2805,8 @@ const OlMap = ({
       alive = false;
       window.clearTimeout(groupOutlineTimerRef.current);
       rebuildGroupOutlinesRef.current = null;
+      rebuildFreezingRef.current = null;
+      warLayersRef.current = null;
       window.removeEventListener("resize", onResize);
       window.removeEventListener("keydown", onKeyDown);
       map.setTarget(null);
@@ -2711,6 +2818,40 @@ const OlMap = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ---- the war geography follows the document (warGeographyLayers.js) -----
+  // Declared before the interactions below, so a shape just drawn is on the
+  // map by the time the tool looks for it to reshape.
+  useEffect(() => {
+    const war = warLayersRef.current;
+    if (war) syncShapes(war.sources.terrain, terrainAreas, "terrain");
+  }, [terrainAreas]);
+  useEffect(() => {
+    const war = warLayersRef.current;
+    if (war) syncShapes(war.sources.fortification, fortifications, "fortification");
+  }, [fortifications]);
+  // The zones' blended colours are painted again only when what they are
+  // painted from changes: a zone's shape, colour or blend width, not its
+  // seasons.
+  const climatePaintedRef = useRef({ zones: null, key: "" });
+  useEffect(() => {
+    const war = warLayersRef.current;
+    if (!war) return;
+    syncShapes(war.sources.climate, climateZones, "climate");
+    const painted = climatePaintedRef.current;
+    const key = climateZones.map((zone) => `${zone.id}|${zone.color}|${zone.blendKm}`).join("\n");
+    const sameShapes = painted.zones?.length === climateZones.length && climateZones.every((zone, index) => zone.rings === painted.zones[index].rings);
+    if (key !== painted.key || !sameShapes) war.setClimateZones(climateZones);
+    climatePaintedRef.current = { zones: climateZones, key };
+  }, [climateZones]);
+  // Retyping a region already redraws the hatch (notifyRegions); retyping a
+  // whole type (the Region Types panel's Water switch) does it here.
+  useEffect(() => {
+    rebuildFreezingRef.current?.();
+  }, [freezingRegions, types]);
+  useEffect(() => {
+    warLayersRef.current?.restyle();
+  }, [warSelectedKey]);
 
   // ---- mount/remove editing interactions when the active tool changes ------
   useEffect(() => {
@@ -3186,6 +3327,101 @@ const OlMap = ({
         notifyRegions();
       });
       added.push(translate);
+    } else if (isWarTool(activeTool) && warLayersRef.current) {
+      // Terrain, Fortified line, Climate zone: draw a shape of that kind into its
+      // own source (warGeographyLayers.js), never the regions'. Nothing is
+      // carved: what is drawn goes to the document (onWarShapeCreate), and the
+      // source shows it from there. A click on a shape's outline, or on a line,
+      // picks that shape instead of starting a new one; the shape picked can be
+      // reshaped by its points, as the Edit vertices tool reshapes a region.
+      const kind = activeTool;
+      const line = kind === "fortification";
+      const own = warLayersRef.current.sources[kind];
+      const reach = () => (map.getView().getResolution() || 1) * 8;
+      let sketching = false;
+      const draw = new Draw({
+        features: new Collection(),
+        type: drawTypeOf(kind),
+        // Shift-drag draws freehand (OpenLayers' own freehand condition).
+        condition: (event) => {
+          const oe = event.originalEvent;
+          if (oe && (oe.ctrlKey || oe.metaKey || oe.altKey || oe.shiftKey)) return false;
+          if (!sketching) {
+            const hit = shapeNear(own, event.coordinate, reach());
+            if (hit) {
+              onWarSelectRef.current?.({ kind, id: String(hit.getId()) });
+              return false;
+            }
+          }
+          placedPointsRef.current.push(event.coordinate);
+          return true;
+        },
+      });
+      activeDrawRef.current = draw;
+      draw.on("drawstart", () => {
+        sketching = true;
+        placedPointsRef.current = placedPointsRef.current.slice(-1);
+      });
+      draw.on("drawabort", () => {
+        sketching = false;
+        placedPointsRef.current = [];
+      });
+      // A fortified line's first owner is the country whose regions it mostly
+      // crosses, sampled along it.
+      const ownerAlong = (geometry) => {
+        const owners = [];
+        for (let i = 0; i <= 48; i += 1) {
+          const hits = source.getFeaturesAtCoordinate(geometry.getCoordinateAt(i / 48));
+          const owner = hits.length ? hits[hits.length - 1].get("owner") : null;
+          if (owner) owners.push(String(owner));
+        }
+        return mostCommon(owners) || "";
+      };
+      // A long freehand stroke has a point for every move of the mouse. The
+      // world keeps at most 2,000 to a line or a ring and cuts off the rest
+      // (runtime/warGeography.js), which would change the shape on its first
+      // save, so a stroke with more than 1,500 is smoothed to fewer first.
+      const lean = (geometry) => {
+        let tolerance = (map.getView().getResolution() || 1) * 1.5;
+        let kept = geometry;
+        while (kept.getFlatCoordinates().length / kept.getStride() > 1500 && tolerance < 1e7) {
+          kept = geometry.simplify(tolerance);
+          tolerance *= 2;
+        }
+        return kept;
+      };
+      draw.on("drawend", (e) => {
+        sketching = false;
+        placedPointsRef.current = [];
+        const geometry = lean(e.feature.getGeometry());
+        const shape = line ? { points: pointsOfLine(geometry), owner: ownerAlong(geometry) } : { rings: ringsOfPolygon(geometry) };
+        const cmd = onWarShapeCreateRef.current?.(kind, shape);
+        if (cmd) pushCmd(cmd);
+      });
+      added.push(draw);
+
+      const picked = warSelectionRef.current;
+      const pickedFeature = picked?.kind === kind ? own.getFeatureById(String(picked.id)) : null;
+      if (pickedFeature) {
+        const modify = new Modify({
+          features: new Collection([pickedFeature]),
+          pixelTolerance: 12,
+          style: manualVertexStyle,
+          // Not while an outline is being drawn: the next zone drawn along this
+          // one's edge places its points there (Snap puts them on the edge)
+          // instead of dragging this one's.
+          condition: (event) => !sketching && primaryAction(event),
+        });
+        modify.on("modifyend", () => {
+          const geometry = pickedFeature.getGeometry();
+          const cmd = onWarShapeChangeRef.current?.(kind, String(picked.id), line ? { points: pointsOfLine(geometry) } : { rings: ringsOfPolygon(geometry) });
+          if (cmd) pushCmd(cmd);
+        });
+        added.push(modify);
+      }
+      // Snap last so it sees events first: a new outline can follow its
+      // neighbours' points and edges.
+      added.push(new Snap({ source: own, pixelTolerance: 10 }));
     } else if (activeTool === "lasso") {
       // freehand circle/lasso: drag to enclose an area, release to select the
       // land regions inside it.
@@ -3229,7 +3465,7 @@ const OlMap = ({
       placedPointsRef.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTool, selectionKey]);
+  }, [activeTool, selectionKey, warSelectedKey]);
 
   useEffect(() => {
     selectedIdsRef.current = new Set(selectionIds || []);

@@ -41,7 +41,7 @@ The editor writes a game seed in one of two tiers: **tier 1 (re-ownership)** kee
 | `FeatureManager.jsx` | City/point-feature list; bulk import from the seed, or from the author's own file (`featureImport.js`). |
 | `CityPopup.jsx` | Inline city editor anchored at the click. |
 | `SearchBar.jsx` | Unified place search (this map's cities, regions, ~70k world places). |
-| `LayersPanel.jsx` | Visibility toggles for regions, region labels, group outlines, cities and map features, and starting units. Reads each toggle's state from the map when it opens. |
+| `LayersPanel.jsx` | Visibility toggles for regions, region labels, group outlines, cities and map features, starting units, and the war map's terrain, fortified lines, climate zones and water that can freeze. Reads each toggle's state from the map when it opens. |
 | `ReferencePanel.jsx` | Tracing-image upload/opacity/placement (session-only). |
 | `BasemapPicker.jsx` | Overlay to choose a built-in ESRI basemap, a saved basemap, upload, or a community one. Its header wraps on a phone, where Upload is an icon, like `FlagPicker`'s. Deleting a saved basemap asks first and says when it fails; a map keeps its own copy in `doc.metadata.customBackground`. |
 | `FlagPicker.jsx` | Overlay to choose a country flag (My flags / built-in / community). |
@@ -58,6 +58,7 @@ The editor writes a game seed in one of two tiers: **tier 1 (re-ownership)** kee
 | `fields.jsx` | Form-field primitives (`Row`, `TextField`, `NumberField`, `ColorField`, `Toggle`, `SelectField`, `TagField`) + hex/rgb helpers. |
 | `fmg/FmgPanel.jsx`, `fmg/fmgDriver.js`, `fmg/fmgImport.js` | Fantasy Map Generator drawer, headless Azgaar runner, result→editor-seed converter. |
 | `flagImage.js`, `citiesImport.js` | Flag downscaling; seed-city import + search. |
+| `WarMapPanel.jsx`, `warGeographyDoc.js`, `warGeographyLayers.js`, `climateBlend.js` | The war map (§9e): the panel's three tabs; the document side (new shapes, the climates a zone can take its seasons from, what a save writes and what opening a scenario reads); the map side (a source and layer for each kind of shape, the frozen-water hatch, the climate zones' blended picture); the blend's arithmetic, pure. |
 | `SuggestionReviewPanel.jsx`, `suggestionReview.js` | Reviewing a suggestion's map changes (§25): the review's state (`useSuggestionReview`), the markup layer (`useSuggestionMarkup`), the panel; and the pure half — each change's status against the open map, its dependencies, applying it (with an undo), accepting a list in order (`acceptMapChanges`), what a save records (`decisionsFor`), and what to mark on the map. |
 
 ---
@@ -102,6 +103,7 @@ TypeManager / Features … ──┼──► MapEditor ──► OlMap  ──�
 | `colorOverrides` | `{ [countryName]: [r,g,b] }` | The map-maker's own colour choices. |
 | `flags` | `{ [countryName]: dataURL }` | Author-set flags (downscaled PNG data URLs). |
 | `tags` | `{ [countryName]: string[] }` | Starting ideology/alignment tags. |
+| `terrainAreas`, `fortifications`, `climateZones`, `freezingRegions` | arrays | What the scenario draws on its map for war (§9e), each in the world's own form (`runtime/warGeography.js`). |
 
 **Colours are keyed by country NAME, not GADM code** — this is true of `colorOverrides`, `flags`, `tags`, and region `owner` alike. See §10.
 
@@ -114,7 +116,7 @@ Setters (all set `saveStatus="dirty"`):
 | `setColorOverride(country, rgb)` | `null` rgb deletes the key. |
 | `setFlag(country, dataUrl)` | `null` deletes. Value is an already-downscaled PNG data URL. |
 | `setTags(country, list)` | Uses `.length` (not truthiness) so an empty `[]` deletes rather than persisting `[]` for every touched country. |
-| `setTypes`, `setFeatures`, `setUnits` | Accept updater fn or value. |
+| `setTypes`, `setFeatures`, `setUnits`, `setTerrainAreas`, `setFortifications`, `setClimateZones`, `setFreezingRegions` | Accept updater fn or value. |
 | `patchMetadata` / `setBasemap` / `setName` / `setAuthor` | Metadata patches. |
 
 `saveStatus` ∈ `saved | dirty | saving | error`; `counts` = `{ regions, features, units, types }`.
@@ -132,6 +134,8 @@ Created once in a `[]`-dep effect and driven through refs so it survives React r
 | Base basemap | `TileLayer` (XYZ ESRI / OSM) | 0 | Swapped by `basemap` prop; **not created** while a custom image/vector background is active. |
 | Custom background | vector/raster `VectorLayer`/`WebGLTileLayer`/`TileLayer`, or image `ImageLayer`(`ImageStatic`) | 5 | Uploaded map; image is stretched across the whole world extent (`WORLD_EXTENT_3857`). |
 | Regions | `VectorImageLayer` | 10 | `regionSource`, `imageRatio:2`, `wrapX:false`; style = `makeRegionStyle(...)`. |
+| Climate blend, frozen water | `ImageLayer` (its own `ImageSource`), `VectorLayer` | 11 | The climate zones' colours blended across their blend widths (§9e); a hatch over the water regions marked Can freeze. |
+| Terrain areas, climate zone outlines, fortified lines | `VectorLayer` | 13, 14, 15 | One source each (`warGeographyLayers.js`), never the region source (§9e). |
 | Region labels | `VectorLayer` (declutter) | 20 | Same source; `minZoom:4`; label per named region unless `type.includedInLabels === false`. |
 | Cities / points | `VectorLayer` (declutter) | 30 | `pointSource`; zoom+prominence gated so ~70k cities never all render. |
 | Reference image | `ImageLayer` | 40 | Tracing aid (session only). |
@@ -163,7 +167,8 @@ This is the surface every panel drives. Each mutating call pushes an undo/redo c
 | `listOwners()` | Sorted unique owner names — backs the Country field's suggestions so re-owning offers existing names (avoids near-miss forks). |
 | `queryRegions(text, limit=200, { polities })` | Search id/name/owner key, and with `polities` the owner's display name and aliases (`regionSearch.js`), so a code-keyed roster polity is found by its name. |
 | `countByType()` | Region count per typeId (Type Manager usage). |
-| `setLayerVisibility(key, visible)`, `getLayerVisibility(key)` | `regions` \| `labels` \| `groups` \| `features` (cities and map features) \| `units`. |
+| `setLayerVisibility(key, visible)`, `getLayerVisibility(key)` | `regions` \| `labels` \| `groups` \| `features` (cities and map features) \| `units` \| `terrain` \| `fortifications` \| `climate` (the zones' colours and outlines together) \| `freezing`. |
+| `zoomToWarShape(kind, id)` | Fit to a terrain area, fortified line or climate zone (§9e). |
 | `locateFeature(coord)` | Fly to a lon/lat. |
 | `serializeRegions()` | Region geometry → GeoJSON FC (EPSG:4326, 5 decimals). Used on save/export. |
 | `loadRegions(fc)` | Replace the source from a FeatureCollection (ids pulled from `properties.id`). |
@@ -176,7 +181,7 @@ This is the surface every panel drives. Each mutating call pushes an undo/redo c
 
 Every load — `loadRegions`, `reseedWorld`, `reseedWorldWithOwners`, `replaceRegionsFromImport` — empties the undo and redo stacks (their steps hold the previous map's regions) and starts a new load. A world seed still downloading when another load starts is dropped when it arrives, so a slow seed (the standalone editor's first one, or New) never lands on a map opened in the meantime.
 
-Keyboard: **Ctrl/⌘+Z** undo, **Ctrl/⌘+Shift+Z / Ctrl+Y** redo, **Delete/Backspace** removes the selection — all suppressed while typing in an input.
+Keyboard: **Ctrl/⌘+Z** undo, **Ctrl/⌘+Shift+Z / Ctrl+Y** redo, **Delete/Backspace** removes the selection — all suppressed while typing in an input. In a war tool (§9e) the keys are about its shapes, never the regions selected underneath: **Escape** drops the outline being drawn, or else lets go of the shape picked; **Backspace** takes back the outline's last point; **Delete/Backspace** remove the shape picked, one undo step.
 
 ---
 
@@ -194,12 +199,13 @@ The strip sits in a band between the documents chip and the Save / Apply / Close
 | Draw region | `draw` | `Draw` (Polygon, `trace:true`, `traceSource:source`) + `Snap`. Clicking a border traces along it. **On `drawend` the new polygon is carved OUT of every region it overlaps** (`subtractFrom`, R-tree extent query for candidates) so no ground is owned twice; carved neighbours get `edited:true`. Inside → hole; across an edge → bite; fully over → deletes the underlying region. |
 | Edit vertices | `modify` | `Modify` on the selected regions only + `Snap` against every region. With nothing selected the tool mounts nothing and its banner asks for a selection. On `modifyend` sets `edited:true` on dragged features. |
 | Move | `move` | `Translate` on the region layer. A moved region is marked `edited`, and each move is one undo step (`trackMove`, `shapeEdits.js`); a click that moves nothing records nothing. |
-| Delete | `delete` | Click removes a region (a unit, then a city or map feature, under the cursor wins). Every removal is an undo step: `onUnitRemove` / `onFeatureRemove` return the document's undo step (`removeRowStep`, `documentUndo.js`), which puts the row back where it was. |
+| Delete | `delete` | Click removes a region (a unit, then a city or map feature, then a fortified line or the outline of a terrain area or climate zone whose layer is shown, under the cursor wins). Every removal is an undo step: `onUnitRemove` / `onFeatureRemove` / `onWarShapeRemove` return the document's undo step (`removeRowStep`, `documentUndo.js`), which puts the row back where it was. |
 | Delete border (dissolve) | `dissolve` | Click a region; probes neighbouring pixels for the region across the nearest border and unions the two into one, marking the survivor `edited` (`mergeRegionFeatures`, `shapeEdits.js`). A union that fails says so (saving the map into the scenario repairs its borders, see **Border cleanup on save**; then try again; in the standalone editor the message names the export, which is what repairs them there) instead of doing nothing. |
 | Paint owner | `paint` | Click stamps the current **Paint owner** value (a country NAME, trimmed, never case-folded) onto the clicked region. A floating owner input + swatch appears at the top (`MapEditor.jsx`). |
 | City tool | `feature` | Click empty map → `onFeatureCreate` (drops a city + opens `CityPopup`); click a city → `onFeatureEdit`. Carries the underlying region's owner/regionId. |
 | Unit tool | `unit` | Click empty map → `onUnitCreate` (drops a starting unit owned by the region's owner and opens `UnitPopup`); click a unit → `onUnitEdit`. The Delete tool removes a unit under the cursor. See §9b. |
 | Box-select features | `feature-box` | Drag a rectangle (`DragBox`) over cities and features → `onFeatureSelectionChange(ids)`; Shift adds to the selection. Selected features draw a yellow ring, and the Features panel's selection bar tags or deletes them together (§9). |
+| Terrain / Fortified line / Climate zone | `terrain` / `fortification` / `climate` | `Draw` (Polygon / LineString / Polygon; Shift-drag draws freehand) into nothing: `onWarShapeCreate` adds the shape to the document, one undo step, and its own source shows it. **Never carves regions.** Before a sketch starts, a click on a shape's outline (or on a line; `Snap` reaches 10 px, the test 8) picks that shape instead; the shape picked gets `Modify` on its points (`onWarShapeChange`, one undo step each), and `Snap` follows the same kind's shapes. A new fortified line's owner is the owner most of its regions have (48 samples along it). A freehand stroke of more than 1,500 points is smoothed first (the world keeps at most 2,000 to a ring or line). See §9e. |
 | Undo / Redo / Fit | — | Toolbar buttons wired to `api.undo/redo/fitToData`. |
 
 The **`edited` flag** is the linchpin of tier-2 correctness, and every tool that changes a region's shape sets it — Draw (the carved neighbours), Edit vertices, Shared border, Move, Merge, Delete border, the save-time border cleanup and Paste — and its undo puts the old flag back (`shapeEdits.test.js`): a reshaped GADM region's true geometry now lives in the exported GeoJSON while the stock tiles still hold its original shape. The exporter carries `edited:true` into the game so `Nations.jsx` renders it from the GeoJSON and excludes it from the stock-tile fill (otherwise the original shape repaints on top, darker — the "edited-region shade" bug).
@@ -217,6 +223,7 @@ Shown whenever ≥1 region is selected. Writes go straight through `api.setRegio
 | **Polity** (owner) | `{ owner: key \| null }` | Free text over the polity registry, backed by a `<datalist>` of existing polities (registry entries plus `listOwners()`), shown by display name. An existing polity is matched by its stable key or display name without regard to case and its key is stored unchanged, so "france" cannot fork a second France. **A name nobody has yet becomes a new polity** — `upsertPolity` writes the same record the Polities panel creates (`name`, `code`, `aliases`, `status`) and the selection is assigned to it — but only on **Enter** or the **Create “…”** button that appears under the field; leaving the field assigns only an existing match, and Escape reverts, so a half-typed name never mints a one-province country by accident. Blanking the field offers **Make unowned**. |
 | **Disputed by** (claimants) | `{ claimants }` | `TagField` of claimant names. Any claimant makes the region render **striped** (owner colour + each claimant's), here and in-game. When a multi-selection's lists differ the field shows only the claims every region shares ("mixed" placeholder), and an edit is applied per region against its own list (`claimantEdits.js`; `setRegionAttrs` takes `claimants` as a function of the region's list): an added claimant joins every list, a removed one leaves every list, and the claims only some regions carry are kept. Identical lists are replaced whole. |
 | **Controlled by group** | `{ group }` | Which group's area the regions are in (§24b), or none. The group's tint shows on the region at once; **Groups…** opens the Groups panel. |
+| **Can freeze** | `doc.freezingRegions` | Shown when every selected region is of a water type (`isWaterType`); on when every one is marked. Membership of the document's list, one undo step (`membershipStep`, `documentUndo.js`). §9e. |
 | **Colour** | `setColorOverride(owner, rgb)` | Only shown with an owner. **Reset** appears when an override exists (`colorOverrides[owner]`). |
 | **Flag** | opens `FlagPicker` via `onOpenFlagPicker(owner)` | Renders current flag thumbnail. |
 | **Tags** | `setTags(owner, next)` | `TagField` with `TAG_SUGGESTIONS`; free vocabulary. Each `TagField` owns its datalist (`useId()`), so the Tags box never offers the Disputed-by polity names. |
@@ -300,6 +307,23 @@ Pieces of one map can be pasted into another. **Copy to clipboard** in the selec
 
 **Paste into this map** (the Clipboard chip's panel, or Ctrl/⌘+V) first gives the document what it lacks — `planClipboardMerge`: a country the target already knows keeps its record, colour, flag and tags, only the missing ones arrive; missing region types are added, and so is a group's record where the target has no group by that name in any case (`plan.groups`, applied with `setGroups`) — then `api.pasteRegions(fc)` carves and adds: each pasted region takes its land out of whatever already covers it exactly as the Draw tool does (a region beneath keeps what is not covered, a hole or a bite, and is marked `edited`; one covered entirely is removed), then the copies are added, selected and zoomed to. A pasted region keeps its id when the target has no region by that id (a stock-world id keeps its tile linkage; a region the paste removed entirely frees its id for its replacement), otherwise it gets a fresh `reg_` id (`resolvePastedIds`, one id per pasted region in order, so two with the same id or none still get one each); it is always marked `edited`. The whole paste is one undo step, and the panel reports what happened ("12 regions · 3 underneath trimmed · 1 replaced entirely"). Cities and units are not copied. Tests: `regionClipboard.test.js`.
 
+## 9e. The war map: terrain, fortified lines, climate zones, frozen water (`WarMapPanel.jsx`, `warGeographyDoc.js`, `warGeographyLayers.js`, `climateBlend.js`)
+
+What a scenario draws on its map for war: four world keys (`src/runtime/warGeography.js`, world-state.md), kept in the document in the world's own form, so the save writes them as they are and opening the scenario reads them back.
+
+| Key | Drawn with | Edited in |
+|---|---|---|
+| `terrainAreas` `[{ id, name, level 0-10, rings }]` | **Terrain** tool: ground troops cross more slowly; 0 flat, 10 impassable | War map panel, Terrain tab: name, level slider with a word for each level |
+| `fortifications` `[{ id, name, owner, level 3-10, points, breaches, wear, building? }]` | **Fortified line** tool: a wall to break through; 10 never breaks | Fortified lines tab: name, level slider with words, **Held by** (a country, a group, or no one; first set to the country whose regions the line mostly crosses). `breaches`, `wear` and `building` come from the game and are kept as they are |
+| `climateZones` `[{ id, name, color, rings, blendKm, transitionDays, seasons, events }]` | **Climate zone** tool | Climate tab: name, colour, blend width (km), transition (days), the seasons (name, starts and ends as a month and a day, own colour, the shares of the nine weathers, the effects pace/attack/wear/cold/heat/air each left to the weather until moved, **Water freezes**; **Seasons of a climate…** fills them from one of the game's four climates, `seasonsOfClimate`), and dated events (name, from and to as game dates, BC as a minus, an optional forced weather, effects) |
+| `freezingRegions` `[regionId]` | — | The region inspector's **Can freeze** (§7), shown for water regions |
+
+The **War map** chip opens the panel, and picking one of the three tools opens it on its tab. A tab lists its shapes (pick one to edit it, which also picks its tool and zooms to it; zoom; delete) and has a button that turns its tool on and off; a banner above the map says what the tool does. A new shape is named and numbered after the ones already there and picked at once. Drawing, reshaping and deleting are each one undo step on the map's stack (`addRowStep`, `patchRowStep`, `removeRowStep`); the fields in the panel change the document as they are edited, like the Groups panel's, and are not undo steps. A change of projection (§14b) moves every point of the shapes with the regions (`moveWarShapes`).
+
+**On the map** each kind has its own source and layer (z 13 to 15; §5): terrain a flat earthy fill, stronger the higher the level, under a dashed outline and its name and level; a fortified line a thick dark line with ticks along one side; a climate zone an outline in its colour. The zones' colours are painted under the outlines by an image layer of its own (z 11): for each cell, each zone's weight is `0.5 + (km inside its edge) / blendKm` held between 0 and 1, the colour the weighted mix and the strength 0.35 times the weights' sum up to 1, so two zones that meet blend evenly and a zone alone fades out into the map (`climateBlend.js`, `climateBlend.test.js`). The picture is painted by hand, a cell for every 4 to 48 screen pixels (bigger the more edges the zones have, `blendCellPixels`), only when the view stops moving and only when there is a zone, and the map smooths it as it scales it to the screen; no gradient is drawn anywhere. Water that can freeze is hatched with a repeated tile of thin strokes, over the regions marked and still of a water type.
+
+**The round trip.** `createDocument` and `openStoredDocument` carry the four keys (cleaned on open), `buildDocumentFields` saves them, `DOCUMENT_FIELDS` creates them (`server/mapEditorFields.js`), `buildGameSeed` writes them into the world (`warGeographyForGame`: the frozen regions only where they are water on the map), `writeMapToScenario` replaces the world's with them (`warGeographyWorldPatch`), and `openMapEditorFor` hands them back to the hydration (`warGeographyOf`). `"terrainAreas"`, `"fortifications"`, `"climateZones"` and `"freezingRegions"` are in `TEMPLATE_WORLD_OVERRIDE_KEYS`, so every new game starts with them. `warGeographyDoc.test.js` runs the whole round: document, store, seed, scenario world, game world, reopened document, second save.
+
 ---
 
 ## 10. Owner-name handling (names, not codes)
@@ -374,7 +398,7 @@ A semi-transparent image above the region fills (z40) that a map-maker aligns a 
 
 A map has a **projection**: Mercator (what every map was, and what a new one is), another world projection (equirectangular, Miller, Gall-Peters, Robinson, Natural Earth, Equal Earth, Mollweide, sinusoidal) or **Freeform**, a flat sheet of any shape with no globe behind it. The arithmetic is `server/mapProjection.js`, import-free and shared with the server and the game. The renderers only draw Mercator, so a map in projection P is kept **already laid out**: every place stored at the spot on the Mercator plane where P puts it. `doc.metadata.projection` (`{ type, aspect? , globe?, wrap? }`) records what it is; the save writes it to `world.projection` with `laidOut: true`, and the scenario opens with it again.
 
-The **Projection** chip in the bottom bar opens the panel. **Convert the map** (`MapEditor.jsx convertProjection`) moves everything by one rule, `convertPlane(from, to)`: the regions (`api.transformRegions`, on the map's own Mercator metres), the cities and features (`moveFeatureCoords`), the starting units (`moveUnits`). Between two world projections a place goes through its true longitude and latitude; to or from Freeform the sheet's rectangle is stretched onto the other one. It is not an undo step (regions, document and basemap move together outside the region stack), so the history is cleared; converting back returns. What becomes of the basemap is `planBasemapChange`:
+The **Projection** chip in the bottom bar opens the panel. **Convert the map** (`MapEditor.jsx convertProjection`) moves everything by one rule, `convertPlane(from, to)`: the regions (`api.transformRegions`, on the map's own Mercator metres), the cities and features (`moveFeatureCoords`), the starting units (`moveUnits`), the war map's terrain areas, fortified lines and climate zones (`moveWarShapes`, §9e). Between two world projections a place goes through its true longitude and latitude; to or from Freeform the sheet's rectangle is stretched onto the other one. It is not an undo step (regions, document and basemap move together outside the region stack), so the history is cleared; converting back returns. What becomes of the basemap is `planBasemapChange`:
 
 | Basemap | What happens |
 |---|---|
@@ -458,6 +482,7 @@ Save robustness:
 | `world.markers` | The map features that are not cities (§9d), `buildMarkersForGame`. |
 | `world.puppets` | The puppet states (§24c), `buildPuppetsForGame`. |
 | `world.regionTypes` | The document's region types (§8), `normalizeRegionTypes`. The game draws them and tells the AI their rules. |
+| `world.terrainAreas` / `fortifications` / `climateZones` / `freezingRegions` | The war map (§9e), cleaned as the game cleans them (`warGeographyForGame`); a frozen region only where it is water on this map. `[]` when none. |
 | `world.regionClaimants` | `{regionId: [claimant]}` — the map's disputes. |
 | `world.settledRegionClaims` | `[]` — a scenario starts with no dispute already over. |
 | `world.units` | Starting units (`buildUnitsForGame`, §9b), `[]` when none. |
@@ -505,7 +530,7 @@ When the editor opens from a scenario, `onOpenMapEditor` (`libraryBar.jsx`) fetc
 
 ## 20b. Groups, puppet states and structures round-trip
 
-`libraryBar.jsx` hands the Workshop the scenario world's `groups`, `groupAreas` (stamped onto the regions with the disputes, `claimStamper`), `markers`, `puppets` and `regionTypes`, and `applyMapToScenario` writes back the Workshop's: it opened with the whole of each, so what it saves is the whole of each. The document keeps them as `doc.groups`, the regions' `group`, map features in `doc.features`, and `doc.puppets`; `buildDocumentFields` lists `units`, `groups` and `puppets` (units were missing there, so a document's units vanished on reopening it), and both stores' creates keep every one of them, built from the one field list in `server/mapEditorFields.js` (`DOCUMENT_FIELDS`) — each store kept its own list, and neither named `puppets`, so puppet states set before a new map's first save were gone on reopening it. A field added to `buildDocumentFields` goes in that list too.
+`libraryBar.jsx` hands the Workshop the scenario world's `groups`, `groupAreas` (stamped onto the regions with the disputes, `claimStamper`), `markers`, `puppets`, `regionTypes` and the war map's four keys (§9e), and `applyMapToScenario` writes back the Workshop's: it opened with the whole of each, so what it saves is the whole of each. The document keeps them as `doc.groups`, the regions' `group`, map features in `doc.features`, and `doc.puppets`; `buildDocumentFields` lists `units`, `groups` and `puppets` (units were missing there, so a document's units vanished on reopening it), and both stores' creates keep every one of them, built from the one field list in `server/mapEditorFields.js` (`DOCUMENT_FIELDS`) — each store kept its own list, and neither named `puppets`, so puppet states set before a new map's first save were gone on reopening it. A field added to `buildDocumentFields` goes in that list too.
 
 ## 21. Document migration (`documentMigration.js`)
 

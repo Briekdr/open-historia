@@ -17,6 +17,11 @@ const LAYERS = [
   { key: "groups", label: "Group outlines" },
   { key: "features", label: "Cities and map features" },
   { key: "units", label: "Starting units" },
+  // What the scenario draws on its map for war (warGeographyLayers.js).
+  { key: "terrain", label: "Terrain" },
+  { key: "fortifications", label: "Fortified lines" },
+  { key: "climate", label: "Climate zones" },
+  { key: "freezing", label: "Water that can freeze" },
 ];
 
 const LayersPanel = ({ api, onClose }) => {

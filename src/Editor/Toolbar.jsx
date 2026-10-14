@@ -29,6 +29,12 @@ const TOOLS = [
   { id: "marker", icon: "pin", label: "Map feature tool (click the map to place a base, port, landmark or other feature; click one to edit it)" },
   { id: "unit", icon: "unit", label: "Unit tool (click the map to place a starting unit, click a unit to edit it)" },
   { id: "feature-box", icon: "boxSelect", label: "Box-select features (drag a rectangle over cities and features to select them all)" },
+  { sep: true },
+  // What the scenario draws on its map for war (warGeographyDoc.js). Each draws
+  // into a layer of its own and never carves the regions it is drawn over.
+  { id: "terrain", icon: "mountain", label: "Terrain (draw an area troops cross more slowly; click an outline to pick one)" },
+  { id: "fortification", icon: "wall", label: "Fortified line (draw a wall troops have to break through; click a line to pick one)" },
+  { id: "climate", icon: "climate", label: "Climate zone (draw an area with its own seasons and weather; click an outline to pick one)" },
 ];
 
 // The CSS variable the side panels (Panel.jsx) read for their top edge, so a
