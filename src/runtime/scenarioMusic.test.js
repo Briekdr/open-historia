@@ -147,7 +147,9 @@ test("the credits are the hub's own words, once for each track the hub still has
 // The follower's four needs, each a stand-in a test can watch.
 const followerRig = ({ on = true, known = null } = {}) => {
   const rig = { on, known, asked: 0, answer: LIST, played: [], waiting: [] };
+  rig.levels = [];
   rig.follower = createScenarioMusicFollower({
+    level: (levels) => rig.levels.push(levels),
     play: (lists) => rig.played.push(lists ? Object.fromEntries(Object.entries(lists).map(([key, items]) => [key, items.map((item) => item.id)])) : null),
     enabled: () => rig.on,
     known: () => rig.known,
@@ -210,6 +212,66 @@ test("the open game's scenario music follows the hub's list: what is known at on
   unread.follower.follow(music);
   await unread.answerAll();
   assert.deepEqual(unread.played, [null, null]);
+});
+
+test("how loud each situation is goes to the music with the record, at once, and needs nothing of the hub", async () => {
+  // No list known yet, and the hub slow to answer: the levels are told anyway.
+  const rig = followerRig();
+  rig.follower.follow({ game: [entry("theme")], volume: { game: 20, battle: 100 } });
+  assert.deepEqual(rig.levels, [{ loading: 100, game: 20, atWar: 50, battle: 100 }]);
+  assert.deepEqual(rig.played, [null]);
+  // The same record again says nothing twice.
+  rig.follower.follow({ game: [entry("theme")], volume: { game: 20, battle: 100 } });
+  assert.equal(rig.levels.length, 1);
+  // Only the volume changed: told, though the tracks are the same.
+  rig.follower.follow({ game: [entry("theme")], volume: { game: 35 } });
+  assert.deepEqual(rig.levels.at(-1), { loading: 100, game: 35, atWar: 50, battle: 75 });
+  // A scenario that sets volumes and names no track is a record too.
+  rig.follower.follow({ volume: { atWar: 10 } });
+  assert.deepEqual(rig.levels.at(-1), { loading: 100, game: 50, atWar: 10, battle: 75 });
+  // No scenario music at all: the game's own figures.
+  rig.follower.follow(null);
+  assert.deepEqual(rig.levels.at(-1), { loading: 100, game: 50, atWar: 50, battle: 75 });
+  await rig.answerAll();
+  // With the music off they are still told: they cost nothing, and the switch may be turned on.
+  const off = followerRig({ on: false });
+  off.follower.follow({ volume: { game: 5 } });
+  assert.deepEqual(off.levels, [{ loading: 100, game: 5, atWar: 50, battle: 75 }]);
+  assert.equal(off.asked, 0);
+});
+
+test("the editor's Music tab has a volume for each situation, and a suggestion shows the ones it changes", () => {
+  const panel = read("src/Game/GameUI/ScenarioMusicPanel.jsx");
+  assert.ok(panel.includes("const volumes = scenarioMusicVolumes(music);"));
+  // Changing the tracks keeps the volumes, and changing a volume keeps the tracks.
+  assert.ok(panel.includes("const write = (situation, entries) => onChange(normalizeScenarioMusic({ ...record(), [situation]: entries }));"));
+  assert.ok(panel.includes("const writeVolume = (situation, value) => onChange(normalizeScenarioMusic({ ...record(), volume: { ...volumes, [situation]: value } }));"));
+  assert.match(panel, /aria-label="Volume"\s+max="100"\s+min="0"\s+onChange=\{\(event\) => writeVolume\(situation, Number\(event\.target\.value\)\)\}/);
+  assert.ok(panel.includes("value={volumes[situation]}"));
+  // Back to the game's own figure, which is then not kept in the record.
+  assert.ok(panel.includes("onClick={() => writeVolume(situation, SCENARIO_MUSIC_VOLUMES[situation])}"));
+  // Grey, like every control on these screens.
+  assert.ok(panel.includes("style={{ accentColor: \"#d4d4d8\", width: \"9rem\" }}"));
+  assert.ok(panel.includes("{\"A situation's volume is a share of the volume the player set, for whatever plays there.\"}"));
+  // At war with no tracks is no longer "the music does not change".
+  assert.ok(!panel.includes("the music does not change when the player is at war"));
+  assert.ok(panel.includes("\"No tracks chosen: at war, the tracks chosen for the game play, and with none of those the game's own war music.\""));
+
+  const suggestions = read("src/Game/GameUI/ScenarioSuggestions.jsx");
+  assert.ok(suggestions.includes("const [volumeBefore, volumeAfter] = [scenarioMusicVolumes(before), scenarioMusicVolumes(after)];"));
+  assert.ok(suggestions.includes("const louder = SCENARIO_MUSIC_SITUATIONS.filter((situation) => volumeBefore[situation] !== volumeAfter[situation]);"));
+  assert.ok(suggestions.includes("{`${volumeBefore[situation]}%`}"));
+  assert.ok(suggestions.includes("{`${volumeAfter[situation]}%`}"));
+});
+
+test("a volume travels with the music through a suggestion: one change, accepted or refused as a whole", () => {
+  const base = { music: normalizeScenarioMusic({ game: [entry("theme")] }) };
+  const next = { music: normalizeScenarioMusic({ game: [entry("theme")], volume: { game: 20 } }) };
+  // Only the volume differs, and that is a change.
+  assert.notEqual(JSON.stringify(base.music), JSON.stringify(next.music));
+  assert.deepEqual(next.music.volume, { game: 20 });
+  // What reaches the author's scenario is read as a file's.
+  assert.deepEqual(normalizeScenarioMusic({ ...next.music, volume: { game: 20, src: "https://example.org/x.mp3", atWar: "9" } }).volume, { game: 20 });
 });
 
 test("with the music off the hub is not asked, and is asked when it is switched on", async () => {

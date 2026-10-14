@@ -3,7 +3,8 @@
 // A scenario may name tracks from the community hub's music list for four
 // situations of a game. It keeps only which tracks, never the music itself:
 //
-//   music: { loading: [ { id, version } ], game: [...], atWar: [...], battle: [...] }
+//   music: { loading: [ { id, version } ], game: [...], atWar: [...], battle: [...],
+//            volume: { game: 35, ... } }
 //
 //   loading  the game is opening under its cover;
 //   game     in the game;
@@ -14,8 +15,17 @@
 // its credit and where its file is always come from the hub's list when it is
 // about to play (src/runtime/hubMusic.js), so a track the hub has taken down
 // stops playing everywhere, and nothing here can point a game at a file. An
-// empty list is the game's own music for that situation, and a scenario with
-// four empty lists has no `music` at all.
+// empty list is the game's own music for that situation.
+//
+// `volume` is how loud each situation's music is, whatever plays there (the
+// scenario's tracks or the game's own): a whole number from 0 to 100, a share
+// of the volume the player set, never more than it. The owner (2026-10-13):
+// "background music when in game and in war should be quieter. the volume
+// should be tunable by scenario designers". Only a situation the author set
+// to something other than the game's own figure (SCENARIO_MUSIC_VOLUMES) is
+// kept, so a record says only what its author decided.
+//
+// A scenario that names no track and sets no volume has no `music` at all.
 //
 // Pure and dependency-free: the desktop store (server/libraryStore.js) and the
 // web store (src/runtime/web/models.js) read and write the record through
@@ -24,6 +34,11 @@
 
 export const SCENARIO_MUSIC_SITUATIONS = Object.freeze(["loading", "game", "atWar", "battle"]);
 export const MAX_SCENARIO_MUSIC_TRACKS = 12;
+// How loud each situation's music is where the scenario says nothing, out of
+// 100 of the player's own volume. The music of a game being played, at peace
+// or at war, is the background: half. The war room is a screen of its own,
+// and a game opening is the music's moment.
+export const SCENARIO_MUSIC_VOLUMES = Object.freeze({ loading: 100, game: 50, atWar: 50, battle: 75 });
 
 // A track's id as the hub writes it ("passage-of-time"): letters, digits,
 // dots, dashes and underscores. Anything else is not an id, whoever wrote it.
@@ -47,13 +62,37 @@ const trackList = (raw) => {
   return list;
 };
 
-// The record as it is stored and exported, or null when it names no track.
-// Read as a stranger's: a bundle is a file anybody can write.
+// A volume as it is kept: a whole number from 0 to 100, or null for anything
+// that is not a number.
+const volumeOf = (value) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : null);
+
+// The volumes the author set that are not the game's own figures, or null.
+const volumeRecord = (raw) => {
+  if (!isRecord(raw)) return null;
+  const volume = {};
+  for (const situation of SCENARIO_MUSIC_SITUATIONS) {
+    const value = volumeOf(raw[situation]);
+    if (value !== null && value !== SCENARIO_MUSIC_VOLUMES[situation]) volume[situation] = value;
+  }
+  return Object.keys(volume).length ? volume : null;
+};
+
+// The record as it is stored and exported, or null when it names no track and
+// sets no volume. Read as a stranger's: a bundle is a file anybody can write.
 export const normalizeScenarioMusic = (raw) => {
   if (!isRecord(raw)) return null;
   const music = {};
   for (const situation of SCENARIO_MUSIC_SITUATIONS) music[situation] = trackList(raw[situation]);
-  return SCENARIO_MUSIC_SITUATIONS.some((situation) => music[situation].length) ? music : null;
+  const volume = volumeRecord(raw.volume);
+  if (volume) music.volume = volume;
+  return volume || SCENARIO_MUSIC_SITUATIONS.some((situation) => music[situation].length) ? music : null;
+};
+
+// How loud each situation is for a scenario with this record (or with none):
+// every situation, out of 100, the author's figure or the game's own.
+export const scenarioMusicVolumes = (raw) => {
+  const set = normalizeScenarioMusic(raw)?.volume ?? {};
+  return Object.fromEntries(SCENARIO_MUSIC_SITUATIONS.map((situation) => [situation, set[situation] ?? SCENARIO_MUSIC_VOLUMES[situation]]));
 };
 
 // The field of a scenario's details and of a bundle's `scenario` object: there

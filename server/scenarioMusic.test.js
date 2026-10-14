@@ -22,10 +22,12 @@ import { OWNER_SCHEMA } from "./ownerMigration.js";
 import {
   MAX_SCENARIO_MUSIC_TRACKS,
   SCENARIO_MUSIC_SITUATIONS,
+  SCENARIO_MUSIC_VOLUMES,
   musicTrackId,
   normalizeScenarioMusic,
   scenarioMusicField,
   scenarioMusicTrackIds,
+  scenarioMusicVolumes,
 } from "./scenarioMusic.js";
 
 const MUSIC = {
@@ -51,6 +53,33 @@ test("the record is four lists of { id, version }, and nothing at all when they 
   assert.deepEqual(scenarioMusicTrackIds(MUSIC), ["passage-of-time", "quiet-fields", "long-road", "legionnaire"]);
   assert.deepEqual(scenarioMusicTrackIds({ game: [{ id: "a" }, { id: "b" }, { id: "a" }], battle: [{ id: "b" }] }), ["a", "b"]);
   assert.deepEqual(scenarioMusicTrackIds(null), []);
+});
+
+// "Background music when in game and in war should be quieter. The volume
+// should be tunable by scenario designers."
+test("a scenario sets how loud each situation is: whole numbers out of 100, and only those that are its own", () => {
+  assert.deepEqual({ ...SCENARIO_MUSIC_VOLUMES }, { loading: 100, game: 50, atWar: 50, battle: 75 });
+  // With nothing set every situation is the game's own figure.
+  assert.deepEqual(scenarioMusicVolumes(null), { loading: 100, game: 50, atWar: 50, battle: 75 });
+  assert.deepEqual(scenarioMusicVolumes({ game: [{ id: "theme", version: 1 }] }), { loading: 100, game: 50, atWar: 50, battle: 75 });
+  // A volume is a record of its own beside the lists, and a scenario may set one with no track at all.
+  const quiet = normalizeScenarioMusic({ volume: { game: 20, battle: 100 } });
+  assert.deepEqual(quiet, { loading: [], game: [], atWar: [], battle: [], volume: { game: 20, battle: 100 } });
+  assert.deepEqual(scenarioMusicVolumes(quiet), { loading: 100, game: 20, atWar: 50, battle: 100 });
+  assert.deepEqual(scenarioMusicField({ volume: { game: 20 } }), { music: { loading: [], game: [], atWar: [], battle: [], volume: { game: 20 } } });
+  assert.deepEqual(scenarioMusicTrackIds(quiet), []);
+  // A figure that is the game's own is not kept, so a record says only what its author decided;
+  // and one that sets nothing of its own is no record.
+  assert.equal(normalizeScenarioMusic({ volume: { game: 50, atWar: 50, battle: 75, loading: 100 } }), null);
+  assert.deepEqual(normalizeScenarioMusic({ game: [{ id: "theme", version: 1 }], volume: { game: 50, atWar: 30 } }).volume, { atWar: 30 });
+  assert.equal("volume" in normalizeScenarioMusic({ game: [{ id: "theme", version: 1 }], volume: { game: 50 } }), false);
+  // Read as a stranger's: held between 0 and 100, rounded, and anything that is not a number dropped.
+  assert.deepEqual(normalizeScenarioMusic({ volume: { game: 400, atWar: -5, battle: 33.6, loading: "70", menu: 10, other: 1 } }).volume, { game: 100, atWar: 0, battle: 34 });
+  assert.equal(normalizeScenarioMusic({ volume: { game: NaN, atWar: null, battle: "loud", loading: Infinity } }), null);
+  assert.equal(normalizeScenarioMusic({ volume: [20, 30] }), null);
+  assert.equal(normalizeScenarioMusic({ volume: 20 }), null);
+  // Written in one shape: read again it is itself.
+  assert.deepEqual(normalizeScenarioMusic(quiet), quiet);
 });
 
 test("it is read tolerantly: anything malformed is dropped, and a list holds twelve at most", () => {

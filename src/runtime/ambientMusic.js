@@ -51,9 +51,10 @@
 //            (PASSAGE_DRAMA.cuts), lets it ring, and stops. After a breath of
 //            silence the game's own music comes in ("add these new tracks to
 //            play in the background ingame": Hour Of The Witch and Honour
-//            Among Thieves, MUSIC_GAME_PIECES): one of them picked at random
-//            for each game, the other after it, round and round, LEVELLED as
-//            the menu's are so that it stays in the background. A game
+//            Among Thieves, and then Frankincense and Myrrh and Discovery,
+//            MUSIC_GAME_PIECES): one of them picked at random for each game,
+//            the others after it in turn, round and round, LEVELLED as the
+//            menu's are so that it stays in the background. A game
 //            drawn while the big hit is still far off does not wait for it:
 //            the build fades out on its next accent (exitAfter).
 //   atWar    in the game, with the player's country at war. The war room's
@@ -92,6 +93,14 @@
 // measured from the file: they belong to this recording and no other. A hub
 // track's credit is the hub's (Settings shows the one that is playing).
 //
+// How loud a situation's music is: a share of the player's own volume
+// ("background music when in game and in war should be quieter. the volume
+// should be tunable by scenario designers"). The music of a game being
+// played, at peace or at war, is half; the war room three quarters; the menu
+// and a game opening the whole (SCENARIO_MUSIC_VOLUMES). A scenario sets its
+// own (its record's `volume`), for whatever plays there, its tracks or the
+// game's.
+//
 // The rest:
 //   * on unless the player turns it off (Settings → General → Sound), at a
 //     volume they set there;
@@ -112,7 +121,7 @@
 // is the address every hub file is fetched through (hubMusic.js
 // playableAddressOf), which is also what a track's `src` is.
 
-import { SCENARIO_MUSIC_SITUATIONS } from "../../server/scenarioMusic.js";
+import { SCENARIO_MUSIC_SITUATIONS, SCENARIO_MUSIC_VOLUMES } from "../../server/scenarioMusic.js";
 import { keptMusicAddress, releaseMusicAddress } from "./keptMusic.js";
 import { MAP_SETTING_KEYS, getMapSettingDefaultOn, getMapSettingValue } from "./mapSettings.js";
 
@@ -151,8 +160,8 @@ export const MUSIC_TRACKS = Object.freeze({
       ]),
     }),
   }),
-  // The two pieces that play in a game, in the background. `loud` as Clear
-  // Skies': both are loud pieces, and levelled they sit under the game.
+  // The pieces that play in a game, in the background. `loud` as Clear
+  // Skies': they are loud pieces, and levelled they sit under the game.
   hourOfTheWitch: Object.freeze({
     file: "audio/hour-of-the-witch.mp3",
     work: "Hour Of The Witch",
@@ -183,6 +192,36 @@ export const MUSIC_TRACKS = Object.freeze({
       ]),
     }),
   }),
+  frankincenseAndMyrrh: Object.freeze({
+    file: "audio/frankincense-and-myrrh.mp3",
+    work: "Frankincense and Myrrh",
+    ...COMPOSER,
+    loud: Object.freeze({
+      step: 5,
+      rms: Object.freeze([
+        0.036, 0.045, 0.047, 0.058, 0.073, 0.078, 0.071, 0.104, 0.096, 0.110,
+        0.099, 0.129, 0.108, 0.105, 0.101, 0.117, 0.160, 0.139, 0.151, 0.134,
+        0.159, 0.143, 0.152, 0.160, 0.149, 0.148, 0.136, 0.166, 0.155, 0.192,
+        0.187, 0.202, 0.203, 0.173, 0.174, 0.210, 0.227, 0.226, 0.001,
+      ]),
+    }),
+  }),
+  discovery: Object.freeze({
+    file: "audio/discovery.mp3",
+    work: "Discovery",
+    ...COMPOSER,
+    loud: Object.freeze({
+      step: 5,
+      // The last figure is the file's silence at its end, never quite nothing.
+      rms: Object.freeze([
+        0.065, 0.078, 0.076, 0.090, 0.094, 0.092, 0.103, 0.103, 0.101, 0.130,
+        0.116, 0.127, 0.129, 0.145, 0.153, 0.145, 0.117, 0.082, 0.070, 0.086,
+        0.064, 0.088, 0.086, 0.102, 0.115, 0.143, 0.142, 0.153, 0.158, 0.184,
+        0.184, 0.169, 0.199, 0.179, 0.174, 0.204, 0.188, 0.196, 0.196, 0.184,
+        0.188, 0.187, 0.211, 0.112, 0.051, 0.014, 0.002, 0.001,
+      ]),
+    }),
+  }),
 });
 // The war room's pieces (names in MUSIC_TRACKS): one after the other, round
 // again at the end. Which of them a game's war room starts on is picked at
@@ -191,7 +230,7 @@ export const MUSIC_WAR_PIECES = Object.freeze(["war", "vanguard"]);
 // The pieces that play in a game (names in MUSIC_TRACKS), in the background:
 // one after the other, round again at the end, and which of them a game
 // starts on is picked at random.
-export const MUSIC_GAME_PIECES = Object.freeze(["hourOfTheWitch", "honourAmongThieves"]);
+export const MUSIC_GAME_PIECES = Object.freeze(["hourOfTheWitch", "honourAmongThieves", "frankincenseAndMyrrh", "discovery"]);
 // The menu's other pieces (names in MUSIC_TRACKS). The menu's pieces are
 // Passage Of Time and these: which of them a visit to the menu plays is
 // picked at random, and on a menu left idle they follow one another, each
@@ -443,6 +482,8 @@ export const createMusicDirector = ({
   warPieces = MUSIC_WAR_PIECES,
   menuPieces = MUSIC_MENU_PIECES,
   gamePieces = MUSIC_GAME_PIECES,
+  // How loud each situation is, out of 100 (setLevels changes it).
+  volumes = SCENARIO_MUSIC_VOLUMES,
   drama: passageDrama = PASSAGE_DRAMA,
   calm = PASSAGE_CALM,
 }) => {
@@ -503,6 +544,14 @@ export const createMusicDirector = ({
   const everyChannel = () => [...pieces, ...playlists];
 
   let scene = "menu";
+  // How loud each situation's music is, as a share (0 to 1) of the player's
+  // volume: the game's own figures, or the open game's scenario's.
+  const shareOf = (value, fallback) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value / 100)) : fallback);
+  const sharesOf = (given, fallback) => Object.fromEntries(SCENARIO_MUSIC_SITUATIONS.map((key) => [key, shareOf(given?.[key], fallback?.[key] ?? 1)]));
+  const ownLevels = sharesOf(volumes, null);
+  let levels = { ...ownLevels };
+  // The menu is never a scenario's, and is always the whole.
+  const levelOf = (where) => (where === "menu" ? 1 : where === "war" ? levels.battle : levels[where] ?? 1);
   // A click, a tap or a key press has happened: sound is allowed.
   let unlocked = false;
   let hidden = false;
@@ -785,7 +834,8 @@ export const createMusicDirector = ({
       refresh();
     });
   };
-  const bring = (ch, ms) => {
+  // `to` is how loud it comes in: the whole, or its situation's share.
+  const bring = (ch, ms, to = 1) => {
     if (ch.tracks ? !usable(ch) : !ch.track) return;
     if (ch.tracks) {
       pickFresh(ch);
@@ -794,7 +844,7 @@ export const createMusicDirector = ({
     }
     ch.want = true;
     refresh();
-    fadeTo(ch, 1, ms);
+    fadeTo(ch, to, ms);
   };
   // The menu's music in, from where it is (its start, unless it was still
   // going out under a game that began to open), at the level of that place.
@@ -1044,7 +1094,9 @@ export const createMusicDirector = ({
   // is not one of them: the menu and a game opening see to it themselves.)
   const sound = (voice) => {
     for (const ch of playlists) if (ch !== voice) silence(ch, FADE.cross);
-    bring(voice, voice === channels.game ? FADE.gameIn : FADE.cross);
+    // At the scene's own level: one voice carried from a scene to another
+    // (the war pieces, from a game at war into the war room) glides to it.
+    bring(voice, voice === channels.game && !voice.want ? FADE.gameIn : FADE.cross, levelOf(scene));
   };
   // What a game sounds like once the loading music is out of the way.
   const settle = () => {
@@ -1150,7 +1202,7 @@ export const createMusicDirector = ({
       strays = 3;
       silence(quiet, FADE.cross, { rewind: true });
       refresh();
-      fadeTo(themes, 1, MUSIC_SWELL.fadeIn);
+      fadeTo(themes, levelOf("loading"), MUSIC_SWELL.fadeIn);
       return;
     }
     const entry = entryFor(loadLeft(), drama);
@@ -1165,7 +1217,7 @@ export const createMusicDirector = ({
     loud.boost = boostAt(from, entry, drama);
     seek(loud, from);
     refresh();
-    fadeTo(loud, 1, drama.crossfade, null, true);
+    fadeTo(loud, levelOf("loading"), drama.crossfade, null, true);
     if (crossing) {
       fadeTo(menu, 0, drama.crossfade, () => {
         menu.want = false;
@@ -1283,6 +1335,19 @@ export const createMusicDirector = ({
     else announce();
   };
 
+  // How loud each situation is from now on: the open game's scenario's
+  // figures ({ loading, game, atWar, battle } out of 100), or null for the
+  // game's own. What is sounding glides to its new level; the loading music
+  // on its way to its end is left to finish.
+  const setLevels = (given) => {
+    const next = sharesOf(given, ownLevels);
+    if (SCENARIO_MUSIC_SITUATIONS.every((key) => next[key] === levels[key])) return;
+    levels = next;
+    if (scene === "menu" || cutAt !== null || breath !== null) return;
+    const voice = voiceOf(scene);
+    if (voice.want && (voice.tracks ? usable(voice) : voice.track)) fadeTo(voice, levelOf(scene), FADE.cross);
+  };
+
   // The first sound of a session: whatever the scene is by then.
   const begin = () => {
     if (scene === "menu") bringMenu();
@@ -1293,6 +1358,8 @@ export const createMusicDirector = ({
   return {
     setScene,
     setPlaylists,
+    setLevels,
+    get levels() { return { ...levels }; },
     // Something the director depends on changed (the switch, the volume).
     sync: () => { for (const ch of everyChannel()) setVolume(ch); refresh(); },
     unlock: () => {
@@ -1474,6 +1541,10 @@ export const setMusicScene = (scene) => { started?.setScene(scene); };
 // The open game's scenario music, resolved against the hub's list
 // (scenarioMusic.js followScenarioMusic), or null for none.
 export const setMusicPlaylists = (lists) => { started?.setPlaylists(lists); };
+
+// How loud each situation of the open game is ({ loading, game, atWar, battle }
+// out of 100: scenarioMusic.js scenarioMusicVolumes), or null for the game's own.
+export const setMusicLevels = (levels) => { started?.setLevels(levels); };
 
 // Makes the music wait while something else is listened to (a track tried out
 // in the scenario editor), and lets it carry on after. Its own reason to

@@ -31,6 +31,8 @@ import {
   normalizeScenarioMusic,
   scenarioMusicCredits,
   scenarioMusicTrackIds,
+  SCENARIO_MUSIC_VOLUMES,
+  scenarioMusicVolumes,
 } from "../../runtime/scenarioMusic.js";
 import { useHubMusic } from "../../runtime/useHubMusic.js";
 
@@ -296,10 +298,16 @@ const ScenarioMusicPanel = ({ music, onChange }) => {
   const listed = Boolean(list?.listed);
 
   const entriesOf = (situation) => music?.[situation] ?? [];
-  const write = (situation, entries) => onChange(normalizeScenarioMusic({
+  // How loud each situation is: the scenario's figure, or the game's own.
+  const volumes = scenarioMusicVolumes(music);
+  const record = () => ({
     ...Object.fromEntries(SCENARIO_MUSIC_SITUATIONS.map((key) => [key, entriesOf(key)])),
-    [situation]: entries,
-  }));
+    volume: volumes,
+  });
+  const write = (situation, entries) => onChange(normalizeScenarioMusic({ ...record(), [situation]: entries }));
+  // A figure that is the game's own is not kept: the record says only what
+  // its author decided (normalizeScenarioMusic).
+  const writeVolume = (situation, value) => onChange(normalizeScenarioMusic({ ...record(), volume: { ...volumes, [situation]: value } }));
   const move = (situation, index, by) => {
     const entries = [...entriesOf(situation)];
     const [entry] = entries.splice(index, 1);
@@ -318,6 +326,7 @@ const ScenarioMusicPanel = ({ music, onChange }) => {
         <div style={{ color: "rgba(255,255,255,0.92)", fontSize: "0.92rem", fontWeight: 800, marginBottom: "0.2rem" }}>{"Music"}</div>
         <div style={quietStyle}>{"Scenario music comes from the community hub's list, which only its contributors can add to, so that every track is one the hub may share."}</div>
         <div style={{ ...quietStyle, marginTop: "0.3rem" }}>{"A situation with no tracks plays the game's own music."}</div>
+        <div style={{ ...quietStyle, marginTop: "0.3rem" }}>{"A situation's volume is a share of the volume the player set, for whatever plays there."}</div>
         {list === null ? <div style={{ ...quietStyle, marginTop: "0.3rem" }}>{"Loading the hub's music list…"}</div> : null}
         {list !== null && !listed ? <div role="status" style={{ ...quietStyle, color: "#fde68a", marginTop: "0.3rem" }}>{HUB_MUSIC_TEXTS.unread}</div> : null}
       </div>
@@ -331,9 +340,34 @@ const ScenarioMusicPanel = ({ music, onChange }) => {
               <div style={{ color: "rgba(255,255,255,0.92)", fontSize: "0.88rem", fontWeight: 800 }}>{MUSIC_SITUATION_LABELS[situation]}</div>
               <div data-no-translate style={trackDetailStyle}>{`${entries.length} / ${MAX_SCENARIO_MUSIC_TRACKS}`}</div>
             </div>
+            <label style={{ alignItems: "center", display: "flex", gap: "0.6rem", justifyContent: "space-between", marginBottom: "0.55rem" }}>
+              <span style={{ color: "rgba(255,255,255,0.78)", fontSize: "0.8rem" }}>{"Volume"}</span>
+              <span style={{ alignItems: "center", display: "flex", gap: "0.55rem" }}>
+                <input
+                  aria-label="Volume"
+                  max="100"
+                  min="0"
+                  onChange={(event) => writeVolume(situation, Number(event.target.value))}
+                  step="5"
+                  style={{ accentColor: "#d4d4d8", width: "9rem" }}
+                  type="range"
+                  value={volumes[situation]}
+                />
+                <span data-no-translate style={{ ...trackDetailStyle, minWidth: "2.6rem", textAlign: "right" }}>{`${volumes[situation]}%`}</span>
+                <button
+                  className="oh-tap-row"
+                  disabled={volumes[situation] === SCENARIO_MUSIC_VOLUMES[situation]}
+                  onClick={() => writeVolume(situation, SCENARIO_MUSIC_VOLUMES[situation])}
+                  style={touchFit({ ...buttonStyle, opacity: volumes[situation] === SCENARIO_MUSIC_VOLUMES[situation] ? 0.45 : 1 }, touch)}
+                  type="button"
+                >
+                  {"Reset"}
+                </button>
+              </span>
+            </label>
             {entries.length === 0 ? (
               <div style={{ ...quietStyle, marginBottom: "0.5rem" }}>
-                {situation === "atWar" ? "No tracks chosen: the music does not change when the player is at war." : "No tracks chosen: the game's own music plays."}
+                {situation === "atWar" ? "No tracks chosen: at war, the tracks chosen for the game play, and with none of those the game's own war music." : "No tracks chosen: the game's own music plays."}
               </div>
             ) : (
               <div style={{ display: "grid", gap: "0.35rem", marginBottom: "0.5rem" }}>
