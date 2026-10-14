@@ -4,173 +4,77 @@ import { ownerIdentityKey, toCountryName } from "./ownerNames.js";
 export const NEUTRAL_LAND_COLOR = "rgb(88, 98, 110)";
 
 export const DIPLO_COLORS = Object.freeze({
-  player: "rgb(37, 99, 235)",      // #2563eb royal blue
-  puppet: "rgb(99, 102, 241)",      // #6366f1 indigo (derived from YOU royal blue, distinct from sky blue allies)
-  ally: "rgb(56, 189, 248)",        // #38bdf8 sky blue
-  enemy: "rgb(239, 68, 68)",       // #ef4444 red
-  friendly: "rgb(34, 197, 94)",    // #22c55e emerald green
-  hostile: "rgb(220, 38, 38)",     // #dc2626 darker red
-  neutral: "rgb(100, 116, 139)",   // #64748b slate grey
+  player: "rgb(37, 99, 235)",
+  puppet: "rgb(20, 184, 166)",
+  ally: "rgb(56, 189, 248)",
+  enemy: "rgb(239, 68, 68)",
+  hostile: "rgb(249, 115, 22)",
+  friendly: "rgb(34, 197, 94)",
+  neutral: "rgb(100, 116, 139)",
 });
 
-const PUPPET_AGREEMENT_CATEGORIES = new Set([
-  "puppet",
-  "vassal",
-  "dependency",
-  "protectorate",
-  "tributary",
-  "satellite",
-  "colony",
-  "client_state",
-  "suzerainty",
-]);
+const ALLIANCE_AGREEMENT_TYPES = new Set(["alliance", "mutual_defense", "military_cooperation"]);
+const FRIENDLY_AGREEMENT_TYPES = new Set(["trade_economic", "friendship_consultation"]);
 
-/**
- * Builds a fast lookup map of diplomatic stances relative to the player country.
- *
- * @param {Object} options
- * @param {string} options.playerCountry
- * @param {Array} [options.wars]
- * @param {Array} [options.agreements]
- * @param {Array} [options.relations]
- * @param {Array} [options.puppets]
- * @param {Object} [options.polityOverrides]
- * @returns {{ playerKey: string, stanceMap: Map<string, string> } | null}
- */
-export function buildDiplomaticStanceMap({
-  playerCountry = "",
-  wars = [],
-  agreements = [],
-  relations = [],
-  puppets = [],
-  polityOverrides = {},
-} = {}) {
-  const playerCanonical = toCountryName(playerCountry);
-  const playerKey = ownerIdentityKey(playerCanonical);
+const FRIENDLY_RELATION_STATUSES = new Set(["friendly", "cordial"]);
+const HOSTILE_RELATION_STATUSES = new Set(["hostile", "rival"]);
+
+const keyOf = (name) => ownerIdentityKey(toCountryName(name));
+const keysOf = (names) => (Array.isArray(names) ? names : []).map(keyOf).filter(Boolean);
+
+export function buildDiplomaticStanceMap({ playerCountry = "", wars = [], agreements = [], relations = [], puppets = [] } = {}) {
+  const playerKey = keyOf(playerCountry);
   if (!playerKey) return null;
 
-  const stanceMap = new Map();
-  stanceMap.set(playerKey, "player");
+  const stanceMap = new Map([[playerKey, "player"]]);
+  const mark = (key, stance) => {
+    if (key && key !== playerKey && !stanceMap.has(key)) stanceMap.set(key, stance);
+  };
 
-  // 1. Direct Puppets / Vassal states where player is the overlord
-  for (const item of puppets || []) {
-    const status = String(item?.status || "active").toLowerCase();
-    if (status !== "active") continue;
-    const overlordKey = ownerIdentityKey(toCountryName(item?.overlord || item?.master || item?.suzerain));
-    const puppetKey = ownerIdentityKey(toCountryName(item?.puppet || item?.vassal || item?.subject));
-    if (overlordKey === playerKey && puppetKey && puppetKey !== playerKey) {
-      stanceMap.set(puppetKey, "puppet");
-    }
+  for (const row of Array.isArray(puppets) ? puppets : []) {
+    if (String(row?.status || "active").toLowerCase() !== "active") continue;
+    if (keyOf(row?.overlord) === playerKey) mark(keyOf(row?.puppet), "puppet");
   }
 
-  // 2. Polity Overrides (e.g. metadata tags or explicit overlord/suzerain pointers)
-  for (const [rawKey, entry] of Object.entries(polityOverrides || {})) {
-    const targetKey = ownerIdentityKey(toCountryName(rawKey));
-    if (!targetKey || targetKey === playerKey) continue;
-    const overlordRaw = entry?.overlord || entry?.suzerain || entry?.puppetOf || entry?.master;
-    if (overlordRaw && ownerIdentityKey(toCountryName(overlordRaw)) === playerKey) {
-      stanceMap.set(targetKey, "puppet");
-    }
-  }
-
-  // 3. Wars (active and ceasefire) - active wars take precedence over friendly/ally relations
-  for (const war of wars || []) {
-    const status = String(war?.status || "").toLowerCase();
-    if (!["active", "ceasefire"].includes(status)) continue;
-    const sideA = (Array.isArray(war?.sideA) ? war.sideA : []).map((p) => ownerIdentityKey(toCountryName(p))).filter(Boolean);
-    const sideB = (Array.isArray(war?.sideB) ? war.sideB : []).map((p) => ownerIdentityKey(toCountryName(p))).filter(Boolean);
+  for (const war of Array.isArray(wars) ? wars : []) {
+    if (!["active", "ceasefire"].includes(String(war?.status || "").toLowerCase())) continue;
+    const sideA = keysOf(war?.sideA);
+    const sideB = keysOf(war?.sideB);
     const playerOnA = sideA.includes(playerKey);
-    const playerOnB = sideB.includes(playerKey);
-    if (!playerOnA && !playerOnB) continue;
-
-    const enemies = playerOnA ? sideB : sideA;
-    const allies = playerOnA ? sideA : sideB;
-    for (const e of enemies) {
-      if (e && e !== playerKey) stanceMap.set(e, "enemy");
+    if (!playerOnA && !sideB.includes(playerKey)) continue;
+    for (const key of playerOnA ? sideB : sideA) {
+      if (key !== playerKey && stanceMap.get(key) !== "puppet") stanceMap.set(key, "enemy");
     }
-    for (const a of allies) {
-      if (a && a !== playerKey && !stanceMap.has(a)) stanceMap.set(a, "ally");
-    }
+    for (const key of playerOnA ? sideA : sideB) mark(key, "ally");
   }
 
-  // 4. Formal Agreements in force
-  for (const agreement of agreements || []) {
-    const status = String(agreement?.status || "active").toLowerCase();
-    if (status !== "active") continue;
-    const cat = String(agreement?.category || agreement?.type || "").toLowerCase();
-
-    // Check puppet/vassal instruments first
-    if (PUPPET_AGREEMENT_CATEGORIES.has(cat)) {
-      const overlordRaw = agreement?.overlord || agreement?.suzerain || agreement?.master;
-      const puppetRaw = agreement?.puppet || agreement?.vassal || agreement?.subject;
-      if (overlordRaw && puppetRaw) {
-        if (ownerIdentityKey(toCountryName(overlordRaw)) === playerKey) {
-          const pKey = ownerIdentityKey(toCountryName(puppetRaw));
-          if (pKey && pKey !== playerKey && !stanceMap.has(pKey)) {
-            stanceMap.set(pKey, "puppet");
-          }
-        }
-      } else {
-        const parties = (Array.isArray(agreement?.parties) ? agreement.parties : []).map((p) => ownerIdentityKey(toCountryName(p))).filter(Boolean);
-        if (parties.includes(playerKey)) {
-          for (const p of parties) {
-            if (p && p !== playerKey && !stanceMap.has(p)) {
-              stanceMap.set(p, "puppet");
-            }
-          }
-        }
-      }
-      continue;
-    }
-
-    const parties = (Array.isArray(agreement?.parties) ? agreement.parties : []).map((p) => ownerIdentityKey(toCountryName(p))).filter(Boolean);
-    if (!parties.includes(playerKey)) continue;
-
-    const isAlliance = ["alliance", "mutual_defense", "military_cooperation"].includes(cat);
-    for (const p of parties) {
-      if (!p || p === playerKey) continue;
-      if (isAlliance) {
-        if (!stanceMap.has(p) || stanceMap.get(p) === "friendly") {
-          stanceMap.set(p, "ally");
-        }
-      } else if (!stanceMap.has(p)) {
-        stanceMap.set(p, "friendly");
-      }
-    }
+  const inForce = (Array.isArray(agreements) ? agreements : [])
+    .filter((agreement) => String(agreement?.status || "active").toLowerCase() === "active")
+    .map((agreement) => ({ type: String(agreement?.type || "").toLowerCase(), parties: keysOf(agreement?.parties) }))
+    .filter(({ parties }) => parties.includes(playerKey));
+  for (const { type, parties } of inForce) {
+    if (ALLIANCE_AGREEMENT_TYPES.has(type)) for (const key of parties) mark(key, "ally");
+  }
+  for (const { type, parties } of inForce) {
+    if (FRIENDLY_AGREEMENT_TYPES.has(type)) for (const key of parties) mark(key, "friendly");
   }
 
-  // 5. Bilateral Relations
-  for (const rel of relations || []) {
-    const a = ownerIdentityKey(toCountryName(rel?.a));
-    const b = ownerIdentityKey(toCountryName(rel?.b));
+  for (const relation of Array.isArray(relations) ? relations : []) {
+    const a = keyOf(relation?.a);
+    const b = keyOf(relation?.b);
     if (a !== playerKey && b !== playerKey) continue;
-    const counterpart = a === playerKey ? b : a;
-    if (!counterpart || counterpart === playerKey) continue;
-    const score = Number(rel?.score ?? 0);
-    if (score >= 30 && !stanceMap.has(counterpart)) {
-      stanceMap.set(counterpart, "friendly");
-    } else if (score <= -50 && !stanceMap.has(counterpart)) {
-      stanceMap.set(counterpart, "hostile");
-    }
+    const status = String(relation?.status || "").toLowerCase();
+    const other = a === playerKey ? b : a;
+    if (FRIENDLY_RELATION_STATUSES.has(status)) mark(other, "friendly");
+    else if (HOSTILE_RELATION_STATUSES.has(status)) mark(other, "hostile");
   }
 
   return { playerKey, stanceMap };
 }
 
-/**
- * Returns the CSS color for an owner in diplomatic map mode.
- *
- * @param {string} owner
- * @param {{ playerKey: string, stanceMap: Map<string, string> } | null} stanceData
- * @returns {string}
- */
 export function getDiplomaticOwnerColor(owner, stanceData) {
-  if (!owner) return NEUTRAL_LAND_COLOR;
-  if (!stanceData) return NEUTRAL_LAND_COLOR;
-
-  const key = ownerIdentityKey(toCountryName(owner));
+  if (!owner || !stanceData) return NEUTRAL_LAND_COLOR;
+  const key = keyOf(owner);
   if (!key) return NEUTRAL_LAND_COLOR;
-
-  const stance = stanceData.stanceMap.get(key) || "neutral";
-  return DIPLO_COLORS[stance] || DIPLO_COLORS.neutral;
+  return DIPLO_COLORS[stanceData.stanceMap.get(key) || "neutral"] || DIPLO_COLORS.neutral;
 }

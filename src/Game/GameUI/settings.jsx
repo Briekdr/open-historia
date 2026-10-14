@@ -854,7 +854,6 @@ const SettingsInput = ({
                 />
                 <button
                   type="button"
-                  data-no-translate
                   className="oh-tap"
                   onClick={() => setRevealed((v) => !v)}
                   title={revealed ? "Hide API key" : "Show API key"}
@@ -2814,12 +2813,6 @@ const SettingsWorkspace = ({
                     />
                     {systemReducedMotion && <div style={{ ...helperStyle, marginTop: "-0.6rem", marginBottom: "0.6rem" }}>On, following your system setting for reduced motion.</div>}
                 </SettingsSection>
-                <SoundSection
-                musicOn={mapSettings.ambientMusic}
-                onToggleMusic={() => updateMapSetting("ambientMusic", MAP_SETTING_KEYS.ambientMusic, !mapSettings.ambientMusic)}
-                effectsOn={mapSettings.soundEffects}
-                onToggleEffects={() => updateMapSetting("soundEffects", MAP_SETTING_KEYS.soundEffects, !mapSettings.soundEffects)}
-                />
                 <PrivacySection
                 discordPresenceOn={mapSettings.discordPresence}
                 onToggleDiscordPresence={() => updateMapSetting("discordPresence", MAP_SETTING_KEYS.discordPresence, !mapSettings.discordPresence)}
@@ -2840,8 +2833,8 @@ const SettingsWorkspace = ({
 
             {activeSection === "map" && (
                 <>
-                <SettingsSection data-no-translate title="Map presentation" description="Choose the map mode and visual presentation options.">
-                    <div data-no-translate style={fieldGroupStyle}>
+                <SettingsSection title="Map presentation" description="Choose the map mode and visual presentation options.">
+                    <div style={fieldGroupStyle}>
                         <label style={labelStyle} htmlFor="game-map-mode">Map mode</label>
                         <select
                             id="game-map-mode"
@@ -2852,7 +2845,7 @@ const SettingsWorkspace = ({
                             <option value="political">Political (Countries and borders)</option>
                             <option value="diplomatic">Diplomatic (Allies, enemies, trade partners)</option>
                         </select>
-                        <div style={helperStyle}>Diplomatic mode highlights puppets in indigo, allies in blue, war enemies in red, and friendly trade partners in green.</div>
+                        <div style={helperStyle}>Diplomatic mode colours each country by where it stands with you: your puppets, allies, friends, hostile countries and enemies at war.</div>
                     </div>
                 </SettingsSection>
                 {/* In a game, this game's own pick among the scenario's maps

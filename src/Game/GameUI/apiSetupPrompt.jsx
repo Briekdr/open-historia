@@ -367,7 +367,6 @@ export const ApiSetupPrompt = ({ providerLabel = "the selected provider", missin
               />
               <button
                 type="button"
-                data-no-translate
                 className="oh-tap"
                 onClick={() => setShowApiKey((show) => !show)}
                 title={showApiKey ? "Hide API key" : "Show API key"}

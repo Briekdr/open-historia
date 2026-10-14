@@ -43,7 +43,7 @@ import { translateLabel } from "../../runtime/translator.js";
 import { MAP_SETTING_KEYS, reduceMotionEnabled, useMapSetting, useMapSettingValue } from "../../runtime/mapSettings.js";
 import { getFrontShownOwners, shownOwnerIds, subscribeFrontShownOwners, withShownOwners, withoutShownTransitions } from "./frontOwnership.js";
 import { useActiveFeatures } from "../../runtime/gameFeatures.js";
-import { useLibraryState } from "../../runtime/library.js";
+import { useActiveGameCountry } from "../../runtime/library.js";
 import { buildDiplomaticStanceMap, getDiplomaticOwnerColor } from "../../runtime/diplomaticStance.js";
 import { getWorldStateSnapshot, useWorldState } from "./useWorldState.js";
 import { cityPopulationOverridesByTileName, effectiveCityPopulation } from "../../runtime/cityPopulation.js";
@@ -405,7 +405,7 @@ const WorldMap = ({ isGlobe = false }) => {
     labelHaloColor,
     labelTextColor,
   } = useWorldState();
-  const { activeGame } = useLibraryState();
+  const playerCountry = useActiveGameCountry();
   const mapMode = useMapSettingValue(MAP_SETTING_KEYS.mapMode, "political");
   // A region a battlefield has taken in name but not yet in full is DRAWN as
   // its old holder's until all of it is held (frontOwnership.js). Everything
@@ -1213,15 +1213,8 @@ const WorldMap = ({ isGlobe = false }) => {
 
   const diplomaticStanceMap = useMemo(() => {
     if (mapMode !== "diplomatic") return null;
-    return buildDiplomaticStanceMap({
-      playerCountry: activeGame?.country || worldState?.country || "",
-      wars,
-      agreements,
-      relations,
-      puppets,
-      polityOverrides,
-    });
-  }, [mapMode, activeGame?.country, worldState?.country, wars, agreements, relations, puppets, polityOverrides]);
+    return buildDiplomaticStanceMap({ playerCountry, wars, agreements, relations, puppets });
+  }, [mapMode, playerCountry, wars, agreements, relations, puppets]);
 
   const ownerColorCss = useCallback(
     (owner) => {

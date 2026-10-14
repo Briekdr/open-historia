@@ -288,6 +288,10 @@ export const subscribeToLibraryState = (listener) => {
 export const useLibraryState = () =>
   useSyncExternalStore(subscribeToLibraryState, getLibraryState, getLibraryState);
 
+const getActiveGameCountry = () => String(getLibraryState()?.activeGame?.country || "");
+export const useActiveGameCountry = () =>
+  useSyncExternalStore(subscribeToLibraryState, getActiveGameCountry, getActiveGameCountry);
+
 export const refreshLibraryCatalog = async ({ force = false } = {}) => {
   if (libraryCatalogRequest && !force) {
     return libraryCatalogRequest;

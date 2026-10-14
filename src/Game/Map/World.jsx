@@ -1188,7 +1188,7 @@ function World({ mapRef, projection: requestedProjection, terrainEnabled, onInit
         // (dynamic size there is well under 256). In-view tiles live in a separate
         // structure and are never evicted by this, so it never re-fetches what's on
         // screen. Orthogonal to the fixed R5.1 framebuffer density.
-        maxTileCacheSize={128}
+        maxTileCacheSize={256}
         // R5.1: one renderer density for the whole session. R5.0 switched
         // between 1x and native DPR around z4.5/z5.0, and setPixelRatio()
         // rebuilds the render targets: a hitch exactly as the player zoomed

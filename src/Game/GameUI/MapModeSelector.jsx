@@ -24,12 +24,13 @@ const DiplomaticIcon = () => (
 );
 
 const LEGEND_ITEMS = [
-  { name: "You", color: DIPLO_COLORS.player },
-  { name: "Puppets", color: DIPLO_COLORS.puppet },
-  { name: "Allies", color: DIPLO_COLORS.ally },
-  { name: "At War", color: DIPLO_COLORS.enemy },
-  { name: "Friendly / Trade", color: DIPLO_COLORS.friendly },
-  { name: "Neutral", color: DIPLO_COLORS.neutral },
+  { label: "You", color: DIPLO_COLORS.player },
+  { label: "Puppets", color: DIPLO_COLORS.puppet },
+  { label: "Allies", color: DIPLO_COLORS.ally },
+  { label: "Friendly / Trade", color: DIPLO_COLORS.friendly },
+  { label: "Hostile", color: DIPLO_COLORS.hostile },
+  { label: "At War", color: DIPLO_COLORS.enemy },
+  { label: "Neutral", color: DIPLO_COLORS.neutral },
 ];
 
 export const MapModeSelector = memo(function MapModeSelector({ dockStyle = DEFAULT_DOCK_STYLE }) {
@@ -45,7 +46,6 @@ export const MapModeSelector = memo(function MapModeSelector({ dockStyle = DEFAU
 
   return (
     <div
-      data-no-translate
       style={{
         ...dockStyle,
         position: "fixed",
@@ -112,7 +112,7 @@ export const MapModeSelector = memo(function MapModeSelector({ dockStyle = DEFAU
           </div>
           {LEGEND_ITEMS.map((item) => (
             <div
-              key={item.name}
+              key={item.label}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -131,7 +131,7 @@ export const MapModeSelector = memo(function MapModeSelector({ dockStyle = DEFAU
                 }}
               />
               <span style={{ color: "rgba(255,255,255,0.9)", fontSize: "0.7rem" }}>
-                {item.name}
+                {item.label}
               </span>
             </div>
           ))}
