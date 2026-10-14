@@ -12,8 +12,10 @@
 //
 //   its length    every kilometre of it is dug, raised and manned, so the
 //                 days go as the length
-//   its level     3 (a palisade) to 10 (a wall nobody passes): a higher line
-//                 is both taller and deeper, so they go as the square of it
+//   its level     3 (a palisade) to 9 (a great wall): a higher line is both
+//                 taller and deeper, so they go as the square of it. A line
+//                 nobody passes (10) is a scenario designer's alone, drawn in
+//                 the Workshop: no country builds one in a game
 //   the treasury  what the country has for its forces against the countries
 //                 it is compared with (militaryFunding.js fundingFactor, 0.6
 //                 to 1.5; 1 where its economy is not known)
@@ -27,8 +29,8 @@
 //
 // held between a day and a hundred years. For a country of some eight million
 // people with its treasury in order, a 10 km palisade is about a week, a 50 km
-// line of level 5 a little over three months, and a 1,000 km wall of level 10
-// some twenty years; a great power builds the same in a fraction of the time,
+// line of level 5 a little over three months, and a 1,000 km great wall of
+// level 9 some eighteen years; a great power builds the same in a fraction of the time,
 // and a small state in two or three times as long.
 //
 // Pure, and loads in plain Node.
@@ -38,7 +40,7 @@ import { kmBetween } from "./fronts/worldGrid.js";
 import { fundingFactor, middleFundingPerHead } from "./militaryFunding.js";
 import { militaryLookup } from "./militaryStats.js";
 import { populationFigureOf } from "./populationFigure.js";
-import { WALL_LEVEL_LEAST, WALL_LEVEL_MOST } from "./warGeography.js";
+import { WALL_LEVEL_LEAST } from "./warGeography.js";
 import { warSettingsOf } from "./warSettings.js";
 
 // The days a kilometre of line takes at level 1, for a country of REFERENCE_MEN
@@ -51,21 +53,26 @@ export const BUILD_DAYS_LEAST = 1;
 export const BUILD_DAYS_MOST = 36500;
 // The level a line is drawn at until another is picked.
 export const FORTIFY_LEVEL_USUAL = 5;
+// The strongest line a country can have built in a game. A line nobody passes
+// (level 10, warGeography.js WALL_LEVEL_MOST) is a scenario designer's alone
+// (the owner, 2026-10-14: "players should not be able to build level 10
+// things, only scenario designers").
+export const FORTIFY_LEVEL_MOST = 9;
 
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 const fold = (value) => clean(value).toLowerCase();
 const records = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
 
-// A level as a line is kept at: a whole number from 3 to 10.
+// A level as a country builds a line at: a whole number from 3 to FORTIFY_LEVEL_MOST.
 export const fortifyLevelOf = (value) => {
   const level = Math.round(Number(value));
   if (!Number.isFinite(level)) return FORTIFY_LEVEL_USUAL;
-  return Math.max(WALL_LEVEL_LEAST, Math.min(WALL_LEVEL_MOST, level));
+  return Math.max(WALL_LEVEL_LEAST, Math.min(FORTIFY_LEVEL_MOST, level));
 };
 
 // The days to build a line.
 //   km       its length
-//   level    3 to 10
+//   level    3 to 9
 //   funding  the country's funding factor (militaryFunding.js), 1 for none known
 //   men      its men fit to serve; REFERENCE_MEN where nothing is known of them
 export const buildDays = ({ km = 0, level = FORTIFY_LEVEL_USUAL, funding = 1, men = REFERENCE_MEN } = {}) => {

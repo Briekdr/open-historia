@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 
 import { syntheticMap } from "./fronts/syntheticMap.js";
 import { buildWorldGrid, kmBetween } from "./fronts/worldGrid.js";
-import { FLEET_WATER_KM, HOLD_NEAR_KM, chartOf } from "./warRoomChart.js";
+import { regionLocatorOf } from "./regionLocator.js";
+import { FLEET_WATER_KM, chartOf } from "./warRoomChart.js";
 
 // Aland in the west with a lake inside it, Borduria in the east with Neutralia
 // shut in by it, the sea between, and along the south a land border.
@@ -58,7 +59,7 @@ test("the sea is where a ship may be, and a fleet reaches only the water it is i
   assert.equal(chart.joins(SEA, null), false);
 });
 
-test("a country's ground is the land it holds, and a little way past it; water is nobody's", () => {
+test("a country's ground is the land it holds and no further; water is nobody's", () => {
   const { chart } = chartedWorld();
   assert.equal(chart.holds("Aland", 2.5, 53.5), true);
   assert.equal(chart.holds(" aland ", 0.5, 50.5), true);
@@ -69,16 +70,35 @@ test("a country's ground is the land it holds, and a little way past it; water i
   assert.equal(chart.holds("Aland", ...LAKE), null, "and a lake");
   assert.equal(chart.holds("Aland", 400, 52.5), null, "and what is off the sheet");
   assert.equal(chart.holds("", 2.5, 53.5), false);
-  // Along the land border a line drawn a little over it is still on Aland's
-  // ground; well inside Borduria it is not.
-  assert.ok(HOLD_NEAR_KM > 0);
-  assert.equal(chart.holds("Aland", 4.3, 50.5), true);
+  // Not a step past the land border.
+  assert.equal(chart.holds("Aland", 3.9, 50.5), true);
+  assert.equal(chart.holds("Aland", 4.1, 50.5), false);
+  assert.equal(chart.holds("Borduria", 4.1, 50.5), true);
   assert.equal(chart.holds("Aland", 6.5, 50.5), false);
   // A group holds the land of its area.
   const { grid, world } = chartedWorld();
   const grouped = chartOf({ grid, controllerOf: world.controllerOf, groupOf: (id) => (id === "r9-2" ? "The Free Company" : "") });
   assert.equal(grouped.holds("The Free Company", 9.5, 51.5), true);
   assert.equal(grouped.holds("The Free Company", 2.5, 53.5), false);
+});
+
+test("with the regions' own shapes, a country's ground ends where the map draws its border, not where the sheet's cells fall", () => {
+  // Two countries split by a border that runs aslant across the sheet's cells, and a lake in the west.
+  const regions = [
+    { id: "west", geometry: { type: "Polygon", coordinates: [[[0, 50], [2, 50], [1, 52], [0, 52], [0, 50]], [[0.2, 50.2], [0.4, 50.2], [0.4, 50.4], [0.2, 50.4], [0.2, 50.2]]] } },
+    { id: "east", geometry: { type: "Polygon", coordinates: [[[2, 50], [3, 50], [3, 52], [1, 52], [2, 50]]] } },
+  ];
+  const owners = { west: "Aland", east: "Borduria" };
+  const grid = buildWorldGrid(regions, { step: 0.5 });
+  const exact = chartOf({ grid, controllerOf: (id) => owners[id], locate: regionLocatorOf(regions) });
+  // At 50.8 N the border is at 1.6 E: a few kilometres either side of it, in one cell of the sheet.
+  assert.equal(exact.holds("Aland", 1.55, 50.8), true);
+  assert.equal(exact.holds("Aland", 1.65, 50.8), false);
+  assert.equal(exact.holds("Borduria", 1.65, 50.8), true);
+  assert.equal(exact.holds("Aland", 0.3, 50.3), null, "the lake is nobody's");
+  // The sheet alone says it by the cell: for the cell the border runs through, one side or the other.
+  const rough = chartOf({ grid, controllerOf: (id) => owners[id] });
+  assert.notEqual(rough.holds("Aland", 1.55, 50.8) && rough.holds("Borduria", 1.65, 50.8), true);
 });
 
 test("a blockade is laid from open water off the coast, the stretch nearest the fleet in the fleet's own water", () => {

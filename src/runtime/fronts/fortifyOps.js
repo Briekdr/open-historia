@@ -11,13 +11,17 @@
 // the rules are here once:
 //
 //   { op: "fortify",   points, level, name?, owner? }   a line to be built along `points`
-//                                                      ([lng, lat]) at `level`, held to 3..10
+//                                                      ([lng, lat]) at `level`, held to 3..9:
+//                                                      a line nobody passes (10) is the
+//                                                      scenario designer's alone
 //   { op: "unfortify", id }                            one of the asker's lines that is still
 //                                                      being built, given up
 //
 // A line is the asking country's: one that names another owner is refused. It
-// runs over ground that country holds (runtime/warRoomChart.js, read from the
-// map by the page or the host: water is crossed, another's land is not), it
+// runs only over the country's own territory, the land it holds on the map,
+// every kilometre of it, read from the regions' own shapes (runtime/
+// warRoomChart.js, regionLocator.js; by the page or the host): water is
+// crossed, another's land is not, not even a little way over a border. It
 // is FORTIFY_KM_LEAST long at least and FORTIFY_KM_MOST at most, and it joins
 // the world's lines (runtime/warGeography.js fortifications) BEING BUILT from
 // the game's date for the days its length, level, treasury and manpower take
@@ -41,9 +45,10 @@ export const FORTIFY_KM_MOST = 6000;
 export const FORTIFY_POINTS_MOST = 200;
 // The most lines a country may have being built at once.
 export const FORTIFY_BUILDING_MOST = 12;
-// How far apart the places along a line are that are read for whose ground it is on.
-const GROUND_STEP_KM = 5;
-const GROUND_SAMPLES_MOST = 2000;
+// How far apart the places along a line are that are read for whose ground it
+// is on: a kilometre, the whole length of the longest line.
+const GROUND_STEP_KM = 1;
+const GROUND_SAMPLES_MOST = 6000;
 const NAME_MOST = 80;
 
 const clean = (value, most = 200) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, most).trim();

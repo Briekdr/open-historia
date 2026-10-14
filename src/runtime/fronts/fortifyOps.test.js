@@ -2,7 +2,8 @@
 // Run: node --test src/runtime/fronts/fortifyOps.test.js
 //
 // A line drawn in the war room is built for the asking country only, on its
-// own ground, at a level of 3 to 10, and stands only once the days its
+// own territory and nowhere past it, at a level of 3 to 9 (a line nobody
+// passes is the scenario designer's alone), and stands only once the days its
 // length, level, treasury and manpower take have passed.
 
 import test from "node:test";
@@ -11,6 +12,7 @@ import assert from "node:assert/strict";
 import { addGameDays } from "../gameDates.js";
 import { fortifyCostFor } from "../fortifyCost.js";
 import { FORTIFICATIONS_MOST } from "../warGeography.js";
+import { regionLocatorOf } from "../regionLocator.js";
 import { chartOf } from "../warRoomChart.js";
 import { FORTIFY_BUILDING_MOST, FORTIFY_KM_MOST, FORTIFY_OPS, FORTIFY_POINTS_MOST, applyFortifyOp, cleanFortifyOp, fortifyLineOf } from "./fortifyOps.js";
 import { syntheticMap } from "./syntheticMap.js";
@@ -26,7 +28,8 @@ const map = syntheticMap({
   step: 1,
   key: "the fortified coast",
 });
-const chart = chartOf({ grid: buildWorldGrid(map.regions, { step: 0.5 }), controllerOf: map.controllerOf });
+// (Whose a place is, read from the regions' own shapes, as the game reads it.)
+const chart = chartOf({ grid: buildWorldGrid(map.regions, { step: 0.5 }), controllerOf: map.controllerOf, locate: regionLocatorOf(map.regions) });
 const world = (extra = {}) => ({
   countryStats: { Aland: { population: { total: 8000000 } }, Borduria: { population: { total: 30000000 } } },
   fortifications: [{ id: "old-wall", name: "The Old Wall", owner: "Borduria", level: 7, points: [[9, 53], [9, 51]] }],
@@ -62,9 +65,9 @@ test("a line is built for the country that asks, on its own ground, as long as i
   assert.equal(again.line.id, "built-2");
   assert.equal(again.line.name, "");
   // The stronger the line, the longer; the bigger the country, the shorter.
-  const strong = applyFortifyOp(world(), { op: "fortify", points: NORTH, level: 10 }, as("Aland"));
-  assert.equal(strong.days, fortifyCostFor(world(), "Aland", NORTH, 10).days);
-  assert.ok(Math.abs(strong.days / cost.days - 4) < 0.02, "twice the level, four times the days");
+  const strong = applyFortifyOp(world(), { op: "fortify", points: NORTH, level: 9 }, as("Aland"));
+  assert.equal(strong.days, fortifyCostFor(world(), "Aland", NORTH, 9).days);
+  assert.ok(Math.abs(strong.days / cost.days - 81 / 25) < 0.02, "the days go as the square of the level");
   const bigger = applyFortifyOp(world(), { op: "fortify", points: [[8.5, 53.5], [10.5, 53.5]], level: 5 }, as("Borduria"));
   assert.ok(bigger.days < fortifyCostFor(world(), "Aland", [[8.5, 53.5], [10.5, 53.5]], 5).days);
 });
@@ -79,15 +82,19 @@ test("a line is the asker's own, on the asker's own ground: another country's, o
   // Water is crossed (a lake, a strait); a line only over water is no line.
   assert.equal(refused({ points: [[0.5, 52.5], [3.5, 52.5]] }), undefined, "across the lake");
   assert.match(refused({ points: [[4.5, 53.5], [6.5, 53.5]] }), /only over water/);
-  // A line along the border may stray over it as a hand draws.
-  assert.equal(refused({ points: [[3.5, 50.5], [4.2, 50.5]] }), undefined);
+  // Only on its own territory: a line drawn up to the border is built, and one
+  // that strays over it, however little, is not.
+  assert.equal(refused({ points: [[3.5, 50.5], [3.97, 50.5]] }), undefined);
+  assert.match(refused({ points: [[3.5, 50.5], [4.03, 50.5]] }), /ground you hold/);
   // The map could not be read: nothing is built on ground nobody could see.
   assert.match(refused({}, "Aland", { chart: null }), /could not be read/);
 });
 
-test("a level is held to 3 to 10, and a line must be one", () => {
+test("a level is held to 3 to 9, and a line must be one", () => {
   const level = (asked) => applyFortifyOp(world(), { op: "fortify", points: NORTH, level: asked }, as("Aland"));
-  assert.equal(level(14).line.level, 10);
+  // A line nobody passes is the scenario designer's alone: asked for, it is built at 9.
+  assert.equal(level(10).line.level, 9);
+  assert.equal(level(14).line.level, 9);
   assert.equal(level(1).line.level, 3);
   assert.equal(level(0).line.level, 3);
   assert.equal(level(6.6).line.level, 7);

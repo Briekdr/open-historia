@@ -6,7 +6,8 @@
 //
 // A line is drawn on the map with the rail's Fortify key (Map/WarRoomTools.jsx)
 // and waits, drawn on the map, on a plate beside the rail: here its level is
-// picked (3, a palisade, to 10, a wall nobody passes), and the plate says how
+// picked (3, a palisade, to 9, a great wall: a line nobody passes is the
+// scenario designer's alone, drawn in the Workshop), and the plate says how
 // long it is, what it holds against, and how long the player's country takes
 // to build it at that level, with its treasury and its men (runtime/
 // fortifyCost.js), before the player confirms it. In the drawer, the player's
@@ -25,8 +26,9 @@ import { lineColour, stillBuilding } from "../Map/warRoomMarks.js";
 import { useWarRoom } from "../Map/warRoomStore.js";
 import { AMBER, BONE, BONE_SOFT, BRASS, STEEL, keyStyle, linkStyle, plateStyle, stencilStyle, trayStyle } from "./warRoomTheme.js";
 
-// The levels a line may be built to.
-const LEVELS = Object.freeze([3, 4, 5, 6, 7, 8, 9, 10]);
+// The levels a line may be built to: a line nobody passes (10) is the
+// scenario's to draw, not a country's to build (runtime/fortifyCost.js FORTIFY_LEVEL_MOST).
+const LEVELS = Object.freeze([3, 4, 5, 6, 7, 8, 9]);
 const softText = { color: BONE_SOFT, fontSize: "0.72rem", lineHeight: 1.4 };
 const fold = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 

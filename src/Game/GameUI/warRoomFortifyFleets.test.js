@@ -98,7 +98,8 @@ test("the drawer takes the line drawn and the place clicked, and sends them thro
 });
 
 test("the line's plate says how long it is, what it holds, and how long it takes to build at the level picked", () => {
-  assert.match(fortify, /const LEVELS = Object\.freeze\(\[3, 4, 5, 6, 7, 8, 9, 10\]\);/);
+  // A line nobody passes (10) is the scenario designer's alone: the plate offers 3 to 9.
+  assert.match(fortify, /const LEVELS = Object\.freeze\(\[3, 4, 5, 6, 7, 8, 9\]\);/);
   assert.match(fortify, /const cost = fortifyCostFor\(world, country, draft, level\);/);
   assert.match(fortify, /<BuildTime days=\{cost\.days\} \/>/);
   assert.match(fortify, /onClick=\{\(\) => onLevel\(value\)\}/);

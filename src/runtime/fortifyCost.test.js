@@ -11,6 +11,7 @@ import {
   BUILD_DAYS_LEAST,
   BUILD_DAYS_MOST,
   DAYS_PER_KM,
+  FORTIFY_LEVEL_MOST,
   FORTIFY_LEVEL_USUAL,
   REFERENCE_MEN,
   buildDays,
@@ -28,11 +29,11 @@ test("the days go as the length, the square of the level, and against the treasu
   // A country of middling size with its treasury in order.
   assert.equal(buildDays({ km: 10, level: 3 }), 7, "a 10 km palisade: about a week");
   assert.equal(buildDays({ km: 50, level: 5 }), 100, "a 50 km line of level 5: a little over three months");
-  assert.equal(buildDays({ km: 1000, level: 10 }), 8000, "a 1,000 km wall nobody passes: some twenty years");
+  assert.equal(buildDays({ km: 1000, level: 9 }), 6480, "a 1,000 km great wall: some eighteen years");
   assert.equal(buildDays({ km: 50, level: 5 }), Math.round(50 * 25 * DAYS_PER_KM));
   // Twice as long, twice the days; twice as high, four times.
   assert.equal(buildDays({ km: 100, level: 5 }), 2 * buildDays({ km: 50, level: 5 }));
-  assert.equal(buildDays({ km: 50, level: 10 }), 4 * buildDays({ km: 50, level: 5 }));
+  assert.equal(buildDays({ km: 50, level: 6 }), 4 * buildDays({ km: 50, level: 3 }));
   // A richer treasury and more men build faster; four times the men, twice as fast.
   assert.equal(buildDays({ km: 50, level: 5, funding: 1.25 }), 80);
   assert.equal(buildDays({ km: 50, level: 5, funding: 0.6 }), 167);
@@ -46,14 +47,17 @@ test("the days go as the length, the square of the level, and against the treasu
 test("a build time is held between a day and a hundred years, and nothing known counts as the middling country", () => {
   assert.equal(buildDays({ km: 0.1, level: 3 }), BUILD_DAYS_LEAST);
   assert.equal(buildDays({ km: 0, level: 3 }), BUILD_DAYS_LEAST);
-  assert.equal(buildDays({ km: 6000, level: 10, funding: 0.6, men: 1000 }), BUILD_DAYS_MOST);
+  assert.equal(buildDays({ km: 6000, level: 9, funding: 0.6, men: 1000 }), BUILD_DAYS_MOST);
   assert.equal(buildDays({ km: 50, level: 5, funding: 0, men: 0 }), buildDays({ km: 50, level: 5 }));
   assert.equal(buildDays({ km: 50, level: 5, funding: "x", men: -3 }), 100);
   assert.equal(buildDays({ km: "50", level: "5" }), 100);
-  // A level is a whole number from 3 to 10.
+  // A level is a whole number from 3 to 9: a line nobody passes (10) is a
+  // scenario designer's alone, and no country builds one.
+  assert.equal(FORTIFY_LEVEL_MOST, 9);
   assert.equal(buildDays({ km: 50, level: 1 }), buildDays({ km: 50, level: 3 }));
-  assert.equal(buildDays({ km: 50, level: 14 }), buildDays({ km: 50, level: 10 }));
-  assert.deepEqual([fortifyLevelOf(2), fortifyLevelOf(6.4), fortifyLevelOf(11), fortifyLevelOf("nonsense")], [3, 6, 10, FORTIFY_LEVEL_USUAL]);
+  assert.equal(buildDays({ km: 50, level: 10 }), buildDays({ km: 50, level: 9 }));
+  assert.equal(buildDays({ km: 50, level: 14 }), buildDays({ km: 50, level: 9 }));
+  assert.deepEqual([fortifyLevelOf(2), fortifyLevelOf(6.4), fortifyLevelOf(10), fortifyLevelOf(11), fortifyLevelOf("nonsense")], [3, 6, 9, 9, FORTIFY_LEVEL_USUAL]);
 });
 
 test("a line is measured as the engine measures it, along the globe", () => {
@@ -100,8 +104,8 @@ test("what a line would take a country: its length, level, treasury and men, and
   assert.ok(cost.days > 95 && cost.days < 110);
   // Nothing known of a country: the middling one.
   const unknown = fortifyCostFor({}, "Nowhere", line, 12);
-  assert.deepEqual([unknown.level, unknown.people, unknown.men], [10, 0, 0]);
-  assert.equal(unknown.days, buildDays({ km: lineKm(line), level: 10 }));
+  assert.deepEqual([unknown.level, unknown.people, unknown.men], [9, 0, 0]);
+  assert.equal(unknown.days, buildDays({ km: lineKm(line), level: 9 }));
 });
 
 test("a build time is said in days, weeks, months or years", () => {
