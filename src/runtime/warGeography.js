@@ -169,4 +169,12 @@ export const normalizeClimateZones = (value) => (Array.isArray(value) ? value : 
   };
 }).filter(Boolean).slice(0, CLIMATE_ZONES_MOST);
 
+// What a turn's fighting did to a scenario's walls (runtime/fronts/walls.js
+// linesChanged: [{ id, breaches, wear }]): each line's breaches and wear as
+// the run leaves them; the rest as they were.
+export const withFrontFortifications = (lines, changes) => {
+  const byId = new Map((Array.isArray(changes) ? changes : []).filter((change) => isRecord(change) && change.id).map((change) => [String(change.id), change]));
+  return normalizeFortifications(lines).map((line) => (byId.has(line.id) ? normalizeFortifications([{ ...line, breaches: byId.get(line.id).breaches, wear: byId.get(line.id).wear }])[0] : line));
+};
+
 export const normalizeFreezingRegions = (value) => [...new Set((Array.isArray(value) ? value : []).map((id) => clean(id, 120)).filter(Boolean))].slice(0, 5000);

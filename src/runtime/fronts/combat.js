@@ -72,7 +72,8 @@ import {
 import { ownCell, takeCapsule } from "./field.js";
 import { weatherLoss } from "./weather.js";
 import { downhill } from "./ground.js";
-import { STATE_ADVANCING, STATE_DUG_IN, STATE_ENCIRCLED, STATE_HOLDING, STATE_SPENT, controlRadius, isLive, reachCells, stepAlong } from "./troops.js";
+import { KIND_ARTILLERY, STATE_ADVANCING, STATE_DUG_IN, STATE_ENCIRCLED, STATE_HOLDING, STATE_SPENT, controlRadius, isLive, reachCells, stepAlong } from "./troops.js";
+import { WALL_ASSAULT_COST, WALL_DEFENCE_PER_LEVEL, WALL_ODDS, wallAhead, wearWall } from "./walls.js";
 
 const clampRatio = (value) => (value < ATTRITION_RATIO_MIN ? ATTRITION_RATIO_MIN : value > ATTRITION_RATIO_MAX ? ATTRITION_RATIO_MAX : value);
 
@@ -208,9 +209,10 @@ const readDefender = (battle, side, troop, attackers, moment) => {
 };
 
 // What one defender is worth against one attacker at (x, y).
+// (And the more from behind a wall of its own side's: walls.js.)
 const defenceAgainst = (battle, side, defender, x, y) => {
   const front = (x - defender.x) * defender.faceX + (y - defender.y) * defender.faceY >= 0;
-  return defensivePower(battle, side, defender, front) * defender.flank;
+  return defensivePower(battle, side, defender, front) * defender.flank * (defender.walled > 0 ? 1 + WALL_DEFENCE_PER_LEVEL * defender.walled : 1);
 };
 
 // Walks the day in sub-steps short enough that no troop goes more than half
@@ -286,12 +288,22 @@ export const stepForward = (battle, paceKm, pace) => {
       entry.fromX = troop.x;
       entry.fromY = troop.y;
       const length = Math.min((entry.dayCells * gain) / parts, entry.radius * 0.5);
-      entry.length = length > 0 && stepAlong(troop.x, troop.y, troop.gx, troop.gy, length, entry.forward, ended) ? length : 0;
+      // A stretch of the other side's wall in its way is assaulted, not gone round (walls.js).
+      const ahead = length > 0.5 ? length : 0.5;
+      const wall = battle.walls ? wallAhead(battle, side, troop.x + troop.gx * ahead, troop.y + troop.gy * ahead) : null;
+      entry.length = !wall && length > 0 && stepAlong(troop.x, troop.y, troop.gx, troop.gy, length, entry.forward, ended) ? length : 0;
       entry.toX = entry.length > 0 ? ended[0] : troop.x;
       entry.toY = entry.length > 0 ? ended[1] : troop.y;
       // What the fight costs, whether or not it gained anything: a failed
       // assault is paid for too. One that is cut off is worn the faster by
       // those closing on it.
+      // Assaulting a wall: what it wears of the wall, at the odds against what defends it there, and
+      // what it costs the assault besides the fight (walls.js).
+      if (wall && attack > 0) {
+        wearWall(battle, wall, raw > 0 ? attack / defence : WALL_ODDS, troop.kind === KIND_ARTILLERY, 1 / parts);
+        troop.loss += troop.strength * share * ATTACK_COST * (WALL_ASSAULT_COST - 1);
+        troop.fought = true;
+      }
       if (raw > 0 && attack > 0) {
         troop.loss += troop.strength * share * ATTACK_COST * clampRatio(Math.sqrt(defence / attack));
         troop.fought = true;

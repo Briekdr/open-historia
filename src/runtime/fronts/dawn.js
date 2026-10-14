@@ -20,6 +20,7 @@ import { guardLeft, legsLeft, punchLeft, tireDay } from "./fatigue.js";
 import { mendBudget } from "./manpower.js";
 import { anyMechanic } from "./mechanics.js";
 import { isLive } from "./troops.js";
+import { keptWith, raiseWalls } from "./walls.js";
 import { skyOver } from "./weather.js";
 
 // (A test may set a side's readiness outright: input.steering.readiness = { punch: [a, b], guard, legs }.)
@@ -34,6 +35,11 @@ export const dawnsOn = (run) => anyMechanic(run.mech) || Boolean(run.steer?.read
 
 export const dawn = (run, battle, day) => {
   if (!dawnsOn(run)) return;
+  // The walls standing today, and who fights from one (walls.js): the ground each side leaves alone with them.
+  if (run.mech.walls) {
+    raiseWalls(run, battle, run.dateOf(day));
+    battle.kept = keptWith(battle);
+  }
   // The day's weather (weather.js): what it does to every troop's march and blows.
   const sky = run.mech.weather ? skyOver(run, battle, day) : null;
   if (!sky) battle.sky = null;

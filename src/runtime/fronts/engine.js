@@ -30,6 +30,7 @@ import { arenaFor } from "./arena.js";
 import { dawn } from "./dawn.js";
 import { readMechanics } from "./mechanics.js";
 import { levyOwed, musterShare } from "./muster.js";
+import { linesChanged } from "./walls.js";
 import { MILITARY_NEUTRAL, airWorth, landWorth, mixOf, readMilitary, seaWorth } from "./military.js";
 import { absorbUnit, holderOf, keepStart, lineLength, loadBattle, memberIndex, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setHandicap, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
@@ -2130,6 +2131,8 @@ const snapshot = (run) => {
     })),
     // What recruitment drew from each country's people and what came home to them, in men (manpower.js).
     manpower: manpowerReport(run),
+    // What the fighting did to the scenario's walls: their breaches and wear (walls.js).
+    ...(run.lines && run.lines.some((line) => line.changed) ? { fortifications: linesChanged(run) } : {}),
     stats: { days: day, steps: run.steps },
   };
 };

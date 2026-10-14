@@ -22,6 +22,7 @@ import { PLAYER_GROUP_JUMP_RULE, describeGroupsForPrompt, describePlayerGroupFor
 import { effectiveCityPopulation } from "../../runtime/cityPopulation.js";
 import { hostingSharedGame, humanCountriesOf } from "../../runtime/humanPolities.js";
 import { withTurnSeaBattles } from "../../runtime/naval/record.js";
+import { withFrontFortifications } from "../../runtime/warGeography.js";
 import { STATS_BACKEND_FIELD, conflictSheetTargets, hasStatsBackend, statsBackendInstruction, statsBackendOf, statsBackendPatch, statsBackendTurnRule } from "../../runtime/statsBackend.js";
 import { CONFLICT_BACKENDS_MOST, conflictBackendsRequest, readConflictBackends } from "./conflictBackends.js";
 import {
@@ -9006,6 +9007,8 @@ const applySimulationResult = async ({
       // And the battles its fleets fought, for the map to mark (runtime/naval/record.js); those of older turns are let go.
       ...(turnFronts ? { seaBattles: withTurnSeaBattles(baseWorld?.seaBattles, turnFronts.sea?.battles, nextGame.round) } : null),
       ...(turnFronts?.sea ? { naviesRaised: turnFronts.sea.raised } : null),
+      // And the walls as the fighting left them: their breaches and wear (runtime/fronts/walls.js).
+      ...(turnFronts?.fortifications?.length ? { fortifications: withFrontFortifications(baseWorld?.fortifications, turnFronts.fortifications) } : null),
       // And the blockades that stand as the turn ends, each with the days it has stood (runtime/naval/blockade.js).
       ...(turnFronts ? { blockades: turnBlockades(baseWorld, turnFronts) } : null),
       // Whatever comes through here ends a scene: a skip is refused while one is

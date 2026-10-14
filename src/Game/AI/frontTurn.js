@@ -29,6 +29,8 @@ import { yearInEra } from "../../runtime/unitMotion.js";
 import { militaryLookup } from "../../runtime/militaryStats.js";
 import { DEFAULT_MUSTER, musterTable } from "../../runtime/mustering.js";
 import { warSettingsOf } from "../../runtime/warSettings.js";
+import { normalizeFortifications, normalizeTerrainAreas } from "../../runtime/warGeography.js";
+import { hashKey } from "../../runtime/fronts/codec.js";
 import { fundingFactor, middleFundingPerHead } from "../../runtime/militaryFunding.js";
 import { countryWeight } from "../../runtime/countryWeight.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
@@ -381,6 +383,13 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
       return Number.isFinite(people) && people > 0 ? people : 0;
     },
   };
+};
+
+// The ground a scenario made harder to cross, as the engine's map carries it
+// (runtime/fronts/arena.js): { key, areas }, or null for none.
+const terrainOf = (world) => {
+  const areas = normalizeTerrainAreas(world?.terrainAreas).filter((area) => area.level > 0);
+  return areas.length > 0 ? { key: hashKey(areas.map((area) => `${area.id}:${area.level}:${JSON.stringify(area.rings)}`)), areas } : null;
 };
 
 // ---- names ---------------------------------------------------------------------------
@@ -1047,7 +1056,8 @@ export const runTurnFronts = async ({
       isGroup: readers.isGroup,
       units: asArray(world?.units),
       transports: normalizeTransports(world?.transports),
-      map: { ...map, regions },
+      // (With the ground the scenario made harder to cross, where it weighs terrain: runtime/fronts/arena.js.)
+      map: { ...map, regions, ...(mechanics?.terrain === true && terrainOf(world) ? { terrain: terrainOf(world) } : {}) },
       regionTypes: asArray(regionTypes),
       strengthOf: readers.strengthOf,
       peopleOf: readers.peopleOf,
@@ -1061,6 +1071,8 @@ export const runTurnFronts = async ({
       // Each country's own military figures, where the scenario weighs them (runtime/fronts/military.js).
       ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
       ...(Number(menEach) >= 1 ? { menEach: Number(menEach) } : {}),
+      // The walls the scenario drew and the War Room built, where it has them (runtime/fronts/walls.js).
+      ...(mechanics?.walls === true && normalizeFortifications(world?.fortifications).length > 0 ? { fortifications: normalizeFortifications(world?.fortifications) } : {}),
       // The seasons and weather, where the scenario has them (runtime/fronts/weather.js).
       ...(mechanics?.weather === true && clean(climateSeed) ? { climateSeed: clean(climateSeed) } : {}),
       // Each country's mustering curve, where the scenario musters wars (runtime/fronts/muster.js).
@@ -1231,5 +1243,7 @@ export const runTurnFronts = async ({
     starts: asArray(result.starts),
     // What recruitment drew from each country's people and what came home, in men: for frontApply.js withFrontManpower.
     manpower: asArray(result.manpower),
+    // What the fighting did to the walls: their breaches and wear (runtime/fronts/walls.js).
+    fortifications: asArray(result.fortifications),
   };
 };

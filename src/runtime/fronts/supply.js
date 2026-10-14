@@ -52,6 +52,7 @@ import {
 } from "./constants.js";
 import { bodiesOf, ownCell, takeCells } from "./field.js";
 import { describePoint } from "./sectors.js";
+import { keptWith } from "./walls.js";
 import { isLive } from "./troops.js";
 
 const cellOf = (field, x, y) => (x >= 0 && y >= 0 && x < field.cols && y < field.rows ? Math.floor(y) * field.cols + Math.floor(x) : -1);
@@ -246,18 +247,20 @@ export const findPockets = (battle) => {
   }
   // A siege that has ended and begins again is news again.
   for (const pocket of pockets) if (!pocket.siege) pocket.told = false;
-  // The ground each side leaves alone: every cell of a place it is besieging.
-  battle.kept = [null, null];
+  // The ground each side leaves alone: every cell of a place it is besieging
+  // (and, where walls stand, every stretch of the other side's: walls.js).
+  battle.siegeKept = [null, null];
   if (pockets.some((pocket) => pocket.siege !== "")) {
     for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
       for (let index = 0; index < field.size; index += 1) {
         const pocket = pocketOf[side][index];
         if (pocket < 0 || !pockets[pocket].siege) continue;
-        battle.kept[1 - side] ??= new Uint8Array(field.size);
-        battle.kept[1 - side][index] = 1;
+        battle.siegeKept[1 - side] ??= new Uint8Array(field.size);
+        battle.siegeKept[1 - side][index] = 1;
       }
     }
   }
+  battle.kept = keptWith(battle);
   battle.pockets = pockets;
   battle.pocketOf = pocketOf;
   battle.pocketTurns = field.turns;
