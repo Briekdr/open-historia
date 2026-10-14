@@ -37,6 +37,15 @@ const doingOf = (troop) => {
 };
 
 // The brief of a battle as it stands.
+// The names of the frozen water on a battlefield's ground (climate.js).
+const frozenNames = (battle) => {
+  const { arena } = battle;
+  if (!arena?.iced) return [];
+  const names = new Set();
+  for (let cell = 0; cell < arena.size && names.size < 4; cell += 1) if (arena.iced[cell] === 1) names.add(arena.names[arena.region[cell]]);
+  return [...names].filter(Boolean);
+};
+
 export const buildBrief = (battle, since) => {
   const { field, arena, place } = battle;
   const { kmAt, rowKm } = place;
@@ -163,6 +172,8 @@ export const buildBrief = (battle, since) => {
     since,
     // Who held the sky over it today, with how many wings a side (air.js).
     ...(skyHeld(battle) ? { air: skyHeld(battle) } : {}),
+    // The water frozen hard enough to cross there this turn (climate.js), by name.
+    ...(frozenNames(battle).length > 0 ? { frozen: frozenNames(battle) } : {}),
     // The season, today's weather and the days of each this run (weather.js): for the story.
     ...(battle.sky && battle.skies ? { weather: { season: battle.sky.season, now: battle.sky.state, days: { ...battle.skies } } } : {}),
   };
@@ -259,6 +270,8 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
   const air = brief.air && (brief.air.holds === 0 || brief.air.holds === 1) && Array.isArray(brief.air.wings)
     ? `  Air: ${lead[brief.air.holds]} holds the sky (${brief.air.wings[brief.air.holds]} wings against ${brief.air.wings[1 - brief.air.holds]})`
     : "";
+  // Water frozen hard enough to cross (climate.js).
+  const ice = Array.isArray(brief.frozen) && brief.frozen.length > 0 ? `  Ice: ${brief.frozen.join(", ")} ${brief.frozen.length === 1 ? "is" : "are"} frozen hard enough for troops to cross` : "";
   // A side that has withdrawn its troops from here (engine.js withdrawWhoLeft).
   const gone = [HOLDER_SIDE_A, HOLDER_SIDE_B].filter((side) => brief.carry?.away?.[side] === true)
     .map((side) => `  ${lead[side]} has withdrawn its troops from here: the ground it holds is unguarded until it orders them back.`).join("\n");
@@ -280,7 +293,7 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
   // are listed, then fewer sectors.
   let text = "";
   for (const [mostSectors, mostNames] of [[3, 4], [3, 2], [3, 1], [2, 1], [0, 1]]) {
-    text = [head, strength, weather, air, gone, lineText(mostSectors), sinceText(mostNames), orders, valid].filter(Boolean).join("\n");
+    text = [head, strength, weather, ice, air, gone, lineText(mostSectors), sinceText(mostNames), orders, valid].filter(Boolean).join("\n");
     if (text.length <= BRIEF_TEXT_MAX) return text;
   }
   return text.slice(0, BRIEF_TEXT_MAX - 1).trimEnd() + "…";

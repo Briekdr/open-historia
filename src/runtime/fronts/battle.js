@@ -29,6 +29,8 @@ import {
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
   MAX_COMMANDS,
+  THAW_LOSS,
+  THAW_REACH_CELLS,
   MAX_CONTESTED_REGIONS,
   MAX_LOG_ENTRIES,
   MAX_NAMED_TROOPS,
@@ -40,8 +42,8 @@ import {
   REPAINT_BELOW,
   TROOP_UNITS,
 } from "./constants.js";
-import { nearestOnContour, openField, ownCell, packField, redistance, setGround, takeCells, traceContour, unpackField } from "./field.js";
-import { awayOf, downhill, measure } from "./ground.js";
+import { nearestHeld, nearestOnContour, openField, ownCell, packField, redistance, setGround, takeCells, traceContour, unpackField } from "./field.js";
+import { awayOf, cellAt, downhill, measure } from "./ground.js";
 import { placeBehind } from "./move.js";
 import { readGenerals, readTalk } from "./command.js";
 import { FAIR_EDGE, handicapOf, shortEdge, sideShortage } from "./handicap.js";
@@ -105,6 +107,39 @@ export const readRegions = (battle, run) => {
     if (side >= 0) homeOfRegion[index] = side;
   }
   battle.homes = Uint8Array.from(arena.region, (region) => homeOfRegion[region]);
+  battle.iceSide = iceSides(arena, regionSide);
+};
+
+// Whose each cell of frozen water is: the side whose ground is nearest it, by a
+// search out from both sides' ground over the ice, in the order of the cells
+// (the same on every machine). null where nothing is frozen.
+export const iceSides = (arena, regionSide) => {
+  if (!arena.iced) return null;
+  const { cols, rows } = arena;
+  const side = new Int8Array(arena.size).fill(-1);
+  const queue = [];
+  for (let cell = 0; cell < arena.size; cell += 1) {
+    if (arena.iced[cell] === 1 || !(arena.speed[cell] > 0)) continue;
+    const own = regionSide[arena.region[cell]];
+    if (own !== 0 && own !== 1) continue;
+    side[cell] = own;
+    queue.push(cell);
+  }
+  for (let at = 0; at < queue.length; at += 1) {
+    const cell = queue[at];
+    const col = cell % cols;
+    const row = (cell - col) / cols;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const x = col + dx;
+      const y = row + dy;
+      if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
+      const next = y * cols + x;
+      if (arena.iced[next] !== 1 || side[next] >= 0) continue;
+      side[next] = side[cell];
+      queue.push(next);
+    }
+  }
+  return side;
 };
 
 // One region changed hands during a run: its side is read again, and whose
@@ -306,7 +341,7 @@ export const setRadii = (battle) => {
 export const reconcile = (battle, run) => {
   readRegions(battle, run);
   const { field, arena, regionSide } = battle;
-  let changed = setGround(field, regionSide);
+  let changed = setGround(field, regionSide, battle.iceSide);
   const held = new Int32Array(arena.ids.length);
   for (let index = 0; index < field.size; index += 1) {
     if (field.play[index] && field.holders[index] === regionSide[arena.region[index]]) held[arena.region[index]] += 1;
@@ -616,7 +651,7 @@ export const loadBattle = (run, record, arena) => {
     if (Array.isArray(entry) && typeof entry[0] === "string" && typeof entry[1] === "string" && entry[0] && entry[1]) battle.shown.set(entry[0], entry[1]);
   }
   readRegions(battle, run);
-  battle.field = unpackField(arena, record.field, battle.regionSide);
+  battle.field = unpackField(arena, record.field, battle.regionSide, battle.iceSide);
   const read = [decodeTroops(record.troops[0]).map(createTroop), decodeTroops(record.troops[1]).map(createTroop)];
   // Which standing order each troop was serving when the last run ended.
   battle.served = Array.isArray(carry.under) && carry.under.length === 2;
@@ -649,6 +684,21 @@ export const loadBattle = (run, record, arena) => {
   battle.plans = Array.isArray(carry.plans) ? carry.plans : null;
   // What the members are still owed of their levies (muster.js).
   battle.levy = readLevy(carry.levy);
+  // Troops left on ice that has thawed since (climate.js) get off it as they can: to the nearest ground of
+  // their side, at a cost; one with none within reach is lost with it.
+  read.forEach((list, side) => list.forEach((troop) => {
+    if (!(troop.strength > 0)) return;
+    const cell = cellAt(battle.field, troop.x, troop.y);
+    if (cell >= 0 && battle.field.play[cell]) return;
+    const to = nearestHeld(battle.field, side, troop.x, troop.y, THAW_REACH_CELLS);
+    if (to < 0) {
+      troop.strength = 0;
+      return;
+    }
+    troop.x = (to % battle.field.cols) + 0.5;
+    troop.y = Math.floor(to / battle.field.cols) + 0.5;
+    troop.strength *= 1 - THAW_LOSS;
+  }));
   const kept = dropTheDead(read, record.named);
   battle.troops = kept.troops;
   battle.named = kept.named;
@@ -687,7 +737,7 @@ export const openBattle = (run, { name, warId, sides, frame, arena, day }) => {
   const battle = createBattle(run, { name, warId, sides, frame, arena, openedDate: run.dateOf(day), openedDay: day });
   setHandicap(battle, run);
   readRegions(battle, run);
-  battle.field = openField(arena, run.input.map.regions, battle.regionSide);
+  battle.field = openField(arena, run.input.map.regions, battle.regionSide, battle.iceSide);
   if (!battle.field || traceContour(battle.field).segments === 0) return null;
   lineLength(battle);
   return battle;

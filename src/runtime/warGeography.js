@@ -177,4 +177,36 @@ export const withFrontFortifications = (lines, changes) => {
   return normalizeFortifications(lines).map((line) => (byId.has(line.id) ? normalizeFortifications([{ ...line, breaches: byId.get(line.id).breaches, wear: byId.get(line.id).wear }])[0] : line));
 };
 
+// A climate zone's weight at a place, 0 to 1 (as the engine reads it cell by
+// cell, runtime/fronts/climate.js zonesOver): a half at its edge, the whole
+// `blendKm` / 2 inside, nothing as far outside. For the turn and the map, which
+// may measure as they like; the engine keeps to its own arithmetic.
+export const zoneWeightAt = (zone, lng, lat) => {
+  const rings = Array.isArray(zone?.rings) ? zone.rings : [];
+  let inside = false;
+  let nearest = Infinity;
+  const kx = 111.32 * Math.cos((lat * Math.PI) / 180);
+  const ky = 110.57;
+  for (const ring of rings) {
+    for (let at = 0, back = ring.length - 1; at < ring.length; back = at, at += 1) {
+      const [ax, ay] = ring[back];
+      const [bx, by] = ring[at];
+      if ((by > lat) !== (ay > lat) && lng < ((ax - bx) * (lat - by)) / (ay - by) + bx) inside = !inside;
+      const px = (lng - ax) * kx;
+      const py = (lat - ay) * ky;
+      const qx = (bx - ax) * kx;
+      const qy = (by - ay) * ky;
+      const length = qx * qx + qy * qy;
+      const along = length > 0 ? Math.max(0, Math.min(1, (px * qx + py * qy) / length)) : 0;
+      const dx = px - along * qx;
+      const dy = py - along * qy;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance < nearest) nearest = distance;
+    }
+  }
+  const blend = Number(zone?.blendKm) || 0;
+  if (!(blend > 0)) return inside ? 1 : 0;
+  return Math.max(0, Math.min(1, 0.5 + (inside ? nearest : -nearest) / blend));
+};
+
 export const normalizeFreezingRegions = (value) => [...new Set((Array.isArray(value) ? value : []).map((id) => clean(id, 120)).filter(Boolean))].slice(0, 5000);

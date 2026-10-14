@@ -77,6 +77,8 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
   "fortifications",
   "climateZones",
   "freezingRegions",
+  // And the water frozen now: there for all to see.
+  "frozenRegions",
   "peaceOffers",
   "reparations",
   "peaceTreaties",

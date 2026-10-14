@@ -129,11 +129,12 @@ const write = (field, index, value, painter = 0, when = 1) => {
 // `sideOfRegion[regionIndex]` is 0, 1, or -1 for a region outside the war. A
 // cell that comes into play takes its region's side, roughly, until distances
 // are worked out; one that leaves it becomes wall. true when anything changed.
-export const setGround = (field, sideOfRegion) => {
+// (Frozen water, which is no side's region, takes `iceSide`'s side cell by cell: battle.js iceSides.)
+export const setGround = (field, sideOfRegion, iceSide = null) => {
   const { arena, size, play, holders, phi } = field;
   let changed = false;
   for (let index = 0; index < size; index += 1) {
-    const side = arena.speed[index] > 0 ? sideOfRegion[arena.region[index]] : -1;
+    const side = arena.speed[index] > 0 ? (iceSide && arena.iced && arena.iced[index] === 1 ? iceSide[index] : sideOfRegion[arena.region[index]]) : -1;
     if (side === 0 || side === 1) {
       if (play[index]) continue;
       play[index] = 1;
@@ -690,9 +691,9 @@ export const rebuildDistances = (field, keepLine = false) => {
 // really meet, to a fraction of a cell. A cell beside the other side is sampled
 // sixteen times; the share of it each side has says how far through it the
 // border runs. null when the two sides do not touch here.
-export const openField = (arena, regions, sideOfRegion) => {
+export const openField = (arena, regions, sideOfRegion, iceSide = null) => {
   const field = createField(arena);
-  setGround(field, sideOfRegion);
+  setGround(field, sideOfRegion, iceSide);
   const { cols, rows, size, play, holders, phi } = field;
   const border = [];
   let col0 = cols;
@@ -776,9 +777,9 @@ export const packField = (field) => {
 // a cell in play, and the distances from the saved band. If the band cannot be
 // trusted (the map was redrawn since, a value is missing, a value has the wrong
 // sign) every distance is worked out again from the holders.
-export const unpackField = (arena, saved, sideOfRegion) => {
+export const unpackField = (arena, saved, sideOfRegion, iceSide = null) => {
   const field = createField(arena);
-  setGround(field, sideOfRegion);
+  setGround(field, sideOfRegion, iceSide);
   const { cols, rows, size, play, holders, phi } = field;
   const mask = decodeMask(saved?.mask, size);
   const cells = bandIndices(mask, cols, rows);
@@ -812,9 +813,9 @@ export const unpackField = (arena, saved, sideOfRegion) => {
 // every new cell reads the old field at its own place on the map. Where the old
 // frame did not reach, a cell takes its region's side. `scale` is how many new
 // cells an old cell's side measures.
-export const resampleField = (old, arena, sideOfRegion) => {
+export const resampleField = (old, arena, sideOfRegion, iceSide = null) => {
   const field = createField(arena);
-  setGround(field, sideOfRegion);
+  setGround(field, sideOfRegion, iceSide);
   const { cols, size, play, holders, phi } = field;
   const { toLngLat } = projectorOf(arena.frame);
   const { toCell } = projectorOf(old.arena.frame);

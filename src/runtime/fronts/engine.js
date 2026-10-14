@@ -336,12 +336,14 @@ const closeBattle = (run, battle, day) => {
 // The map's regions that are LAND. Two sides touch where their land does: a
 // stretch of sea each holds a region of is no front, and no frame is laid
 // round it. null while the shapes have not been read.
+// (With the water frozen this turn, climate.js: ground the two sides may meet across.)
 const landRegionsOf = (run) => {
   const regions = regionsOf(run);
   if (!regions) return null;
   if (run.landRegions?.of !== regions) {
     const water = waterTypeIds(run.input.regionTypes);
-    run.landRegions = { of: regions, list: water.size > 0 ? regions.filter((region) => !water.has(clean(region?.typeId))) : regions };
+    const frozen = Array.isArray(run.input.map?.frozen) && run.input.map.frozen.length > 0 ? new Set(run.input.map.frozen) : null;
+    run.landRegions = { of: regions, list: water.size > 0 ? regions.filter((region) => !water.has(clean(region?.typeId)) || (frozen && frozen.has(region?.id))) : regions };
   }
   return run.landRegions.list;
 };
@@ -358,7 +360,9 @@ const contactKey = (run, war) => {
     const side = warSideOf(run, war, id);
     if (side >= 0 && !covered(id)) held[side].push(id);
   }
-  return `contact|${clean(run.input.map?.key)}|${war.id}|${hashKey([war.sides[0].join("\u0002"), war.sides[1].join("\u0002"), held[0].length, held[1].length, held[0].join("\u0002"), held[1].join("\u0002")])}`;
+  // (And which water is frozen: ice may join two sides that did not touch.)
+  const frozen = Array.isArray(run.input.map?.frozen) ? run.input.map.frozen.slice().sort().join("\u0002") : "";
+  return `contact|${clean(run.input.map?.key)}|${war.id}|${hashKey([war.sides[0].join("\u0002"), war.sides[1].join("\u0002"), held[0].length, held[1].length, held[0].join("\u0002"), held[1].join("\u0002"), frozen])}`;
 };
 
 // Opens a battlefield for every stretch where an active war's two sides touch

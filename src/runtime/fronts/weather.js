@@ -30,6 +30,8 @@
 
 import { diffGameDays, parseGameDate } from "../gameDates.js";
 import { hashSeed } from "../unitMotion.js";
+import { climateAt, oddsAt, zonesToday } from "./climate.js";
+import { cellAt } from "./ground.js";
 
 export const WEATHER_STATES = Object.freeze(["clear", "rain", "storm", "mud", "snow", "blizzard", "frost", "heat", "fog"]);
 export const SEASONS = Object.freeze(["winter", "spring", "summer", "autumn"]);
@@ -109,7 +111,8 @@ export const pickWeather = (table, draw) => {
 // The weather on a day at a place: { state, season, climate }. `place` names
 // what is having it (a battlefield, a stretch of sea): the same place, seed
 // and spell is the same weather. A date the calendar cannot read is fair.
-export const weatherOn = ({ seed = "", place = "", lat = 45, date = "" } = {}) => {
+// `odds`, where given, are what the season brings there instead of the world's own (climate.js).
+export const weatherOn = ({ seed = "", place = "", lat = 45, date = "", odds = null } = {}) => {
   const climate = climateOf(lat);
   const parsed = parseGameDate(date);
   if (!parsed) return { state: "clear", season: "", climate };
@@ -117,7 +120,7 @@ export const weatherOn = ({ seed = "", place = "", lat = 45, date = "" } = {}) =
   const days = diffGameDays(SPELL_EPOCH, date);
   const spell = Math.floor((Number.isFinite(days) ? days : 0) / SPELL_DAYS);
   const draw = (hashSeed(`${seed}|${place}|${spell}|weather`) % 10000) / 10000;
-  return { state: pickWeather(WEATHER_ODDS[climate][season], draw), season, climate };
+  return { state: pickWeather(odds ?? WEATHER_ODDS[climate][season], draw), season, climate };
 };
 
 // A battlefield's weather for a day of a run: where its ground's middle lies,
@@ -130,19 +133,32 @@ export const skyOver = (run, battle, day) => {
     battle.climateFor = battle.place;
   }
   const seed = String(run.input?.climateSeed ?? run.seed ?? "");
-  const sky = weatherOn({ seed, place: battle.name, lat: battle.climateLat, date: run.dateOf(day) });
+  const date = run.dateOf(day);
+  // Where a scenario's own climate zones reach the battlefield (climate.js), they bring its weather and set
+  // what each troop's own ground does today; at its middle, the odds of the day's weather and the season's name.
+  const today = zonesToday(run, battle, date, battle.climateLat);
+  battle.climateToday = today;
+  const parsed = parseGameDate(date);
+  const worldOdds = parsed ? WEATHER_ODDS[climateOf(battle.climateLat)][seasonOf(parsed.month, battle.climateLat)] : null;
+  const middle = cellAt(battle.field, battle.field.cols / 2, battle.field.rows / 2);
+  const there = today && worldOdds ? oddsAt(today, middle, worldOdds) : null;
+  const sky = weatherOn({ seed, place: battle.name, lat: battle.climateLat, date, odds: there ? there.odds : null });
+  if (there?.zone) sky.season = `${there.zone.zone.name ? `${there.zone.zone.name}, ` : ""}${there.zone.mix.season}`;
   const forced = run.steer?.weather;
   const state = typeof forced === "string" && WEATHER[forced] ? forced : sky.state;
-  battle.sky = { ...sky, state, effects: WEATHER[state] };
+  // (The zones' own say over whether aircraft fly, at its middle.)
+  const local = today ? climateAt(today, middle) : null;
+  battle.sky = { ...sky, state, effects: local && local.air !== 1 ? { ...WEATHER[state], air: WEATHER[state].air * local.air } : WEATHER[state] };
   if (!battle.skies) battle.skies = {};
   battle.skies[state] = (battle.skies[state] ?? 0) + 1;
   return battle.sky;
 };
 
-// What a day of weather takes from a troop's strength, by its supply (a troop cut off has none).
+// What a day of weather takes from a troop's strength, by its supply (a troop cut off has none): the day's
+// weather's cold and heat, and its own ground's where a scenario's climate zones say more (climate.js).
 export const weatherLoss = (sky, troop) => {
   if (!sky) return 0;
-  const harsh = sky.effects.cold + sky.effects.heat;
+  const harsh = sky.effects.cold + sky.effects.heat + (troop.climate ? troop.climate.cold + troop.climate.heat : 0);
   if (!(harsh > 0)) return 0;
   const short = troop.pocket ? 1 : 1 - troop.supply;
   return short > 0 ? harsh * WEATHER_LOSS * short : 0;

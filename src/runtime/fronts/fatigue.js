@@ -50,7 +50,8 @@ export const tireDay = (run, battle, { wear = 0, rest = 1 } = {}) => {
       const marched = full > 0 ? troop.movedKm / full : 0;
       const busy = troop.fought || troop.engaged || troop.movedKm >= FATIGUE_STILL_KM;
       if (busy) {
-        const rise = FATIGUE_MARCH * (marched > 1 ? 1 : marched) + (troop.fought ? FATIGUE_ATTACK : troop.engaged ? FATIGUE_DEFEND : 0) + wear;
+        // (And what its own ground's climate wears it, where a scenario's zones say: climate.js.)
+        const rise = FATIGUE_MARCH * (marched > 1 ? 1 : marched) + (troop.fought ? FATIGUE_ATTACK : troop.engaged ? FATIGUE_DEFEND : 0) + wear + (troop.climate ? troop.climate.wear : 0);
         troop.fatigue = troop.fatigue + rise > 1 ? 1 : troop.fatigue + rise;
       } else {
         const fall = FATIGUE_REST * (troop.dug ? FATIGUE_REST_DUG : 1) * (troop.pocket ? FATIGUE_REST_POCKET : troop.supply) * rest;

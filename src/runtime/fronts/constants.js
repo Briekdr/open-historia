@@ -300,6 +300,13 @@ export const FATIGUE_EXHAUSTED = 0.7;
 // The least part of a counter a country's last men are raised as: what is
 // left of them after its whole counters, below this, stays at home.
 export const PART_COUNTER_LEAST = 0.1;
+
+// ---- ice (climate.js; Wars and Fronts Pt.2) -----------------------------------------
+// How fast troops cross frozen water, against open ground; what a troop left
+// on ice that thawed loses getting off it, and how far it may get, in cells.
+export const ICE_SPEED = 0.35;
+export const THAW_LOSS = 0.3;
+export const THAW_REACH_CELLS = 12;
 // EXPERIMENT, in the lab (mind/policy.js createTroopPolicy): what a trained staff
 // that orders troops one by one marks its orders with (engine.js orderTroopsByMind).
 export const MIND_MARK = "mind";

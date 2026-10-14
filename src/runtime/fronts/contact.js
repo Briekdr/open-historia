@@ -134,6 +134,43 @@ export const findContacts = (regions, sideOf, map) => {
     return root;
   };
   const meeting = new Map();
+  // Frozen water between them joins them too (climate.js; map.frozen, its regions' ids): the boxes of the
+  // frozen water, those that touch made one, and every region of either side whose box touches one meets
+  // every region of the other side's that does, there.
+  const frozen = Array.isArray(map?.frozen) && map.frozen.length > 0 ? new Set(map.frozen) : null;
+  if (frozen) {
+    const ice = [];
+    for (const region of Array.isArray(regions) ? regions : []) {
+      if (!frozen.has(region?.id)) continue;
+      const [west, south, east, north] = boxOf(region);
+      if (east >= west && north >= south) ice.push({ west, south, east, north });
+    }
+    for (let joined = true; joined;) {
+      joined = false;
+      for (let one = 0; one < ice.length && !joined; one += 1) {
+        for (let two = one + 1; two < ice.length && !joined; two += 1) {
+          const [p, q] = [ice[one], ice[two]];
+          if (p.west > q.east + TOUCH_DEGREES || q.west > p.east + TOUCH_DEGREES || p.south > q.north + TOUCH_DEGREES || q.south > p.north + TOUCH_DEGREES) continue;
+          ice[one] = { west: Math.min(p.west, q.west), south: Math.min(p.south, q.south), east: Math.max(p.east, q.east), north: Math.max(p.north, q.north) };
+          ice.splice(two, 1);
+          joined = true;
+        }
+      }
+    }
+    const touching = (box, other) => !(box.west > other.east + TOUCH_DEGREES || other.west > box.east + TOUCH_DEGREES || box.south > other.north + TOUCH_DEGREES || other.south > box.north + TOUCH_DEGREES);
+    for (const sheet of ice) {
+      const ours = held[0].map((box, at) => (touching(box, sheet) ? at : -1)).filter((at) => at >= 0);
+      const theirs = held[1].map((box, at) => (touching(box, sheet) ? at : -1)).filter((at) => at >= 0);
+      for (const a of ours) {
+        for (const b of theirs) {
+          const rootA = find(a);
+          const rootB = find(held[0].length + b);
+          if (rootA !== rootB) parent[Math.max(rootA, rootB)] = Math.min(rootA, rootB);
+          meeting.set(`${a}|${b}`, { a, west: sheet.west - TOUCH_DEGREES, south: sheet.south - TOUCH_DEGREES, east: sheet.east + TOUCH_DEGREES, north: sheet.north + TOUCH_DEGREES });
+        }
+      }
+    }
+  }
   for (let a = 0; a < held[0].length; a += 1) {
     const one = held[0][a];
     for (let b = 0; b < held[1].length; b += 1) {

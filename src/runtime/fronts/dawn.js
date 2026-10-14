@@ -23,6 +23,8 @@ import { isLive } from "./troops.js";
 import { skyOfWings, wearWings } from "./air.js";
 import { keptWith, raiseWalls } from "./walls.js";
 import { skyOver } from "./weather.js";
+import { climateAt } from "./climate.js";
+import { cellAt } from "./ground.js";
 
 // (A test may set a side's readiness outright: input.steering.readiness = { punch: [a, b], guard, legs }.)
 const steered = (run, key, side) => {
@@ -58,9 +60,12 @@ export const dawn = (run, battle, day) => {
       const worth = battle.worth ? battle.worth[side][troop.owner] ?? 1 : 1;
       // What its fatigue leaves it (fatigue.js).
       const tired = run.mech.fatigue && troop.fatigue > 0;
-      troop.punch = (tired ? punch * punchLeft(troop.fatigue) : punch) * worth * blows * (air ? air.punch[side] : 1);
+      // What a scenario's climate zones make of its own ground today (climate.js).
+      troop.climate = sky && battle.climateToday ? climateAt(battle.climateToday, cellAt(battle.field, troop.x, troop.y)) : null;
+      const local = troop.climate;
+      troop.punch = (tired ? punch * punchLeft(troop.fatigue) : punch) * worth * blows * (air ? air.punch[side] : 1) * (local ? local.attack : 1);
       troop.guard = (tired ? guard * guardLeft(troop.fatigue) : guard) * worth * (air ? air.guard[side] : 1);
-      troop.legs = (tired ? legs * legsLeft(troop.fatigue) : legs) * pace * (air ? air.legs[side] : 1);
+      troop.legs = (tired ? legs * legsLeft(troop.fatigue) : legs) * pace * (air ? air.legs[side] : 1) * (local ? local.pace : 1);
     }
   }
 };

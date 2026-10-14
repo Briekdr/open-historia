@@ -452,9 +452,9 @@ const growFrame = (battle, run, day, grow, within, counted = true) => {
   battle.arena = arena;
   battle.place = projectorOf(frame);
   readRegions(battle, run);
-  battle.field = resampleField(old, arena, battle.regionSide);
+  battle.field = resampleField(old, arena, battle.regionSide, battle.iceSide);
   // The field the run began with, on the new frame too.
-  const began = resampleField({ ...old, phi: before.startPhi }, arena, battle.regionSide);
+  const began = resampleField({ ...old, phi: before.startPhi }, arena, battle.regionSide, battle.iceSide);
   battle.startPhi = began.phi;
   battle.startHolders = began.holders;
   // The ways the troops are going, and the places they are making for, go

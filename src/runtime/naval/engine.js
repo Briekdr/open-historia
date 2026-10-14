@@ -278,12 +278,16 @@ const placeOf = ({ lng, lat, seas, cities, km }) => {
 //   blockades   [{ country, by: [names], pressure, covered, days }]: each country a fleet
 //               pressed on in the period (blockade.js): the mean of its days, the share
 //               of its coast reached, and how many of the period's days it stood
-export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units = [], strengthOf = null, controllerOf = null, grid = null, cities = [], seas = [], flat = false, scale = undefined, caps = {}, raised = [], era: setEra = null, militaryOf = null, weatherSeed = null } = {}) => {
+export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units = [], strengthOf = null, controllerOf = null, grid = null, cities = [], seas = [], flat = false, scale = undefined, caps = {}, raised = [], era: setEra = null, militaryOf = null, weatherSeed = null, iced = [] } = {}) => {
   const era = eraOf(fromDate, setEra);
   // Weighing the weather (fronts/weather.js): a storm keeps fleets apart and weakens a blockade. Fleets in the same
   // stretch of sea (five degrees by five) have the same weather; none without a seed.
   const stormy = (fleet, day) => (weatherSeed === null || weatherSeed === undefined ? false
     : STORMY.has(weatherOn({ seed: String(weatherSeed), place: `sea ${Math.round(fleet.lng / 5)} ${Math.round(fleet.lat / 5)}`, lat: fleet.lat, date: dateOf(day) }).state));
+  // Frozen water (fronts/climate.js): the boxes of water frozen this period. A fleet in one is frozen in: it
+  // neither sails nor fights, and blockades nobody.
+  const ice = list(iced).filter((box) => Array.isArray(box) && box.length >= 4 && box.every(Number.isFinite));
+  const frozenIn = (fleet) => ice.some(([west, south, east, north]) => fleet.lng >= west && fleet.lng <= east && fleet.lat >= south && fleet.lat <= north);
   // Weighing countries' own military figures (fronts/military.js): what a country's navy is against
   // what every country's was, and 0 for one that has none, which neither fights nor is given a fleet.
   const navies = new Map();
@@ -403,7 +407,7 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
     // ---- closing, and retiring -------------------------------------------------------
     if (grid) {
       for (const fleet of fleets) {
-        if (fleet.sunk) continue;
+        if (fleet.sunk || frozenIn(fleet)) continue;
         if (fleet.posture === "withdrawing") {
           if (!fleet.home) continue;
           const far = km(fleet.lng, fleet.lat, fleet.home[0], fleet.home[1]);
@@ -446,7 +450,7 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
     pairs.sort((x, y) => x.far - y.far || (x.one.id < y.one.id ? -1 : x.one.id > y.one.id ? 1 : 0) || (x.two.id < y.two.id ? -1 : 1));
     for (const { one, two } of pairs) {
       if (battles.length >= SEA_BATTLES_A_RUN_MOST) break;
-      if (one.ready > day || two.ready > day || !live(one) || !live(two)) continue;
+      if (one.ready > day || two.ready > day || !live(one) || !live(two) || frozenIn(one) || frozenIn(two)) continue;
       const keen = Math.max(keenOf(one.posture), keenOf(two.posture));
       const shy = Math.min(keenOf(one.posture), keenOf(two.posture)) <= POSTURE_KEEN.withdrawing ? EVADES : 1;
       if (chanceOf(`${seed}|${day}|${one.id}|${two.id}|meet`) >= (ENGAGE_LEAST + ENGAGE_SPAN * keen) * shy * Math.min(shelterOf(one), shelterOf(two)) * (stormy(one, day) || stormy(two, day) ? STORM_ENGAGE : 1)) continue;
@@ -501,7 +505,7 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
     for (const [key, post] of posts) {
       const blockaders = [];
       for (const fleet of fleets) {
-        if (!live(fleet) || fleet.posture !== "blockade" || !hostile(fleet.key, key)) continue;
+        if (!live(fleet) || fleet.posture !== "blockade" || !hostile(fleet.key, key) || frozenIn(fleet)) continue;
         if (!post.stations.some(([lng, lat]) => km(lng, lat, fleet.lng, fleet.lat) <= reach)) continue;
         // What it can put into the blockade: what it is, less what the fleets of its enemies in reach of it tie down.
         const mine = fleet.strength * navyFactor(weightOf(fleet.owner)) * seaOf(fleet.owner) * (stormy(fleet, day) ? STORM_BLOCKADE : 1);

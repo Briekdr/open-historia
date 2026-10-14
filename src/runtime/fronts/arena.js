@@ -26,7 +26,7 @@
 // that only needs arenas it already has is run without reading it.
 
 import { hashKey } from "./codec.js";
-import { TERRAIN_SPEED_MAX, TERRAIN_SPEED_MIN } from "./constants.js";
+import { ICE_SPEED, TERRAIN_SPEED_MAX, TERRAIN_SPEED_MIN } from "./constants.js";
 import { cellIndexAt, latToY, projectorOf } from "./frame.js";
 import { isWaterType } from "../regionTypes.js";
 
@@ -81,7 +81,7 @@ const ringLongitudes = (ring, middle) => {
 
 // A region's rings in the frame's cell units: [[ring, ring], ...], each ring a
 // flat list x0, y0, x1, y1, ... Its box too, to tell what the frame cuts.
-const projectRegion = (frame, region) => {
+export const projectRegion = (frame, region) => {
   const { lng0, cell, cols } = frame;
   const y0 = latToY(frame.lat0);
   const middle = lng0 + (cols * cell) / 2;
@@ -153,7 +153,7 @@ const areaOfRings = (rings) => {
 // is inside it and that nothing has claimed yet. Every edge leaves a crossing
 // on each scan line it passes; a line's crossings, in order, are where the
 // shape begins and ends along it (holes included, by the even-odd rule).
-const fillPolygon = (rings, grid, width, height, originX, originY, scale, value) => {
+export const fillPolygon = (rings, grid, width, height, originX, originY, scale, value) => {
   const lines = new Map();
   let lowest = height;
   let highest = -1;
@@ -249,7 +249,7 @@ const terrainLevels = (frame, terrain) => {
   return filled > 0 ? levels : null;
 };
 
-export const rasterizeArena = (frame, regions, { regionTypes = [], cities = [], terrain = null } = {}) => {
+export const rasterizeArena = (frame, regions, { regionTypes = [], cities = [], terrain = null, frozen = null } = {}) => {
   const { cols, rows } = frame;
   const size = cols * rows;
   const speedByType = new Map();
@@ -303,6 +303,11 @@ export const rasterizeArena = (frame, regions, { regionTypes = [], cities = [], 
   const levels = terrainLevels(frame, terrain);
   const placed = citiesInFrame(frame, cities);
   const cityCells = levels ? new Set(placed.map((city) => city.cell)) : null;
+  // Water a scenario lets freeze, frozen this turn (`frozen`, a list of its region ids: climate.js): ground
+  // troops may cross, slowly; whose it is, cell by cell, is the side whose ground is nearest (battle.js iceSides).
+  const frozenIds = Array.isArray(frozen) && frozen.length > 0 ? new Set(frozen) : null;
+  const iced = frozenIds ? new Uint8Array(size) : null;
+  let icy = 0;
   let rough = 0;
   let fingerprint = 0;
   for (let index = 0; index < size; index += 1) {
@@ -319,6 +324,14 @@ export const rasterizeArena = (frame, regions, { regionTypes = [], cities = [], 
     fingerprint = Math.imul(fingerprint ^ value, 2246822507) + index;
     fingerprint = (fingerprint << 13) | (fingerprint >>> 19);
     if (value === 0) continue;
+    if (iced && regionSpeed[value] === 0 && frozenIds.has(ids[value])) {
+      iced[index] = 1;
+      icy = Math.imul(icy ^ index, 2246822507) + 7;
+      speed[index] = ICE_SPEED;
+      sumX[value] += (index % cols) + 0.5;
+      sumY[value] += Math.floor(index / cols) + 0.5;
+      continue;
+    }
     speed[index] = level > 0 ? (regionSpeed[value] * (10 - level)) / 10 : regionSpeed[value];
     sumX[value] += (index % cols) + 0.5;
     sumY[value] += Math.floor(index / cols) + 0.5;
@@ -332,7 +345,9 @@ export const rasterizeArena = (frame, regions, { regionTypes = [], cities = [], 
 
   return {
     // (Its rough ground is in the key only where there is some: an arena without any is the one it always was.)
-    key: hashKey([cols, rows, fingerprint >>> 0, ids.join("\u0002"), regionSpeed.join(","), ...(levels ? [rough >>> 0] : [])]),
+    key: hashKey([cols, rows, fingerprint >>> 0, ids.join("\u0002"), regionSpeed.join(","), ...(levels ? [rough >>> 0] : []), ...(icy !== 0 ? [`ice${icy >>> 0}`] : [])]),
+    // The cells of frozen water (1), where any water is frozen this turn.
+    iced: icy !== 0 ? iced : null,
     frame,
     cols,
     rows,
@@ -382,8 +397,9 @@ const cacheKey = (map, frame, regionTypes) => [
   frame.rows,
   frame.flat ? frame.scale : "",
   hashKey((Array.isArray(regionTypes) ? regionTypes : []).map((type) => `${text(type?.id)}:${speedOfType(type)}`)),
-  // (And its rough ground, where the scenario drew some: runtime/warGeography.js terrainAreas.)
+  // (And its rough ground, where the scenario drew some: runtime/warGeography.js terrainAreas; and its frozen water.)
   text(map?.terrain?.key),
+  Array.isArray(map?.frozen) && map.frozen.length > 0 ? hashKey(map.frozen.slice().sort()) : "",
 ].join("|");
 
 // The arena of a frame, drawn once: `cache` is the Map the caller keeps
@@ -395,7 +411,7 @@ export const arenaFor = (cache, map, frame, regionTypes) => {
   const known = key ? cache.get(key) : null;
   if (known) return known;
   if (!Array.isArray(map?.regions)) return null;
-  const arena = rasterizeArena(frame, map.regions, { regionTypes, cities: map.cities, terrain: map.terrain ?? null });
+  const arena = rasterizeArena(frame, map.regions, { regionTypes, cities: map.cities, terrain: map.terrain ?? null, frozen: map.frozen ?? null });
   if (key) cache.set(key, arena);
   return arena;
 };

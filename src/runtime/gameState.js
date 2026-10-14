@@ -287,6 +287,8 @@ export const WORLD_DEFAULTS = {
   fortifications: [],
   climateZones: [],
   freezingRegions: [],
+  // The water frozen as the last turn left it (runtime/fronts/climate.js): for the map to show as ice.
+  frozenRegions: [],
   // Peace (peaceTerms.js): the offers that wait for an answer or were given
   // one, the reparations being paid, and the last peaces made on terms.
   peaceOffers: [],
@@ -4471,6 +4473,7 @@ export const normalizeWorldState = (world) => {
     fortifications: normalizeFortifications(nextWorld.fortifications),
     climateZones: normalizeClimateZones(nextWorld.climateZones),
     freezingRegions: normalizeFreezingRegions(nextWorld.freezingRegions),
+    frozenRegions: normalizeFreezingRegions(nextWorld.frozenRegions),
     peaceOffers: normalizePeaceOffers(nextWorld.peaceOffers),
     reparations: normalizeReparations(nextWorld.reparations),
     peaceTreaties: normalizePeaceTreaties(nextWorld.peaceTreaties),

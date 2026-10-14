@@ -24,12 +24,13 @@
 // engine and the map's regions are handed in (frontApply.js, for gameplay.js
 // applySimulationResult).
 
-import { diffGameDays, gameDateYear } from "../../runtime/gameDates.js";
+import { addGameDays, diffGameDays, gameDateYear } from "../../runtime/gameDates.js";
 import { yearInEra } from "../../runtime/unitMotion.js";
 import { militaryLookup } from "../../runtime/militaryStats.js";
 import { DEFAULT_MUSTER, musterTable } from "../../runtime/mustering.js";
 import { warSettingsOf } from "../../runtime/warSettings.js";
-import { normalizeFortifications, normalizeTerrainAreas } from "../../runtime/warGeography.js";
+import { normalizeClimateZones, normalizeFortifications, normalizeFreezingRegions, normalizeTerrainAreas, zoneWeightAt } from "../../runtime/warGeography.js";
+import { freezesAt } from "../../runtime/fronts/climate.js";
 import { hashKey } from "../../runtime/fronts/codec.js";
 import { fundingFactor, middleFundingPerHead } from "../../runtime/militaryFunding.js";
 import { countryWeight } from "../../runtime/countryWeight.js";
@@ -390,6 +391,25 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
 const terrainOf = (world) => {
   const areas = normalizeTerrainAreas(world?.terrainAreas).filter((area) => area.level > 0);
   return areas.length > 0 ? { key: hashKey(areas.map((area) => `${area.id}:${area.level}:${JSON.stringify(area.rings)}`)), areas } : null;
+};
+
+// The water a scenario lets freeze that is frozen for a turn: by its climate
+// zones' winters (or the world's own, by latitude), on the turn's middle day,
+// at the middle of each such water's box (runtime/fronts/climate.js
+// freezesAt). [{ id, box }] where any is; [] otherwise.
+export const frozenFor = ({ world, regions, fromDate = "", days = 0 }) => {
+  const freezing = normalizeFreezingRegions(world?.freezingRegions);
+  if (freezing.length === 0 || !Array.isArray(regions)) return [];
+  const zones = normalizeClimateZones(world?.climateZones).map((zone) => ({ zone, inside: (lng, lat) => zoneWeightAt(zone, lng, lat) }));
+  const middle = addGameDays(fromDate, Math.floor(Math.max(0, Number(days) || 0) / 2)) || fromDate;
+  const wanted = new Set(freezing);
+  const frozen = [];
+  for (const region of regions) {
+    if (!wanted.has(String(region?.id)) || !Array.isArray(region.bbox) || region.bbox.length < 4) continue;
+    const [west, south, east, north] = region.bbox;
+    if (freezesAt(zones, (west + east) / 2, (south + north) / 2, middle)) frozen.push({ id: String(region.id), box: [west, south, east, north] });
+  }
+  return frozen;
 };
 
 // ---- names ---------------------------------------------------------------------------
@@ -1041,6 +1061,11 @@ export const runTurnFronts = async ({
     const weary = wearyShortage(entry.value);
     if (weary > 0) short.set(fold(entry.country), shortagesTogether(short.get(fold(entry.country)) ?? 0, weary));
   }
+  // The water a scenario lets freeze that is frozen this turn (runtime/fronts/climate.js): read from the map's
+  // shapes, only where it has any such water and seasons.
+  const frozen = mechanics?.weather === true && normalizeFreezingRegions(world?.freezingRegions).length > 0
+    ? frozenFor({ world, regions: await readRegions(), fromDate, days })
+    : [];
   const result = await runFrontTurn({
     createFrontRun,
     input: {
@@ -1056,8 +1081,9 @@ export const runTurnFronts = async ({
       isGroup: readers.isGroup,
       units: asArray(world?.units),
       transports: normalizeTransports(world?.transports),
-      // (With the ground the scenario made harder to cross, where it weighs terrain: runtime/fronts/arena.js.)
-      map: { ...map, regions, ...(mechanics?.terrain === true && terrainOf(world) ? { terrain: terrainOf(world) } : {}) },
+      // (With the ground the scenario made harder to cross, where it weighs terrain: runtime/fronts/arena.js;
+      // and the water frozen this turn, where it has seasons and weather: runtime/fronts/climate.js.)
+      map: { ...map, regions, ...(mechanics?.terrain === true && terrainOf(world) ? { terrain: terrainOf(world) } : {}), ...(frozen.length > 0 ? { frozen: frozen.map((entry) => entry.id) } : {}) },
       regionTypes: asArray(regionTypes),
       strengthOf: readers.strengthOf,
       peopleOf: readers.peopleOf,
@@ -1071,6 +1097,8 @@ export const runTurnFronts = async ({
       // Each country's own military figures, where the scenario weighs them (runtime/fronts/military.js).
       ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
       ...(Number(menEach) >= 1 ? { menEach: Number(menEach) } : {}),
+      // A scenario's own climate zones, where it has seasons and weather (runtime/fronts/climate.js).
+      ...(mechanics?.weather === true && normalizeClimateZones(world?.climateZones).length > 0 ? { climateZones: normalizeClimateZones(world?.climateZones) } : {}),
       // The walls the scenario drew and the War Room built, where it has them (runtime/fronts/walls.js).
       ...(mechanics?.walls === true && normalizeFortifications(world?.fortifications).length > 0 ? { fortifications: normalizeFortifications(world?.fortifications) } : {}),
       // The seasons and weather, where the scenario has them (runtime/fronts/weather.js).
@@ -1132,6 +1160,7 @@ export const runTurnFronts = async ({
         era: Number.isInteger(era) ? era : null,
         ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
         ...(mechanics?.weather === true && clean(climateSeed) ? { weatherSeed: clean(climateSeed) } : {}),
+        ...(frozen.length > 0 ? { iced: frozen.map((entry) => entry.box) } : {}),
       });
       // (How long the period was, for what its blockades cost: frontApply.js withBlockadeEconomy.)
       sea.days = days;
@@ -1245,5 +1274,7 @@ export const runTurnFronts = async ({
     manpower: asArray(result.manpower),
     // What the fighting did to the walls: their breaches and wear (runtime/fronts/walls.js).
     fortifications: asArray(result.fortifications),
+    // The water frozen this turn (runtime/fronts/climate.js): for the map to show as ice.
+    frozen: frozen.map((entry) => entry.id),
   };
 };
