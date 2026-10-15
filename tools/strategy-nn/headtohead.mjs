@@ -3,7 +3,8 @@
 // a little better than its champion from one as good. This fights the two on
 // as many fair duels as asked, neither trained on, both ways round.
 //
-//   node tools/strategy-nn/headtohead.mjs <run dir> [--duels 40] [--from 910000] [--workers N]
+//   node tools/strategy-nn/headtohead.mjs <run dir> [--duels 40] [--from 910000] [--workers N] [--challenger file]
+//     --challenger  a file of weights ({ params }, as values.mjs writes) to fight the champion instead of the run's
 
 import fs from "node:fs";
 import os from "node:os";
@@ -21,10 +22,12 @@ const state = JSON.parse(fs.readFileSync(path.join(args[0], "latest.json"), "utf
 const count = Number(option("duels", "40"));
 const from = Number(option("from", "910000"));
 const workers = Number(option("workers", String(Math.max(1, os.cpus().length - 2))));
+const challengerFile = option("challenger", "");
+const challenger = challengerFile ? JSON.parse(fs.readFileSync(challengerFile, "utf8")).params : state.challenger;
 
 const pool = createPool(workers);
 const started = Date.now();
-const result = await playMatch(pool, { planner: true, params: state.challenger }, { planner: true, params: state.champion.params }, duelSeeds(from, count), { detail: true, chunk: 1, duels: true });
+const result = await playMatch(pool, { planner: true, params: challenger }, { planner: true, params: state.champion.params }, duelSeeds(from, count), { detail: true, chunk: 1, duels: true });
 await pool.close();
 const margins = (result.games ?? []).map((game) => game.margin);
 const mean = margins.reduce((sum, value) => sum + value, 0) / Math.max(1, margins.length);
