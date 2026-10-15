@@ -1162,7 +1162,11 @@ function World({ mapRef, projection: requestedProjection, terrainEnabled, onInit
         dragRotate={false}
         touchPitch={false}
         pitchWithRotate={false}
-        dragPan
+        dragPan={{
+          linearity: 0.1,
+          deceleration: 5000,
+          maxSpeed: 2400,
+        }}
         fadeDuration={0}
         collectResourceTiming={false}
         // R5.0 keeps the original cross-source collision policy for visual fidelity.

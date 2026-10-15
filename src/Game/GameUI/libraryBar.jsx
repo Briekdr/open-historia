@@ -241,8 +241,8 @@ const ButtonIcon = ({ kind, size = 15, strokeWidth = 1.9 }) => {
     case "settings":
       return (
         <svg aria-hidden="true" {...common}>
-          <circle cx="12" cy="12" r="3.2" />
-          <path d="M12 2.7v2.1M12 19.2v2.1M4.7 12H2.6M21.4 12h-2.1M5.9 5.9l1.5 1.5M16.6 16.6l1.5 1.5M18.1 5.9l-1.5 1.5M7.4 16.6l-1.5 1.5" />
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
       );
     case "refresh":
@@ -418,7 +418,7 @@ const MenuRail = ({ activeTab, onTab, onOpenSettings, onOpenHistory }) => (
       aria-label="Update history"
       className="oh-tap"
       onClick={onOpenHistory}
-      style={{ alignItems: "center", background: "none", border: "none", color: "inherit", cursor: "pointer", display: "flex", flexDirection: "column", flexShrink: 0, gap: "0.45rem", marginBottom: "0.8rem", padding: 0 }}
+      style={{ alignItems: "center", background: "none", border: "none", color: "inherit", cursor: "pointer", display: "flex", flexDirection: "column", flexShrink: 0, gap: "0.45rem", padding: 0 }}
       title="Update history: every update to Open Historia"
       type="button"
     >
@@ -429,6 +429,7 @@ const MenuRail = ({ activeTab, onTab, onOpenSettings, onOpenHistory }) => (
         Open Historia
       </div>
     </button>
+    <div style={{ flex: 1, minHeight: "0.6rem" }} />
     {MENU_TABS.map((tab) => (
       <button
         key={tab.id}
@@ -4796,11 +4797,11 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                   alignItems: "center",
                   display: "flex",
                   gap: "0.9rem",
-                  height: `calc(${BAR_HEIGHT}px + ${SAFE_TOP})`,
                   justifyContent: "space-between",
                   margin: "0 auto",
                   maxWidth: APP_SHELL_MAX_WIDTH,
-                  padding: `${SAFE_TOP} calc(1.6rem + ${SAFE_RIGHT}) 0 1.6rem`,
+                  minHeight: `calc(${BAR_HEIGHT}px + ${SAFE_TOP})`,
+                  padding: `calc(0.85rem + ${SAFE_TOP}) calc(1.6rem + ${SAFE_RIGHT}) 0.85rem 1.6rem`,
                   width: "100%",
                 }}
               >

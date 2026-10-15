@@ -22,6 +22,7 @@ import { useCountryDisplayName } from "../../runtime/polityNames.js";
 import { DateWidget } from "./time";
 import { Other } from "./other";
 import { Toolbar } from "./chat";
+import MapModeSelector from "./MapModeSelector.jsx";
 import { Search } from "./search";
 import { ForcesPanel } from "./forces";
 import { ADVISOR_SLIDE } from "./advisorSlide.js";
@@ -796,6 +797,7 @@ const Main = ({
               onTogglePanel={toggleBottomPanel}
               mapRef={mapRef}
             />
+            <MapModeSelector dockStyle={advisorDockStyle} />
             <Other
               dockStyle={advisorDockStyle}
               active={isCountryOpen}
