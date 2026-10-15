@@ -77,11 +77,39 @@ const say = (battle, day, id, name, was = name) => {
 // the battle has, in the order the troops' owners and the painted ground
 // count them. It is told at once of every region the map is to draw as
 // someone else's than the world says: the ones taken in name and not yet whole.
-export const startRecorder = (battle, run, day) => {
-  battle.recorder = createReplayRecorder({ sides: battle.sides, cols: battle.frame.cols, rows: battle.frame.rows });
+//   grown   { was, carry } when the frame has just grown (growFrame): the frame
+//           it was recording on and what carries a point of it onto the new
+//           one. What was recorded so far is carried onto the new grid, and
+//           the replay goes on from the day it began; it begins again only when
+//           it cannot be carried (replay.js carryOnto).
+export const startRecorder = (battle, run, day, grown = null) => {
+  const { cols, rows } = battle.frame;
   // Whose home each cell is, as the map is told it: as it is now until the
-  // run's last day (recordDay says why).
-  battle.drawnHomes = Uint8Array.from(battle.homes);
+  // run's last day (recordDay says why); carried, as it was told it before.
+  const homes = Uint8Array.from(battle.homes);
+  let carried = null;
+  if (grown && battle.recorder?.carryOnto && battle.drawnHomes) {
+    const was = grown.was;
+    const cellOf = (cell) => {
+      const [x, y] = grown.carry((cell % was.cols) + 0.5, Math.floor(cell / was.cols) + 0.5);
+      return x >= 0 && y >= 0 && x < cols && y < rows ? Math.floor(y) * cols + Math.floor(x) : -1;
+    };
+    for (let cell = 0; cell < battle.drawnHomes.length; cell += 1) {
+      const there = cellOf(cell);
+      if (there >= 0) homes[there] = battle.drawnHomes[cell];
+    }
+    carried = battle.recorder.carryOnto({
+      sides: battle.sides,
+      cols,
+      rows,
+      cellOf,
+      pointOf: grown.carry,
+      ground: { holders: battle.field.holders, painters: battle.field.painter, homes },
+      day,
+    });
+  }
+  battle.recorder = carried ?? createReplayRecorder({ sides: battle.sides, cols, rows });
+  battle.drawnHomes = carried ? homes : Uint8Array.from(battle.homes);
   const { arena } = battle;
   for (let region = 1; region < arena.ids.length; region += 1) {
     const id = arena.ids[region];
@@ -409,8 +437,8 @@ const carrier = (from, to) => {
 
 // Grows a battle's frame when its line nears the edge and there is ground of
 // either side beyond: the field and the troops are carried onto the larger
-// frame, and the line stays where it was. The replay is cut on one grid, so it
-// begins again from the day the frame grew. false when there was nothing to do.
+// frame, and the line stays where it was. The replay is carried onto the new
+// grid and goes on (replay.js carryOnto). false when there was nothing to do.
 export const growIfNeeded = (battle, run, day) => {
   if ((battle.grown ?? 0) >= 6) return false;
   const within = growWithin(battle, run);
@@ -444,6 +472,7 @@ const growFrame = (battle, run, day, grow, within, counted = true) => {
   const arena = arenaFor(run.input.arenas, run.input.map, frame, run.input.regionTypes);
   if (!arena) throw REGIONS_NEEDED;
   const carry = carrier(battle.frame, frame);
+  const was = battle.frame;
   const old = battle.field;
   const before = { arena: battle.arena, lastFlip: battle.lastFlip, startPhi: battle.startPhi, pockets: battle.pockets, cell: battle.frame.cell };
 
@@ -520,7 +549,7 @@ const growFrame = (battle, run, day, grow, within, counted = true) => {
   battle.planKey = "";
   battle.sectorsFor = null;
   paintGround(battle, run);
-  startRecorder(battle, run, day);
+  startRecorder(battle, run, day, { was, carry });
   return true;
 };
 

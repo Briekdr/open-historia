@@ -57,6 +57,7 @@ import { setWorldStateOverride } from "../Map/useWorldState.js";
 import { getUnitById, setUnitsOverride } from "../Map/unitsController.js";
 import { getBattlefields, setFrontsOverride } from "../Map/frontsController.js";
 import { battlefieldsAsSeen } from "../../runtime/fronts/record.js";
+import { foreseenFronts, onForeseenFronts } from "../AI/foreseenFronts.js";
 import { strikeBounds, strikesOfEvent } from "../../runtime/strikes.js";
 import { replayStrikes, showStrikesOfEvent } from "../Map/strikeStore.js";
 import { useIsMobile } from "../../runtime/useIsMobile.js";
@@ -3676,6 +3677,20 @@ const DateWidget = ({
     // not to hold the turn's world is remembered.
     const needsStaging = revealNeedsStaging(latestTurnRecord, visibleEventCount);
     const stagingMissRef = React.useRef("");
+    // The world as the skip found it (the live reveal's base), kept when the skip lands: the turn it wrote is revealed
+    // on it at once. Waiting for the restore point to be read showed the turn's end meanwhile, its battlefields
+    // playing the whole period, and then wound everything back to the first event.
+    const landedBaseRef = React.useRef(null);
+    useEffect(() => {
+        if (liveStageBase) landedBaseRef.current = { world: liveStageBase, from: liveRange.from };
+    }, [liveStageBase, liveRange.from]);
+    const landedBaseFor = (record) => {
+        const kept = landedBaseRef.current;
+        return kept?.world && record?.fromDate && kept.from === record.fromDate ? kept.world : null;
+    };
+    // The land war of a turn being written, fought before its story (foreseenFronts.js).
+    const [foreseen, setForeseen] = useState(() => foreseenFronts());
+    useEffect(() => onForeseenFronts(setForeseen), []);
     useEffect(() => {
         const record = latestTurnRecord;
         // Not mid-skip: the snapshot that would load belongs to the turn before.
@@ -3684,6 +3699,9 @@ const DateWidget = ({
             return undefined;
         }
         if (stagedBase.recordId === record.id && stagedBase.world) {
+            return undefined;
+        }
+        if (landedBaseFor(record)) {
             return undefined;
         }
         if (stagingMissRef.current === record.id) {
@@ -3731,9 +3749,15 @@ const DateWidget = ({
                     // The orders of the same moment, so a patrol's ring and a
                     // march's heading move with their units (unitsController.js).
                     setUnitsOverride(livePreview.units ?? [], livePreview.pendingUnitOrders ?? []);
-                    // The land war of a turn still being written has not been
-                    // fought yet: its battlefields stand as they are.
-                    setFrontsOverride(null);
+                    // The land war of a turn still being written was fought before its
+                    // story (foreseenFronts.js): its battlefields as they stood at the
+                    // event being read, the days since the event before it played.
+                    const usable = foreseen && foreseen.fromDate === (liveTurnRecord.fromDate || "");
+                    setFrontsOverride(usable ? battlefieldsAsSeen(
+                        foreseen.battlefields,
+                        revealedLive[revealedLive.length - 1]?.date,
+                        revealedLive.length > 1 ? revealedLive[revealedLive.length - 2]?.date : liveTurnRecord.fromDate,
+                    ) : null);
                     return;
                 } catch (error) {
                     // Unvalidated impacts again: the map waits rather than taking the panel.
@@ -3746,13 +3770,14 @@ const DateWidget = ({
             return;
         }
         const record = latestTurnRecord;
+        // (The restore point's world, or the one the skip found while it is being read.)
+        const base = record && stagedBase.recordId === record.id && stagedBase.world ? stagedBase.world : landedBaseFor(record);
         const stagingActive =
             !skipInFlight &&
             openPanel === "history" &&
             !olderTurnRecord &&
             record &&
-            stagedBase.recordId === record.id &&
-            stagedBase.world &&
+            base &&
             totalVisibleEvents > 0 &&
             visibleEventCount < totalVisibleEvents;
         if (!stagingActive) {
@@ -3778,7 +3803,7 @@ const DateWidget = ({
                 round: record.round || 0,
                 tick: 0,
             },
-            world: stagedBase.world,
+            world: base,
         });
         setWorldStateOverride(stagedWorld);
         setUnitsOverride(stagedWorld.units ?? [], stagedWorld.pendingUnitOrders ?? []);
@@ -3790,7 +3815,7 @@ const DateWidget = ({
             revealed[revealed.length - 1]?.date,
             revealed.length > 1 ? revealed[revealed.length - 2]?.date : record.fromDate,
         ));
-    }, [latestTurnRecord, liveStageBase, liveTurnRecord, olderTurnRecord, openPanel, skipInFlight, stagedBase, totalVisibleEvents, visibleEventCount]);
+    }, [foreseen, latestTurnRecord, liveStageBase, liveTurnRecord, olderTurnRecord, openPanel, skipInFlight, stagedBase, totalVisibleEvents, visibleEventCount]);
 
     // Never leave a stale override behind when this widget unmounts.
     useEffect(

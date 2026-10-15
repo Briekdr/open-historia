@@ -203,6 +203,7 @@ import {
   withoutGroupOps,
 } from "./gameplaySchemas.js";
 import { frontsOn } from "./frontsGate.js";
+import { foreseeFronts } from "./foreseenFronts.js";
 import { applyTurnFronts, citiesFollowCountries, withFrontManpower, withBlockadeEconomy, turnBlockades, regionHoldingsOf, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomChartFor, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { withTurnStrikes } from "../../runtime/strikes.js";
 import { playerDiplomacy, turnDays, turnWarAndPeace } from "./warAndPeace.js";
@@ -16102,6 +16103,7 @@ const frontOrderCall = (context) => {
       });
       if (!again) return "";
       Object.assign(forecast, again, { given });
+      foreseeFronts(forecast);
       return frontsListBlock(context.bundle.world, context.bundle.game, forecast);
     },
   };
@@ -17767,6 +17769,8 @@ export const simulateTimelineJump = async ({ days, mode = "jump", onEvents, onPr
     loadRegions: createRenderedRegionsReader(),
     signal,
   });
+  // (For the map, which plays it at each event while the story is written: foreseenFronts.js.)
+  foreseeFronts(foughtBefore);
   const frontsForecast = foughtBefore ? { ...foughtBefore } : null;
   // Guarantee at least one event per queued action, so each planned action has a
   // slot to resolve into (bounded so a huge queue can't demand absurd counts).

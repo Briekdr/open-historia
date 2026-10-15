@@ -5,8 +5,9 @@ import { rasterizeArena } from "./arena.js";
 import { describeBattlefield } from "./brief.js";
 import { FLIP_AT, HOLDER_SIDE_A, HOLDER_SIDE_B, MIN_DAYS_BETWEEN_FLIPS } from "./constants.js";
 import { createFrontRun, runFronts } from "./engine.js";
-import { createFrame } from "./frame.js";
+import { createFrame, projectorOf } from "./frame.js";
 import { normalizeBattlefields } from "./record.js";
+import { replayOf } from "./replay.js";
 import { applyFlips, frontInput, syntheticMap } from "./syntheticMap.js";
 import { battlefieldOn, disc, readBattlefield } from "./testKit.js";
 
@@ -312,7 +313,18 @@ test("the frame grows when the line nears its edge, and the line stays where it 
   }
   there.troops[0].forEach((troop, index) => assert.ok(Math.abs(troop.lng - wide.troops[0][index].lng) < small.cell * 1.5));
   assert.ok(there.lineAt(50).at(-1) > 22.9, "and it is past where the old frame ended");
-  assert.equal(grown.replay.s > 0, true, "the replay is of one grid: it begins again the day the frame grew");
+  // And its replay is of the whole run, carried onto the larger grid (replay.js carryOnto): a reveal shows the
+  // battle at every event of the run, and each troop's path begins where it stood on the first day.
+  assert.equal(grown.replay.s, 0, "the replay goes on across the growing");
+  const { toLngLat } = projectorOf(grown.frame);
+  const paths = replayOf(grown).tracks[0];
+  assert.equal(paths.length, troops[0].length);
+  paths.forEach((path, index) => {
+    assert.equal(path[0].day, 0);
+    assert.ok(Math.abs(toLngLat(path[0].x, path[0].y)[0] - troops[0][index].lng) < small.cell * 1.5, `troop ${index} began at ${toLngLat(path[0].x, path[0].y)[0]}`);
+    const end = path[path.length - 1];
+    assert.ok(Math.abs(toLngLat(end.x, end.y)[0] - there.troops[0][index].lng) < small.cell * 1.5, `troop ${index} ends where it stands`);
+  });
   // Without the map's shapes a frame cannot grow: the engine says so, and the run is done again with them.
   const bare = { ...world.map, regions: null };
   const kept = new Map();
