@@ -46,6 +46,7 @@ import { waterTypeIds } from "../../runtime/regionTypes.js";
 import { runNaval } from "../../runtime/naval/engine.js";
 import { normalizeBlockades, shortageOfBlockade } from "../../runtime/naval/blockade.js";
 import { shortagesTogether, wearinessGoingIn, wearyShortage } from "../../runtime/warWeariness.js";
+import { normalizeWarResources, resourceShortage } from "../../runtime/warResources.js";
 import { STRIKES_PER_TURN_MOST, findStrikePlace, pickStrikeOrigin, seaLaunchPlace } from "../../runtime/strikes.js";
 
 export const FRONT_MARK = "front";
@@ -1070,6 +1071,13 @@ export const runTurnFronts = async ({
     const weary = wearyShortage(entry.value);
     if (weary > 0) short.set(fold(entry.country), shortagesTogether(short.get(fold(entry.country)) ?? 0, weary));
   }
+  // And one that has spent its war resources advancing and building (runtime/warResources.js): all of them together.
+  if (mechanics?.supply === true) {
+    for (const entry of normalizeWarResources(world?.warResources)) {
+      const lacks = resourceShortage(entry.value);
+      if (lacks > 0) short.set(fold(entry.country), shortagesTogether(short.get(fold(entry.country)) ?? 0, lacks));
+    }
+  }
   // The water a scenario lets freeze that is frozen this turn (runtime/fronts/climate.js): read from the map's
   // shapes, only where it has any such water and seasons.
   const frozen = mechanics?.weather === true && normalizeFreezingRegions(world?.freezingRegions).length > 0
@@ -1282,6 +1290,8 @@ export const runTurnFronts = async ({
     starts: asArray(result.starts),
     // What recruitment drew from each country's people and what came home, in men: for frontApply.js withFrontManpower.
     manpower: asArray(result.manpower),
+    // How much each country's formations advanced, which its war resources pay for (runtime/warResources.js).
+    effort: asArray(result.effort),
     // What the fighting did to the walls: their breaches and wear (runtime/fronts/walls.js).
     fortifications: asArray(result.fortifications),
     // The water frozen this turn (runtime/fronts/climate.js): for the map to show as ice.

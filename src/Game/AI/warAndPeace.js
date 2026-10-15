@@ -52,6 +52,9 @@ import {
 import { startingWearinessOf } from "../../runtime/militaryStats.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
 import { normalizeWarWeariness, wearinessGoingIn, wearinessOf, withTurnWeariness } from "../../runtime/warWeariness.js";
+import { withTurnResources } from "../../runtime/warResources.js";
+import { fundingFactor, middleFundingPerHead } from "../../runtime/militaryFunding.js";
+import { warSettingsOf } from "../../runtime/warSettings.js";
 import { applyWarUpdates } from "./nativeWarLedger.js";
 
 const clean = (value, most = 160) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, most).trim();
@@ -346,6 +349,25 @@ export const turnWarAndPeace = ({ world = {}, baseWorld = {}, days = 0, date = "
     blockades: fronts?.sea?.blockades,
   });
   next = { ...next, warWeariness: weariness };
+
+  // ---- war resources ----
+  // What advancing and building fortified lines spent, and what each country's
+  // funding refilled (runtime/warResources.js), where the scenario's wars use them.
+  if (warSettingsOf(next).mechanics.supply) {
+    const sheets = next.countryStats && typeof next.countryStats === "object" ? next.countryStats : {};
+    const middle = middleFundingPerHead(sheets);
+    const sheetOf = (name) => sheets[Object.keys(sheets).find((key) => fold(key) === fold(name)) ?? ""] ?? null;
+    next = {
+      ...next,
+      warResources: withTurnResources(baseWorld?.warResources, {
+        days,
+        toDate: date,
+        effort: fronts?.effort,
+        fortifications: next.fortifications,
+        fundingOf: (name) => fundingFactor(sheetOf(name), middle),
+      }),
+    };
+  }
 
   // ---- peace ----
   const wearyOf = (name) => wearinessOf(weariness, name);

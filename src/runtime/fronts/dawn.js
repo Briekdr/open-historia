@@ -16,6 +16,7 @@
 //
 // Only + - * / and comparisons.
 
+import { STILL_EDGE } from "./constants.js";
 import { guardLeft, legsLeft, punchLeft, tireDay } from "./fatigue.js";
 import { mendBudget } from "./manpower.js";
 import { anyMechanic } from "./mechanics.js";
@@ -63,9 +64,38 @@ export const dawn = (run, battle, day) => {
       // What a scenario's climate zones make of its own ground today (climate.js).
       troop.climate = sky && battle.climateToday ? climateAt(battle.climateToday, cellAt(battle.field, troop.x, troop.y)) : null;
       const local = troop.climate;
-      troop.punch = (tired ? punch * punchLeft(troop.fatigue) : punch) * worth * blows * (air ? air.punch[side] : 1) * (local ? local.attack : 1);
-      troop.guard = (tired ? guard * guardLeft(troop.fatigue) : guard) * worth * (air ? air.guard[side] : 1);
+      // A troop that did not advance yesterday is a little stronger today (constants.js STILL_EDGE).
+      const still = run.mech.fatigue && troop.still === true ? 1 + STILL_EDGE : 1;
+      troop.punch = (tired ? punch * punchLeft(troop.fatigue) : punch) * worth * blows * (air ? air.punch[side] : 1) * (local ? local.attack : 1) * still;
+      troop.guard = (tired ? guard * guardLeft(troop.fatigue) : guard) * worth * (air ? air.guard[side] : 1) * still;
       troop.legs = (tired ? legs * legsLeft(troop.fatigue) : legs) * pace * (air ? air.legs[side] : 1) * (local ? local.pace : 1);
+    }
+  }
+};
+
+// The evening's count of who advanced: each troop's `still`, and each country's
+// formation-days at war, of them advancing, and its days at war (run.effort).
+const markAdvance = (run, battle, day) => {
+  for (const side of [0, 1]) {
+    for (const troop of battle.troops[side]) {
+      if (!isLive(troop)) continue;
+      const advanced = troop.walkedToday === true || troop.fought === true;
+      troop.still = !advanced;
+      if (!run.mech.supply) continue;
+      const name = battle.sides[side][troop.owner];
+      if (!name) continue;
+      const key = String(name).toLowerCase();
+      let entry = run.effort.get(key);
+      if (!entry) {
+        entry = { name: String(name), advanced: 0, troopDays: 0, warDays: 0, lastDay: -1 };
+        run.effort.set(key, entry);
+      }
+      entry.troopDays += 1;
+      if (advanced) entry.advanced += 1;
+      if (entry.lastDay !== day) {
+        entry.lastDay = day;
+        entry.warDays += 1;
+      }
     }
   }
 };
@@ -77,6 +107,10 @@ export const dusk = (run, battle, day) => {
   // The day's march and fighting tire every troop that marched or fought, and rest the others (fatigue.js).
   // (And the weather tires them too, and rests them less: weather.js.)
   if (run.mech.fatigue) tireDay(run, battle, battle.sky ? { wear: battle.sky.effects.wear, rest: battle.sky.effects.rest } : undefined);
+  // Which troops advanced today, taking ground or attacking (combat.js walkedToday, fought): one that did not
+  // fights a little harder tomorrow; and each country's days of advance, which its war resources pay for
+  // (runtime/warResources.js).
+  if (run.mech.fatigue || run.mech.supply) markAdvance(run, battle, day);
   // Weighing countries' own military figures, reserves make good a country's losses only with men it still has (manpower.js).
   if (run.mech.military) {
     const budget = mendBudget(run, day);

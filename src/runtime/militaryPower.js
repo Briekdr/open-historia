@@ -35,6 +35,7 @@
 //
 // Pure, and loads in plain Node.
 
+import { RESOURCES_FULL, RESOURCES_SHORTAGE_MOST, resourceShortage, resourcesOf } from "./warResources.js";
 import { countryWeight } from "./countryWeight.js";
 import { MANPOWER_SHARE } from "./fronts/constants.js";
 import { ARM_FACTORS, QUALITY_FACTORS, TECHNOLOGY_FACTORS, readMilitary, statFactor } from "./fronts/military.js";
@@ -49,6 +50,8 @@ export const ARM_WEIGHTS = Object.freeze({ land: 0.6, sea: 0.25, air: 0.15 });
 // Weariness costs nothing up to WEARY_POWER_FROM, and WEARY_POWER_COST_MOST at 100.
 export const WEARY_POWER_FROM = 50;
 export const WEARY_POWER_COST_MOST = 0.4;
+// What a country with no war resources left loses of its power (warResources.js): its armies short, its power less.
+export const SPENT_POWER_COST_MOST = 0.3;
 
 const isRecord = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -155,8 +158,15 @@ export const militaryProfile = (world, name, { regions = 0, middle = null, looku
     weariness: 1 - (WEARY_POWER_COST_MOST * Math.max(0, figures.weariness - WEARY_POWER_FROM)) / (100 - WEARY_POWER_FROM),
     arms,
   };
-  const power = base === null ? null : base * factors.quality * factors.technology * factors.weariness * factors.arms;
-  return { power, base, figures, own, factors, counted };
+  // What it has left to fight with, where the scenario's wars use war resources (warResources.js).
+  const supplied = settings.mechanics.supply === true;
+  if (supplied) {
+    figures.resources = resourcesOf(world?.warResources, name);
+    own.resources = figures.resources < RESOURCES_FULL;
+    factors.resources = 1 - (SPENT_POWER_COST_MOST * resourceShortage(figures.resources)) / RESOURCES_SHORTAGE_MOST;
+  }
+  const power = base === null ? null : base * factors.quality * factors.technology * factors.weariness * factors.arms * (supplied ? factors.resources : 1);
+  return { power, base, figures, own, factors, counted, supplied };
 };
 
 // A country's military power: null where neither its people nor any land of it is known.

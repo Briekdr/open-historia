@@ -26,6 +26,7 @@ import { ensureCountryAssessed, ensureIntelligenceRated, generateCountryStatShee
 import PoliticalOverview from "./PoliticalOverview.jsx";
 import { buildRanking, openingMetric, rankingMetricsFor, regionCountsOf } from "./countryRanking.js";
 import { MANPOWER_PERCENT, militaryProfile } from "../../runtime/militaryPower.js";
+import { RESOURCES_SHORT_FROM } from "../../runtime/warResources.js";
 import { PeaceControls, ReparationsNote } from "./warAndPeace.jsx";
 import { institutionPortfolioForPolity } from "../../runtime/institutionLifecycleCore.js";
 import { TURN_RUNNING_NOTE, isSimulationBusy } from "../AI/simulationStatus.js";
@@ -408,18 +409,20 @@ const MILITARY_FIGURE_LABELS = Object.freeze({
     technology: "Technology",
     manpowerShare: "Manpower share",
     weariness: "War weariness",
+    resources: "War resources",
     land: "Land",
     sea: "Naval",
     air: "Air",
 });
-const MILITARY_FIGURE_ORDER = Object.freeze(["quality", "technology", "manpowerShare", "weariness", "land", "sea", "air"]);
+const MILITARY_FIGURE_ORDER = Object.freeze(["quality", "technology", "manpowerShare", "weariness", "resources", "land", "sea", "air"]);
 const MILITARY_OWN_COLOR = "#2bc1f3";
 const MILITARY_SHARED_COLOR = "rgba(255,255,255,0.32)";
 const MILITARY_WEARY_COLOR = "#f59e0b";
 
 // Where every country stands on each figure, for the hairline on its bar (none
 // for weariness: every country begins a war at none).
-const MILITARY_FIGURE_MARKS = Object.freeze({ quality: 50, technology: 50, manpowerShare: MANPOWER_PERCENT, land: 50, sea: 50, air: 50 });
+// For war resources, where running low begins to tell (runtime/warResources.js).
+const MILITARY_FIGURE_MARKS = Object.freeze({ quality: 50, technology: 50, manpowerShare: MANPOWER_PERCENT, resources: RESOURCES_SHORT_FROM, land: 50, sea: 50, air: 50 });
 
 // A figure's bar, 0 to 100, and a hairline where every country stands.
 const MilitaryBar = ({ value, mark, color }) => (
@@ -450,9 +453,10 @@ const MilitaryCard = ({ world, country, style }) => {
                 What it weighs in a land war, by its people or its land and what it pays for its forces, through the figures below.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                {MILITARY_FIGURE_ORDER.map((key) => {
+                {MILITARY_FIGURE_ORDER.filter((key) => key !== "resources" || profile.supplied).map((key) => {
                     const value = figures[key];
-                    const color = key === "weariness" && value > 0 ? MILITARY_WEARY_COLOR : own[key] ? MILITARY_OWN_COLOR : MILITARY_SHARED_COLOR;
+                    const low = (key === "weariness" && value > 0) || (key === "resources" && value < RESOURCES_SHORT_FROM);
+                    const color = low ? MILITARY_WEARY_COLOR : own[key] ? MILITARY_OWN_COLOR : MILITARY_SHARED_COLOR;
                     const text = key === "manpowerShare" ? `${Math.round(value * 10) / 10}%` : `${Math.round(value)}/100`;
                     return (
                         <div key={key} style={{ alignItems: "center", display: "grid", gap: "0.5rem", gridTemplateColumns: "6.4rem minmax(0, 1fr) 3.2rem" }}>

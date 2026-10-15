@@ -32,15 +32,17 @@ const MECHANIC_LABELS = Object.freeze({
   muster: "Mustering",
   military: "Countries' military figures",
   air: "Air in battles",
+  supply: "Supplies",
 });
 const MECHANIC_HINTS = Object.freeze({
-  fatigue: "Troops tire as they march and fight, and recover at rest.",
+  fatigue: "Troops tire as they march and fight, and recover at rest; a day after they hold their ground, they fight a little harder.",
   weather: "The season and the day's weather slow, blunt and wear troops, on land and at sea.",
   terrain: "Ground the map makes harder to cross slows an advance.",
   walls: "Fortified lines on the map must be broken through.",
   muster: "A war's levies come in over weeks, along the mustering curve, not all on its first morning.",
   military: "Each country's own quality, technology, arms, unit mix and men a counter, from the map editor's Countries panel.",
   air: "Air wings take part in the fighting below them.",
+  supply: "Advancing, attacking and building fortified lines use up a country's war resources, which its funding refills; an army low on them fights worse.",
 });
 
 const inputStyle = {

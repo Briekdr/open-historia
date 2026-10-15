@@ -103,8 +103,10 @@ test("the profile says which figures are the country's own, and a scenario that 
   const night = world({ groups: { "The Watch": { name: "The Watch", population: 2000, military: { manpowerShare: 60, quality: 70 } } } });
   const lookup = militaryLookup(night);
   const profile = militaryProfile(night, "the watch", { regions: 3, lookup });
-  assert.deepEqual(profile.figures, { quality: 70, technology: 50, land: 50, sea: 50, air: 50, manpowerShare: 60, weariness: 0 });
-  assert.deepEqual(profile.own, { quality: true, technology: false, land: false, sea: false, air: false, manpowerShare: true, weariness: false });
+  // (And what it has left to fight with, where its wars use war resources: all of it here.)
+  assert.deepEqual(profile.figures, { quality: 70, technology: 50, land: 50, sea: 50, air: 50, manpowerShare: 60, weariness: 0, resources: 100 });
+  assert.deepEqual(profile.own, { quality: true, technology: false, land: false, sea: false, air: false, manpowerShare: true, weariness: false, resources: false });
+  assert.equal(profile.supplied, true);
   assert.equal(profile.counted, true);
   assert.ok(Math.abs(profile.power - countryWeight({ population: 2000 * 5 }) * 1.2) < 1e-9);
   // The sheet's figures stand over the author's.
@@ -114,8 +116,13 @@ test("the profile says which figures are the country's own, and a scenario that 
   const off = { ...night, warSettings: { mechanics: { military: false }, manpowerShare: 24 } };
   const flat = militaryProfile(off, "The Watch");
   assert.equal(flat.counted, false);
-  assert.deepEqual(flat.figures, { quality: 50, technology: 50, land: 50, sea: 50, air: 50, manpowerShare: 24, weariness: 0 });
+  assert.deepEqual(flat.figures, { quality: 50, technology: 50, land: 50, sea: 50, air: 50, manpowerShare: 24, weariness: 0, resources: 100 });
   assert.equal(Object.values(flat.own).some(Boolean), false);
+  // A country that has spent its war resources is worth less: with none left, SPENT_POWER_COST_MOST less.
+  const spent = { ...night, warResources: [{ country: "The Watch", value: 0 }] };
+  assert.ok(Math.abs(militaryPower(spent, "The Watch") - profile.power * 0.7) < 1e-9);
+  assert.equal(militaryProfile(spent, "The Watch").own.resources, true);
+  assert.equal(militaryProfile({ ...spent, warSettings: { mechanics: { supply: false } } }, "The Watch").supplied, false);
   // Funding is the land war's own (militaryFunding.js), read for the country it is asked for.
   assert.ok(militaryPower(world(), "Aland") > militaryPower(world(), "Cisland"));
 });

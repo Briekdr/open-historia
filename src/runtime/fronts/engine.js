@@ -126,6 +126,8 @@ const createRun = (input) => {
     // The share of a country's people who can fight, where the scenario set it: else MANPOWER_SHARE (manpower.js).
     manpowerShare: Number(input?.manpowerShare) > 0 && Number(input.manpowerShare) <= 100 ? Number(input.manpowerShare) / 100 : 0,
     manpower: new Map(),
+    // Each country's days of advance this run, for its war resources (dawn.js dusk, runtime/warResources.js).
+    effort: new Map(),
     pace: Math.min(3, Math.max(0.1, Number(input?.pace) || 1)),
     // The weights that bend a troop's step, for a test or the rig to set aside.
     steer: input?.steering && typeof input.steering === "object" ? input.steering : {},
@@ -2159,6 +2161,8 @@ const snapshot = (run) => {
     })),
     // What recruitment drew from each country's people and what came home to them, in men (manpower.js).
     manpower: manpowerReport(run),
+    // How much each country's formations advanced, which its war resources pay for (runtime/warResources.js).
+    ...(run.mech.supply ? { effort: [...run.effort.values()].map(({ name, advanced, troopDays, warDays }) => ({ name, advanced, troopDays, warDays })) } : {}),
     // What the fighting did to the scenario's walls: their breaches and wear (walls.js).
     ...(run.lines && run.lines.some((line) => line.changed) ? { fortifications: linesChanged(run) } : {}),
     stats: { days: day, steps: run.steps },

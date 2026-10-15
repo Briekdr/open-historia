@@ -18,6 +18,8 @@
 
 import React, { useState } from "react";
 import { buildTimeParts, fortifyCostFor, lineKm } from "../../runtime/fortifyCost.js";
+import { fortifyResourceCost, resourcesOf } from "../../runtime/warResources.js";
+import { warSettingsOf } from "../../runtime/warSettings.js";
 import { WALL_DAYS } from "../../runtime/fronts/walls.js";
 import { addGameDays, formatGameDateReadable } from "../../runtime/gameDates.js";
 import { SAFE_BOTTOM, SAFE_LEFT } from "../../runtime/mobileUi.js";
@@ -95,6 +97,10 @@ export const FortifyPlate = ({ isMobile, draft, level, world, country, gameDate,
   const ready = formatGameDateReadable(addGameDays(gameDate, cost.days));
   const men = cost.men.toLocaleString();
   const treasury = Math.round(cost.funding * 100);
+  // What it costs of the country's war resources while it is built (runtime/warResources.js).
+  const supplied = warSettingsOf(world).mechanics.supply === true;
+  const spend = fortifyResourceCost(cost.days);
+  const left = Math.round(resourcesOf(world?.warResources, country));
   return (
     <div role="dialog" aria-label="Fortified line" data-oh-war-room-fortify="" style={besideRailStyle(rail, isMobile)}>
       <div style={{ alignItems: "baseline", display: "flex", gap: "0.6rem" }}>
@@ -124,6 +130,11 @@ export const FortifyPlate = ({ isMobile, draft, level, world, country, gameDate,
         <BuildTime days={cost.days} />
       </div>
       {ready && <div style={softText}>It would stand from about {ready}.</div>}
+      {supplied && (
+        <div data-oh-war-room-build-cost="" style={softText}>
+          {`While it is built it uses ${spend.aMonth}% of your war resources a month, ${spend.total}% in all. You have ${left}%.`}
+        </div>
+      )}
       <div style={softText}>
         {cost.men > 0
           ? <>Built with your treasury at {treasury}% and {men} men fit to serve: the longer and stronger the line, the longer it takes.</>

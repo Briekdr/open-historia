@@ -291,6 +291,11 @@ export const FATIGUE_REST = 0.07;
 export const FATIGUE_REST_DUG = 1.25;
 export const FATIGUE_REST_POCKET = 0.25;
 export const FATIGUE_STILL_KM = 2;
+// A troop that did not advance the day before (it took no ground and made no
+// attack) fights a little harder the next, in attack and defence alike: "make
+// it so troops that are not advancing also get a small strength boost" (the
+// owner, 2026-10-14). With the fatigue mechanic (dawn.js).
+export const STILL_EDGE = 0.08;
 export const FATIGUE_PUNCH = 0.35;
 export const FATIGUE_GUARD = 0.15;
 export const FATIGUE_LEGS = 0.4;
