@@ -5047,6 +5047,7 @@
  "Its army",
  "Its custom basemap is bundled inside the .zip, so the scenario is self-contained — just drag the one file.",
  "Its custom basemap was reused from the community hub, so the file stays small.",
+ "Its economy refills its war resources by about {{refill}} a month, less under a blockade.",
  "Its own curve",
  "Its puppets:",
  "Its puppets: {{map}}",

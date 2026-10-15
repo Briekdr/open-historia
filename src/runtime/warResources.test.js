@@ -10,6 +10,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 import { turnWarAndPeace } from "../Game/AI/warAndPeace.js";
+import { withBlockadeEconomy } from "../Game/AI/frontApply.js";
+import { BLOCKADE_BUDGET_A_YEAR, budgetUnderBlockade } from "./naval/blockade.js";
 import { STILL_EDGE } from "./fronts/constants.js";
 import { dawn, dusk } from "./fronts/dawn.js";
 import { runFronts } from "./fronts/engine.js";
@@ -17,6 +19,11 @@ import { readMechanics } from "./fronts/mechanics.js";
 import { frontInput, syntheticMap } from "./fronts/syntheticMap.js";
 import {
   RESOURCES_ADVANCE_A_MONTH,
+  RESOURCES_BLOCKADE_CUT,
+  RESOURCES_RATE_LEAST,
+  RESOURCES_RATE_MOST,
+  economyRate,
+  refillAMonth,
   RESOURCES_FORTIFY_A_DAY,
   RESOURCES_REFILL_A_MONTH,
   RESOURCES_SHORT_FROM,
@@ -37,10 +44,10 @@ test("advancing and building spend them, funding refills them, and running low l
   assert.equal(resourcesAfter({ before: 50, days: 30, advanced: 0.5, warDays: 30 }), 50 - RESOURCES_ADVANCE_A_MONTH / 2 + RESOURCES_REFILL_A_MONTH);
   assert.equal(resourcesAfter({ before: 90, days: 30, advanced: 0, warDays: 30 }), 100);
   // A rich country refills faster, a poor one slower; never under nothing.
-  assert.ok(resourcesAfter({ before: 20, days: 30, funding: 1.5 }) > resourcesAfter({ before: 20, days: 30, funding: 0.6 }));
+  assert.ok(resourcesAfter({ before: 20, days: 30, rate: 1.5 }) > resourcesAfter({ before: 20, days: 30, rate: 0.6 }));
   assert.equal(resourcesAfter({ before: 10, days: 60, advanced: 1, warDays: 60 }), 0);
   // A line being built: RESOURCES_FORTIFY_A_DAY a day.
-  assert.equal(resourcesAfter({ before: 50, days: 30, fortifying: 30, funding: 0 }), 50 - 30 * RESOURCES_FORTIFY_A_DAY);
+  assert.equal(resourcesAfter({ before: 50, days: 30, fortifying: 30, rate: 0 }), 50 - 30 * RESOURCES_FORTIFY_A_DAY);
   assert.deepEqual(fortifyResourceCost(450), { aMonth: 6, total: 90 });
   // Short only under RESOURCES_SHORT_FROM, and RESOURCES_SHORTAGE_MOST with nothing left.
   assert.equal(resourceShortage(RESOURCES_SHORT_FROM), 0);
@@ -51,6 +58,41 @@ test("advancing and building spend them, funding refills them, and running low l
   assert.deepEqual(normalizeWarResources([{ country: "Aland", value: 42.36 }, { country: "aland", value: 5 }, { country: "Borea", value: 100 }, { country: "", value: 3 }]), [{ country: "Aland", value: 42.4 }]);
   assert.equal(resourcesOf([{ country: "Aland", value: 42 }], "ALAND"), 42);
   assert.equal(resourcesOf([], "Aland"), 100);
+});
+
+test("they refill over time by the economy: richer, growing and solvent faster; a blockade cuts it", () => {
+  // Nothing known of its economy: the ordinary rate.
+  assert.equal(economyRate({}), 1);
+  assert.equal(refillAMonth(1), 15);
+  // Its treasury, where there is nothing to compare it with: a deficit and a debt slow it.
+  const deficit = economyRate({ sheet: { economy: { budgetBalance: -10, publicDebt: 120 } } });
+  assert.ok(deficit < 1 && deficit >= RESOURCES_RATE_LEAST, String(deficit));
+  // Growth: a growing economy faster, a shrinking one slower; a figure written as text is read.
+  assert.ok(economyRate({ sheet: { economy: { gdpGrowth: 6 } } }) > economyRate({ sheet: { economy: { gdpGrowth: -6 } } }));
+  assert.equal(economyRate({ sheet: { economy: { gdpGrowth: "4%" } } }), 1.2);
+  // Wealth against the middle of the known countries: four times as well funded a head, twice the rate.
+  const rich = { population: { total: 1e6 }, economy: { gdp: 4e10 } };
+  const middle = (4e10 * 0.03) / 1e6 / 4;
+  assert.ok(Math.abs(economyRate({ sheet: rich, middle }) - 2) < 1e-9);
+  assert.equal(economyRate({ sheet: rich, middle: middle * 1000 }), RESOURCES_RATE_LEAST);
+  assert.ok(economyRate({ sheet: rich, middle: middle / 100 }) <= RESOURCES_RATE_MOST);
+  // A blockade at full pressure cuts it by RESOURCES_BLOCKADE_CUT.
+  assert.ok(Math.abs(economyRate({ pressure: 1 }) - (1 - RESOURCES_BLOCKADE_CUT)) < 1e-9);
+  assert.ok(economyRate({ pressure: 0.5 }) > economyRate({ pressure: 1 }));
+});
+
+test("a blockade takes points off the budget's balance as well as GDP off the economy", () => {
+  assert.equal(budgetUnderBlockade(-2, 1, 365), -2 - BLOCKADE_BUDGET_A_YEAR);
+  assert.equal(budgetUnderBlockade(1, 0.5, 73), 1 - (BLOCKADE_BUDGET_A_YEAR * 0.5 * 73) / 365);
+  assert.equal(budgetUnderBlockade(-99, 1, 3650), -100);
+  const world = { countryStats: { Teutonia: { economy: { budgetBalance: -2 } }, Albion: { economy: { gdp: 1e9, budgetBalance: 1 } } } };
+  const write = (next, name, change) => {
+    next.countryStats[name] = { ...next.countryStats[name], economy: { ...next.countryStats[name].economy, ...change.economy } };
+  };
+  const after = withBlockadeEconomy(world, { sea: { days: 30, blockades: [{ country: "Teutonia", pressure: 1 }] } }, write);
+  // A country with a budget and no GDP on its sheet still pays in its budget.
+  assert.equal(after.countryStats.Teutonia.economy.budgetBalance, Math.round(budgetUnderBlockade(-2, 1, 30) * 100) / 100);
+  assert.equal(after.countryStats.Albion, world.countryStats.Albion);
 });
 
 test("a line is paid for only on the days it is being built in the period", () => {
@@ -64,7 +106,7 @@ test("a line is paid for only on the days it is being built in the period", () =
     toDate: "1940-01-31",
     effort: [{ name: "Aland", advanced: 300, troopDays: 300, warDays: 30 }, { name: "Borea", advanced: 0, troopDays: 300, warDays: 30 }],
     fortifications: [{ owner: "Borea", building: { since: "1940-01-01", days: 400 } }],
-    fundingOf: (name) => (name === "Aland" ? 1 : 0.5),
+    rateOf: (name) => (name === "Aland" ? 1 : 0.5),
   });
   assert.deepEqual(after, [
     { country: "Aland", value: 100 - RESOURCES_ADVANCE_A_MONTH + RESOURCES_REFILL_A_MONTH },
@@ -119,6 +161,11 @@ test("a turn spends and refills each country's war resources, and the next turn'
   assert.equal(resourcesOf(next.warResources, "Aland"), 0);
   const front = fs.readFileSync(new URL("../Game/AI/frontTurn.js", import.meta.url), "utf8");
   assert.match(front, /const lacks = resourceShortage\(entry\.value\);/);
+  // A blockade this period: what its economy refills is cut (the same world, refilling from 30).
+  const quiet = turnWarAndPeace({ world, baseWorld: world, days: 30, date: "1940-01-31", fronts: { effort: [] } });
+  const blockaded = turnWarAndPeace({ world, baseWorld: world, days: 30, date: "1940-01-31", fronts: { effort: [], sea: { blockades: [{ country: "Aland", pressure: 1 }] } } });
+  assert.equal(resourcesOf(quiet.warResources, "Aland"), 45);
+  assert.equal(resourcesOf(blockaded.warResources, "Aland"), 30 + 15 * (1 - RESOURCES_BLOCKADE_CUT));
   // Off, nothing is spent.
   const off = turnWarAndPeace({ world: { ...world, warSettings: { mechanics: { supply: false } } }, baseWorld: world, days: 30, date: "1940-01-31", fronts: { effort: [{ name: "Aland", advanced: 300, troopDays: 300, warDays: 30 }] } });
   assert.deepEqual(off.warResources, world.warResources);

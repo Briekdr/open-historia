@@ -28,7 +28,7 @@ import { citiesFollowing, cityPopulationKey, cityPopulationOverridesByTileName, 
 import { frontCitiesOf, readFrontCities } from "../../runtime/frontCities.js";
 import { MAX_UNITS_GLOBAL, MAX_UNITS_PER_POLITY } from "../../runtime/gameState.js";
 import { buildSeasBlock } from "./navalPrompt.js";
-import { gdpUnderBlockade, withTurnBlockades } from "../../runtime/naval/blockade.js";
+import { budgetUnderBlockade, gdpUnderBlockade, withTurnBlockades } from "../../runtime/naval/blockade.js";
 import { arenaFor } from "../../runtime/fronts/arena.js";
 import { decodeTroops } from "../../runtime/fronts/codec.js";
 import { projectorOf } from "../../runtime/fronts/frame.js";
@@ -503,10 +503,10 @@ export const withFrontManpower = (world, fronts, patch) => {
 // A world with what the period's blockades cost the countries they were laid
 // on taken off their economies (runtime/naval/blockade.js): a share of its GDP
 // by how hard the blockade pressed and how long the period was, and what each
-// of its people has with it. A country with no economy on its sheet has none
-// to take it from and is left as it is. The same world when nobody was
-// blockaded.
-//   patch   (world, name, { economy: { gdp } }) => writes it (gameState.js applyCountryStatPatchToWorld)
+// of its people has with it; and points off its budget's balance. A country
+// with neither on its sheet has none to take it from and is left as it is. The
+// same world when nobody was blockaded.
+//   patch   (world, name, { economy: { gdp, budgetBalance } }) => writes it (gameState.js applyCountryStatPatchToWorld)
 export const withBlockadeEconomy = (world, fronts, patch) => {
   const days = Number(fronts?.sea?.days);
   const laid = asArray(fronts?.sea?.blockades).filter((entry) => clean(entry?.country) && Number(entry.pressure) > 0);
@@ -516,13 +516,19 @@ export const withBlockadeEconomy = (world, fronts, patch) => {
   let changed = false;
   for (const entry of laid) {
     const key = keys.get(fold(entry.country));
-    const economy = next.countryStats[key]?.economy;
-    const gdp = Number(economy?.gdp);
-    if (!key || !(gdp > 0)) continue;
-    const after = Math.max(1, Math.round(gdpUnderBlockade(gdp, entry.pressure, days)));
-    if (!(after < gdp)) continue;
+    const economy = key ? next.countryStats[key]?.economy : null;
+    if (!economy) continue;
+    const gdp = Number(economy.gdp);
+    const after = gdp > 0 ? Math.max(1, Math.round(gdpUnderBlockade(gdp, entry.pressure, days))) : null;
     const head = Number(economy.gdpPerCapita);
-    patch(next, key, { economy: { gdp: after, ...(head > 0 ? { gdpPerCapita: Math.round(((head * after) / gdp) * 100) / 100 } : {}) } });
+    const balance = economy.budgetBalance === null || economy.budgetBalance === undefined || economy.budgetBalance === "" ? NaN : Number(economy.budgetBalance);
+    const balanceAfter = Number.isFinite(balance) ? Math.round(budgetUnderBlockade(balance, entry.pressure, days) * 100) / 100 : null;
+    const write = {
+      ...(after !== null && after < gdp ? { gdp: after, ...(head > 0 ? { gdpPerCapita: Math.round(((head * after) / gdp) * 100) / 100 } : {}) } : {}),
+      ...(balanceAfter !== null && balanceAfter < balance ? { budgetBalance: balanceAfter } : {}),
+    };
+    if (Object.keys(write).length === 0) continue;
+    patch(next, key, { economy: write });
     changed = true;
   }
   return changed ? next : world;

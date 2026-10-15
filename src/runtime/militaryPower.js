@@ -35,7 +35,8 @@
 //
 // Pure, and loads in plain Node.
 
-import { RESOURCES_FULL, RESOURCES_SHORTAGE_MOST, resourceShortage, resourcesOf } from "./warResources.js";
+import { RESOURCES_FULL, RESOURCES_SHORTAGE_MOST, economyRate, refillAMonth, resourceShortage, resourcesOf } from "./warResources.js";
+import { normalizeBlockades } from "./naval/blockade.js";
 import { countryWeight } from "./countryWeight.js";
 import { MANPOWER_SHARE } from "./fronts/constants.js";
 import { ARM_FACTORS, QUALITY_FACTORS, TECHNOLOGY_FACTORS, readMilitary, statFactor } from "./fronts/military.js";
@@ -165,8 +166,11 @@ export const militaryProfile = (world, name, { regions = 0, middle = null, looku
     own.resources = figures.resources < RESOURCES_FULL;
     factors.resources = 1 - (SPENT_POWER_COST_MOST * resourceShortage(figures.resources)) / RESOURCES_SHORTAGE_MOST;
   }
+  // How fast its economy refills them, in points a month, under the blockade on it if any (warResources.js economyRate).
+  const blockade = supplied ? normalizeBlockades(world?.blockades).find((entry) => String(entry.country).toLowerCase() === String(name ?? "").replace(/\s+/g, " ").trim().toLowerCase()) : null;
+  const refill = supplied ? refillAMonth(economyRate({ sheet: recordIn(world?.countryStats, name), middle: middle ?? middleFundingPerHead(world?.countryStats), pressure: blockade?.pressure ?? 0 })) : null;
   const power = base === null ? null : base * factors.quality * factors.technology * factors.weariness * factors.arms * (supplied ? factors.resources : 1);
-  return { power, base, figures, own, factors, counted, supplied };
+  return { power, base, figures, own, factors, counted, supplied, refill };
 };
 
 // A country's military power: null where neither its people nor any land of it is known.

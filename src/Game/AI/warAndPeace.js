@@ -52,8 +52,8 @@ import {
 import { startingWearinessOf } from "../../runtime/militaryStats.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
 import { normalizeWarWeariness, wearinessGoingIn, wearinessOf, withTurnWeariness } from "../../runtime/warWeariness.js";
-import { withTurnResources } from "../../runtime/warResources.js";
-import { fundingFactor, middleFundingPerHead } from "../../runtime/militaryFunding.js";
+import { economyRate, withTurnResources } from "../../runtime/warResources.js";
+import { middleFundingPerHead } from "../../runtime/militaryFunding.js";
 import { warSettingsOf } from "../../runtime/warSettings.js";
 import { applyWarUpdates } from "./nativeWarLedger.js";
 
@@ -352,11 +352,13 @@ export const turnWarAndPeace = ({ world = {}, baseWorld = {}, days = 0, date = "
 
   // ---- war resources ----
   // What advancing and building fortified lines spent, and what each country's
-  // funding refilled (runtime/warResources.js), where the scenario's wars use them.
+  // economy refilled, less under the period's blockades (runtime/warResources.js),
+  // where the scenario's wars use them.
   if (warSettingsOf(next).mechanics.supply) {
     const sheets = next.countryStats && typeof next.countryStats === "object" ? next.countryStats : {};
     const middle = middleFundingPerHead(sheets);
     const sheetOf = (name) => sheets[Object.keys(sheets).find((key) => fold(key) === fold(name)) ?? ""] ?? null;
+    const pressed = new Map(list(fronts?.sea?.blockades).map((entry) => [fold(entry?.country), Number(entry?.pressure) || 0]));
     next = {
       ...next,
       warResources: withTurnResources(baseWorld?.warResources, {
@@ -364,7 +366,7 @@ export const turnWarAndPeace = ({ world = {}, baseWorld = {}, days = 0, date = "
         toDate: date,
         effort: fronts?.effort,
         fortifications: next.fortifications,
-        fundingOf: (name) => fundingFactor(sheetOf(name), middle),
+        rateOf: (name) => economyRate({ sheet: sheetOf(name), middle, pressure: pressed.get(fold(name)) ?? 0 }),
       }),
     };
   }

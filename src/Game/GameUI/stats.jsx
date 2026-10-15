@@ -472,6 +472,11 @@ const MilitaryCard = ({ world, country, style }) => {
                     ? "In colour: its own figures. In grey: what every country has. The mark on a bar is where every country stands."
                     : "This scenario does not count countries' own military figures: every country fights with the same."}
             </div>
+            {profile.supplied && profile.refill !== null && (
+                <div data-oh-war-resources-refill="" style={{ color: "rgba(255,255,255,0.38)", fontSize: "0.62rem", lineHeight: 1.4, marginTop: "0.3rem" }}>
+                    {`Its economy refills its war resources by about ${profile.refill} a month, less under a blockade.`}
+                </div>
+            )}
         </div>
     );
 };
