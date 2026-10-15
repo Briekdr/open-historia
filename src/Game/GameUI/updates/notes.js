@@ -53,6 +53,50 @@ import { PAST_UPDATES } from "./notesPast.js";
 // make UPDATES, newest first by date.
 const NEW_UPDATES = [
   {
+    // Beta's PR #884 (Briekdr), and alpha's last two, brought into the lab on 2026-10-15.
+    id: "2026-10-diplomatic-map",
+    kind: "major",
+    date: "2026-10-15",
+    banners: [
+      {
+        theme: "chronicle",
+        scene: "relations",
+        palette: { accent: "#d9b25a", ground: "#121519", font: "serif" },
+        title: "The Diplomatic Map",
+        subtitle: "Friends and foes at a glance",
+        lead: "Switch the map to Diplomatic and every country takes the colour of where it stands with you.",
+        sections: [
+          {
+            heading: "Diplomatic map mode",
+            icon: "map",
+            items: [
+              "Switch between Political and Diplomatic above your country's flag, or under Settings, Map.",
+              "Your country, your puppet states, allies, friends, hostile powers and enemies at war each have their own colour.",
+              "A legend beside the switch says what every colour means.",
+            ],
+          },
+          {
+            heading: "Sound",
+            icon: "note",
+            items: [
+              "Settings has a Sound page: the music, its volume and the sound effects in one place.",
+            ],
+          },
+          {
+            heading: "Smoother play",
+            icon: "gear",
+            items: [
+              "Dragging the map glides more smoothly and uses less memory.",
+              "The map no longer stays stuck on loading when a tile server stalls.",
+              "Your AI key can be shown or hidden as you type it.",
+              "In a shared game, a guest's institution business no longer takes the host's own threads with it.",
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
     id: "2026-10-wars-and-fronts-2",
     kind: "major",
     date: "2026-10-15",

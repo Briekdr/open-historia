@@ -4,9 +4,9 @@
 // localStorage, and the updates above it in the list are new. One that missed
 // several is shown all of them, newest first (at most UPDATES_SHOWN_MOST); one
 // whose kept id is not in the list at all, or that has none (a first opening),
-// is shown the newest and those released within FIRST_LOOK_DAYS of it (so the
-// music, released before there was a notice to tell of it, is told with the
-// update after it). Opening the game with ?updateNotice=<id> (or "latest")
+// is shown the newest and the MAJOR ones released within FIRST_LOOK_DAYS of it
+// (so the music, released before there was a notice to tell of it, is told
+// with the updates after it; the minor ones are in the history). Opening the game with ?updateNotice=<id> (or "latest")
 // shows that update whatever is kept, and keeps nothing: for whoever is making
 // one.
 //
@@ -57,7 +57,7 @@ export const pendingUpdates = ({ updates = UPDATES, seen = seenUpdate() } = {}) 
   if (updates.length === 0) return [];
   const at = seen ? updates.findIndex((update) => update.id === seen) : -1;
   if (at === 0) return [];
-  if (at < 0) return updates.filter((update, index) => index === 0 || daysBetween(update.date, updates[0].date) <= FIRST_LOOK_DAYS).slice(0, UPDATES_SHOWN_MOST);
+  if (at < 0) return updates.filter((update, index) => index === 0 || (update.kind === "major" && daysBetween(update.date, updates[0].date) <= FIRST_LOOK_DAYS)).slice(0, UPDATES_SHOWN_MOST);
   return updates.slice(0, Math.min(at, UPDATES_SHOWN_MOST));
 };
 

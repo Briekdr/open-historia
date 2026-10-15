@@ -20,9 +20,9 @@ const list = [
 
 test("each update is shown once a device; one that missed several is shown all of them, newest first", () => {
   assert.deepEqual(pendingUpdates({ updates: list, seen: null }).map((update) => update.id), ["c"], "a first opening: the newest");
-  // ... and those of the month before it (the music, released before there was a notice).
-  const recent = [list[0], { ...list[1], date: "2026-10-13" }, list[2]];
-  assert.deepEqual(pendingUpdates({ updates: recent, seen: null }).map((update) => update.id), ["c", "b"]);
+  // ... and the major ones of the month before it (the music, released before there was a notice); a minor one waits in the history.
+  const recent = [list[0], { ...list[1], date: "2026-10-13" }, { ...list[2], date: "2026-10-12" }];
+  assert.deepEqual(pendingUpdates({ updates: recent, seen: null }).map((update) => update.id), ["c", "a"]);
   const firstLook = pendingUpdates({ updates: UPDATES, seen: null }).map((update) => update.id);
   assert.equal(firstLook[0], UPDATES[0].id);
   assert.ok(firstLook.includes("2026-10-music"), "the music, told with the update after it");

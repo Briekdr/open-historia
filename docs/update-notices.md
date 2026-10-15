@@ -156,7 +156,7 @@ Then run the full suite, `npm test`.
 
 - A device that has seen the newest update is shown nothing.
 - One that missed several updates is shown all it missed, newest first, at most `UPDATES_SHOWN_MOST`.
-- A device that has never been shown a notice is shown the newest update and those released within `FIRST_LOOK_DAYS` of it.
+- A device that has never been shown a notice is shown the newest update and the major ones released within `FIRST_LOOK_DAYS` of it.
 - When the notice is closed, the newest update shown is remembered.
 
 The history shows every entry, whatever the device has seen.
