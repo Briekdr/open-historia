@@ -74,6 +74,8 @@ const PLAY_FRAMES_PER_SECOND_TOUCH = 12;
 // not need many frames.
 const SKIRMISH_FRAMES_PER_SECOND = 12;
 const SKIRMISH_FRAMES_PER_SECOND_TOUCH = 6;
+// Several battlefields in view skirmish at that rate divided among them, never slower than this many times over.
+const SKIRMISH_SLOWEST = 4;
 // The sources of the map whose regions give the land its shape.
 const MASK_SOURCES = ["custom-regions-source", "custom-regions-repair-source"];
 const NO_SKIRMISH = Object.freeze({ moves: [], cells: new Int32Array(0), states: new Uint8Array(0), turned: new Float32Array(0) });
@@ -728,11 +730,20 @@ const FrontLayers = () => {
       // test holds it at a moment of its choosing.
       if (rafRef.current || heldAt !== null) return;
       const now = performance.now();
-      if (now - skirmishedAt < skirmishMs) return;
+      // Each battlefield swayed hands the map its whole picture again, so several in view sway the less often: what
+      // they cost together is what one did ("each time next event is clicked there is major stuttering", the owner,
+      // 2026-10-14, with three in view).
+      let swayed = 0;
+      for (const entry of playRef.current.values()) if (entry.target.view.status === "active" && inView(entry)) swayed += 1;
+      if (now - skirmishedAt < skirmishMs * Math.min(SKIRMISH_SLOWEST, Math.max(1, swayed))) return;
       skirmishedAt = now;
       // Not for someone who has asked for less motion, not from so far off
-      // that no troop is drawn, and not while the map is being dragged.
-      const quiet = reduceMotionEnabled() || (mapInstance?.getZoom?.() ?? 0) < SKIRMISH_MIN_ZOOM
+      // that no troop is drawn, and not while the map is being dragged; nor
+      // while a turn is being revealed (a battlefield shown to an event's day,
+      // frontsController.js): each "next event" plays the days since the one
+      // before, and the page is the reveal's.
+      const revealing = [...playRef.current.values()].some((entry) => entry.target.from !== null && entry.target.from !== undefined);
+      const quiet = revealing || reduceMotionEnabled() || (mapInstance?.getZoom?.() ?? 0) < SKIRMISH_MIN_ZOOM
         || (typeof document !== "undefined" && document.visibilityState !== "visible") || mapInstance?.isMoving?.() === true;
       if (quiet && !swaying) return;
       skirmishOnce(now / 1000, quiet);

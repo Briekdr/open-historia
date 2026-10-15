@@ -96,3 +96,24 @@ test("a thrust fed down a narrow corridor is fed the worse the longer it is, wit
   const corridor = leastSupply({ muster: true, supply: true });
   assert.ok(corridor < open - 0.15, `${corridor} down the corridor, ${open} without`);
 });
+
+test("a war a person's own country began is fought from its battlefield's first day, unless someone has ordered that side already", () => {
+  // (Aland began the war: the first side of it. A run whose battlefield opens on its first day.)
+  const heldBy = (extra) => {
+    let last = null;
+    const result = runFronts(frontInput(sheet(), { arenas: new Map(), staff: true, troops: 1, days: 20, strengthOf: () => 4, watch: (seen) => { last = seen.holders; }, ...extra }));
+    const aland = result.battlefields[0].sides.findIndex((members) => members[0] === "Aland");
+    return { held: last.filter((holder) => holder === aland).length, result };
+  };
+  const nobody = heldBy({});
+  const played = heldBy({ players: ["Aland"] });
+  assert.ok(played.held > nobody.held * 1.02, `${played.held} cells held when Aland's player began it, ${nobody.held} when its staff did`);
+  assert.ok(played.result.news.some((entry) => entry.k === "offensive" && entry.s === played.result.battlefields[0].sides.findIndex((members) => members[0] === "Aland")));
+  // Ordered already (the person's own order, or the story's), it does as it was told: here, to hold.
+  const told = heldBy({ players: ["Aland"], moments: [{ day: 0, type: "order", battlefield: "aland-war", side: "Aland", order: "hold", sector: "all" }] });
+  assert.equal(told.result.news.some((entry) => entry.k === "offensive"), false);
+  // The side a person plays that was attacked is never sent forward by the engine.
+  const attacked = heldBy({ players: ["Borduria"] });
+  const borduria = attacked.result.battlefields[0].sides.findIndex((members) => members[0] === "Borduria");
+  assert.equal(attacked.result.news.some((entry) => entry.k === "offensive" && entry.s === borduria), false);
+});

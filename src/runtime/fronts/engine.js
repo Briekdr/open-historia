@@ -2050,6 +2050,24 @@ const reviewStaff = (run, battle, day, regular = true) => {
       battle.begunBy = side;
     }
   }
+  // A war a person's own country began, on its battlefield's first day: when nobody has given that side any order
+  // (the story's or the person's own), its troops go over to the attack along the whole line, as the side that
+  // begins a war does. "When a front is deployed in the first time skip even if you skip a year the front doesnt do
+  // anything" (the owner, 2026-10-14): nobody but that person leads their side, and they cannot until the skip has
+  // landed. From then on the side is theirs to order, as ever.
+  const opener = battle.swap ? HOLDER_SIDE_B : HOLDER_SIDE_A;
+  const opening = battle.openedDate ? diffGameDays(battle.openedDate, run.dateOf(day)) : null;
+  if (!begun && battle.openedFor !== true && opening !== null && opening <= 1 && !battle.away[opener] && sideIsPlayed(battle, opener, run.input?.players)
+    && !battle.orders.some((order) => order.s === opener) && liveCount(battle.troops[opener]) > 0) {
+    battle.openedFor = true;
+    today = today ?? prepare(battle, day);
+    const lead = battle.sides[opener].find((member, at) => !battle.gone[opener].has(at)) ?? "";
+    const order = setStandingOrder(battle, opener, { sector: "all", order: "advance", since: run.dateOf(day), age: 0, by: lead, mark: STAFF_MARK });
+    assignOrder(battle, run, order, { ...today, date: run.dateOf(day), run });
+    battle.touched = true;
+    battle.planKey = "";
+    battle.log.push({ d: run.dateOf(day), k: "offensive", s: opener, at: "the whole line" });
+  }
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     // (The side that has just gone over to the attack is left to it until the staff next looks.)
     if (begun && battle.begunBy === side) continue;
