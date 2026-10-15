@@ -15,6 +15,7 @@ import {
   describeFrontNotes,
   frontFlipAllowance,
   frontRunSpan,
+  leaveCapturesToTroops,
   planFrontMoments,
   runFrontTurn,
   stripFrontOps,
@@ -22,6 +23,21 @@ import {
 
 const event = (id, date, impacts = {}, extra = {}) => ({ id, date, title: id, description: "x", impacts, ...extra });
 const frontControl = (regionId) => ({ op: "control", regionId, fromCode: "Ukraine", toCode: "Russia", basis: "occupation", note: "Eastern Ukraine", by: FRONT_MARK });
+
+test("a capture the events state of a battlefield's ground is left to its troops (Pt.2), and nothing else is", () => {
+  const capture = { op: "control", regionId: "3475", regionName: "Matamoros", fromCode: "Mexico", toCode: "United States", basis: "occupation" };
+  const elsewhere = { op: "control", regionId: "r9", fromCode: "Mexico", toCode: "United States" };
+  const events = [
+    event("e1", "2016-03-06", { regionControlOps: [capture, elsewhere, frontControl("r1")] }),
+    event("e2", "2016-03-07", { regionControlOps: [elsewhere] }),
+  ];
+  const stated = [{ id: "stated:e1:3475", battlefield: "United States - Mexico front", side: "United States", objective: "region: Matamoros", result: "captured" }];
+  const kept = leaveCapturesToTroops(events, stated);
+  assert.deepEqual(kept.events[0].impacts.regionControlOps, [elsewhere, frontControl("r1")], "only the stated capture goes");
+  assert.equal(kept.events[1], events[1], "an event with none is the same object");
+  assert.deepEqual(kept.left, ["Matamoros"], "named, never by id");
+  assert.equal(leaveCapturesToTroops(events, []).events, events);
+});
 
 test("the engine's own changes are taken out of the events, and nothing else is", () => {
   const written = { op: "control", regionId: "r9", fromCode: "Ukraine", toCode: "Russia" };

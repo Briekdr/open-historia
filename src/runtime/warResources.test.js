@@ -37,15 +37,17 @@ import {
   withTurnResources,
 } from "./warResources.js";
 
-test("advancing and building spend them, funding refills them, and running low leaves an army short", () => {
-  // A month in which every formation advanced every day it was at war: the full advance cost, less a month's refill.
-  assert.equal(resourcesAfter({ before: 100, days: 30, advanced: 1, warDays: 30 }), 100 - RESOURCES_ADVANCE_A_MONTH + RESOURCES_REFILL_A_MONTH);
+test("building spends them (advancing no longer does), funding refills them, and running low leaves an army short", () => {
+  // A month in which every formation advanced every day it was at war: the full advance cost (none since 2026-10-15), less a month's refill.
+  assert.equal(RESOURCES_ADVANCE_A_MONTH, 0, "advancing spends nothing");
+  assert.equal(resourcesAfter({ before: 50, days: 30, advanced: 1, warDays: 30 }), 50 - RESOURCES_ADVANCE_A_MONTH + RESOURCES_REFILL_A_MONTH);
   // Half of them: half of it. Holding: none, and the refill to the full.
   assert.equal(resourcesAfter({ before: 50, days: 30, advanced: 0.5, warDays: 30 }), 50 - RESOURCES_ADVANCE_A_MONTH / 2 + RESOURCES_REFILL_A_MONTH);
   assert.equal(resourcesAfter({ before: 90, days: 30, advanced: 0, warDays: 30 }), 100);
   // A rich country refills faster, a poor one slower; never under nothing.
   assert.ok(resourcesAfter({ before: 20, days: 30, rate: 1.5 }) > resourcesAfter({ before: 20, days: 30, rate: 0.6 }));
-  assert.equal(resourcesAfter({ before: 10, days: 60, advanced: 1, warDays: 60 }), 0);
+  assert.equal(resourcesAfter({ before: 10, days: 60, advanced: 1, warDays: 60, rate: 0 }), 10 - 2 * RESOURCES_ADVANCE_A_MONTH);
+  assert.equal(resourcesAfter({ before: 10, days: 60, fortifying: 60, rate: 0 }), 0, "never under nothing");
   // A line being built: RESOURCES_FORTIFY_A_DAY a day.
   assert.equal(resourcesAfter({ before: 50, days: 30, fortifying: 30, rate: 0 }), 50 - 30 * RESOURCES_FORTIFY_A_DAY);
   assert.deepEqual(fortifyResourceCost(450), { aMonth: 6, total: 90 });
@@ -151,14 +153,14 @@ test("a troop that did not advance the day before is a little stronger: holding 
   assert.deepEqual(run.effort.get("aland"), { name: "Aland", advanced: 2, troopDays: 3, warDays: 1, lastDay: 3 });
 });
 
-test("a turn spends and refills each country's war resources, and the next turn's fronts read the shortage", () => {
+test("a turn refills each country's war resources (advancing spends none), and the next turn's fronts read the shortage", () => {
   const world = {
     wars: [{ id: "w", status: "active", sideA: ["Aland"], sideB: ["Borduria"] }],
     warResources: [{ country: "Aland", value: 30 }],
     countryStats: {},
   };
   const next = turnWarAndPeace({ world, baseWorld: world, days: 30, date: "1940-01-31", fronts: { effort: [{ name: "Aland", advanced: 300, troopDays: 300, warDays: 30 }] } });
-  assert.equal(resourcesOf(next.warResources, "Aland"), 0);
+  assert.equal(resourcesOf(next.warResources, "Aland"), 30 - RESOURCES_ADVANCE_A_MONTH + 15, "a month of advancing everywhere costs nothing");
   const front = fs.readFileSync(new URL("../Game/AI/frontTurn.js", import.meta.url), "utf8");
   assert.match(front, /const lacks = resourceShortage\(entry\.value\);/);
   // A blockade this period: what its economy refills is cut (the same world, refilling from 30).

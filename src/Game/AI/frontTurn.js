@@ -38,6 +38,7 @@ import { countryWeight } from "../../runtime/countryWeight.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
 import { arenaFor } from "../../runtime/fronts/arena.js";
 import { REINFORCE_ORDER, SCENARIO_MARK } from "../../runtime/fronts/constants.js";
+import { anyMechanic } from "../../runtime/fronts/mechanics.js";
 import { pointInFrame } from "../../runtime/fronts/frame.js";
 import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts/record.js";
 import { TRANSPORT_LOAD_USUAL, TRANSPORT_ORDERS, isUnderWay, normalizeTransports, orderTransport } from "../../runtime/fronts/transports.js";
@@ -536,6 +537,31 @@ export const statedCaptures = ({ events = [], battlefields = [], arenaOf = () =>
   return stated;
 };
 
+// With the newer mechanics on (Wars and Fronts Pt.2) the ground of a battlefield
+// is its troops' to take: "how did these troops take this territory, its like
+// its forgetting to update the troop positions" (the owner, 2026-10-15, of a
+// region the story handed over far behind the line). A change of control the
+// events write for a region on a battlefield, from one of its sides to the
+// other (`stated`, statedCaptures), is left out of its event, so that neither
+// the engine nor the map is told it: the troops take the region or they do not.
+// Returns the events and the regions left out, by name.
+export const leaveCapturesToTroops = (events, stated) => {
+  const named = new Map(asArray(stated).map((order) => [clean(order?.id).slice(STATED_REF.length), clean(order?.objective).replace(/^region\s*:\s*/i, "")]));
+  if (named.size === 0) return { events: asArray(events), left: [] };
+  const left = [];
+  const next = asArray(events).map((event) => {
+    const ops = asArray(event?.impacts?.regionControlOps);
+    const kept = ops.filter((op) => {
+      const key = `${clean(event?.id)}:${clean(op?.regionId)}`;
+      if (op?.by === FRONT_MARK || fold(op?.op) !== "control" || !named.has(key)) return true;
+      left.push(named.get(key) || clean(op?.regionName));
+      return false;
+    });
+    return kept.length === ops.length ? event : { ...event, impacts: { ...event.impacts, regionControlOps: kept } };
+  });
+  return { events: next, left: [...new Set(left.filter(Boolean))] };
+};
+
 // A formation fighting on a battlefield is one of its side's troops there, and
 // the engine is what moves it. A move an event still writes for one (the model
 // remembered it from an earlier turn, a player ordered it by name) is left out,
@@ -900,7 +926,7 @@ export const runTurnFronts = async ({
   strikePlaces = null,
 } = {}) => {
   const cleared = withoutCommittedMoves(stripFrontOps(events), world?.units);
-  const list = cleared.events;
+  let list = cleared.events;
   const notes = [];
   if (cleared.ignored.length) {
     notes.push({
@@ -1039,6 +1065,19 @@ export const runTurnFronts = async ({
     if (fought.some((record) => !arenaOf(record))) await readRegions();
     stated = statedCaptures({ events: list, battlefields: fought, arenaOf, readers, nameOf });
   }
+  // With the newer mechanics on, what the events state of a battlefield's ground is left to its troops.
+  if (stated.length && anyMechanic(mechanics)) {
+    const kept = leaveCapturesToTroops(list, stated);
+    list = kept.events;
+    stated = [];
+    if (kept.left.length) {
+      notes.push({
+        kind: "dropped",
+        text: `Region control written for ground a battlefield is being fought over (${listed(kept.left)}) was left out: on a battlefield the troops take ground or they do not. `
+          + "Give a front order under [Fronts] to send them at it.",
+      });
+    }
+  }
 
   // An order that aims its side's troops at a place, on a battlefield nobody
   // has, is an attack on whoever holds the place (engine.js attackAtObjective).
@@ -1112,6 +1151,8 @@ export const runTurnFronts = async ({
       difficulty: clean(difficulty),
       ...(Number.isInteger(era) ? { era } : {}),
       ...(mechanics && typeof mechanics === "object" ? { mechanics } : {}),
+      // A country with no aircraft on the map flies its air arm over its battlefields (runtime/fronts/air.js).
+      ...(mechanics?.air === true ? { airArms: true } : {}),
       // Each country's own military figures, where the scenario weighs them (runtime/fronts/military.js).
       ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
       ...(Number(menEach) >= 1 ? { menEach: Number(menEach) } : {}),

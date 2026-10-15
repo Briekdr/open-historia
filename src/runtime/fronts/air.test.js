@@ -44,6 +44,20 @@ test("the side that holds the sky over a battlefield takes more ground; with the
   assert.match(describeBattlefield(aloft.result.battlefields[0]), /Air: Aland holds the sky \(6 wings against 0\)/);
 });
 
+test("in a game's run a country with no wings on the map flies its air arm over its battlefield", () => {
+  const strong = (name) => (name === "Aland" ? { air: 90 } : { air: 20 });
+  const bare = fight({ mechanics: { air: true, military: true }, militaryOf: strong });
+  const arms = fight({ mechanics: { air: true, military: true }, militaryOf: strong, airArms: true });
+  assert.equal(bare.result.battlefields[0].brief.air, undefined, "without air arms nobody flies");
+  assert.ok(arms.held > bare.held, `the better air arm takes more ground: ${arms.held} against ${bare.held}`);
+  assert.match(describeBattlefield(arms.result.battlefields[0]), /Air: Aland holds the sky \(\d+ wings against \d+\)/);
+  assert.equal(arms.result.unitChanges.some((change) => /^air arm/.test(change.unitId)), false, "an air arm is no unit of the world's");
+  // A country with wings of its own on the map flies those and no air arm.
+  const own = fight({ mechanics: { air: true, military: true }, militaryOf: strong, airArms: true, units: wings("Borduria", 1).map((unit) => ({ ...unit, lng: 27 })) });
+  assert.match(describeBattlefield(own.result.battlefields[0]), /\(\d+ wings against 1\)|against \d+ wings/);
+  assert.deepEqual(fight({ mechanics: { air: true, military: true }, militaryOf: strong, airArms: true }).held, arms.held, "the same run is the same war");
+});
+
 test("a storm grounds the wings, and wings that flew come back worn, once a wing", () => {
   const stormy = fight({ mechanics: { air: true, weather: true }, steering: { weather: "storm" }, units: wings("Aland", 6) });
   const stormyBare = fight({ mechanics: { weather: true }, steering: { weather: "storm" } });

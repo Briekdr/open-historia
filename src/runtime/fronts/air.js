@@ -31,6 +31,15 @@
 //                   times as much
 //   grounded        they stay on the ground: no wear, and the sky the other's
 //
+// AIR ARMS. A game's map seldom carries a country's aircraft as units ("where
+// is the implementation of air units and stuff in war? im not getting any",
+// the owner, 2026-10-15, of a war in which neither side had a wing on the
+// map). So in a game's run (input.airArms) a country at war that has no wing
+// of its own on the map flies its air arm over each battlefield it fights on:
+// a wing for every AIR_ARM_TROOPS of its troops there (rounded up), at what
+// its air arm is worth, as any wing. They wear as any wing over the run, and
+// are whole again the next: they are no units of the world's.
+//
 // What the day's weather lets fly (weather.js "air": 0 in a storm, a
 // blizzard or fog) is what flies. Every evening each wing that flew is worn:
 // the side that lost the sky the more (AIR_LOSS), and a wing worn to nothing
@@ -53,6 +62,9 @@ export const AIR_LOSS = 2;
 export const AIR_MISSIONS = Object.freeze(["support", "strike", "grounded"]);
 export const AIR_STRIKE = 1.5;
 export const AIR_STRIKE_WEAR = 1.5;
+// A country's air arm, where it has no wings on the map: a wing for so many of its troops on a battlefield.
+export const AIR_ARM_TROOPS = 6;
+const AIR_ARM_MARK = "air arm|";
 
 // What a side's wings are sent to do over a battle: "support" unless told otherwise.
 export const airMissionOf = (battle, side) => {
@@ -91,6 +103,28 @@ const assignWings = (run, day) => {
     if (!best) continue;
     if (!run.airOver.has(best.battle)) run.airOver.set(best.battle, [[], []]);
     run.airOver.get(best.battle)[best.side].push(wing);
+  }
+  if (run.input?.airArms !== true) return;
+  // The air arms of the countries with no wings of their own.
+  const winged = new Set(units.map((unit) => fold(unit.ownerCode ?? unit.owner)));
+  for (const battle of run.battles) {
+    if (battle.status !== "active") continue;
+    for (const side of [0, 1]) {
+      battle.sides[side].forEach((member, at) => {
+        if (battle.gone[side].has(at) || winged.has(fold(member)) || airWorth(run.militaryOf(member)) === 0) return;
+        let troops = 0;
+        for (const troop of battle.troops[side]) if (isLive(troop) && troop.owner === at) troops += 1;
+        const count = Math.ceil(troops / AIR_ARM_TROOPS);
+        for (let index = 0; index < count; index += 1) {
+          const id = `${AIR_ARM_MARK}${battle.name}|${member}|${index}`;
+          if (!run.wings.has(id)) run.wings.set(id, { id, owner: member, strength: 100, began: 100, arm: true });
+          const wing = run.wings.get(id);
+          if (!(wing.strength > 0)) continue;
+          if (!run.airOver.has(battle)) run.airOver.set(battle, [[], []]);
+          run.airOver.get(battle)[side].push(wing);
+        }
+      });
+    }
   }
 };
 
@@ -155,8 +189,8 @@ export const wearWings = (run, battle) => {
   }
 };
 
-// What became of the wings in the run, once a wing: their strength, or gone.
-export const wingChanges = (run) => (run.wings ? [...run.wings.values()].filter((wing) => wing.changed).map((wing) => (wing.strength >= 1
+// What became of the wings in the run, once a wing: their strength, or gone. (Not of an air arm's: no unit of the world's.)
+export const wingChanges = (run) => (run.wings ? [...run.wings.values()].filter((wing) => wing.changed && !wing.arm).map((wing) => (wing.strength >= 1
   ? { unitId: wing.id, committedTo: "", strength: Math.round(wing.strength) }
   : { unitId: wing.id, committedTo: "", remove: true })) : []);
 

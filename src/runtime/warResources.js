@@ -12,7 +12,11 @@
 //               dusk counts them): a period in which every one of them did,
 //               every day it was at war, spends RESOURCES_ADVANCE_A_MONTH a
 //               month; one in which half of them did, half that. Holding,
-//               digging in and resting spend nothing.
+//               digging in and resting spend nothing. Since 2026-10-15 that is
+//               nothing too: "make advancing not use resources" (the owner,
+//               when a country that had advanced for two months was left at a
+//               fifth of its resources and its armies crawled). The days of
+//               advance are still counted, so it can be weighed again.
 //   building    every fortified line of its being built (warGeography.js
 //               building): RESOURCES_FORTIFY_A_DAY for every day until it
 //               stands. A longer or stronger line takes longer to build and so
@@ -51,7 +55,7 @@ import { addGameDays, diffGameDays } from "./gameDates.js";
 import { fundingPerHead, treasuryFactor } from "./militaryFunding.js";
 
 export const RESOURCES_FULL = 100;
-export const RESOURCES_ADVANCE_A_MONTH = 60;
+export const RESOURCES_ADVANCE_A_MONTH = 0;
 export const RESOURCES_FORTIFY_A_DAY = 0.2;
 // And keeping armies out in harsh weather (fuel, winter clothing, fodder): this a month with all of them in it.
 export const RESOURCES_HARSH_A_MONTH = 20;
