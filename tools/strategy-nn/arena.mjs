@@ -269,6 +269,16 @@ export const HABITS = Object.freeze({
   hold: () => ({ order: "hold", sector: "all" }),
   dig: () => ({ order: "dig in", sector: "all" }),
   cities: troopHabit([TAKE_CAPITAL, TAKE_CITY, STRIKE, PUSH]),
+  // "Drawing a route with all your forces and making the route go super deep into enemy territory makes it just
+  // sledgehammer through" (the owner, 2026-10-14): every troop down one route to the other side's capital.
+  thrust: (battle, side) => {
+    const cities = battle.arena.cities ?? [];
+    const target = cities.find((city) => city.capital && city.cell >= 0 && battle.homes?.[city.cell] === 1 - side)
+      ?? cities.find((city) => city.cell >= 0 && battle.homes?.[city.cell] === 1 - side);
+    if (!target) return { order: "advance", sector: "all" };
+    const picked = battle.troops[side].map((troop, index) => (troop.strength > 0 ? index : -1)).filter((index) => index >= 0);
+    return { troops: [{ order: "advance", picked, way: [battle.place.toLngLat(target.x, target.y)] }] };
+  },
 });
 
 // How the two teams of a scenario stand by what their countries are: the
@@ -301,7 +311,7 @@ const SIDE_WORDS = Object.freeze({ "dig in": DIG_IN, hold: HOLD });
 // said: [[a count for each of TROOP_ACTIONS], [...]], land: [km² taken, km² taken] }.
 export const fight = (scenario, staffs = [null, null]) => {
   const legend = Object.fromEntries(scenario.countries.map((name, index) => [LETTERS[index], name]));
-  const world = syntheticMap({ layout: scenario.layout, legend, west: 20, north: 52, step: scenario.step, stepLat: scenario.stepLat, cities: scenario.cities.map(({ country, ...city }) => city), key: `arena-${scenario.seed}` });
+  const world = syntheticMap({ layout: scenario.layout, legend, west: 20, north: scenario.north ?? 52, step: scenario.step, stepLat: scenario.stepLat, cities: scenario.cities.map(({ country, ...city }) => city), key: `arena-${scenario.seed}` });
   const names = scenario.countries;
   const teamOfName = new Map();
   scenario.teams.forEach((members, team) => members.forEach((index) => teamOfName.set(fold(names[index]), team)));
@@ -326,14 +336,18 @@ export const fight = (scenario, staffs = [null, null]) => {
     field.teams = [teamOf(battle.sides[0][0]), teamOf(battle.sides[1][0])];
     const team = field.teams[side];
     if (team < 0) return undefined;
-    looks[team] += 1;
     const staff = staffs[team];
+    // (A staff that looks ahead, mind/planner.js, is asked every day; any other only on the engine's own days,
+    // and a habit keeps to its habit between them: only the engine's own staff answers a breakthrough.)
+    if (context?.regular === false && staff?.often !== true) return staff ? { keep: true } : undefined;
+    looks[team] += 1;
     if (!staff) return undefined;
     const decided = staff(battle, side, context, run);
     if (Array.isArray(decided?.said)) decided.said.forEach((count, at) => { said[team][at] += count; });
     else if (decided?.order) said[team][SIDE_WORDS[decided.order] ?? (decided.sector === "all" ? PUSH : STRIKE)] += 1;
     return decided;
   };
+  staffPolicy.often = staffs.some((staff) => staff?.often === true);
   // Every day of every battlefield: what each side's troops lost, and how many are cut off.
   const watch = (seen) => {
     const field = fieldOf(seen.battlefield);
@@ -370,7 +384,8 @@ export const fight = (scenario, staffs = [null, null]) => {
   let fromDate = opened;
   const militaryOf = new Map(names.map((name, index) => [fold(name), scenario.military?.[index] ?? null]));
   const musterOf = new Map(names.map((name, index) => [fold(name), scenario.muster?.[index] ? { table: musterTable(scenario.muster[index]), head: scenario.muster[index][0][1] } : null]));
-  const wings = wingsOf(scenario, rngOf(scenario.seed + 7));
+  // (A duel brings its own, turned round for each side: duel.mjs.)
+  const wings = Array.isArray(scenario.wings) ? scenario.wings : wingsOf(scenario, rngOf(scenario.seed + 7));
   let walls = (scenario.wall ?? []).map((line) => ({ ...line, owner: names[line.owner] ?? "" }));
   for (period = 0; period < scenario.periods; period += 1) {
     const toDate = addGameDays(fromDate, PERIOD_DAYS);

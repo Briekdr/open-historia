@@ -54,6 +54,9 @@ export const dawn = (run, battle, day) => {
   const air = run.mech.air ? skyOfWings(run, battle, day) : null;
   // With the fatigue mechanic, troops dig in deeper and faster and their works hold better (constants.js STRONG_WORKS).
   battle.works = run.mech.fatigue ? STRONG_WORKS : null;
+  // With the supply mechanic, supply carried down a corridor the other side's ground lies close along is carried
+  // the worse (supply.js refreshSupply, constants.js CORRIDOR_COST).
+  battle.corridors = run.mech.supply === true;
   // Attrition (mechanics.js "attrition"): what the weather takes from every troop out in it (combat.js closeDay),
   // and each country's count of it this run: its formation-days out, those in harsh weather, and what it lost.
   const counting = run.mech.attrition === true;

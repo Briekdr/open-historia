@@ -149,7 +149,7 @@ test("the block never outgrows its length: the battlefields a turn is most about
   // the engine's own telling of a battlefield is, so the fuller line is looked
   // for across a run of lengths: at some of them there is room for it.
   const fuller = /^- Front \d+: Aland, Cisland against Borduria, line \d+ km\. Sectors: north, centre, south(, [a-z]+)*, or a place on the line\.$/;
-  const lengths = Array.from({ length: 40 }, (_, step) => 5900 + step * 60);
+  const lengths = Array.from({ length: 60 }, (_, step) => 5900 + step * 60);
   assert.ok(lengths.some((max) => buildFrontsBlock({ battlefields: plainly, players: [], max }).split("\n").some((line) => fuller.test(line))));
 
   // Held to whatever length it is given, and saying what it had to leave out.

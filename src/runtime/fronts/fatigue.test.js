@@ -123,7 +123,9 @@ test("fatigue is carried from one run to the next, and a battlefield kept before
 });
 
 test("the story is told how many of a side's troops are exhausted", () => {
-  const long = runFronts(war({ mechanics: { fatigue: true }, days: 60 }));
+  // (Aland kept attacking all along its line: a staff of its own. Borduria's answers a breakthrough, staff.js.)
+  const pressing = (battle, side) => (battle.sides[side][0] === "Aland" ? { order: "advance", sector: "all" } : undefined);
+  const long = runFronts(war({ mechanics: { fatigue: true }, days: 60, staffPolicy: pressing }));
   const [record] = long.battlefields;
   const strength = record.brief.strength;
   const exhausted = strength.map((side) => side.tired ?? 0);
@@ -132,5 +134,5 @@ test("the story is told how many of a side's troops are exhausted", () => {
   assert.ok(exhausted[0] <= decoded[0].filter((value) => value >= FATIGUE_EXHAUSTED - 1 / 63).length + 1);
   assert.match(describeBattlefield(record), new RegExp(`${exhausted[0]} of them exhausted`));
   // Off, nothing is said of it.
-  assert.doesNotMatch(describeBattlefield(runFronts(war({ days: 60 })).battlefields[0]), /exhausted/);
+  assert.doesNotMatch(describeBattlefield(runFronts(war({ days: 60, staffPolicy: pressing })).battlefields[0]), /exhausted/);
 });

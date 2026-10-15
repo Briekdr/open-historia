@@ -16,6 +16,9 @@
 //                 began has its armies already
 //   the starter   the side that began the war called up its levies before it
 //                 declared: it begins at the first point of its own curve
+//   in peacetime  every country has an army: MUSTER_STANDING_SHARE of its
+//                 levy is there from the first day (constants.js), and its
+//                 curve calls up the rest
 //   on the map    formations of the world's own (units on the map) are there
 //                 from the first day: they are its standing army
 //
@@ -27,17 +30,20 @@
 // Only + - * / and comparisons; the dates through gameDates.js.
 
 import { compareGameDates } from "../gameDates.js";
+import { MUSTER_STANDING_SHARE } from "./constants.js";
 
 // Whether a war's battlefields muster in this run.
 export const mustersFor = (run, war) => run.mech?.muster === true && !run.input?.authored && Boolean(war?.began) && Boolean(run.input?.gameBegan)
   && compareGameDates(war.began, run.input.gameBegan) > 0;
 
-// The share of a country's levy that has come in `days` after its call-up began, 0 to 1: all of it where no curve is known.
+// The share of a country's levy that has come in `days` after its call-up began: its peacetime army
+// (MUSTER_STANDING_SHARE) and, of the rest, what its curve has called up; all of it where no curve is known.
 export const musterShare = (run, name, days) => {
   const table = run.musterOf?.(name)?.table;
   if (!Array.isArray(table) || table.length === 0 || !(days >= 0)) return 1;
   const at = Math.floor(days);
-  return at >= table.length ? 1 : table[at];
+  const called = at >= table.length ? 1 : table[at];
+  return MUSTER_STANDING_SHARE + (1 - MUSTER_STANDING_SHARE) * called;
 };
 
 // The days a country's call-up had behind it when the war began: its curve's first point for the side that began it, none for the other.

@@ -46,11 +46,14 @@ export const createPool = (size) => {
 
 // One staff against another over many scenarios, split among the workers:
 // { margin, won, drawn, played, games? } summed (and the games in the seeds' order, with `detail`).
-export const playMatch = async (pool, a, b, seeds, { detail = false, chunk = 2 } = {}) => {
+export const playMatch = async (pool, a, b, seeds, { detail = false, chunk = 2, duels = false } = {}) => {
   const tasks = [];
-  for (let at = 0; at < seeds.length; at += chunk) tasks.push(pool.run({ a, b, seeds: seeds.slice(at, at + chunk), detail }));
+  for (let at = 0; at < seeds.length; at += chunk) tasks.push(pool.run({ a, b, seeds: seeds.slice(at, at + chunk), detail, duels }));
   const parts = (await Promise.all(tasks)).flat();
+  const chosen = {};
+  for (const part of parts) for (const [name, count] of Object.entries(part.chosen ?? {})) chosen[name] = (chosen[name] ?? 0) + count;
   return {
+    chosen,
     margin: parts.reduce((sum, part) => sum + part.margin, 0),
     won: parts.reduce((sum, part) => sum + part.won, 0),
     drawn: parts.reduce((sum, part) => sum + part.drawn, 0),

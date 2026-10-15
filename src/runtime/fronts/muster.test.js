@@ -2,6 +2,7 @@
 // Run: node --test src/runtime/fronts/muster.test.js
 
 import test from "node:test";
+import { MUSTER_STANDING_SHARE } from "./constants.js";
 import assert from "node:assert/strict";
 
 import { DEFAULT_MUSTER, fitMuster, musterCurvePoints, musterDays, musterTable } from "../mustering.js";
@@ -61,15 +62,17 @@ const countsByDay = (input) => {
   return { days, aland: (day) => days[day][at("Aland")], borduria: (day) => days[day][at("Borduria")], result };
 };
 
-test("a war's levies come in over weeks: the side that began it first, part-mustered; the other from nothing", () => {
+test("a war's levies come in over weeks: the side that began it first, part-mustered; the other from its peacetime army", () => {
   const full = countsByDay(war({ mechanics: {} }));
   const mustered = countsByDay(war());
   // Without mustering, both sides are all there from the first day (the first the run hands on is its first evening).
   const fullAland = full.aland(1);
   const fullBorduria = full.borduria(1);
-  // With it, Borduria (attacked) has only the least a side stands with, and Aland (which began it) half of its army.
+  // With it, Borduria (attacked) has little more than its peacetime army (a quarter: constants.js
+  // MUSTER_STANDING_SHARE), and Aland (which began it) that and half the rest, the first point of its curve.
   assert.ok(mustered.borduria(1) < fullBorduria / 3, `${mustered.borduria(1)} of ${fullBorduria}`);
-  assert.ok(Math.abs(mustered.aland(1) - Math.floor(fullAland / 2)) <= 1, `${mustered.aland(1)} of ${fullAland}`);
+  assert.ok(mustered.borduria(1) >= Math.floor(fullBorduria * MUSTER_STANDING_SHARE), `${mustered.borduria(1)} of ${fullBorduria}: never from nothing`);
+  assert.ok(Math.abs(mustered.aland(1) - Math.floor(fullAland * (MUSTER_STANDING_SHARE + (1 - MUSTER_STANDING_SHARE) / 2))) <= 1, `${mustered.aland(1)} of ${fullAland}`);
   // A month later both have come in further: Borduria more than half, as its curve says.
   assert.ok(mustered.borduria(30) > fullBorduria / 2, `${mustered.borduria(30)} of ${fullBorduria}`);
   assert.ok(mustered.borduria(30) > mustered.borduria(7) && mustered.borduria(7) > mustered.borduria(1));

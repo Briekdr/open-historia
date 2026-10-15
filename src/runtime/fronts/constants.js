@@ -355,6 +355,29 @@ export const STAFF_DEFENDER_PROBES = 1.15;
 export const STAFF_CHANCE_DEFENDER = 0.5;
 export const STAFF_DIGS_IN_UNDER = 0.55;
 export const STAFF_SECTOR_TROOPS_LEAST = 3;
+// A country's PEACETIME ARMY (muster.js): this share of its levy stands on the
+// line from a war's first day, and its call-up brings in the rest. The side a
+// war was begun against used to begin it from nothing, and any thrust walked
+// through an empty country for its first weeks.
+export const MUSTER_STANDING_SHARE = 0.25;
+// A BREAKTHROUGH (Wars and Fronts Pt.2; staff.js breakthroughAnswer): "drawing
+// a route with all your forces and making the route go super deep into enemy
+// territory makes it just sledgehammer through and nothing can stop it" (the
+// owner, 2026-10-14). An enemy troop on a side's home ground is a SPEARHEAD
+// when, at BREAKTHROUGH_RING_KM round it, the side holds at least
+// BREAKTHROUGH_ENCLOSED of the eight points of the compass: it stands in a
+// salient, the side's ground on most sides of it. The side's staff looks for
+// one every day and answers it at once, and again while it lasts, on its own
+// days or once what it sent has got there (and BREAKTHROUGH_LOOK_DAYS apart):
+// every troop that is not outmatched where it stands (its side's worth within
+// BREAKTHROUGH_ODDS_KM at least BREAKTHROUGH_COUNTER_ODDS of the other's)
+// attacks, at the thrust and into the ground behind the other side's line,
+// which a thrust leaves thin; the outmatched hold.
+export const BREAKTHROUGH_RING_KM = 40;
+export const BREAKTHROUGH_ENCLOSED = 5;
+export const BREAKTHROUGH_ODDS_KM = 50;
+export const BREAKTHROUGH_COUNTER_ODDS = 0.8;
+export const BREAKTHROUGH_LOOK_DAYS = 3;
 export const WITHDRAW_DAYS_MOST = 12;
 export const ATTACK_LAPSE_DAYS = 120;
 // A sector named for a place is the line within this far of the point nearest it.
@@ -448,6 +471,13 @@ export const SUPPLY_EVERY_DAYS = 3;
 export const SUPPLY_FULL_KM = Object.freeze([120, 180, 300, 450]);
 export const SUPPLY_FAR_FACTOR = 2.5;
 export const SUPPLY_LEAST = 0.4;
+// A road the other side's ground lies near is a road under its guns (Wars and
+// Fronts Pt.2, with the supply mechanic): supply carried over a cell within
+// CORRIDOR_KM of the other side's ground goes CORRIDOR_COST times as far, so a
+// thrust fed down a narrow corridor is fed the worse the longer the corridor,
+// and a broad advance, whose roads run behind its own line, hardly so at all.
+export const CORRIDOR_KM = 20;
+export const CORRIDOR_COST = 4;
 // A body of ground cut off from every source. With none of its side's troops
 // in it and under this many square kilometres it is a patch, filled the day
 // the ring closes. Anything else is a pocket, fought for like any other ground
