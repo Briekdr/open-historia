@@ -62,6 +62,8 @@ const CarrierWord = ({ medium }) => {
 };
 // A movement that is not meant.
 const DiversionIcon = () => <Icon dashed><path d="M4 18c2-7 6-9 14-10" /><path d="M14.5 4.6L18.4 8l-3.2 3.9" strokeDasharray="0" /></Icon>;
+// A line with three counters standing on it.
+const DeployIcon = () => <Icon><path d="M3 19h18" /><path d="M4.5 11h4v4h-4z" /><path d="M10 11h4v4h-4z" /><path d="M15.5 11h4v4h-4z" /></Icon>;
 // A wall and its battlements.
 const FortifyIcon = () => <Icon><path d="M3.5 20.5v-11h3v-3h3v3h5v-3h3v3h3v11z" /><path d="M10 20.5v-4.5h4v4.5" /></Icon>;
 // A hull and its sail, from the side.
@@ -228,6 +230,7 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
         {/* Carried to where their side holds no land: by ship, rail or air, then a click on the map for where. */}
         <RailKey label="Transport" title="Transport: carry these troops by ship, rail or air to a place your side has no border with" on={tool === "transport" || choice} disabled={locked || none} onClick={() => (tool === "transport" ? onTool("pan") : setChoosing((value) => !value))}><ShipIcon /></RailKey>
         <RailKey label="Diversion" title="Draw a diversion: a movement you want the other side to believe" on={tool === "diversion"} disabled={locked} onClick={() => onTool("diversion")}><DiversionIcon /></RailKey>
+        <RailKey label="Deploy" title="Deployment line: draw where your new troops on this battlefield are to come in" on={tool === "deploy"} disabled={locked} onClick={() => onTool("deploy")}><DeployIcon /></RailKey>
         <Rule />
         {/* What is built and what sails: a fortified line drawn on the map (its level is chosen once it is drawn), and the fleets. */}
         <RailKey label="Fortify" title="Fortify: draw a line to be built, then choose how strong it is to be" on={tool === "fortify" || drafted} disabled={locked || !canFortify} onClick={() => onTool("fortify")}><FortifyIcon /></RailKey>
@@ -356,6 +359,7 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
           {!turnRunning && tool === "select" && <>Drag a box round your troops on the map. Hold Shift to add to those picked.{selected.length > 0 && <> {selected.length} picked out.</>}</>}
           {!turnRunning && tool === "route" && <>Draw the way for the {selected.length} picked out. They follow it as the ground and the enemy allow.</>}
           {!turnRunning && tool === "diversion" && <>Draw the movement you want the other side to believe.</>}
+          {!turnRunning && tool === "deploy" && <>Draw the line your new troops here are to come in on: levies, drafts and reinforcements. They stand on ground your side holds along it.</>}
           {!turnRunning && tool === "replan" && <>Draw the operation’s way anew.</>}
           {!turnRunning && tool === "transport" && <>Click the place the {selected.length} picked out are to be carried to. Drag to move the map. They board when time next passes.</>}
           {!turnRunning && tool === "fortify" && <>Draw the fortified line on the map. You choose how strong it is to be once it is drawn.</>}

@@ -20,6 +20,8 @@
 //                                                                 (again) sent once more after it was
 //                                                                 carried out
 //   { op: "unplan",    battlefield, id }                          a diversion taken off
+//   { op: "deploy",    battlefield, way }                         where the asker's new troops there are to
+//                                                                 come in (deploy.js); an empty way takes it off
 //
 // Nothing here moves a troop: orders are put to the troops when time next
 // passes (engine.js assignStanding).
@@ -33,10 +35,11 @@ import { generalsOf, nameGenerals, orderTroops, ownTroopsOf, readTalk, releaseTr
 import { HOLDER_SIDE_A, HOLDER_SIDE_B, MAX_COMMANDS, MAX_TROOPS_PER_SIDE, MAX_WAY_POINTS, TALK_TEXT_MAX, WAR_ROOM_ORDERS } from "./constants.js";
 import { pointInFrame, projectorOf } from "./frame.js";
 import { withDiversion, withProjectPlan, withoutPlan } from "./plans.js";
+import { withDeployLine } from "./deploy.js";
 import { battlefieldSideOf, foldBattlefieldName, isOpenBattlefield, normalizeBattlefield } from "./record.js";
 import { TRANSPORT_LOAD_MOST, TRANSPORT_MEDIA, cancelTransport, huntTransport, isUnderWay, normalizeTransports, orderTransport } from "./transports.js";
 
-export const WAR_ROOM_OPS = Object.freeze(["order", "route", "release", "return", "talk", "forget", "diversion", "plan", "unplan", "transport", "untransport", "hunt"]);
+export const WAR_ROOM_OPS = Object.freeze(["order", "route", "release", "return", "talk", "forget", "diversion", "plan", "unplan", "transport", "untransport", "hunt", "deploy"]);
 // The ops that change the world's transporters and not a battlefield.
 const TRANSPORT_OPS = Object.freeze(["transport", "untransport", "hunt"]);
 // The most a drawn way may hold as it is sent: it is thinned to what a route keeps.
@@ -221,6 +224,13 @@ const applyTo = (record, side, op, { player, date }) => {
     return { record: next };
   }
   if (op.op === "unplan") return { record: withoutPlan(record, side, clean(op.id, 180)) };
+  if (op.op === "deploy") {
+    // A way of the battlefield's is the line drawn; none at all takes it off.
+    const drawn = list(op.way);
+    const way = drawn.length > 0 ? wayOn(record, drawn) : [];
+    if (drawn.length > 0 && way.length < 2) return { error: REFUSED.way };
+    return { record: withDeployLine(record, side, { country: player, way }) };
+  }
   return { error: REFUSED.nothing };
 };
 

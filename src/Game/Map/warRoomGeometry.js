@@ -10,6 +10,8 @@
 //   project  a Board operation's, brighter when it is under way
 //   decoy    a diversion: dotted, to be stolen
 //   known    what the player's agents and Board have of the other side's
+//   deploy   the line the player's new troops come in on (runtime/fronts/deploy.js):
+//            a line and no head, since nothing moves along it
 //
 // Pure: it takes the plans and gives GeoJSON, so it is tested without a map.
 
@@ -21,12 +23,14 @@ export const PLAN_COLOURS = Object.freeze({
   idle: "#93a1b5",
   decoy: "#ffd24a",
   known: "#ff6b6b",
+  deploy: "#3ddc84",
 });
 
 // Which of the five a plan is drawn as.
 //   theirs   true for a plan of the other side
 export const planTone = (plan, { theirs = false } = {}) => {
   if (theirs) return "known";
+  if (plan.kind === "deploy") return "deploy";
   if (plan.kind === "diversion") return "decoy";
   if (plan.kind === "project") return plan.live && !plan.done ? "project" : "idle";
   if (plan.project) return "project";
@@ -121,12 +125,12 @@ export const planFeatures = ({ plans = [], known = [], pointed = "", labelOf = (
   const features = [];
   const add = (plan, theirs) => {
     const tone = planTone(plan, { theirs });
-    const properties = { plan: plan.id, tone, colour: PLAN_COLOURS[tone], pointed: plan.id === pointed, decoy: tone === "decoy" };
+    const properties = { plan: plan.id, tone, colour: PLAN_COLOURS[tone], pointed: plan.id === pointed, decoy: tone === "decoy", deploy: tone === "deploy" };
     let named = false;
     for (const raw of Array.isArray(plan.ways) ? plan.ways : []) {
       if (!Array.isArray(raw) || raw.length < 2) continue;
       const way = smoothWay(raw);
-      const head = arrowHead(way);
+      const head = tone === "deploy" ? null : arrowHead(way);
       // The line stops short of the point of its head, so the two do not blur.
       features.push({ type: "Feature", geometry: { type: "LineString", coordinates: way }, properties: { ...properties, what: "way" } });
       if (head) features.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [head] }, properties: { ...properties, what: "head" } });

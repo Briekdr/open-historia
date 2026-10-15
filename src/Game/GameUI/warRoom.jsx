@@ -41,6 +41,7 @@ import { readFrontCities } from "../../runtime/frontCities.js";
 import { chosenOrdersOf, commandTitle, generalsOf, ownTroopsOf, talkOf } from "../../runtime/fronts/command.js";
 import { THRUST_TROOPS } from "../../runtime/fronts/constants.js";
 import { handicapOf } from "../../runtime/fronts/handicap.js";
+import { deployLinesOf } from "../../runtime/fronts/deploy.js";
 import { foldBattlefieldName, normalizeBattlefield } from "../../runtime/fronts/record.js";
 import { TRANSPORT_MEDIA, carrierFor, isUnderWay, loadOf, normalizeTransports } from "../../runtime/fronts/transports.js";
 import { formatGameDateReadable, gameDateYear } from "../../runtime/gameDates.js";
@@ -285,9 +286,15 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
     () => (record ? warRoomIntel({ world, game, record, side, cities, espionage }) : { plans: [], sources: [], lines: [], double: false }),
     [world, game, record, side, cities, espionage],
   );
+  // Where the player's new troops on this battlefield come in, where a line was drawn for them (runtime/fronts/deploy.js):
+  // drawn on the map with the plans.
+  const deployLine = useMemo(() => {
+    const country = String(game?.country ?? "").trim().toLowerCase();
+    return record && country ? deployLinesOf(record, side).find((line) => line.country.toLowerCase() === country) ?? null : null;
+  }, [record, side, game]);
   useEffect(() => {
-    if (open) setWarRoom({ plans, known: intel.plans });
-  }, [open, plans, intel]);
+    if (open) setWarRoom({ plans: deployLine ? [...plans, { id: "deploy", kind: "deploy", ways: [deployLine.way], picked: [], troops: 0 }] : plans, known: intel.plans });
+  }, [open, plans, intel, deployLine]);
 
   // A route drawn into a country that is not in this war is an attack on it
   // (runtime/fronts/invade.js). The engine reads that when time passes; the
@@ -417,6 +424,9 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
         if (await act({ op: "route", battlefield: name, troops: selectedRef.current, way })) setWarRoom({ selected: [] });
       } else if (drawn === "diversion") {
         await act({ op: "diversion", battlefield: name, way, troops: selectedRef.current.length || THRUST_TROOPS.spearhead });
+      } else if (drawn === "deploy") {
+        // Where the player's new troops here come in: one line, drawn again over the last.
+        if (await act({ op: "deploy", battlefield: name, way })) setWarRoom({ tool: "pan" });
       } else if (drawn === "replan" && extra?.replan) {
         await act({ op: "plan", battlefield: name, project: extra.replan, way });
       } else if (drawn === "transport" && extra?.medium && way[0]) {
@@ -865,6 +875,22 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
                     <div style={{ ...softText, marginTop: "0.4rem" }}>None. A route you draw, an order a general takes, and an operation on your Board that sends troops at a place here all show on the map as arrows.</div>
                   )}
                   {planned.map(planRow)}
+                  {deployLine && (
+                    <div
+                      onPointerEnter={() => setWarRoom({ pointed: "deploy" })}
+                      style={{ ...trayStyle(pointed === "deploy"), display: "flex", gap: "0.55rem", marginTop: "0.3rem", padding: "0.4rem 0.5rem" }}
+                    >
+                      <span aria-hidden="true" style={{ background: PLAN_COLOURS.deploy, flex: "0 0 auto", height: "0.22rem", marginTop: "0.45rem", width: "0.95rem" }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>Deployment line</div>
+                        <div style={softText}>Your new troops here come in along it: levies, drafts and reinforcements.</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginTop: "0.1rem" }}>
+                          <button type="button" disabled={locked} onClick={() => takeTool("deploy")} style={linkStyle}>{tool === "deploy" ? <>Cancel</> : <>Redraw</>}</button>
+                          <button type="button" disabled={locked} onClick={() => act({ op: "deploy", battlefield: name, way: [] })} style={linkStyle}>Remove</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {ownPlans.some((plan) => plan.kind === "diversion") && (
                     <div style={{ ...softText, color: intel.double ? AMBER : BONE_SOFT, marginTop: "0.35rem" }}>
                       {intel.double

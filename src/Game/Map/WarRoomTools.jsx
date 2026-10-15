@@ -41,7 +41,7 @@ const WAY_LEAST_PX = 28;
 // pointer has gone this far from the last.
 const PICK_PX = 16;
 const WAY_STEP_PX = 6;
-const DRAW_COLOURS = Object.freeze({ route: ACCENT, replan: ACCENT, diversion: "#ffd24a" });
+const DRAW_COLOURS = Object.freeze({ route: ACCENT, replan: ACCENT, diversion: "#ffd24a", deploy: "#3ddc84" });
 
 // The record of the battlefield shown, read from the world as it stands.
 const useShownRecord = (name) => {

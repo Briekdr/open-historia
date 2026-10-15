@@ -31,6 +31,7 @@ import { arenaFor } from "./arena.js";
 import { dawn } from "./dawn.js";
 import { anyMechanic, readMechanics } from "./mechanics.js";
 import { levyOwed, musterShare } from "./muster.js";
+import { deployCells } from "./deploy.js";
 import { linesChanged } from "./walls.js";
 import { AIR_MISSIONS, wingChanges } from "./air.js";
 import { MILITARY_NEUTRAL, airWorth, landWorth, mixOf, readMilitary, seaWorth } from "./military.js";
@@ -428,6 +429,8 @@ const raiseFor = (battle, run, side, owner) => {
     return region > 0 && fold(holderOf(battle, run, battle.arena.ids[region])) === wantedName;
   });
   if (home.length > 0) cells = home;
+  // (On the line its commander drew for its new troops, where it drew one: deploy.js.)
+  cells = deployCells(battle, side, member, cells);
   if (cells.length === 0) return;
   const kinds = military ? kindsFor(count, run.era, mixOf(run.militaryOf(member))) : null;
   let men = 0;
@@ -487,6 +490,8 @@ const musterDay = (run, battle, day) => {
       });
       if (home.length > 0) cells = home;
       if (cells.length === 0 && battle.field.holders.indexOf(side) >= 0) cells = [battle.field.holders.indexOf(side)];
+      // (On the line its commander drew for its new troops, where it drew one: deploy.js.)
+      cells = deployCells(battle, side, member, cells);
       if (cells.length === 0) continue;
       today = today ?? prepare(battle, day);
       const kinds = kindsFor(entry.t, run.era, military ? mixOf(run.militaryOf(member)) : null).slice(entry.r, entry.r + due);
@@ -988,6 +993,8 @@ const reinforceOnFront = (run, battle, moment, day) => {
   });
   if (home.length > 0) cells = home;
   if (cells.length === 0 && battle.field.holders.indexOf(side) >= 0) cells = [battle.field.holders.indexOf(side)];
+  // (On the line its commander drew for its new troops, where it drew one: deploy.js.)
+  cells = deployCells(battle, side, drafted, cells);
   if (cells.length === 0) {
     run.notes.push({ ...note, kind: "reinforce-no-ground" });
     return;

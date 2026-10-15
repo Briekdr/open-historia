@@ -52,6 +52,7 @@ import { leftOnLeg } from "./way.js";
 import { draw, formationsLeft, menOf, partLeft, sideFormationsLeft } from "./manpower.js";
 import { landWorth, mixOf } from "./military.js";
 import { headStartOf, levyOwed, levyPending, musterShare, mustersFor, readLevy, spreadPick } from "./muster.js";
+import { hasDeploy, readDeploy } from "./deploy.js";
 import { authoredTroops } from "./scenarioFronts.js";
 import { projectorOf } from "./frame.js";
 import { drawLine, measureLine } from "./line.js";
@@ -245,6 +246,8 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   haltsToday: [],
   views: [[], []],
   plans: null,
+  // Where each side's countries' new troops come in, where one drew a line for them (deploy.js).
+  deploy: null,
   planKey: "",
   pockets: [],
   pocketOf: null,
@@ -684,6 +687,8 @@ export const loadBattle = (run, record, arena) => {
   battle.talk = readTalk(carry.talk);
   // The plans a side keeps (plans.js) are not the engine's: it hands them on.
   battle.plans = Array.isArray(carry.plans) ? carry.plans : null;
+  // Where a side's countries' new troops come in (deploy.js): drawn in the war room, handed on.
+  battle.deploy = Array.isArray(carry.deploy) ? readDeploy(carry.deploy) : null;
   // What the members are still owed of their levies (muster.js).
   battle.levy = readLevy(carry.levy);
   // Troops left on ice that has thawed since (climate.js) get off it as they can: to the nearest ground of
@@ -944,6 +949,7 @@ export const saveBattle = (battle, run, day, changes, brief) => {
           : {}),
         ...(battle.talk.some((lines) => lines.length > 0) ? { talk: battle.talk } : {}),
         ...(plans ? { plans } : {}),
+        ...(hasDeploy(battle.deploy) ? { deploy: battle.deploy } : {}),
         ...(battle.status === "standing" ? { quiet: battle.quiet } : {}),
         ...(battle.away[0] || battle.away[1] ? { away: battle.away.slice() } : {}),
         ...(battle.sentHome.size > 0 ? { sentHome: [...battle.sentHome] } : {}),

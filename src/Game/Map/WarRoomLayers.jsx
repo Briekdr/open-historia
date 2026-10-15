@@ -17,6 +17,7 @@ const IS_WAY = ["==", ["get", "what"], "way"];
 const IS_HEAD = ["==", ["get", "what"], "head"];
 const IS_NAME = ["==", ["get", "what"], "name"];
 const DECOY = ["==", ["get", "decoy"], true];
+const DEPLOY = ["==", ["get", "deploy"], true];
 const WIDTH = ["interpolate", ["linear"], ["zoom"], 3, ["case", ["get", "pointed"], 3.2, 2], 8, ["case", ["get", "pointed"], 6, 4]];
 
 // What is written beside a plan on the map: an operation's own name. (It is
@@ -57,7 +58,7 @@ const WarRoomLayers = () => {
       <Layer
         id="warroom-plans"
         type="line"
-        filter={["all", IS_WAY, ["!", DECOY]]}
+        filter={["all", IS_WAY, ["!", DECOY], ["!", DEPLOY]]}
         layout={{ "line-cap": "butt", "line-join": "round" }}
         paint={{ "line-color": ["get", "colour"], "line-width": WIDTH, "line-dasharray": [2.4, 1.3] }}
       />
@@ -67,6 +68,14 @@ const WarRoomLayers = () => {
         filter={["all", IS_WAY, DECOY]}
         layout={{ "line-cap": "round", "line-join": "round" }}
         paint={{ "line-color": ["get", "colour"], "line-width": WIDTH, "line-dasharray": [0.2, 1.9] }}
+      />
+      {/* Where the player's new troops come in: a whole line, since nothing moves along it. */}
+      <Layer
+        id="warroom-plans-deploy"
+        type="line"
+        filter={["all", IS_WAY, DEPLOY]}
+        layout={{ "line-cap": "round", "line-join": "round" }}
+        paint={{ "line-color": ["get", "colour"], "line-width": WIDTH }}
       />
       <Layer
         id="warroom-plans-head"

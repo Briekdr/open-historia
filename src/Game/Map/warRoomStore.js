@@ -20,7 +20,8 @@ import { useSyncExternalStore } from "react";
 //   transport  click where the troops picked out are to be carried (`medium` holds by what)
 //   fortify    draw a fortified line to be built (it waits as `draft` for its level)
 //   fleet      click where the fleet picked out (`fleet`) is to sail, or to patrol (`station`)
-export const WAR_ROOM_TOOLS = Object.freeze(["pan", "select", "route", "diversion", "replan", "transport", "fortify", "fleet"]);
+//   deploy     draw the line the player's new troops on the battlefield are to come in on (runtime/fronts/deploy.js)
+export const WAR_ROOM_TOOLS = Object.freeze(["pan", "select", "route", "diversion", "replan", "transport", "fortify", "fleet", "deploy"]);
 
 const CLOSED = Object.freeze({
   open: false,
