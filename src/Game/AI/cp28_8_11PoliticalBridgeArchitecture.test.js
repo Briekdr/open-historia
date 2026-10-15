@@ -42,7 +42,8 @@ test("polity rename re-keys Political Actors and the pre-existing 28k schema gua
   const schemaGuard = read("src/Game/AI/projectOpSchema.test.js");
   assert.match(rename, /put\("politicalActors", rekeyPoliticalActors\(world\?\.politicalActors, fromKey, to\)\)/);
   assert.match(rename, /a rename cannot merge two political ledgers/i);
-  assert.match(schemaGuard, /assert\.ok\(jumpChars < 28000,/);
+  // (Raised by 200 on purpose by Wars and Fronts Pt.2, for polityChanges[].military: projectOpSchema.test.js says so.)
+  assert.match(schemaGuard, /assert\.ok\(jumpChars < 28200,/);
   assert.doesNotMatch(schemaGuard, /jumpChars < 3[01]000|jumpChars < 32000/, "CP28.8.11 must not silently raise the separate pre-existing schema-size guard");
 });
 

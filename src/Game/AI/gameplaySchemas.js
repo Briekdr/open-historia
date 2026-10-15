@@ -236,9 +236,6 @@ const regionControlOpSchema = {
   ],
 };
 
-// A change to one of a country's military figures (runtime/militaryStats.js).
-const militaryShift = () => ({ type: "number" });
-
 const polityChangeSchema = {
   type: "object",
   description: "One polity operation. update targets an EXISTING polity; only create and restore may introduce one.",
@@ -265,16 +262,14 @@ const polityChangeSchema = {
     },
     intelligence: {
       type: "number",
-      description:
-        "Intelligence service capability 0-100, only when it changes (a purge, a defector, a new bureau, funding). "
-        + "Decides how much of others' diplomacy it reads and how much of its own it keeps secret.",
+      description: "Intelligence service 0-100, only when it changes (a purge, a defector, a new bureau): how much of others' diplomacy it reads, and keeps of its own.",
     },
-    // Wars and Fronts Pt.2: a change, not a figure, so the model needs none it was not shown.
+    // Wars and Fronts Pt.2 (runtime/militaryStats.js): a change, not a figure, so the model needs
+    // none it was not shown. Its five keys named in words: the schema's size guard (projectOpSchema.test.js).
     military: {
       type: "object",
-      description: "Only a lasting change to how it fights: each figure's change, -40 to 40 (officer purge quality -15, rearmament land 10, fleet sunk sea -30, air force founded air 30).",
-      properties: { quality: militaryShift(), technology: militaryShift(), land: militaryShift(), sea: militaryShift(), air: militaryShift() },
-      additionalProperties: false,
+      description: "Lasting change in how it fights: quality, technology, land, sea, air, each -40 to 40.",
+      additionalProperties: { type: "number" },
     },
     tags: stringArraySchema(
       "Defining traits after this change — ideology, alignment, posture (socialist, authoritarian, anti-nato). "

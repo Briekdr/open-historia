@@ -201,10 +201,11 @@ test("the board no longer costs the jump anything", () => {
   // (26,363: ~1,450 chars for impacts.reports, against a whole request per turn
   // if documents had taken a call of their own, as the board did). The transient
   // Political World claim ledger stays top-level and compact rather than adding
-  // a nested semantic object to every event. Wars and Fronts Pt.2 (lab) adds
-  // polityChanges[].military (~330 chars): a country's military figures move
-  // with the story instead of being re-rated in a request of their own.
-  assert.ok(jumpChars < 28500, `the jump schema grew back to ${jumpChars} chars`);
+  // a nested semantic object to every event. Wars and Fronts Pt.2 (lab)
+  // raised it by 200, on purpose, for polityChanges[].military (~160 chars,
+  // its five keys named in words): a country's military figures move with the
+  // story, not in a re-rating request of their own.
+  assert.ok(jumpChars < 28200, `the jump schema grew back to ${jumpChars} chars`);
 
   // ...and the game master, which has no second pass to hand the board to, keeps
   // it on its authored events (the provider sees a shallow transport; the
