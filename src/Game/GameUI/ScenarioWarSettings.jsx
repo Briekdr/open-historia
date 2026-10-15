@@ -120,7 +120,7 @@ const WarOutcomes = ({ value, onChange, touch }) => {
         <input aria-label="Country meant to lose" onChange={(event) => setLoser(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") add(); }} placeholder="Meant to lose" style={inputStyle} value={loser} />
         <button className="oh-tap" disabled={!ready} onClick={add} style={touchFit(switchStyle(ready), touch)} type="button">Add</button>
       </div>
-      <div style={{ ...hintStyle, marginTop: "0.3rem" }}>Countries by their exact names. The story may also mean a war it opens to end one way.</div>
+      <div style={{ ...hintStyle, marginTop: "0.3rem" }}>Countries by their exact names. Every other war is fought by the best commander there is.</div>
     </>
   );
 };

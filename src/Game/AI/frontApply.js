@@ -223,8 +223,8 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
     // What a fleet the war at sea commissions is held to (runtime/naval/engine.js).
     unitCaps: { perCountry: MAX_UNITS_PER_POLITY, world: MAX_UNITS_GLOBAL },
     // EXPERIMENT, in the lab: the trained staff, when its switch is on and one is shipped (runtime/fronts/mind/trained.js).
-    // (A side its war is meant to lose, by the story or the scenario, is led by a plainer commander: runtime/warOutcomes.js.)
-    ...(strategyNetOn() && trainedStaffPolicy() ? { staffPolicy: labStaffPolicy({ wars: world?.wars, outcomes: warSettingsOf(world).outcomes }) } : {}),
+    // (A side the scenario's designer meant its war to lose is led by a plainer commander: runtime/warOutcomes.js.)
+    ...(strategyNetOn() && trainedStaffPolicy() ? { staffPolicy: labStaffPolicy({ outcomes: warSettingsOf(world).outcomes }) } : {}),
     // The era the scenario set, if it set one (runtime/warSettings.js).
     era: eraSettingOf(world),
     // Which of the engine's newer mechanics it has on: all of them unless it turned one off.
@@ -371,7 +371,6 @@ export const applyTurnFronts = async ({
   try {
     // The map is read only once there is a war, a battlefield or an order to
     // run on: a turn of peace costs nothing here.
-    const warStages = warStagesOf({ wars: baseWorld?.wars, updates: warUpdates, events, stopDate: toDate, round });
     const run = await runTurnFronts({
       ...turnRunInput({ world: baseWorld, game: baseGame, campaignId, loadRegions, signal, round, fromDate }),
       // With the turn's plans on its battlefields (frontPlans.js): the Board's
@@ -379,9 +378,7 @@ export const applyTurnFronts = async ({
       world: await plannedWorld(baseWorld, baseGame),
       events,
       frontOrders: [...asArray(givenOrders).filter((order) => order?.now === true), ...asArray(frontOrders)],
-      warStages,
-      // (A war the story opened this turn meaning one side to lose it leads that side as one it began with would be.)
-      ...(strategyNetOn() && trainedStaffPolicy() ? { staffPolicy: labStaffPolicy({ wars: warStages.flat(), outcomes: warSettingsOf(baseWorld).outcomes }) } : {}),
+      warStages: warStagesOf({ wars: baseWorld?.wars, updates: warUpdates, events, stopDate: toDate, round }),
       fromDate,
       toDate,
       requestedDays,

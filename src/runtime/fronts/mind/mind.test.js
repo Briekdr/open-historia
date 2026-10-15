@@ -373,8 +373,8 @@ test("the game uses the lab's own staff only in the lab, on unless its switch is
   assert.equal(strategyNetOn(), false, "and never outside a page");
   // The turn hands it to the engine for the forecast and for the apply alike, so the two are one run.
   const apply = read("Game/AI/frontApply.js");
-  // (With a plainer commander for a side its war is meant to lose: runtime/warOutcomes.js.)
-  assert.ok(apply.includes("...(strategyNetOn() && trainedStaffPolicy() ? { staffPolicy: labStaffPolicy({ wars: world?.wars, outcomes: warSettingsOf(world).outcomes }) } : {}),"));
+  // (With a plainer commander for a side a scenario's designer meant its war to lose: runtime/warOutcomes.js.)
+  assert.ok(apply.includes("...(strategyNetOn() && trainedStaffPolicy() ? { staffPolicy: labStaffPolicy({ outcomes: warSettingsOf(world).outcomes }) } : {}),"));
   assert.equal(apply.split("...turnRunInput({").length - 1, 2, "the run before the story and the run that applies it");
   const turn = read("Game/AI/frontTurn.js");
   assert.ok(turn.includes("...(typeof staffPolicy === \"function\" ? { staffPolicy } : {}),"));

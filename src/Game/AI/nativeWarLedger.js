@@ -57,20 +57,14 @@ const deriveWarTitle = (war) => {
 // A start's note may open with the war's own name — "Title: The Winter War;
 // Soviet demands on the Karelian isthmus" — and the rest is its cause. Without
 // it every war the model opened was called "A–B War" and the model's own name
-// for it was lost. After the name it may say which side the story means to
-// prevail — "Favoured: Germany;" — for a war the player is meant to win or to
-// lose (runtime/warOutcomes.js): the side meant to lose is led by a plainer
-// commander, and the troops still decide it.
+// for it was lost.
 const WAR_TITLE_NOTE_RE = /^title\s*:\s*([^;]+?)\s*(?:;\s*([\s\S]*))?$/i;
-const WAR_FAVOURED_NOTE_RE = /^favou?red\s*:\s*([^;]+?)\s*(?:;\s*([\s\S]*))?$/i;
 export const splitWarStartNote = (note) => {
   const text = normalizeString(note);
   const match = text.match(WAR_TITLE_NOTE_RE);
-  const split = match
+  return match
     ? { title: normalizeString(match[1]), cause: normalizeString(match[2]) }
     : { title: "", cause: text };
-  const favoured = split.cause.match(WAR_FAVOURED_NOTE_RE);
-  return favoured ? { ...split, favoured: normalizeString(favoured[1]), cause: normalizeString(favoured[2]) } : split;
 };
 
 const normalizeWar = (entry, index = 0) => {
@@ -99,8 +93,6 @@ const normalizeWar = (entry, index = 0) => {
     storylineIds: [...new Set(normalizeArray(entry.storylineIds).map(normalizeString).filter(Boolean))].slice(-12),
     createdRound: Math.max(0, Math.trunc(Number(entry.createdRound) || 0)),
     updatedRound: Math.max(0, Math.trunc(Number(entry.updatedRound) || 0)),
-    // Which side the story means to prevail (runtime/warOutcomes.js), kept only where it said.
-    ...(entry.meantWinner === "sideA" || entry.meantWinner === "sideB" ? { meantWinner: entry.meantWinner } : {}),
   };
   war.title = deriveWarTitle(war);
   return war;
@@ -489,9 +481,6 @@ const applyUpdateToWarMap = ({ map, update, date = "", round = 0, linkedEvents =
     const sideBKeys = new Set(sideA.map(polityKey));
     const sideB = uniquePolities(update.opponents).filter((name) => !sideBKeys.has(polityKey(name)));
     if (!sideA.length || !sideB.length) return { error: `War ${id} start requires non-empty opposing actors and opponents.` };
-    // (The side the story means to prevail, where it named one of the war's own.)
-    const favoured = startNote.favoured ? polityKey(startNote.favoured) : "";
-    const meantWinner = !favoured ? "" : sideA.some((name) => polityKey(name) === favoured) ? "sideA" : sideB.some((name) => polityKey(name) === favoured) ? "sideB" : "";
     return save({
       id,
       title: startNote.title,
@@ -502,7 +491,6 @@ const applyUpdateToWarMap = ({ map, update, date = "", round = 0, linkedEvents =
       endedDate: "",
       cause: startNote.cause,
       createdRound: Math.max(0, Math.trunc(Number(round) || 0)),
-      ...(meantWinner ? { meantWinner } : {}),
     });
   }
 

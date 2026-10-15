@@ -36,19 +36,17 @@ export const trainedStaffPolicy = () => {
   return policy;
 };
 
-// The lab's staff for a run: the trained one, and for a side a war is meant to lose the plainer commander
-// (planner.js PLAINER_PLANNER; runtime/warOutcomes.js). The run's own record of a war is looked for first, then
-// `wars` (the world's, as the turn's war records leave them: a war the story opened this turn is among them).
+// The lab's staff for a run: the best there is (the trained one) for every side, but the plainer commander for a
+// side a scenario's designer meant its war to lose (planner.js PLAINER_PLANNER; runtime/warOutcomes.js).
 //   outcomes   the scenario's (warSettings.outcomes)
-export const labStaffPolicy = ({ wars = [], outcomes = [] } = {}) => {
+export const labStaffPolicy = ({ outcomes = [] } = {}) => {
   const trained = trainedStaffPolicy();
   if (!trained) return null;
-  const records = new Map((Array.isArray(wars) ? wars : []).filter((war) => war?.id).map((war) => [String(war.id), war]));
   const rules = normalizeWarOutcomes(outcomes);
-  if (rules.length === 0 && ![...records.values()].some((war) => war.meantWinner)) return trained;
+  if (rules.length === 0) return trained;
   const plainer = createPlainerPlanner();
   // Who leads a side of a battle: "plainer" or "trained".
-  const commanderFor = (battle, side) => (meantLoserOf({ war: records.get(String(battle?.warId ?? "")) ?? null, sides: battle?.sides, outcomes: rules }) === side ? "plainer" : "trained");
+  const commanderFor = (battle, side) => (meantLoserOf({ sides: battle?.sides, outcomes: rules }) === side ? "plainer" : "trained");
   const policy = (battle, side, context, run) => (commanderFor(battle, side) === "plainer" ? plainer : trained)(battle, side, context, run);
   policy.often = trained.often === true;
   policy.commanderFor = commanderFor;

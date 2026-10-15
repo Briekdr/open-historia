@@ -3,21 +3,18 @@
 // for scripted wars that are meant to be lost (declared by the scenario
 // designer or ai if a war is meant to be won or lost by player)" and "but
 // depending on player actions in war, it should be possible for the opposite
-// to happen too" (the owner, 2026-10-15).
+// to happen too", and then "for any war other than a scripted one made by a
+// scenario designer, use the best war model there is" (the owner, 2026-10-15).
 //
-// A war may be MEANT to end one way, said in either of two places:
-//
-//   the story     a war's record (world.wars) says which of its sides is
-//                 meant to prevail, meantWinner "sideA" or "sideB": the model
-//                 says so as it opens the war, "Favoured: <polity>" in the
-//                 start's note (AI/nativeWarLedger.js)
-//   the scenario  its designer's outcomes (world.warSettings.outcomes, the
-//                 Scenario Editor's Fronts tab): [{ winner, loser }], in any
-//                 war between the two, whenever it begins
+// A war is MEANT to end one way only where a scenario's designer said so: its
+// outcomes (world.warSettings.outcomes, the Scenario Editor's Fronts tab),
+// [{ winner, loser }], in any war between the two, whenever it begins. The
+// story says nothing of it.
 //
 // On a battlefield of such a war, a side nobody plays that is meant to lose is
 // led by the plainer commander (fronts/mind/planner.js PLAINER_PLANNER), and
-// every other side nobody plays by the trained one (fronts/mind/trained.js).
+// every other side nobody plays, in every war, by the best there is (the
+// trained one, fronts/mind/trained.js).
 // That is all it does. Nothing is decided: troops still take ground or do
 // not, so a player who fights a war meant to be won badly can lose it, and one
 // who fights a war meant to be lost well can win it.
@@ -47,21 +44,10 @@ export const normalizeWarOutcomes = (value) => {
   return kept;
 };
 
-// Which side a war's record means to prevail: "sideA", "sideB", or "" for neither.
-export const meantWinnerOf = (war) => (war?.meantWinner === "sideA" || war?.meantWinner === "sideB" ? war.meantWinner : "");
-
-// Of a battle's two sides ([[names], [names]]), the one its war is meant to lose: 0, 1, or -1 for neither.
-//   war        the war's record ({ sideA, sideB, meantWinner }), or null
-//   outcomes   the scenario's (normalizeWarOutcomes)
-export const meantLoserOf = ({ war = null, sides = [[], []], outcomes = [] } = {}) => {
+// Of a battle's two sides ([[names], [names]]), the one the scenario's outcomes (normalizeWarOutcomes) mean to
+// lose: 0, 1, or -1 for neither.
+export const meantLoserOf = ({ sides = [[], []], outcomes = [] } = {}) => {
   const has = (side, name) => list(sides[side]).some((member) => fold(member) === fold(name));
-  const winner = meantWinnerOf(war);
-  if (winner) {
-    const winners = list(war[winner]);
-    for (const side of [0, 1]) {
-      if (winners.some((name) => has(side, name)) && !winners.some((name) => has(1 - side, name))) return 1 - side;
-    }
-  }
   for (const rule of normalizeWarOutcomes(outcomes)) {
     for (const side of [0, 1]) if (has(side, rule.winner) && has(1 - side, rule.loser)) return 1 - side;
   }
