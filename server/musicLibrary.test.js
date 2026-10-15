@@ -451,7 +451,8 @@ test("the routes are the proxy's own download, guarded the same, and the upkeep 
   const server = fs.readFileSync(path.join(SERVER_DIR, "server.js"), "utf8");
   // One redirect loop for both routes that download from the hub, every hop checked against the allowlist.
   assert.equal(server.match(/await fetchHubHop\(/g).length, 1);
-  assert.match(server, /const next = new URL\(location, current\);\s*if \(!isAllowedHubUrl\(next, HUB_DOWNLOAD_HOSTS\)\) throw hubRefusal\(400, "Scenario file redirected off GitHub\."\);/);
+  // (Asked through the one guard, as on beta: GitHub's hosts, and a test's fake release only when one is set.)
+  assert.match(server, /const next = new URL\(location, current\);\s*if \(!isHubDownloadUrl\(next\)\) throw hubRefusal\(400, "Scenario file redirected off GitHub\."\);/);
   assert.match(server, /app\.get\("\/api\/hub\/file", async \(req, res\) => \{[\s\S]*?const upstream = await openHubDownload\(current\);/);
   assert.match(server, /const downloadHubTrack = async \(fileUrl, destination, maxBytes\) => \{\s*const upstream = await openHubDownload\(new URL\(fileUrl\)\);[\s\S]*?return saveCappedBody\(upstream\.body, destination, maxBytes\);\s*\};/);
   assert.match(server, /const musicLibrary = createMusicLibrary\(\{ download: downloadHubTrack \}\);/);

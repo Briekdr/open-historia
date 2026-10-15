@@ -53,11 +53,11 @@ const copy = (value) => (value === undefined ? undefined : JSON.parse(JSON.strin
 // What every government knows: the map, who owns and claims it, the wars, the
 // scenario's own text, and what anyone can count or read in a newspaper.
 export const PUBLIC_WORLD_KEYS = Object.freeze([
-  "allowedUnitTypes", "author", "background", "basemap", "cityPopulations", "cityRenames",
+  "allowedBasemaps", "allowedUnitTypes", "author", "background", "basemap", "cityPopulations", "cityRenames",
   "countryTags", "customCities", "customRegions", "difficulty", "diplomaticLedgerVersion",
   "groupAreas", "groups", "internationalReputation", "labelFont", "labelHaloColor",
   "labelTextColor", "language", "lastJumpMode", "lastJumpTargetDate", "mapCredit", "markers",
-  "ownerCodes", "ownerSchema", "polityOverrides", "powerStatus", "regionClaimants",
+  "ownBasemaps", "ownerCodes", "ownerSchema", "polityOverrides", "powerStatus", "regionClaimants",
   "regionOwnershipOverrides", "regionSovereigntyOverrides", "settledRegionClaims",
   "simulationRules", "startingTimelineText", "unitSystem", "wars", "agreements",
   // Transporters are seen as fleets are: what crosses the sea is not hidden.
