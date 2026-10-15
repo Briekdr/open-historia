@@ -241,7 +241,7 @@ test("on a wide screen the main menu's pages are rounded squares on a rail down 
 test("each page has a header of its own on a wide screen: its name and its actions; a phone keeps the row of pages", () => {
   const menu = source.slice(source.indexOf("{/* The Main Menu: a full page over everything in-game."), source.indexOf("<EditorDrawer"));
   assert.match(menu, /flexDirection: isMobile \? "column" : "row",/);
-  assert.match(menu, /<MenuRail activeTab=\{activeTab\} onOpenSettings=\{onOpenSettings\} onTab=\{setActiveTab\} \/>/);
+  assert.match(menu, /<MenuRail activeTab=\{activeTab\} onOpenHistory=\{\(\) => setHistoryOpen\(true\)\} onOpenSettings=\{onOpenSettings\} onTab=\{setActiveTab\} \/>/);
   assert.match(menu, /<h1 style=\{\{[^}]*\}\}>\s+\{MENU_TABS\.find\(\(tab\) => tab\.id === activeTab\)\?\.label \?\? ""\}\s+<\/h1>/);
   assert.match(menu, /\{tabActions\.map\(\(\{ icon, label, run \}\) => \(/);
   // A phone: the pages across the top, the actions heading the page by name.

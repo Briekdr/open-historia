@@ -127,7 +127,8 @@ test("the app shows the door once the startup screen is done, over the menu, and
   // door turned off, or not shown this time, there is no door and nothing waits.
   assert.match(app, /useState\(\(\) => \{\s+if \(!vaultDoorEnabled\(\)\) return "open";\s+holdMusicBehindDoor\(true\);\s+return "deciding";\s+\}\)/);
   assert.match(app, /if \(!show\) holdMusicBehindDoor\(false\);\s+setDoor\(show \? "shut" : "open"\);/);
-  assert.match(app, /const letMusicIn = useCallback\(\(\) => holdMusicBehindDoor\(false\), \[\]\);/);
+  // (As the leaves part, what the update brings is shown behind them: Game/GameUI/updates/.)
+  assert.match(app, /const letMusicIn = useCallback\(\(\) => \{\s+setParting\(true\);\s+holdMusicBehindDoor\(false\);\s+\}, \[\]\);/);
   // A door that cannot be drawn does not shut the menu in.
   assert.match(app, /componentDidCatch\(error\) \{[\s\S]+?this\.props\.onFailed\?\.\(\);/);
   assert.match(app, /const doorGone = useCallback\(\(\) => \{\s+holdMusicBehindDoor\(false\);\s+setDoor\("open"\);/);

@@ -113,6 +113,8 @@ const CommunityPanel = lazy(() => import("./communityHub.jsx"));
 // Lobbies: join a private one by invite code, host one, and the public list
 // (multiplayer/).
 const LobbiesTab = lazy(() => import("../../multiplayer/ui/LobbiesTab.jsx"));
+// Every update to the game, on a timeline: opened from the menu's mark.
+const UpdateHistory = lazy(() => import("./updates/UpdateHistory.jsx"));
 // Lazy so OpenLayers only loads when the country picker map is opened.
 const CountryPickerMap = lazy(() => import("./CountryPickerMap.jsx"));
 
@@ -394,7 +396,7 @@ const railButtonStyle = (active) => ({
 // The rail down the left of the main menu, on a screen wide enough for it: the
 // mark and the name, a rounded square for each page, and Settings at its
 // foot. A phone keeps the pages as a row across the top.
-const MenuRail = ({ activeTab, onTab, onOpenSettings }) => (
+const MenuRail = ({ activeTab, onTab, onOpenSettings, onOpenHistory }) => (
   <nav
     style={{
       alignItems: "center",
@@ -410,14 +412,22 @@ const MenuRail = ({ activeTab, onTab, onOpenSettings }) => (
       width: `calc(${MENU_RAIL_WIDTH} + ${SAFE_LEFT})`,
     }}
   >
-    <div style={{ alignItems: "center", display: "flex", flexDirection: "column", flexShrink: 0, gap: "0.45rem", marginBottom: "0.8rem" }}>
+    {/* The mark opens the history of the game's updates (updates/UpdateHistory.jsx). */}
+    <button
+      aria-label="Update history"
+      className="oh-tap"
+      onClick={onOpenHistory}
+      style={{ alignItems: "center", background: "none", border: "none", color: "inherit", cursor: "pointer", display: "flex", flexDirection: "column", flexShrink: 0, gap: "0.45rem", marginBottom: "0.8rem", padding: 0 }}
+      title="Update history: every update to Open Historia"
+      type="button"
+    >
       <div style={{ alignItems: "center", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", display: "flex", height: "3.15rem", justifyContent: "center", overflow: "hidden", width: "3.15rem" }}>
         <img alt="" src="/logo.png" style={{ height: "2.05rem", width: "2.05rem" }} />
       </div>
       <div style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 800, letterSpacing: "-0.01em", lineHeight: 1.15, textAlign: "center" }}>
         Open Historia
       </div>
-    </div>
+    </button>
     {MENU_TABS.map((tab) => (
       <button
         key={tab.id}
@@ -2255,6 +2265,8 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     selectedScenarioId,
   } = useLibraryState();
   const [activeTab, setActiveTab] = useState("games");
+  // The history of the game's updates, opened from the menu's mark (updates/UpdateHistory.jsx).
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [gameSearch, setGameSearch] = useState("");
   const [gameSort, setGameSort] = useState("recent");
   const [gameView, setGameView] = useState("active");
@@ -4717,6 +4729,10 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                   scrollbarWidth: "none",
                 }}
               >
+                {/* On a phone too, the mark opens the history of the game's updates. */}
+                <button aria-label="Update history" className="oh-tap" onClick={() => setHistoryOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", flexShrink: 0, padding: "0 0.2rem" }} title="Update history: every update to Open Historia" type="button">
+                  <img alt="" src="/logo.png" style={{ display: "block", height: "1.7rem", width: "1.7rem" }} />
+                </button>
                 {MENU_TABS.map((tab) => (
                   <button
                     key={tab.id}
@@ -4738,7 +4754,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
               </div>
             </div>
           ) : (
-            <MenuRail activeTab={activeTab} onOpenSettings={onOpenSettings} onTab={setActiveTab} />
+            <MenuRail activeTab={activeTab} onOpenHistory={() => setHistoryOpen(true)} onOpenSettings={onOpenSettings} onTab={setActiveTab} />
           )}
 
           <div style={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0, minWidth: 0 }}>
@@ -4935,6 +4951,11 @@ const LibraryTopBar = ({ onOpenSettings }) => {
           </div>
         </div>
       </Presence>
+      {menuOpen && historyOpen && (
+        <Suspense fallback={null}>
+          <UpdateHistory onClose={() => setHistoryOpen(false)} />
+        </Suspense>
+      )}
 
       <EditorDrawer
         details={editorDetails}

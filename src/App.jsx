@@ -11,6 +11,8 @@ const SharedGameOverlay = lazy(() => import("./multiplayer/ui/SharedGameOverlay.
 // only when a game is opened (runtime/gameEntry.js), never for the main menu,
 // and the editor never loads them. Nothing outside Game/Map imports maplibre-gl.
 const WorldMap = lazy(() => import("./Game/Map/World.jsx"));
+// What the update brings, behind the vault door (Game/GameUI/updates/): loaded only when there is one to show.
+const UpdateNotice = lazy(() => import("./Game/GameUI/updates/UpdateNotice.jsx"));
 import StartupScreen from "./runtime/StartupScreen.jsx";
 import ErrorBoundary from "./runtime/ErrorBoundary.jsx";
 import AppUpdateBanner from "./runtime/AppUpdateBanner.jsx";
@@ -25,6 +27,7 @@ import { VaultDoor } from "./Game/GameUI/VaultDoor.jsx";
 import { holdMusicBehindDoor } from "./runtime/ambientMusic.js";
 import { vaultDoorAlways, vaultDoorEnabled } from "./runtime/mapSettings.js";
 import { decideVaultDoor, rememberVaultDoorBuild } from "./runtime/vaultDoorDue.js";
+import { pendingUpdates, previewedUpdates, rememberUpdate } from "./Game/GameUI/updates/updateNotices.js";
 import { appBuildId } from "./runtime/buildId.js";
 import { announceMapRerender } from "./runtime/mapReadiness.js";
 import { prefetchGameplay } from "./Game/AI/gameplayLazy.js";
@@ -109,7 +112,24 @@ function GameApp() {
       live = false;
     };
   }, [door]);
-  const letMusicIn = useCallback(() => holdMusicBehindDoor(false), []);
+  // What the update brings (Game/GameUI/updates/notes.js): each new update once a device, behind the door, so
+  // the door opens onto it; shown as the leaves part (or at once, with the door off). ?updateNotice=<id> shows
+  // one whatever was seen, and keeps nothing.
+  const [notice, setNotice] = useState(() => {
+    const asked = typeof window === "undefined" ? null : previewedUpdates(window.location.search);
+    return asked ? { updates: asked, preview: true } : { updates: pendingUpdates(), preview: false };
+  });
+  const [parting, setParting] = useState(false);
+  const closeNotice = useCallback(() => {
+    setNotice((now) => {
+      if (!now.preview && now.updates.length > 0) rememberUpdate(now.updates[0].id);
+      return { updates: [], preview: now.preview };
+    });
+  }, []);
+  const letMusicIn = useCallback(() => {
+    setParting(true);
+    holdMusicBehindDoor(false);
+  }, []);
   const doorGone = useCallback(() => {
     holdMusicBehindDoor(false);
     setDoor("open");
@@ -239,6 +259,11 @@ function GameApp() {
       setIsGlobeEnabled={setGlobeEnabled}
       setIsTerrainEnabled={setIsTerrainEnabled}
       />
+    )}
+    {menuReady && notice.updates.length > 0 && (door === "open" || parting) && (
+      <Suspense fallback={null}>
+      <UpdateNotice updates={notice.updates} onClose={closeNotice} />
+      </Suspense>
     )}
     {menuReady && door === "shut" && (
       <DoorFrame onFailed={doorGone}>
