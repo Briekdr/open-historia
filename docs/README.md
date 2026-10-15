@@ -19,6 +19,7 @@ New to the codebase? Read **[Architecture Overview](architecture.md)** first —
 ### Game
 - [Game Map & Rendering](game-map.md) — In-game MapLibre rendering: region/country layers, owner colouring, disputed stripes, labels, cities/markers/units, the decorative globe, and `world.json` data flow.
 - [In-Game UI (HUD, Panels & Buttons)](game-ui.md) — Complete HUD/panels/buttons reference: shell, z-index ladder, main menu, and every panel with its state/props and map/AI/server data flow.
+- [Update Notices & History](update-notices.md) — The banners behind the vault door after an update, and the timeline under the menu's logo: when to write one (every player-facing change, unprompted), the entry format, themed banners, the kit, the house rules.
 - [World State & Turn Model](world-state.md) — The `world.json`/`game.json` schema, normalizers, AI impact application, state distribution, country tags, and games-vs-scenarios storage.
 
 ### AI & Prompts
