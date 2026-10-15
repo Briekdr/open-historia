@@ -118,6 +118,8 @@ const finite = (value) => Number.isFinite(Number(value));
 // Weighing the weather: the states that are a storm at sea, what one leaves of the chance that fleets in
 // reach of each other meet, and of what a blockading fleet can do.
 const STORMY = new Set(["storm", "blizzard"]);
+// How far from frozen water's box a place on a coast is still beside it, in degrees.
+const ICE_COAST_DEGREES = 0.25;
 export const STORM_ENGAGE = 0.25;
 export const STORM_BLOCKADE = 0.5;
 
@@ -288,6 +290,8 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
   // neither sails nor fights, and blockades nobody.
   const ice = list(iced).filter((box) => Array.isArray(box) && box.length >= 4 && box.every(Number.isFinite));
   const frozenIn = (fleet) => ice.some(([west, south, east, north]) => fleet.lng >= west && fleet.lng <= east && fleet.lat >= south && fleet.lat <= north);
+  // A place on a coast beside frozen water (a coast's places lie on its land, at the water's edge): shut by the ice (blockade.js).
+  const icedCoast = ice.length === 0 ? null : (lng, lat) => ice.some(([west, south, east, north]) => lng >= west - ICE_COAST_DEGREES && lng <= east + ICE_COAST_DEGREES && lat >= south - ICE_COAST_DEGREES && lat <= north + ICE_COAST_DEGREES);
   // Weighing countries' own military figures (fronts/military.js): what a country's navy is against
   // what every country's was, and 0 for one that has none, which neither fights nor is given a fleet.
   const navies = new Map();
@@ -516,7 +520,7 @@ export const runNaval = ({ fromDate = "", days = 0, seed = "", wars = [], units 
         }
         blockaders.push({ lng: fleet.lng, lat: fleet.lat, weight: mine > 0 ? (mine * mine) / (mine + tied) : 0, owner: fleet.owner });
       }
-      const today = dayPressure({ stations: post.stations, blockaders, reach, km, seaShare: post.seaShare });
+      const today = dayPressure({ stations: post.stations, blockaders, reach, km, seaShare: post.seaShare, iced: icedCoast });
       if (!(today.pressure > 0)) continue;
       post.sum += today.pressure;
       post.covered += today.covered;

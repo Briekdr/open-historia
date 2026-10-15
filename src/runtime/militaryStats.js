@@ -75,6 +75,40 @@ export const militaryLookup = (world) => {
   return (name) => found.get(fold(name)) ?? null;
 };
 
+// A turn's lasting change to how a country makes war (a time skip's
+// polityChanges[].military, Game/AI/gameplaySchemas.js): by how much each of
+// its five figures moves, so the model needs no figure it was not shown. Null
+// for none.
+export const MILITARY_SHIFT_FIELDS = Object.freeze(["quality", "technology", "land", "sea", "air"]);
+export const normalizeMilitaryShift = (value) => {
+  if (!isRecord(value)) return null;
+  const out = {};
+  for (const field of MILITARY_SHIFT_FIELDS) {
+    const raw = value[field];
+    if (raw === null || raw === undefined || raw === "") continue;
+    const number = Number(raw);
+    if (!Number.isFinite(number) || number === 0) continue;
+    out[field] = Math.round(number < -100 ? -100 : number > 100 ? 100 : number);
+  }
+  return Object.keys(out).length > 0 ? out : null;
+};
+
+// A country's figures after a turn's change: each moved from what it counts
+// as now (its sheet's, else its author's, else 50) and held between 0 and
+// 100; only those that change. Null for none.
+export const shiftedMilitary = (world, name, shift) => {
+  const moves = normalizeMilitaryShift(shift);
+  if (!moves) return null;
+  const now = militaryLookup(world)(name) ?? {};
+  const out = {};
+  for (const [field, by] of Object.entries(moves)) {
+    const from = Number.isFinite(Number(now[field])) ? Number(now[field]) : 50;
+    const to = from + by;
+    out[field] = to < 0 ? 0 : to > 100 ? 100 : to;
+  }
+  return out;
+};
+
 // How weary of war each country goes to war (warWeariness.js wearinessGoingIn),
 // where the scenario weighs its countries' military figures (warSettings.js):
 // (name) => 0 to 100, or null where nobody gave it one. Null when it has them off.

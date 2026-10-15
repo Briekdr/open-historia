@@ -307,6 +307,8 @@ const SECTION_TITLES = {
   puppets: "Puppet states",
   settings: "Map settings",
 };
+// What a scenario draws on its map for war, as the War map panel and the Layers panel name it.
+const WAR_MAP_LABELS = { terrainAreas: "Terrain", fortifications: "Fortified lines", climateZones: "Climate zones", freezingRegions: "Water that can freeze" };
 const FIELD_CHIP_LABELS = { name: "Name", aliases: "Other names", code: "Code", note: "Note", status: "Status", color: "Colour", flag: "Flag", tags: "Tags", extra: "Other details" };
 
 const polityName = (doc, key) => clean(doc?.polities?.[key]?.name) || clean(key);
@@ -350,6 +352,7 @@ const changeText = (change, doc) => {
       return `Map projection: ${projection}`;
     }
     case "map-field": return change.field === "author" ? `Map author: ${change.to || "—"}` : `New basemap: ${change.to || "—"}`;
+    case "war-map": return WAR_MAP_LABELS[change.field] || change.field;
     case "background": return change.to ? "New custom basemap" : "Remove the custom basemap";
     default: return change.id;
   }

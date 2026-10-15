@@ -236,6 +236,9 @@ const regionControlOpSchema = {
   ],
 };
 
+// A change to one of a country's military figures (runtime/militaryStats.js).
+const militaryShift = () => ({ type: "number" });
+
 const polityChangeSchema = {
   type: "object",
   description: "One polity operation. update targets an EXISTING polity; only create and restore may introduce one.",
@@ -265,6 +268,13 @@ const polityChangeSchema = {
       description:
         "Intelligence service capability 0-100, only when it changes (a purge, a defector, a new bureau, funding). "
         + "Decides how much of others' diplomacy it reads and how much of its own it keeps secret.",
+    },
+    // Wars and Fronts Pt.2: a change, not a figure, so the model needs none it was not shown.
+    military: {
+      type: "object",
+      description: "Only a lasting change to how it fights: each figure's change, -40 to 40 (officer purge quality -15, rearmament land 10, fleet sunk sea -30, air force founded air 30).",
+      properties: { quality: militaryShift(), technology: militaryShift(), land: militaryShift(), sea: militaryShift(), air: militaryShift() },
+      additionalProperties: false,
     },
     tags: stringArraySchema(
       "Defining traits after this change — ideology, alignment, posture (socialist, authoritarian, anti-nato). "

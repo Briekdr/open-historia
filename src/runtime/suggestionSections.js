@@ -15,7 +15,7 @@ export const REVIEW_SECTIONS = [
   { id: "units", kinds: ["unit-add", "unit-remove", "unit-change"] },
   { id: "features", kinds: ["marker-add", "marker-remove", "marker-change"] },
   { id: "puppets", kinds: ["puppet-add", "puppet-remove", "puppet-change"] },
-  { id: "settings", kinds: ["projection", "map-field", "background"] },
+  { id: "settings", kinds: ["projection", "map-field", "background", "war-map"] },
 ];
 
 export const sectionOfChange = (change) => REVIEW_SECTIONS.find((section) => section.kinds.includes(change?.kind))?.id ?? "settings";

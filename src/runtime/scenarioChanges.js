@@ -22,6 +22,7 @@ import { FEATURE_DEFINITIONS, normalizeFeatureSettings } from "../../server/game
 import { normalizeScenarioMusic } from "../../server/scenarioMusic.js";
 import { PROMPT_GUIDANCE, normalizePackGuidance } from "../Game/AI/promptGuidance.js";
 import { normalizeGroups } from "./groups.js";
+import { normalizeClimateZones, normalizeFortifications, normalizeFreezingRegions, normalizeTerrainAreas } from "./warGeography.js";
 import { isCurrentCanonWorld } from "./scenarioCanon.js";
 import { normalizeScenarioPrehistory } from "./scenarioPrehistory.js";
 import COUNTRY_NAMES from "./generated/countryNames.js";
@@ -281,7 +282,18 @@ export const rgbToHex = (rgb) => `#${(rgbOf(rgb) || [128, 128, 128]).map((n) => 
 
 const META_FIELDS = ["name", "eyebrow", "accentColor", "subtitle", "description", "heroTitle", "heroSubtitle"];
 const GAME_FIELDS = ["country", "startDate", "gameDate", "difficulty", "language"];
-const WORLD_DETAIL_FIELDS = ["allowedUnitTypes", "labelFont", "labelTextColor", "labelHaloColor", "simulationRules", "startingTimelineText"];
+const WORLD_DETAIL_FIELDS = ["allowedUnitTypes", "labelFont", "labelTextColor", "labelHaloColor", "simulationRules", "startingTimelineText", "warSettings"];
+// What a scenario draws on its map for war (Wars and Fronts Pt.2:
+// runtime/warGeography.js), each list compared and taken whole.
+export const WAR_MAP_FIELDS = Object.freeze(["terrainAreas", "fortifications", "climateZones", "freezingRegions"]);
+const WAR_MAP_NORMALIZERS = Object.freeze({
+  terrainAreas: normalizeTerrainAreas,
+  fortifications: normalizeFortifications,
+  climateZones: normalizeClimateZones,
+  freezingRegions: normalizeFreezingRegions,
+});
+// One of those lists as it is compared: in the world's own form.
+export const warMapListOf = (field, value) => (WAR_MAP_NORMALIZERS[field] ? WAR_MAP_NORMALIZERS[field](value) : []);
 // The Politics tab's generated world (PoliticalWorldGenerationPanel,
 // InstitutionAuthoringPanel): diffed entry by entry where entries have ids.
 export const POLITICS_FIELDS = ["politicalActors", "institutions", "powerStatus", "agreements", "canonContext"];
@@ -606,6 +618,7 @@ export const buildScenarioSnapshot = (bundle) => {
       // and where the picture lies on it. The picture is told apart by what
       // it is, not by where it lies: the bounds follow the projection.
       projection: normalizeProjection(world.projection),
+      war: Object.fromEntries(WAR_MAP_FIELDS.map((field) => [field, warMapListOf(field, world[field])])),
       background: world.background?.kind && backgroundData
         ? { kind: clean(world.background.kind), hash: hashText(canonicalJson(backgroundData)), data: backgroundData, ...(backgroundBounds ? { bounds: backgroundBounds } : {}) }
         : null,
@@ -1161,6 +1174,12 @@ const diffMapFields = (base, next, changes) => {
       ...(next.map.background?.bounds ? { bounds: next.map.background.bounds } : {}),
     });
   }
+  // What it draws on its map for war, each list whole.
+  for (const field of WAR_MAP_FIELDS) {
+    const from = base.map.war?.[field] ?? [];
+    const to = next.map.war?.[field] ?? [];
+    if (!sameValue(from, to)) changes.push({ id: `map:war:${field}`, area: "map", kind: "war-map", field, from, to });
+  }
   if (base.map.author !== next.map.author) {
     changes.push({ id: "map:author", area: "map", kind: "map-field", field: "author", from: base.map.author, to: next.map.author });
   }
@@ -1287,6 +1306,7 @@ export const summarizeChangesForComment = (changes, { maxLines = 14 } = {}) => {
   if (puppets) lines.push(`${plural(puppets, "puppet state change", "puppet state changes")}`);
   if (byKind.background) lines.push("New basemap");
   if (byKind.projection) lines.push("Map projection changed");
-  if (byKind["map-field"]) lines.push(`${plural(byKind["map-field"], "map setting changed", "map settings changed")}`);
+  const mapSettings = (byKind["map-field"] ?? 0) + (byKind["war-map"] ?? 0);
+  if (mapSettings) lines.push(`${plural(mapSettings, "map setting changed", "map settings changed")}`);
   return lines.length > maxLines ? [...lines.slice(0, maxLines - 1), `…and ${lines.length - maxLines + 1} more`] : lines;
 };

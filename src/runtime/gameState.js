@@ -9,7 +9,7 @@ import { normalizePeaceOffers, normalizePeaceTreaties, normalizeReparations } fr
 import { normalizeWarWeariness } from "./warWeariness.js";
 import { eraSettingOf, normalizeWarSettings } from "./warSettings.js";
 import { normalizeClimateZones, normalizeFortifications, normalizeFreezingRegions, normalizeTerrainAreas, normalizeZoneWeather } from "./warGeography.js";
-import { normalizeMilitaryStats } from "./militaryStats.js";
+import { normalizeMilitaryShift, normalizeMilitaryStats, shiftedMilitary } from "./militaryStats.js";
 import { MAX_GROUPS, applyGroupOps, canRenameGroup, findGroupKey, normalizeGroupAreas, normalizeGroupOp, normalizeGroups } from "./groups.js";
 import { enqueueEventStrings } from "./translator.js";
 import { normalizeTagList } from "./countryTags.js";
@@ -1233,6 +1233,10 @@ const normalizePolityChange = (entry) => {
     ? entry.stats
     : null;
 
+  // A lasting change to how it makes war (runtime/militaryStats.js): by how
+  // much each of its figures moves. Left out when there is none.
+  const military = normalizeMilitaryShift(entry.military);
+
   // Old saved events predate explicit lifecycle operations; they stay ordinary
   // updates. New AI output states create/rename/restore/dissolve explicitly.
   const rawOperation = normalizeOptionalString(entry.operation || entry.op || entry.action).toLowerCase();
@@ -1244,6 +1248,7 @@ const normalizePolityChange = (entry) => {
     color: normalizeOptionalString(entry.color),
     name: normalizeOptionalString(entry.name || entry.newName),
     intelligence,
+    ...(military ? { military } : {}),
     note: normalizeOptionalString(entry.note || entry.reason),
     operation,
     reputation,
@@ -5569,6 +5574,14 @@ const applyPolityAndTerritoryImpacts = ({
     if (Number.isFinite(change.intelligence)) {
       if (!world.intelligence || typeof world.intelligence !== "object") world.intelligence = {};
       world.intelligence[code] = change.intelligence;
+    }
+
+    // How it makes war, moved this turn (a purge, a rearmament, a fleet lost:
+    // runtime/militaryStats.js), into the game's own sheet, which stands over
+    // the figures the scenario's author gave it.
+    if (change.military) {
+      const military = shiftedMilitary(world, code, change.military);
+      if (military) applyCountryStatPatchToWorld(world, code, { military });
     }
 
     // Reputation the AI set this turn becomes the polity's authoritative value.

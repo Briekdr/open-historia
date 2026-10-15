@@ -25,6 +25,10 @@
 //                                     nobody with a coast lives by less than
 //                                     SEA_TRADE_LEAST of it)
 //
+// A place on a coast whose water is frozen (fronts/climate.js) is shut by the
+// ice: nothing comes in or goes out there, so under a blockade it counts as
+// closed without a fleet. Ice alone lays no blockade on anyone.
+//
 // The period's pressure is the mean of its days, and the world keeps it
 // (world.blockades) with how many days in a row the blockade has stood.
 //
@@ -94,12 +98,17 @@ export const seaShareOf = (coast, border) => {
 //   reach        how far a fleet commands the water, in km
 //   km           (lngA, latA, lngB, latB) => km
 //   seaShare     seaShareOf of the country
+//   iced         (lng, lat) => whether the water off that place is frozen today; null for none
 // Returns { pressure, covered }: 0 to 1 each; `covered` is the share of its coast any blockading fleet reaches.
-export const dayPressure = ({ stations = [], blockaders = [], reach = 0, km, seaShare = 1 } = {}) => {
+export const dayPressure = ({ stations = [], blockaders = [], reach = 0, km, seaShare = 1, iced = null } = {}) => {
   if (stations.length === 0 || blockaders.length === 0) return { pressure: 0, covered: 0 };
   let closed = 0;
   let covered = 0;
   for (const [lng, lat] of stations) {
+    if (iced && iced(lng, lat)) {
+      closed += 1;
+      continue;
+    }
     let weight = 0;
     for (const fleet of blockaders) if (km(lng, lat, fleet.lng, fleet.lat) <= reach) weight += fleet.weight;
     if (weight > 0) covered += 1;

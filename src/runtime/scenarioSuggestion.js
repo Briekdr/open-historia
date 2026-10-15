@@ -14,7 +14,7 @@
 
 import { zipBundle, unzipBundle, looksLikeZip } from "./bundleZip.js";
 import { SCENARIO_LICENSE_FILE, SCENARIO_LICENSE_TEXT, scenarioLicense } from "./scenarioLicense.js";
-import { countChanges, isDetailFieldPath, POLITICS_FIELDS, summarizeChangesForComment } from "./scenarioChanges.js";
+import { countChanges, isDetailFieldPath, POLITICS_FIELDS, summarizeChangesForComment, WAR_MAP_FIELDS } from "./scenarioChanges.js";
 import { SUGGESTION_MARKER } from "./hubPosts.js";
 
 export const SUGGESTION_SCHEMA = "open-historia-scenario-suggestion/1";
@@ -50,7 +50,7 @@ export const KNOWN_KINDS = new Set([
   "unit-add", "unit-remove", "unit-change",
   "marker-add", "marker-remove", "marker-change",
   "puppet-add", "puppet-remove", "puppet-change",
-  "map-field", "background", "projection",
+  "map-field", "background", "projection", "war-map",
 ]);
 const isRecord = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 // A Politics change names the ledger it goes into and the entry, both of
@@ -76,7 +76,8 @@ const validChange = (change) => isRecord(change)
   // track when it is shown and when it is applied (server/scenarioMusic.js).
   && (change.kind !== "music" || ((change.to ?? null) === null || isRecord(change.to)))
   && (change.kind !== "borders" || Array.isArray(change.regions))
-  && (change.kind !== "projection" || (isRecord(change.to) && typeof change.to.type === "string"));
+  && (change.kind !== "projection" || (isRecord(change.to) && typeof change.to.type === "string"))
+  && (change.kind !== "war-map" || (WAR_MAP_FIELDS.includes(change.field) && Array.isArray(change.to)));
 
 export const normalizeSuggestion = (raw) => {
   if (!isRecord(raw) || raw.schema !== SUGGESTION_SCHEMA) {
