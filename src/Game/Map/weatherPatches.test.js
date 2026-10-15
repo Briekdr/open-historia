@@ -69,6 +69,8 @@ const weatherOf = (entries) => new Map(entries.map(([id, state, season]) => [id,
 
 test("each zone is a patch of its weather in its own shape; zones that meet, meet, each fading into the other", () => {
   const { areas, chips } = weatherPatchFeatures({ zones: ZONES, weather: weatherOf([["west", "snow", "Winter"], ["east", "rain", "Spring"], ["far", "clear", "Summer"]]) });
+  // No word of it: the patterns say the weather (frontWeatherFeatures.test.js).
+  assert.equal(chips, undefined);
   // Five outlines a weather (a tenth to nine tenths), none for clear weather; laid one over another they
   // come to the whole weather in even steps.
   const levels = PATCH_BANDS.map(([level]) => level);
@@ -98,10 +100,6 @@ test("each zone is a patch of its weather in its own shape; zones that meet, mee
   // The faintest outline reaches a little way past the zone's edge, into its neighbour.
   const faint = box(atLevel("snow", 0.1).geometry.coordinates[0][0]);
   assert.ok(faint.east > 30.2 && faint.west < 21.8);
-  // A chip in each zone, saying its season and weather; the clear one too.
-  assert.deepEqual(chips.features.map((feature) => feature.properties.chip), ["Winter · snow", "Spring · rain", "Summer · clear"]);
-  const [lng, lat] = chips.features[0].geometry.coordinates;
-  assert.ok(lng > 22 && lng < 30 && lat > 46 && lat < 52);
 });
 
 test("zones of one weather that touch are one patch", () => {
@@ -114,7 +112,7 @@ test("zones of one weather that touch are one patch", () => {
   assert.ok(west < 23.6 && east > 36.4, `${west} ${east}`);
   // No zone, or no weather known for it: nothing.
   assert.deepEqual(weatherPatchFeatures({ zones: [], weather: new Map() }).areas.features, []);
-  assert.deepEqual(weatherPatchFeatures({ zones: ZONES, weather: new Map() }).chips.features, []);
+  assert.deepEqual(weatherPatchFeatures({ zones: ZONES, weather: new Map() }).areas.features, []);
 });
 
 test("each zone's weather is the one the last turn wrote, else worked out as the turn would", () => {

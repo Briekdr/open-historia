@@ -143,6 +143,7 @@ import { ADVISOR_MEMORY_DIRECTIVE, advisorMemoryContextEntry, latestAdvisorMemor
 import { createConversationGeneration, removeEntry } from "./liveConversation.js";
 import { buildDiplomaticPoliticalContext } from "./diplomaticPoliticalContext.js";
 import { buildAdvisorPoliticalDiplomacyContext } from "./advisorPoliticalDiplomacyContext.js";
+import { describeWeatherForAdvisor } from "./advisorWeather.js";
 import { describeLeaderStanding, describeOurFigures, describeTerritoryForConversation } from "./standingContext.js";
 import { beginAiRequestScope } from "./aiRequestControl.js";
 
@@ -3683,6 +3684,9 @@ async function buildAdvisorSystemPrompt() {
         // sheet yet is told to estimate, and to say so.
         describeOurFigures(worldData, gameData?.country || "", { statistics: officialStats }),
         advisorTerritory,
+        describeWeatherForAdvisor({ world: worldData, player: gameData?.country || "", date: gameData?.gameDate || "" }),
+        // (The seasons and the weather, which the map shows with no words:
+        // advisorWeather.js.)
         buildAdvisorActionsDirective(variables.plannedActionsWithIds),
         ADVISOR_MESSAGE_DRAFT_DIRECTIVE,
         ADVISOR_INSTITUTION_DRAFT_DIRECTIVE,

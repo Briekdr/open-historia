@@ -1,7 +1,7 @@
 /*! Open Historia — the map's weather and ice, drawn as tiles © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 // The small pictures the map repeats over an area to say what is there
-// (fill-pattern): the cracks in ice, water that can freeze, each kind of
-// weather, and the chip a weather is written on. Each is drawn here pixel by
+// (fill-pattern): the cracks in ice, water that can freeze, and each kind of
+// weather. Each is drawn here pixel by
 // pixel in flat colours, with no fade anywhere, and wraps at its edges, so the
 // tiles meet without a seam.
 //
@@ -32,12 +32,10 @@
 export const WEATHER_LAYERS = Object.freeze([97, 131, 173]);
 export const ICE_LAYERS = Object.freeze([181, 241]);
 export const ICE_HINT_TILE = 32;
-export const CHIP_TILE = 24;
 
 // The ice's colour, laid thin under its cracks so the map shows through it.
 export const ICE_TINT = "#dcecf8";
 export const ICE_HINT_IMAGE = "oh-ice-hint";
-export const WEATHER_CHIP_IMAGE = "oh-weather-chip";
 // A tile on the map: the first "oh-weather-frost", the others "-b" and "-c" after it.
 const layerSuffix = (layer) => (layer > 0 ? `-${"abc"[layer]}` : "");
 export const weatherImageId = (state, layer = 0) => `oh-weather-${state}${layerSuffix(layer)}`;
@@ -278,39 +276,3 @@ export const iceHintPattern = () => {
   [[3, 6], [19, 6], [11, 22], [27, 22]].forEach(([x, y]) => line(image, x, y, x + 4, y, HINT));
   return image;
 };
-
-// ---- the chip --------------------------------------------------------------------------
-
-const CHIP_FILL = [14, 17, 22, 228];
-const CHIP_EDGE = [232, 238, 245, 72];
-const CHIP_RADIUS = 7;
-
-// The chip a weather's season and weather are written on: a dark rounded
-// box with a faint light edge, stretched to its text (icon-text-fit) by its
-// middle, so the corners keep their shape.
-export const chipPicture = () => {
-  const image = picture(CHIP_TILE);
-  const inside = (x, y, inset) => {
-    const left = inset;
-    const right = CHIP_TILE - inset;
-    const radius = CHIP_RADIUS - inset;
-    const cx = Math.min(Math.max(x, left + radius), right - radius);
-    const cy = Math.min(Math.max(y, left + radius), right - radius);
-    return x >= left && x <= right && y >= left && y <= right && (x - cx) * (x - cx) + (y - cy) * (y - cy) <= radius * radius;
-  };
-  for (let y = 0; y < CHIP_TILE; y += 1) {
-    for (let x = 0; x < CHIP_TILE; x += 1) {
-      const px = x + 0.5;
-      const py = y + 0.5;
-      if (!inside(px, py, 0.5)) continue;
-      image.data.set(inside(px, py, 1.5) ? CHIP_FILL : CHIP_EDGE, (y * CHIP_TILE + x) * 4);
-    }
-  }
-  return image;
-};
-// How the chip stretches (map.addImage's options): by its middle, the text set inside it.
-export const CHIP_STRETCH = Object.freeze({
-  stretchX: [[CHIP_RADIUS, CHIP_TILE - CHIP_RADIUS]],
-  stretchY: [[CHIP_RADIUS, CHIP_TILE - CHIP_RADIUS]],
-  content: [5, 4, CHIP_TILE - 5, CHIP_TILE - 4],
-});

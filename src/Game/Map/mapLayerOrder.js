@@ -157,8 +157,6 @@ export const MAP_LAYER_ORDER = [
   "fronts-troops-picked",
   "fronts-troops-kind",
   "fronts-troops-name",
-  // Each battlefield's season and weather, written on a chip over its troops.
-  "fronts-weather-chip",
 
   // Transporters cross the map over the fronts they sail to (TransportLayers.jsx).
   "transports-way-casing",

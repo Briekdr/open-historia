@@ -9,24 +9,12 @@ import { fileURLToPath } from "node:url";
 
 import { WEATHER_STATES } from "../../runtime/fronts/weather.js";
 import { MAP_LAYER_ORDER } from "./mapLayerOrder.js";
+import { WEATHER_OVERLAYS, weatherFrontsOf, weatherOverlayOf } from "./frontWeatherFeatures.js";
 import {
-  SEASON_CHIPS,
-  WEATHER_OVERLAYS,
-  battleChipFeatures,
-  chipSeasonOf,
-  inZone,
-  weatherChipText,
-  weatherFrontsOf,
-  weatherOverlayOf,
-} from "./frontWeatherFeatures.js";
-import {
-  CHIP_STRETCH,
-  CHIP_TILE,
   ICE_LAYERS,
   ICE_TINT,
   WEATHER_DRAWN,
   WEATHER_LAYERS,
-  chipPicture,
   iceHintPattern,
   iceImageId,
   icePattern,
@@ -142,7 +130,7 @@ test("the speckle gathers into drifts and thins into bare patches, and nothing o
   assert.deepEqual([1, 2].map((layer) => weatherImageId("snow", layer)), ["oh-weather-snow-b", "oh-weather-snow-c"]);
 });
 
-test("ice is a thin pale tint the map shows through, cracked on clear tiles of prime sizes; water that can freeze, faint dashes; the chip a dark box", () => {
+test("ice is a thin pale tint the map shows through, cracked on clear tiles of prime sizes; water that can freeze, faint dashes", () => {
   assert.ok(ICE_LAYERS.length === 2 && ICE_LAYERS.every(isPrime));
   let cracked = 0;
   ICE_LAYERS.forEach((size, layer) => {
@@ -169,12 +157,6 @@ test("ice is a thin pale tint the map shows through, cracked on clear tiles of p
   const hint = iceHintPattern();
   const dashes = shown(hint);
   assert.ok(dashes > 0 && dashes < hint.width * hint.height * 0.1, "a few faint dashes, the water showing through");
-  const chip = chipPicture();
-  assert.deepEqual([chip.width, chip.height], [CHIP_TILE, CHIP_TILE]);
-  const middle = (12 * CHIP_TILE + 12) * 4;
-  assert.ok(chip.data[middle] < 40 && chip.data[middle + 3] > 200, "dark in the middle");
-  assert.equal(chip.data[3], 0, "its corners rounded off");
-  assert.deepEqual(CHIP_STRETCH.content, [5, 4, 19, 20]);
 });
 
 test("the battlefields drawn are those being fought over whose brief says the day's weather", () => {
@@ -191,58 +173,30 @@ test("the battlefields drawn are those being fought over whose brief says the da
   assert.deepEqual(weatherFrontsOf(undefined), []);
 });
 
-test("a chip says the season and the weather, the season of a designer's zone without the zone's name", () => {
-  assert.equal(weatherChipText({ season: "winter", now: "snow" }), "Winter · snow");
-  assert.equal(weatherChipText({ season: "summer", now: "clear" }), "Summer · clear");
-  assert.equal(weatherChipText({ season: "", now: "fog" }), "fog");
-  assert.deepEqual(chipSeasonOf("The North, Winter", ["The North"]), { text: "Winter", kind: "interface" });
-  assert.deepEqual(chipSeasonOf("The North, Deep Winter", ["North", "The North"]), { text: "Deep Winter", kind: "content" });
-  assert.deepEqual(chipSeasonOf("Monsoon", []), { text: "Monsoon", kind: "content" });
-  assert.equal(chipSeasonOf("", []), null);
-  // Each word is put into the player's language by what it is.
-  const asked = [];
-  const text = weatherChipText({ season: "The North, Long Night", now: "blizzard" }, { zoneNames: ["The North"], label: (word, kind) => {
-    asked.push([word, kind]);
-    return word.toUpperCase();
-  } });
-  assert.equal(text, "LONG NIGHT · BLIZZARD");
-  assert.deepEqual(asked, [["Long Night", "content"], ["blizzard", "interface"]]);
-  assert.deepEqual(Object.values(SEASON_CHIPS).map((entry) => entry.chipLabel), ["Winter", "Spring", "Summer", "Autumn"]);
-});
-
-test("no circle round a battlefield: one in no climate zone has a chip over it, one in a zone is told by the zone's own", () => {
-  const fronts = weatherFrontsOf([
-    battlefield(),
-    battlefield({ name: "Sunny", frame: { ...frame, lng0: 60 }, brief: { weather: { season: "summer", now: "clear" } } }),
-    battlefield({ name: "Northern", frame: { ...frame, lng0: 90 }, brief: { weather: { season: "The North, Deep Winter", now: "blizzard" } } }),
-  ]);
-  const chips = battleChipFeatures({ fronts, zoneNames: ["The North"] });
-  assert.deepEqual(chips.features.map((feature) => [feature.properties.name, feature.properties.chip]), [["The Steppe", "Winter · snow"], ["Sunny", "Summer · clear"]]);
-  // Over the middle of its frame, toward its top.
-  const [lng, lat] = chips.features[0].geometry.coordinates;
-  assert.ok(lng === 33 && lat > 49.5 && lat < 52, `${lng} ${lat}`);
-  assert.equal(inZone("The North, Deep Winter", ["The North"]), true);
-  assert.equal(inZone("winter", ["The North"]), false);
-  assert.equal(inZone("The North", ["The North"]), false, "a season that is only the zone's name is not in it");
-  assert.deepEqual(battleChipFeatures(), { type: "FeatureCollection", features: [] });
+test("no word of the season or the weather on the map, and no shape round a battlefield: the patterns say it, the advisor when asked", () => {
+  // "remove all the things that say (winter frost) and other weather and seasonal stuff make that just be
+  // seen by the visuals or by asking the advisor" (the owner, 2026-10-14).
+  const component = read("FrontWeatherLayers.jsx");
+  assert.doesNotMatch(component, /text-field|symbol|chip/i);
+  assert.ok(!MAP_LAYER_ORDER.some((id) => /chip/.test(id)), "no chip layer in the map's order");
+  for (const name of ["frontWeatherFeatures.js", "weatherPatches.js", "mapPatterns.js"]) assert.doesNotMatch(read(name), /chipLabel|weatherChipText|chipPicture/);
+  assert.match(fs.readFileSync(path.join(here, "../AI/main.jsx"), "utf8"), /describeWeatherForAdvisor\(/);
   // The map draws no shape of its own round a battlefield: the patches are the zones'.
   assert.doesNotMatch(read("frontWeatherFeatures.js"), /oval|Math\.cos|Math\.sin/i);
 });
 
-test("its layers are in the map's order: the weather over the walls and under the troops' ways, its chip over the troops", () => {
+test("its layers are in the map's order: the weather over the walls and under the troops' ways", () => {
   const index = (id) => MAP_LAYER_ORDER.indexOf(id);
-  const layers = ["fronts-weather-wash", "fronts-weather-pattern", "fronts-weather-pattern-b", "fronts-weather-pattern-c", "fronts-weather-chip"];
+  const layers = ["fronts-weather-wash", "fronts-weather-pattern", "fronts-weather-pattern-b", "fronts-weather-pattern-c"];
   for (const id of layers) assert.ok(index(id) >= 0, `${id} is missing from the map's order`);
   assert.deepEqual([...layers].sort((a, b) => index(a) - index(b)), layers);
   assert.ok(index("fronts-weather-wash") > index("war-walls-teeth") && index("fronts-weather-wash") > index("group-areas-outline"));
   assert.ok(index("fronts-weather-pattern-c") < index("fronts-arrows-past"), "under the ways the troops came");
-  assert.ok(index("fronts-weather-chip") > index("fronts-troops-name") && index("fronts-weather-chip") < index("transports-way-casing"));
   const component = read("FrontWeatherLayers.jsx");
   assert.deepEqual([...component.matchAll(/id="([a-z-]+)"/g)].map((match) => match[1]), layers, "every layer it declares is in the order, and no other");
   assert.match(read("MapScene.jsx"), /<SeaBattleLayers \/>\s*<FrontWeatherLayers \/>/);
-  // Behind the player's switch; its words in the player's language.
+  // Behind the player's switch.
   assert.match(component, /useMapSettingDefaultOn\(MAP_SETTING_KEYS\.seasonsWeather\)/);
-  assert.match(component, /kind === "interface" \? uiString\(text\) : translateLabel\(text\)/);
   assert.match(component, /map\.on\("styleimagemissing", asked\);/);
   for (const name of ["frontWeatherFeatures.js", "weatherPatches.js", "mapPatterns.js", "FrontWeatherLayers.jsx", "IceLayers.jsx"]) assert.doesNotMatch(read(name), /createLinearGradient|createRadialGradient|createConicGradient|gradient\(/i);
   // The patches are the zones' weather as the last turn wrote it, else worked out as the turn would.

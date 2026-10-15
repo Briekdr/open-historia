@@ -15,7 +15,9 @@
 // (Chaikin). The five are laid one over another, so a patch's weather is full
 // in its middle and thins evenly across its edge into the next: where two zones meet, their
 // patches meet, each fading into the other, and zones of one weather that
-// touch are one patch. Nothing is drawn where no zone is.
+// touch are one patch. Nothing is drawn where no zone is, and no word is
+// written: the patterns say the weather, the advisor when asked
+// (Game/AI/advisorWeather.js).
 //
 // Pure: features out of the zones and their weather. The layers are
 // FrontWeatherLayers.jsx.
@@ -23,7 +25,7 @@
 import { KM_PER_DEGREE, latToY, yToLat } from "../../runtime/fronts/frame.js";
 import { WEATHER_STATES } from "../../runtime/fronts/weather.js";
 import { normalizeClimateZones, normalizeZoneWeather } from "../../runtime/warGeography.js";
-import { weatherChipText, weatherOverlayOf } from "./frontWeatherFeatures.js";
+import { weatherOverlayOf } from "./frontWeatherFeatures.js";
 import { MERCATOR_TOP_LAT, seasonTintHeight, tintGrid, zoneWeightGrid } from "./seasonTint.js";
 
 // Where a patch's outline is traced, and how strongly each is drawn: laid one
@@ -231,52 +233,21 @@ const gridFor = (zones) => {
 
 const overlaps = (a, b) => a.x0 < b.x0 + b.width && b.x0 < a.x0 + a.width && a.y0 < b.y0 + b.height && b.y0 < a.y0 + a.height;
 
-// The patches of weather and a chip for each zone.
+// The patches of weather.
 //   zones     world.climateZones
 //   weather   Map of zone id to { state, season } (zoneWeatherById)
-//   label     (text, kind) -> the text in the player's language
-// Returns { areas, chips }: the patches (polygons, each with its weather, its
-// strength, and its picture and wash where it has them) and a chip in each
-// zone saying its season and weather.
-export const weatherPatchFeatures = ({ zones = [], weather = new Map(), label } = {}) => {
+// Returns { areas }: the patches (polygons, each with its weather, its
+// strength, and its picture and wash where it has them).
+export const weatherPatchFeatures = ({ zones = [], weather = new Map() } = {}) => {
   const areas = [];
-  const chips = [];
   const kept = normalizeClimateZones(zones);
   const known = kept.filter((zone) => weather.get(zone.id) && WEATHER_STATES.includes(weather.get(zone.id).state));
-  if (known.length === 0) return { areas: { type: "FeatureCollection", features: areas }, chips: { type: "FeatureCollection", features: chips } };
+  if (known.length === 0) return { areas: { type: "FeatureCollection", features: areas } };
   const grid = gridFor(known);
   const top = latToY(grid.topLat);
   const lngOf = (x) => round6(((x + 0.5) / grid.width) * 360 - 180);
   const latOf = (y) => round6(yToLat(top - ((y + 0.5) * 2 * top) / grid.height));
   const placed = known.map((zone) => ({ zone, ...weather.get(zone.id), cells: zoneWeightGrid(zone, grid) })).filter((entry) => entry.cells);
-
-  // A chip in each zone, where it is most its own.
-  for (const entry of placed) {
-    const { cells } = entry;
-    let best = -1;
-    let bestWeight = -1;
-    let bestFar = Infinity;
-    for (let at = 0; at < cells.weights.length; at += 1) {
-      const weight = cells.weights[at];
-      if (weight < bestWeight) continue;
-      const dx = (at % cells.width) - cells.width / 2;
-      const dy = Math.floor(at / cells.width) - cells.height / 2;
-      const far = dx * dx + dy * dy;
-      if (weight > bestWeight || far < bestFar) {
-        best = at;
-        bestWeight = weight;
-        bestFar = far;
-      }
-    }
-    const chip = weatherChipText({ season: entry.season, now: entry.state }, { label });
-    if (best >= 0 && chip) {
-      chips.push({
-        type: "Feature",
-        geometry: { type: "Point", coordinates: [lngOf(cells.x0 + (best % cells.width)), latOf(cells.y0 + Math.floor(best / cells.width))] },
-        properties: { name: entry.zone.name, weather: entry.state, chip },
-      });
-    }
-  }
 
   // The zones of one weather that touch, taken together.
   const drawn = placed.filter((entry) => weatherOverlayOf(entry.state)?.pattern || weatherOverlayOf(entry.state)?.wash);
@@ -348,5 +319,5 @@ export const weatherPatchFeatures = ({ zones = [], weather = new Map(), label } 
       });
     }
   }
-  return { areas: { type: "FeatureCollection", features: areas }, chips: { type: "FeatureCollection", features: chips } };
+  return { areas: { type: "FeatureCollection", features: areas } };
 };
