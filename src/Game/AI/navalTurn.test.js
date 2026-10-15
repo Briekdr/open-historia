@@ -102,6 +102,24 @@ test("a turn fights the period's sea battles in the run that fights its land war
   assert.deepEqual(quiet.unitChanges, []);
 });
 
+test("where the lab's own staff leads the land war, an admiral chooses the postures of the fleets nobody plays", async () => {
+  // (runtime/naval/admiral.js: "make it also be able to control and understand ... fleets and blockades", the owner.)
+  const map = sheet();
+  const world = worldOn(map, { units: fleets() });
+  const plain = await turn(map, world);
+  const led = await turn(map, world, { staffPolicy: () => undefined });
+  const chose = led.unitChanges.filter((change) => ["u1", "u2"].includes(change.unitId)).map((change) => [change.unitId, change.posture ?? ""]);
+  assert.notDeepEqual(led.unitChanges, plain.unitChanges, JSON.stringify(chose));
+  // The outmatched fleet does not go looking for the battle it would lose.
+  assert.notEqual(led.unitChanges.find((change) => change.unitId === "u2")?.posture, "assaulting");
+  // Fleets people play, and fleets the turn's story ordered, are as they were.
+  assert.deepEqual((await turn(map, world, { staffPolicy: () => undefined, players: ["Albion", "Teutonia"] })).unitChanges, plain.unitChanges);
+  const ordered = [{ id: "e1", date: "1914-08-02", title: "The fleets put to sea", impacts: { unitOps: [{ op: "update", unitId: "u1" }, { op: "update", unitId: "u2" }] } }];
+  assert.deepEqual((await turn(map, world, { staffPolicy: () => undefined, events: ordered })).sea.battles, (await turn(map, world, { events: ordered })).sea.battles);
+  // The same turn again is the same choice.
+  assert.deepEqual((await turn(map, world, { staffPolicy: () => undefined })).unitChanges, led.unitChanges);
+});
+
 test("a country at war with a coast and no fleet has one from the turn on, within the caps on formations", async () => {
   const map = sheet();
   const world = worldOn(map, { units: [fleet("u1", "Grand Fleet", "Albion", 3.5, 52)] });

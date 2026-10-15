@@ -139,7 +139,7 @@ const fightsOf = (posture) => POSTURE_FIGHTS[fold(posture)] ?? 1;
 export const navyFactor = (weight) => 0.5 + 0.5 * Math.min(3, Math.max(0, Number(weight) || 0) / 10);
 
 // Who is at war with whom, from the ledger as the period begins.
-const hostilities = (wars) => {
+export const hostilities = (wars) => {
   const enemies = new Map();
   const warOf = new Map();
   const add = (a, b, id) => {

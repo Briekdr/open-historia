@@ -43,6 +43,7 @@ import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts
 import { TRANSPORT_LOAD_USUAL, TRANSPORT_ORDERS, isUnderWay, normalizeTransports, orderTransport } from "../../runtime/fronts/transports.js";
 import { buildWorldGrid, distanceTo, seasOf, worldSheetKey } from "../../runtime/fronts/worldGrid.js";
 import { waterTypeIds } from "../../runtime/regionTypes.js";
+import { chooseFleetPostures } from "../../runtime/naval/admiral.js";
 import { runNaval } from "../../runtime/naval/engine.js";
 import { normalizeBlockades, shortageOfBlockade } from "../../runtime/naval/blockade.js";
 import { shortagesTogether, wearinessGoingIn, wearyShortage } from "../../runtime/warWeariness.js";
@@ -1163,7 +1164,7 @@ export const runTurnFronts = async ({
         sheet = shapes ? buildWorldGrid(shapes, { flat: map?.flat === true, scale: map?.scale, water }) : null;
         if (sheet && clean(map?.key) && arenas) arenas.set(key, sheet);
       }
-      sea = runNaval({
+      const seaInput = {
         fromDate,
         days,
         seed: `${seed}|sea`,
@@ -1182,7 +1183,21 @@ export const runTurnFronts = async ({
         ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
         ...(mechanics?.weather === true && clean(climateSeed) ? { weatherSeed: clean(climateSeed) } : {}),
         ...(frozen.length > 0 ? { iced: frozen.map((entry) => entry.box) } : {}),
-      });
+      };
+      // EXPERIMENT, in the lab: where the lab's own staff leads the land war (runtime/fronts/mind/trained.js), the
+      // countries nobody plays have an admiral too (runtime/naval/admiral.js), who chooses their fleets' postures
+      // by fighting the period out with each. A fleet the turn's story moved or ordered keeps what it was told.
+      const ordered = new Set(list.flatMap((event) => asArray(event?.impacts?.unitOps).map((op) => clean(op?.unit?.id ?? op?.unitId ?? op?.id)).filter(Boolean)));
+      const admiral = typeof staffPolicy === "function" ? chooseFleetPostures(seaInput, { players, kept: ordered }) : null;
+      sea = runNaval(admiral ? { ...seaInput, units: admiral.units } : seaInput);
+      // What the admiral chose is what the world keeps (unless the war at sea sank the fleet or broke it off).
+      if (admiral) {
+        for (const [unitId, posture] of admiral.chosen) {
+          const change = sea.unitChanges.find((entry) => entry.unitId === unitId);
+          if (!change) sea.unitChanges.push({ unitId, posture });
+          else if (!change.remove && !change.posture) change.posture = posture;
+        }
+      }
       // (How long the period was, for what its blockades cost: frontApply.js withBlockadeEconomy.)
       sea.days = days;
     } catch (error) {
