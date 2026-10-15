@@ -19,12 +19,16 @@
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 
 let hosting = false;
+let hostCountry = "";
 
-// The host's engine window, while it runs a shared game (multiplayer/host/engineMain.js).
-export const setHostingSharedGame = (value) => {
+// The host's engine window, while it runs a shared game (multiplayer/host/engineMain.js),
+// with the host's own country: a thread that names no owner is the host's.
+export const setHostingSharedGame = (value, { host = "" } = {}) => {
   hosting = Boolean(value);
+  hostCountry = hosting ? clean(host) : "";
 };
 export const hostingSharedGame = () => hosting;
+export const sharedGameHostCountry = () => (hosting ? hostCountry : "");
 
 export const humanCountriesOf = (game) => {
   const names = [];

@@ -68,6 +68,7 @@ import { normalizeBattlefields } from "./fronts/record.js";
 import { normalizeTransports } from "./fronts/transports.js";
 import { normalizeStrikes } from "./strikes.js";
 import { battlefieldHeldClaimants } from "./fronts/heldRegions.js";
+import { sharedGameHostCountry } from "./humanPolities.js";
 
 export const GAME_DEFAULTS = {
   country: "",
@@ -1036,8 +1037,13 @@ export const reconcileChatsForPlayer = (chats, world, playerCountry = "") => {
   // against this player, never merged into a thread of this player's.
   const playerName = normalizeOptionalString(playerCountry);
   const playerKey = playerName ? normalizedChatIdentityToken(playerName, world, index) : "";
+  // While this engine hosts a shared game a thread that names no owner is the
+  // host's (multiplayer/host/projection.js threadOwner). Reconciled for a
+  // guest's institution business as though it were the guest's, a host's
+  // thread with only that guest in it lost its last member and was dropped.
+  const hostOwner = normalizeOptionalString(sharedGameHostCountry());
   const anothers = (entry) => {
-    const owner = normalizeOptionalString(entry?.player);
+    const owner = normalizeOptionalString(entry?.player) || hostOwner;
     return Boolean(owner) && normalizedChatIdentityToken(owner, world, index) !== playerKey;
   };
   const reconciled = normalizeArray(chats)
