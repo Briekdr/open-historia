@@ -2638,6 +2638,14 @@ const SettingsWorkspace = ({
                     <div style={settingsHelper}>
                     On (default): the map is tinted by the season, each battlefield shows its weather, and water that can freeze is marked. Frozen water is drawn as ice either way.
                     </div>
+                    {mapSettings.seasonsWeather && (
+                        <>
+                            <Toggle label="Weather effects" enabled={mapSettings.weatherEffects} onToggle={() => updateMapSetting("weatherEffects", MAP_SETTING_KEYS.weatherEffects, !mapSettings.weatherEffects)} />
+                            <div style={settingsHelper}>
+                            On (default): rain, snow, frost, fog and the other weathers are drawn over the land they fall on. Off: no weather is drawn; the season's tint and the ice stay, and the advisor can still tell you the weather.
+                            </div>
+                        </>
+                    )}
                     <PerformanceModeSetting />
                 </SettingsSection>
                 <SettingsSection title="3D map" description="Globe and terrain rendering are presentation features; they do not change world state.">
@@ -2927,8 +2935,10 @@ const SettingsMenu = ({
         // Off by default: the door shows the first time the game opens after
         // an update, unless this asks for every time.
         vaultDoorAlways: getMapSetting(MAP_SETTING_KEYS.vaultDoorAlways),
-        // And the seasons and weather on the map (Map → Map presentation).
+        // And the seasons and weather on the map (Map → Map presentation),
+        // and the weather's patterns among them.
         seasonsWeather: getMapSettingDefaultOn(MAP_SETTING_KEYS.seasonsWeather),
+        weatherEffects: getMapSettingDefaultOn(MAP_SETTING_KEYS.weatherEffects),
     }));
 
     const updateMapSetting = (stateKey, settingKey, value) => {

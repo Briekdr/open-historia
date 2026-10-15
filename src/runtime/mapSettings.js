@@ -108,6 +108,11 @@ export const MAP_SETTING_KEYS = {
     // default — read with getMapSettingDefaultOn (useMapSettingDefaultOn).
     // Frozen water is drawn as ice either way: troops cross it. Settings → Map.
     seasonsWeather: "map_seasons_weather",
+    // The weather's patterns alone (Map/FrontWeatherLayers.jsx): "add a
+    // setting to turn off the visual weather effects" (the owner, 2026-10-14).
+    // ON by default, and only while Seasons and weather is on; off, the
+    // season's tint and the ice stay. Settings → Map.
+    weatherEffects: "map_weather_effects",
 };
 
 // Families the label-font pickers suggest — Settings → Map and the game and
@@ -135,7 +140,7 @@ export function getMapSetting(key) {
 // "1" !== null, i.e. off — so every consumer of such a key must come through here.
 //
 // lookupFunctions, liveSkipEvents, discordPresence, ambientMusic,
-// soundEffects, vaultDoor and seasonsWeather ship on;
+// soundEffects, vaultDoor, seasonsWeather and weatherEffects ship on;
 // limitAiGeneration and chunkLongJumps, which used to, went default-off in the
 // beta.
 export function getMapSettingDefaultOn(key) {
@@ -183,6 +188,7 @@ const SETTING_LABELS = {
     // in full here, where the log line stands alone.
     [MAP_SETTING_KEYS.vaultDoorAlways]: "Vault door every time the game opens",
     [MAP_SETTING_KEYS.seasonsWeather]: "Seasons and weather",
+    [MAP_SETTING_KEYS.weatherEffects]: "Weather effects",
 };
 
 export function setMapSetting(key, value) {

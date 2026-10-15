@@ -195,8 +195,12 @@ test("its layers are in the map's order: the weather over the walls and under th
   const component = read("FrontWeatherLayers.jsx");
   assert.deepEqual([...component.matchAll(/id="([a-z-]+)"/g)].map((match) => match[1]), layers, "every layer it declares is in the order, and no other");
   assert.match(read("MapScene.jsx"), /<SeaBattleLayers \/>\s*<FrontWeatherLayers \/>/);
-  // Behind the player's switch.
+  // Behind the player's switches: Seasons and weather, and Weather effects under it.
   assert.match(component, /useMapSettingDefaultOn\(MAP_SETTING_KEYS\.seasonsWeather\)/);
+  assert.match(component, /useMapSettingDefaultOn\(MAP_SETTING_KEYS\.weatherEffects\)/);
+  assert.match(component, /const shown = switchedOn && effectsOn && /);
+  // Seen at every zoom, the whole world at once too.
+  assert.doesNotMatch(component, /minzoom|maxzoom/);
   assert.match(component, /map\.on\("styleimagemissing", asked\);/);
   for (const name of ["frontWeatherFeatures.js", "weatherPatches.js", "mapPatterns.js", "FrontWeatherLayers.jsx", "IceLayers.jsx"]) assert.doesNotMatch(read(name), /createLinearGradient|createRadialGradient|createConicGradient|gradient\(/i);
   // The patches are the zones' weather as the last turn wrote it, else worked out as the turn would.

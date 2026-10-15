@@ -11,7 +11,8 @@
 // weather and seasonal stuff make that just be seen by the visuals or by
 // asking the advisor"): the advisor is told them (Game/AI/advisorWeather.js).
 // It is shown while the player's Seasons and weather switch is on (Settings →
-// Map) and the scenario's wars have weather.
+// Map), and Weather effects under it ("add a setting to turn off the visual
+// weather effects"), and the scenario's wars have weather.
 //
 // Each zone's weather is the one the last turn wrote (world.zoneWeather, the
 // same on every screen of a shared game); before the first turn it is worked
@@ -38,9 +39,10 @@ const selectRecorded = (world) => world?.zoneWeather ?? null;
 const selectWeatherOn = (world) => warSettingsOf(world).mechanics.weather;
 const selectDate = (game) => String(game?.gameDate || game?.startDate || "");
 
-// The weather is seen from as far off as a battlefield's markers are, and
-// thins as the map comes close, where the troops are looked at one by one.
-const WEATHER_MIN_ZOOM = 2.5;
+// The weather is seen at every zoom, the whole world at once too ("the weather
+// effects dissapear at full zoomout, make them not do that", the owner,
+// 2026-10-14), and thins as the map comes close, where the troops are looked
+// at one by one.
 const STRENGTH = ["get", "strength"];
 const PATTERN_OPACITY = ["interpolate", ["linear"], ["zoom"], 3, ["*", 0.95, STRENGTH], 7, ["*", 0.8, STRENGTH], 10, ["*", 0.55, STRENGTH]];
 const WASH_OPACITY = ["interpolate", ["linear"], ["zoom"], 3, ["*", ["get", "washOpacity"], STRENGTH], 10, ["*", 0.6, ["get", "washOpacity"], STRENGTH]];
@@ -61,12 +63,13 @@ const FrontWeatherLayers = () => {
   const { current: mapRef } = useMap();
   const map = mapRef?.getMap?.() ?? mapRef ?? null;
   const switchedOn = useMapSettingDefaultOn(MAP_SETTING_KEYS.seasonsWeather);
+  const effectsOn = useMapSettingDefaultOn(MAP_SETTING_KEYS.weatherEffects);
   const zones = useRuntimeState("world", selectZones);
   const recorded = useRuntimeState("world", selectRecorded);
   const weatherOn = useRuntimeState("world", selectWeatherOn);
   const date = useRuntimeState("game", selectDate);
   const gameId = String(useLibraryState()?.activeGameId ?? "");
-  const shown = switchedOn && weatherOn !== false && zones.length > 0;
+  const shown = switchedOn && effectsOn && weatherOn !== false && zones.length > 0;
 
   // Each zone's weather: what the last turn wrote, else as the turn would work it out.
   const weather = useMemo(
@@ -101,7 +104,6 @@ const FrontWeatherLayers = () => {
       <Layer
         id="fronts-weather-wash"
         type="fill"
-        minzoom={WEATHER_MIN_ZOOM}
         filter={["has", "wash"]}
         paint={{
           "fill-color": ["get", "wash"],
@@ -112,21 +114,18 @@ const FrontWeatherLayers = () => {
       <Layer
         id="fronts-weather-pattern"
         type="fill"
-        minzoom={WEATHER_MIN_ZOOM}
         filter={["has", "pattern"]}
         paint={{ "fill-pattern": PATTERN_LAYERS[0], "fill-opacity": PATTERN_OPACITY, "fill-antialias": false }}
       />
       <Layer
         id="fronts-weather-pattern-b"
         type="fill"
-        minzoom={WEATHER_MIN_ZOOM}
         filter={["has", "pattern"]}
         paint={{ "fill-pattern": PATTERN_LAYERS[1], "fill-opacity": PATTERN_OPACITY, "fill-antialias": false }}
       />
       <Layer
         id="fronts-weather-pattern-c"
         type="fill"
-        minzoom={WEATHER_MIN_ZOOM}
         filter={["has", "pattern"]}
         paint={{ "fill-pattern": PATTERN_LAYERS[2], "fill-opacity": PATTERN_OPACITY, "fill-antialias": false }}
       />
