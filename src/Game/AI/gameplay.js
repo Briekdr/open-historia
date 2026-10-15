@@ -202,7 +202,8 @@ import {
   withIntelligenceRating,
   withoutGroupOps,
 } from "./gameplaySchemas.js";
-import { frontsOn } from "./frontsGate.js";
+import { frontsOn, strategyNetOn } from "./frontsGate.js";
+import { engineerLines } from "../../runtime/fronts/engineer.js";
 import { foreseeFronts } from "./foreseenFronts.js";
 import { applyTurnFronts, citiesFollowCountries, withFrontManpower, withBlockadeEconomy, turnBlockades, regionHoldingsOf, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomChartFor, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { withTurnStrikes } from "../../runtime/strikes.js";
@@ -9060,6 +9061,21 @@ const applySimulationResult = async ({
   // `let`: a Project the board pass completes can recolour a polity too.
   let nextColors = impactMerge.colors;
   let impactedWorld = impactMerge.world;
+  // EXPERIMENT, in the lab: where the lab's own staff leads the land war (frontsGate.js strategyNetOn), the
+  // countries nobody plays have an engineer too (runtime/fronts/engineer.js): one outmatched on a battlefield has
+  // a fortified line built behind its front, by the very op a person's war room sends, on its own ground only.
+  if (turnFronts?.battlefields && strategyNetOn()) {
+    try {
+      const chart = await warRoomChartFor({ world: impactedWorld, game: nextGame, campaignId: activeCampaignId(), loadRegions: createRenderedRegionsReader() });
+      if (chart) {
+        const engineered = engineerLines(impactedWorld, { players: humanCountriesOf(nextGame), date: nextGame.gameDate, chart });
+        impactedWorld = engineered.world;
+        if (engineered.built.length) logDebugEvent("turn", `Fronts: ${engineered.built.map((line) => `${line.owner} began a level ${line.level} line of ${line.km} km before ${line.battlefield} (${line.days} days)`).join("; ")}.`, engineered.built);
+      }
+    } catch (error) {
+      console.warn("[fronts] no line could be planned for the countries nobody plays this turn.", error);
+    }
+  }
   // A polity renamed this turn — by an event's polityChanges, or a record whose
   // display name still differed from its key — is re-keyed everywhere the world
   // state does not carry: the game's own polity, the queued orders, the chats
