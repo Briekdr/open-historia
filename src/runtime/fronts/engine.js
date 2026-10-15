@@ -32,7 +32,7 @@ import { dawn } from "./dawn.js";
 import { anyMechanic, readMechanics } from "./mechanics.js";
 import { levyOwed, musterShare } from "./muster.js";
 import { linesChanged } from "./walls.js";
-import { wingChanges } from "./air.js";
+import { AIR_MISSIONS, wingChanges } from "./air.js";
 import { MILITARY_NEUTRAL, airWorth, landWorth, mixOf, readMilitary, seaWorth } from "./military.js";
 import { absorbUnit, holderOf, keepStart, lineLength, loadBattle, memberIndex, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setHandicap, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
@@ -2098,6 +2098,8 @@ const reviewStaff = (run, battle, day, regular = true) => {
     // its own, a trained network, asked first. `undefined` from it leaves the
     // side to the staff the engine has.
     const own = asks ? policy(battle, side, { ...context, regular }, run) : undefined;
+    // What its wings are sent to do over the battle (air.js AIR_MISSIONS), whatever it says of its troops.
+    if (own && typeof own.air === "string") setAirMission(battle, side, own.air);
     if (asks) {
       battle.ledByOwn ??= [false, false];
       battle.ledByOwn[side] = own !== undefined;
@@ -2289,9 +2291,18 @@ export const rehearsal = (run, battle) => {
   return { run: stub, battle: copy };
 };
 
-// Gives a rehearsal's side orders, troop by troop, as a staff of the run's own does ({ order, picked, way } bodies).
-export const rehearseOrders = (rehearsed, side, bodies, day) => {
+// What a side's wings are sent to do over a battle (air.js AIR_MISSIONS); anything else is no change.
+const setAirMission = (battle, side, mission) => {
+  if (!AIR_MISSIONS.includes(mission)) return;
+  battle.airMission = Array.isArray(battle.airMission) ? battle.airMission : ["support", "support"];
+  battle.airMission[side] = mission;
+};
+
+// Gives a rehearsal's side orders, troop by troop, as a staff of the run's own does ({ order, picked, way } bodies),
+// and, with `air`, what its wings are sent to do.
+export const rehearseOrders = (rehearsed, side, bodies, day, { air = null } = {}) => {
   const { run, battle } = rehearsed;
+  if (typeof air === "string") setAirMission(battle, side, air);
   if (!Array.isArray(bodies) || bodies.length === 0 || liveCount(battle.troops[side]) === 0) return;
   const today = prepare(battle, day);
   const lead = battle.sides[side].find((member, at) => !battle.gone[side].has(at)) ?? "";

@@ -21,7 +21,7 @@ import { guardLeft, legsLeft, punchLeft, tireDay } from "./fatigue.js";
 import { mendBudget } from "./manpower.js";
 import { anyMechanic } from "./mechanics.js";
 import { isLive } from "./troops.js";
-import { skyOfWings, wearWings } from "./air.js";
+import { airStrikes, skyOfWings, wearWings } from "./air.js";
 import { keptWith, raiseWalls } from "./walls.js";
 import { harshnessOf, skyOver } from "./weather.js";
 import { ATTRITION_HARSH_FROM } from "./constants.js";
@@ -121,8 +121,11 @@ const markAdvance = (run, battle, day) => {
 
 export const dusk = (run, battle, day) => {
   if (!anyMechanic(run.mech)) return;
-  // The wings that flew over it are worn (air.js).
-  if (run.mech.air) wearWings(run, battle);
+  // What wings sent to strike did to the other side's troops, and the wings that flew over it are worn (air.js).
+  if (run.mech.air) {
+    airStrikes(battle);
+    wearWings(run, battle);
+  }
   // The day's march and fighting tire every troop that marched or fought, and rest the others (fatigue.js).
   // (And the weather tires them too, and rests them less: weather.js.)
   if (run.mech.fatigue) tireDay(run, battle, battle.sky ? { wear: battle.sky.effects.wear, rest: battle.sky.effects.rest } : undefined);

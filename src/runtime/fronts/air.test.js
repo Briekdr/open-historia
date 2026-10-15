@@ -57,3 +57,30 @@ test("a storm grounds the wings, and wings that flew come back worn, once a wing
   }
   assert.deepEqual(fight({ mechanics: { air: true }, units: wings("Aland", 2) }).result.unitChanges, flown.result.unitChanges, "the same run is the same war");
 });
+
+test("a side's wings go where they are sent: to strike the other's troops, to support its own, or nowhere", () => {
+  // ("Make it also be able to control and understand ... plane attacks", the owner, 2026-10-14.)
+  const sent = (mission) => fight({
+    mechanics: { air: true },
+    units: wings("Aland", 6),
+    staffPolicy: (battle, side) => (battle.sides[side][0] === "Aland" ? { order: "advance", sector: "all", ...(mission ? { air: mission } : {}) } : { order: "hold", sector: "all" }),
+  });
+  const strengthOf = (run, name) => {
+    const record = run.result.battlefields[0];
+    const side = record.sides.findIndex((members) => members[0] === name);
+    return record.brief.strength[side].n * record.brief.strength[side].pct;
+  };
+  const support = sent(null);
+  const strike = sent("strike");
+  const down = sent("grounded");
+  assert.deepEqual(sent("support").result.battlefields, support.result.battlefields, "told nothing, a side's wings support its troops");
+  // Striking, Borduria's troops are worn the more, and Aland's own advance has no close support.
+  assert.ok(strengthOf(strike, "Borduria") < strengthOf(support, "Borduria"), `${strengthOf(strike, "Borduria")} against ${strengthOf(support, "Borduria")}`);
+  assert.match(describeBattlefield(strike.result.battlefields[0]), /Air: Aland holds the sky/);
+  const worn = (run) => run.result.unitChanges.filter((change) => change.unitId.startsWith("Aland-")).reduce((sum, change) => sum + (100 - change.strength), 0);
+  assert.ok(worn(strike) > worn(support), "striking wears the wings the more");
+  // Grounded (from the staff's first look, after the first morning's flying), they are hardly worn, and the
+  // advance has none of their support.
+  assert.equal(worn(down), 0);
+  assert.ok(down.held < support.held, `${down.held} against ${support.held}`);
+});

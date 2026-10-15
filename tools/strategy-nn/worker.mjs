@@ -11,7 +11,7 @@
 
 import { parentPort } from "node:worker_threads";
 
-import { createPlanner } from "../../src/runtime/fronts/mind/planner.js";
+import { createPlanner, withLateEval } from "../../src/runtime/fronts/mind/planner.js";
 import { MIND_SHAPE, TROOP_SHAPE, createStaffPolicy, createTroopPolicy } from "../../src/runtime/fronts/mind/policy.js";
 import { HABITS, REWARD_PARTS, makeScenario, match } from "./arena.mjs";
 import { makeDuel } from "./duel.mjs";
@@ -21,12 +21,14 @@ let chosen = {};
 const staffOf = (said) => {
   if (said?.planner) {
     return createPlanner({
-      ...(said.params ? { params: Float64Array.from(said.params) } : {}),
+      ...(said.params ? { params: withLateEval(said.params) } : {}),
       ...(said.look ? { look: said.look } : {}),
       ...(said.ahead ? { ahead: said.ahead } : {}),
       ...(said.plans ? { plans: said.plans } : {}),
       ...(Number.isFinite(said.refine) ? { refine: said.refine } : {}),
       ...(said.replies ? { replies: true } : {}),
+      ...(said.airControl === 0 ? { airControl: false } : {}),
+      ...(Number.isFinite(said.late) ? { late: [said.late] } : {}),
       tally: (name) => { chosen[name] = (chosen[name] ?? 0) + 1; },
     });
   }

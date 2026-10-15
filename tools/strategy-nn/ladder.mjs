@@ -27,7 +27,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { DEFAULT_EVAL, EVAL_NAMES, PLAN_PARAMS, plainPlanner } from "../../src/runtime/fronts/mind/planner.js";
+import { DEFAULT_EVAL, EVAL_NAMES, LATE_AT, LATE_EVAL, PLAN_PARAMS, plainPlanner, withLateEval } from "../../src/runtime/fronts/mind/planner.js";
 import { createPool, playMatch } from "./pool.mjs";
 import { duelSeeds } from "./duel.mjs";
 
@@ -68,13 +68,20 @@ const ROTA = ["champion", "advance", "champion", "staff", "champion", "dig", "ch
 const TRIAL_FROM = 900000;
 
 // How far each weight is nudged: the weighing by its own size, the net's by one.
-const SCALE = Float64Array.from({ length: PLAN_PARAMS }, (_, at) => (at < EVAL_NAMES.length ? Math.max(0.1, Math.abs(DEFAULT_EVAL[at])) : netScale));
+const SCALE = Float64Array.from({ length: PLAN_PARAMS }, (_, at) => (at < EVAL_NAMES.length ? Math.max(0.1, Math.abs(DEFAULT_EVAL[at]))
+  : at >= LATE_AT ? Math.max(1, Math.abs(LATE_EVAL[at - LATE_AT])) : netScale));
 
 const kept = fs.existsSync(latestFile) ? JSON.parse(fs.readFileSync(latestFile, "utf8")) : null;
-const started = fromFile ? Float64Array.from(JSON.parse(fs.readFileSync(fromFile, "utf8")).params) : plainPlanner();
-let champion = kept ? { params: Float64Array.from(kept.champion.params), n: kept.champion.n } : { params: Float64Array.from(started), n: 0 };
-const params = kept ? Float64Array.from(kept.challenger) : Float64Array.from(champion.params);
-const adam = kept?.adam ? { m: Float64Array.from(kept.adam.m), v: Float64Array.from(kept.adam.v), t: kept.adam.t } : { m: new Float64Array(PLAN_PARAMS), v: new Float64Array(PLAN_PARAMS), t: 0 };
+// (Weights made before the later weighing are read with it at its defaults, and Adam's moments of them with none.)
+const started = fromFile ? withLateEval(JSON.parse(fs.readFileSync(fromFile, "utf8")).params) : plainPlanner();
+let champion = kept ? { params: withLateEval(kept.champion.params), n: kept.champion.n } : { params: Float64Array.from(started), n: 0 };
+const params = kept ? withLateEval(kept.challenger) : Float64Array.from(champion.params);
+const momentOf = (values) => {
+  const out = new Float64Array(PLAN_PARAMS);
+  Array.from(values ?? []).slice(0, PLAN_PARAMS).forEach((value, at) => { out[at] = Number(value) || 0; });
+  return out;
+};
+const adam = kept?.adam ? { m: momentOf(kept.adam.m), v: momentOf(kept.adam.v), t: kept.adam.t } : { m: new Float64Array(PLAN_PARAMS), v: new Float64Array(PLAN_PARAMS), t: 0 };
 const history = kept?.history ?? [];
 let gen = kept?.gen ?? 0;
 

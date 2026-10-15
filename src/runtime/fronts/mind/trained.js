@@ -12,7 +12,7 @@
 // strategyNetOn).
 
 import { readWeights } from "./net.js";
-import { PLAN_PARAMS, createPlanner, plainPlanner } from "./planner.js";
+import { LATE_AT, PLAN_PARAMS, createPlanner, plainPlanner, withLateEval } from "./planner.js";
 import { SHIPPED_PLANNER } from "./plannerWeights.js";
 import { createStaffPolicy, createTroopPolicy } from "./policy.js";
 import { TRAINED_STAFF } from "./weights.js";
@@ -21,8 +21,9 @@ let made = false;
 let policy = null;
 
 // The weights the staff that looks ahead is shipped with: a champion's that fit, or its plain ones.
-export const shippedPlannerParams = () => (Array.isArray(SHIPPED_PLANNER?.params) && SHIPPED_PLANNER.params.length === PLAN_PARAMS && SHIPPED_PLANNER.params.every(Number.isFinite)
-  ? Float64Array.from(SHIPPED_PLANNER.params)
+// (Weights made before the later weighing, LATE_AT long, are read with it at its defaults: planner.js withLateEval.)
+export const shippedPlannerParams = () => (Array.isArray(SHIPPED_PLANNER?.params) && (SHIPPED_PLANNER.params.length === PLAN_PARAMS || SHIPPED_PLANNER.params.length === LATE_AT) && SHIPPED_PLANNER.params.every(Number.isFinite)
+  ? withLateEval(SHIPPED_PLANNER.params)
   : plainPlanner());
 
 export const trainedStaffPolicy = () => {

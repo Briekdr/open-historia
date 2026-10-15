@@ -34,6 +34,7 @@
 // engine: the same weights decide the same on every machine.
 
 import { rehearsal, rehearseDay, rehearseOrders } from "../engine.js";
+import { AIR_MISSIONS, airMissionOf } from "../air.js";
 import { isLive } from "../troops.js";
 import { BREACH, DIG_IN, HOLD, PUSH, REST, TAKE_CAPITAL, TAKE_CITY, TROOP_ACTIONS, TROOP_FEATURE_COUNT, troopView } from "./troops.js";
 
@@ -48,10 +49,26 @@ export const NET_FEATURES = TROOP_FEATURE_COUNT + EXTRA_NAMES.length;
 export const PLAN_NAMES = Object.freeze(["keep", "net", "net, digging in", "net, resting the worn", "push", "dig in", "the weakest place", "the second weakest place", "the third weakest place", "a pincer", "the towns", "everyone on the weakest place", "the walls"]);
 // The plans it first drew up (champion 1 of tools/strategy-nn/ladder.mjs was made with these).
 export const FIRST_PLAN_NAMES = Object.freeze(PLAN_NAMES.slice(0, 11));
+// What the weighing came to weigh later, kept after the net's weights so that weights made before are read as
+// they were (and these at their defaults): how nearly each side's troops are surrounded, the other's less its own
+// (the strength of each, by how many of the eight points of the compass SURROUND_KM round it the other holds
+// beyond half): an encirclement is worth something before it closes. 0 to begin with: weighed in at 1 it was no
+// better over 40 duels (-2.0 a duel, SE 10.7), and the ladder may learn what it is worth.
+export const LATE_EVAL_NAMES = Object.freeze(["nearly cut off"]);
+export const LATE_EVAL = Object.freeze([0]);
 // The weights, in one flat array: the weighing (EVAL_NAMES), then the net's: for each of TROOP_ACTIONS its
-// weight of each of NET_FEATURES and a bias.
+// weight of each of NET_FEATURES and a bias; then the later weighing (LATE_EVAL_NAMES).
 export const NET_AT = EVAL_NAMES.length;
-export const PLAN_PARAMS = NET_AT + TROOP_ACTIONS.length * (NET_FEATURES + 1);
+export const LATE_AT = NET_AT + TROOP_ACTIONS.length * (NET_FEATURES + 1);
+export const PLAN_PARAMS = LATE_AT + LATE_EVAL_NAMES.length;
+// Weights made before the later weighing, read with it at its defaults.
+export const withLateEval = (values) => {
+  const params = new Float64Array(PLAN_PARAMS);
+  LATE_EVAL.forEach((value, at) => { params[LATE_AT + at] = value; });
+  const given = Array.from(values ?? []);
+  for (let at = 0; at < Math.min(given.length, PLAN_PARAMS); at += 1) params[at] = Number(given[at]) || 0;
+  return params;
+};
 // How often it looks, how far ahead, and the most bodies of troops it sends anywhere at once.
 export const LOOK_DAYS = 5;
 export const AHEAD_DAYS = 6;
@@ -64,6 +81,7 @@ const FAR_KM = 150;
 export const plainPlanner = () => {
   const params = new Float64Array(PLAN_PARAMS);
   DEFAULT_EVAL.forEach((value, at) => { params[at] = value; });
+  LATE_EVAL.forEach((value, at) => { params[LATE_AT + at] = value; });
   params[NET_AT + HOLD * (NET_FEATURES + 1) + NET_FEATURES] = 0.1;
   return params;
 };
@@ -301,10 +319,30 @@ export const standing = (battle, side) => {
   }
   return out;
 };
+// How nearly a side's troops are surrounded: the strength of each, by how many of the eight points round it the
+// other side holds beyond half (0 at four, 1 at eight).
+const nearlySurrounded = (battle, side) => {
+  const { field, place } = battle;
+  let sum = 0;
+  for (const troop of battle.troops[side]) {
+    if (!isLive(troop) || troop.pocket) continue;
+    const reach = SURROUND_KM / place.kmAt(troop.y);
+    let theirs = 0;
+    for (const [cx, cy] of COMPASS) {
+      const x = Math.floor(troop.x + cx * reach);
+      const y = Math.floor(troop.y + cy * reach);
+      if (x >= 0 && y >= 0 && x < field.cols && y < field.rows && field.holders[y * field.cols + x] === 1 - side) theirs += 1;
+    }
+    if (theirs > 4) sum += (troop.strength / 100) * ((theirs - 4) / 4);
+  }
+  return sum;
+};
 const valueOf = (params, battle, side) => {
   const seen = standing(battle, side);
   let value = 0;
   for (let at = 0; at < EVAL_NAMES.length; at += 1) value += params[at] * seen[at];
+  const late = params.length > LATE_AT ? params[LATE_AT] : LATE_EVAL[0];
+  if (late !== 0) value += late * (nearlySurrounded(battle, 1 - side) - nearlySurrounded(battle, side));
   return value;
 };
 
@@ -322,7 +360,11 @@ const valueOf = (params, battle, side) => {
 //   tally     (name of the plan chosen) => anything, for whoever counts
 export const REFINE_BODIES = 4;
 export const REPLIES = Object.freeze(["carry on", "push", "dig in"]);
-export const createPlanner = ({ params = plainPlanner(), look = LOOK_DAYS, ahead = AHEAD_DAYS, plans = null, refine = REFINE_BODIES, replies = false, tally = null } = {}) => {
+//   airControl  whether it sends its wings on missions (air.js AIR_MISSIONS), or leaves them on support
+//   late      the later weighing's weights in place of those in `params` (to weigh without them: [0])
+export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS, ahead = AHEAD_DAYS, plans = null, refine = REFINE_BODIES, replies = false, airControl = true, late = null, tally = null } = {}) => {
+  const params = withLateEval(given);
+  if (Array.isArray(late)) late.forEach((value, at) => { params[LATE_AT + at] = Number(value) || 0; });
   const allowed = plans ? new Set(plans) : null;
   const policy = (battle, side, context = {}, run = null) => {
     if (!run) return undefined;
@@ -337,12 +379,13 @@ export const createPlanner = ({ params = plainPlanner(), look = LOOK_DAYS, ahead
     const answers = replies && theirs.length > 0
       ? REPLIES.map((word) => (word === "push" ? [{ order: "advance", picked: theirs }] : word === "dig in" ? [{ order: "dig in", picked: theirs }] : null))
       : [null];
-    // How a battle stands `ahead` days after these orders (none: carrying on): against each answer, the worst.
-    const weigh = (bodies) => {
+    // How a battle stands `ahead` days after these orders (none: carrying on), its wings sent on `air` (as they
+    // are: null): against each answer, the worst.
+    const weigh = (bodies, air = null) => {
       let worst = Infinity;
       for (const answer of answers) {
         const rehearsed = rehearsal(run, battle);
-        if (bodies) rehearseOrders(rehearsed, side, bodies, day);
+        if (bodies || air) rehearseOrders(rehearsed, side, bodies ?? [], day, { air });
         if (answer) rehearseOrders(rehearsed, 1 - side, answer, day);
         // (It looks after the day's morning: the copy's first day begins from it.)
         for (let days = 0; days < ahead; days += 1) if (!rehearseDay(rehearsed, day + days, { morning: days > 0 })) break;
@@ -379,9 +422,21 @@ export const createPlanner = ({ params = plainPlanner(), look = LOOK_DAYS, ahead
         }
       }
     }
+    // Its wings over the battle (air.js): sent on whichever mission leaves the battle best, with the orders chosen.
+    let air = null;
+    if (airControl && (run.airOver?.get(battle)?.[side]?.length ?? 0) > 0) {
+      for (const mission of AIR_MISSIONS) {
+        if (mission === airMissionOf(battle, side)) continue;
+        const value = weigh(orders, mission);
+        if (value > best) {
+          best = value;
+          air = mission;
+        }
+      }
+    }
     if (typeof tally === "function" && chosen >= 0) tally(PLAN_NAMES[chosen]);
-    if (chosen <= 0 || !orders) return { keep: true };
-    return { troops: orders };
+    if (chosen <= 0 || !orders) return air ? { keep: true, air } : { keep: true };
+    return air ? { troops: orders, air } : { troops: orders };
   };
   policy.often = true;
   return policy;

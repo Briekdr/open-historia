@@ -17,6 +17,20 @@
 //   close support   the side that holds the sky attacks and defends harder: 1 + AIR_SUPPORT s d
 //   interdiction    the other's columns are slowed: 1 - AIR_INTERDICT s d
 //
+// What a side's wings are SENT TO DO over a battlefield is its commander's
+// (battle.airMission, AIR_MISSIONS: a staff of a run's own says so, engine.js;
+// the engine's own staff never does): "make it also be able to control and
+// understand ... plane attacks" (the owner, 2026-10-14).
+//
+//   support         as above (and what a side does that nobody has told)
+//   strike          its wings go for the other side's troops themselves: the
+//                   side that holds the sky so strikes each of them for
+//                   AIR_STRIKE s d of its strength a day (dug in, the share of
+//                   a day's losses its works let through), and gives up close
+//                   support for it; striking wears its wings AIR_STRIKE_WEAR
+//                   times as much
+//   grounded        they stay on the ground: no wear, and the sky the other's
+//
 // What the day's weather lets fly (weather.js "air": 0 in a storm, a
 // blizzard or fog) is what flies. Every evening each wing that flew is worn:
 // the side that lost the sky the more (AIR_LOSS), and a wing worn to nothing
@@ -36,6 +50,15 @@ export const AIR_INTERDICT = 0.2;
 // The weight of air a troop takes to cover, and what a day of contesting the sky costs a wing at most.
 export const AIR_PER_TROOP = 8;
 export const AIR_LOSS = 2;
+export const AIR_MISSIONS = Object.freeze(["support", "strike", "grounded"]);
+export const AIR_STRIKE = 1.5;
+export const AIR_STRIKE_WEAR = 1.5;
+
+// What a side's wings are sent to do over a battle: "support" unless told otherwise.
+export const airMissionOf = (battle, side) => {
+  const mission = battle?.airMission?.[side];
+  return AIR_MISSIONS.includes(mission) ? mission : "support";
+};
 
 const fold = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 
@@ -80,7 +103,9 @@ export const skyOfWings = (run, battle, day) => {
   if (!wings) return null;
   const flies = battle.sky ? battle.sky.effects.air : 1;
   if (!(flies > 0)) return null;
-  const weight = wings.map((list) => list.reduce((sum, wing) => sum + (wing.strength > 0 ? wing.strength * airWorth(run.militaryOf(wing.owner)) : 0), 0) * flies);
+  // (Wings kept grounded do not fly.)
+  const weight = wings.map((list, side) => (airMissionOf(battle, side) === "grounded" ? 0
+    : list.reduce((sum, wing) => sum + (wing.strength > 0 ? wing.strength * airWorth(run.militaryOf(wing.owner)) : 0), 0) * flies));
   const total = weight[0] + weight[1];
   if (!(total > 0)) return null;
   const holds = weight[0] >= weight[1] ? 0 : 1;
@@ -92,11 +117,26 @@ export const skyOfWings = (run, battle, day) => {
   const punch = [1, 1];
   const guard = [1, 1];
   const legs = [1, 1];
-  punch[holds] = 1 + AIR_SUPPORT * edge;
-  guard[holds] = 1 + AIR_SUPPORT * edge;
+  // Striking, the side that holds the sky goes for the other's troops (airStrikes at dusk) and gives up close support.
+  const striking = airMissionOf(battle, holds) === "strike";
+  if (!striking) {
+    punch[holds] = 1 + AIR_SUPPORT * edge;
+    guard[holds] = 1 + AIR_SUPPORT * edge;
+  }
   legs[1 - holds] = 1 - AIR_INTERDICT * edge;
-  battle.wings = { holds, weight, superiority, flying: wings };
+  battle.wings = { holds, weight, superiority, flying: wings.map((list, side) => (airMissionOf(battle, side) === "grounded" ? [] : list)), ...(striking ? { strike: edge } : {}) };
   return { punch, guard, legs };
+};
+
+// The evening: what a side's wings sent to strike did to the other's troops, as part of their day's losses (combat.js
+// closeDay, where works take their share off).
+export const airStrikes = (battle) => {
+  const strike = battle.wings?.strike;
+  if (!(strike > 0)) return;
+  for (const troop of battle.troops[1 - battle.wings.holds]) {
+    if (!isLive(troop)) continue;
+    troop.loss += (troop.strength / 100) * AIR_STRIKE * strike;
+  }
 };
 
 // The evening: every wing that flew over a battle is worn, the side that lost the sky the more.
@@ -106,9 +146,10 @@ export const wearWings = (run, battle) => {
   const total = sky.weight[0] + sky.weight[1];
   for (const side of [0, 1]) {
     const lost = total > 0 ? sky.weight[1 - side] / total : 0;
+    const wear = sky.strike > 0 && sky.holds === side ? AIR_STRIKE_WEAR : 1;
     for (const wing of sky.flying[side]) {
       if (!(wing.strength > 0)) continue;
-      wing.strength = Math.max(0, wing.strength - AIR_LOSS * (0.25 + lost));
+      wing.strength = Math.max(0, wing.strength - AIR_LOSS * (0.25 + lost) * wear);
       wing.changed = true;
     }
   }
@@ -120,4 +161,4 @@ export const wingChanges = (run) => (run.wings ? [...run.wings.values()].filter(
   : { unitId: wing.id, committedTo: "", remove: true })) : []);
 
 // For the story: who held the sky over a battle, and with how many wings a side.
-export const skyHeld = (battle) => (battle.wings ? { holds: battle.wings.holds, wings: battle.wings.flying.map((list) => list.length), superiority: Math.round(battle.wings.superiority * 100) / 100 } : null);
+export const skyHeld = (battle) => (battle.wings ? { holds: battle.wings.holds, wings: battle.wings.flying.map((list) => list.length), superiority: Math.round(battle.wings.superiority * 100) / 100, ...(battle.wings.strike > 0 ? { strike: true } : {}) } : null);

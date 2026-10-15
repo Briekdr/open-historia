@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import { rehearsal, rehearseDay, rehearseOrders, runFronts } from "../engine.js";
 import { frontInput, syntheticMap } from "../syntheticMap.js";
-import { EVAL_NAMES, NET_FEATURES, PLAN_NAMES, PLAN_PARAMS, createPlanner, plainPlanner, plannerFeatures, standing } from "./planner.js";
+import { EVAL_NAMES, LATE_EVAL_NAMES, NET_FEATURES, PLAN_NAMES, PLAN_PARAMS, createPlanner, plainPlanner, plannerFeatures, standing, withLateEval } from "./planner.js";
 import { TROOP_ACTIONS, TROOP_FEATURE_COUNT, troopView } from "./troops.js";
 import { makeDuel } from "../../../../tools/strategy-nn/duel.mjs";
 
@@ -97,7 +97,9 @@ test("a staff of a run's own that looks often is asked every day, the engine's o
 });
 
 test("the staff that looks ahead: every live troop given one order, the same war twice, and a plan of its own named each time", () => {
-  assert.equal(PLAN_PARAMS, EVAL_NAMES.length + TROOP_ACTIONS.length * (NET_FEATURES + 1));
+  assert.equal(PLAN_PARAMS, EVAL_NAMES.length + TROOP_ACTIONS.length * (NET_FEATURES + 1) + LATE_EVAL_NAMES.length);
+  // Weights made before the later weighing are read with it at its default.
+  assert.deepEqual(Array.from(withLateEval(plainPlanner().slice(0, PLAN_PARAMS - LATE_EVAL_NAMES.length))), Array.from(plainPlanner()));
   assert.equal(NET_FEATURES, TROOP_FEATURE_COUNT + 6);
   assert.equal(plainPlanner().length, PLAN_PARAMS);
   const answers = [];
