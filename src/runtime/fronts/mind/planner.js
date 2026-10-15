@@ -315,9 +315,14 @@ const valueOf = (params, battle, side) => {
 //   refine    how many of the largest bodies of the plan it chose it then
 //             tries told otherwise, one at a time (turned above), keeping
 //             each change that leaves the battle better (REFINE_BODIES)
+//   replies   whether each plan is weighed against the other side's answers
+//             to it (REPLIES: carrying on, pushing everywhere, digging in
+//             everywhere) and by the worst of them, rather than against its
+//             carrying on only: what a chess engine does with a move
 //   tally     (name of the plan chosen) => anything, for whoever counts
 export const REFINE_BODIES = 4;
-export const createPlanner = ({ params = plainPlanner(), look = LOOK_DAYS, ahead = AHEAD_DAYS, plans = null, refine = REFINE_BODIES, tally = null } = {}) => {
+export const REPLIES = Object.freeze(["carry on", "push", "dig in"]);
+export const createPlanner = ({ params = plainPlanner(), look = LOOK_DAYS, ahead = AHEAD_DAYS, plans = null, refine = REFINE_BODIES, replies = false, tally = null } = {}) => {
   const allowed = plans ? new Set(plans) : null;
   const policy = (battle, side, context = {}, run = null) => {
     if (!run) return undefined;
@@ -327,13 +332,24 @@ export const createPlanner = ({ params = plainPlanner(), look = LOOK_DAYS, ahead
     for (const row of view.rows) row.troop = battle.troops[side][row.index];
     const drawn = drawPlans(battle, params, view, plannerFeatures(battle, side, view));
     const day = run.day + 1;
-    // How a battle stands `ahead` days after these orders (none: carrying on).
+    // The other side's answers, as orders for all its troops (carrying on: none).
+    const theirs = battle.troops[1 - side].map((troop, index) => (isLive(troop) ? index : -1)).filter((index) => index >= 0);
+    const answers = replies && theirs.length > 0
+      ? REPLIES.map((word) => (word === "push" ? [{ order: "advance", picked: theirs }] : word === "dig in" ? [{ order: "dig in", picked: theirs }] : null))
+      : [null];
+    // How a battle stands `ahead` days after these orders (none: carrying on): against each answer, the worst.
     const weigh = (bodies) => {
-      const rehearsed = rehearsal(run, battle);
-      if (bodies) rehearseOrders(rehearsed, side, bodies, day);
-      // (It looks after the day's morning: the copy's first day begins from it.)
-      for (let days = 0; days < ahead; days += 1) if (!rehearseDay(rehearsed, day + days, { morning: days > 0 })) break;
-      return valueOf(params, rehearsed.battle, side);
+      let worst = Infinity;
+      for (const answer of answers) {
+        const rehearsed = rehearsal(run, battle);
+        if (bodies) rehearseOrders(rehearsed, side, bodies, day);
+        if (answer) rehearseOrders(rehearsed, 1 - side, answer, day);
+        // (It looks after the day's morning: the copy's first day begins from it.)
+        for (let days = 0; days < ahead; days += 1) if (!rehearseDay(rehearsed, day + days, { morning: days > 0 })) break;
+        const value = valueOf(params, rehearsed.battle, side);
+        if (value < worst) worst = value;
+      }
+      return worst;
     };
     let chosen = -1;
     let best = -Infinity;

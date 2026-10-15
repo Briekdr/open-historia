@@ -22,7 +22,37 @@ and on 2026-10-14:
 - Both beat the scripted staff by a wide margin. **Neither beats the plain habit of always advancing along the whole line.** The troop-by-troop champion is level with it: −3.0 a war, with a standard error of 4.8, over 150 wars it never saw.
 - So no "strategic master" came out of this. What did come out is a fact about the engine. In it, attacking everywhere is as good as any plan these networks could find. Holding or digging in is very much worse, even for the weaker side. Section 4 says what that means and what would change it.
 - **On the Wars and Fronts Pt.2 engine** (troops that tire, each country's own figures, levies over weeks, weather, hard ground, fortified lines, air wings: branch `feature/wars-and-fronts-2`), a third network was trained for two hours. It beats the scripted staff (+12.8 a war, standard error 5.2) and is **worse than always advancing** (−14.5, standard error 4.9), over 150 wars it never saw. It pushed with 98% of its orders. Section 3 has the figures.
-- On the Pt.2 branch **nothing is shipped**: the earlier champion was made for a troop's 28 numbers and a troop is now shown 34, and the new one is not level with plain advancing. The lab's switch does nothing there.
+- On the Pt.2 branch the networks are **not shipped**: the earlier champion was made for a troop's 28 numbers and a troop is now shown 34, and the new one is not level with plain advancing.
+- **What did beat everything was a search, not a network** (section 0): a staff that tries its plans out on a copy of the battle before it gives any. It beats every habit in fair duels nearly every time, and it is what leads the lab game's sides nobody plays.
+
+## 0. The staff that looks ahead (2026-10-14 and 15)
+
+The owner, on 2026-10-14: "make it the stockfish of Open historia", with full control of every troop and an understanding of everything on the battlefield; train it on even, randomized fields, not in a game scenario; and then "do a training run that trains models against it until they consistently beat it and every other stratagy to create even better models to build off of".
+
+**How it decides** (`src/runtime/fronts/mind/planner.js`). Every five days it draws up about a dozen whole plans for its side, troop by troop:
+- keep what it was doing; its own learnt judgement of each troop (a net over what each troop sees: troops.js plus the nearest enemy and how nearly it is surrounded), as it is, digging in where it would only hold, or resting the worn;
+- push everywhere; dig in everywhere;
+- the nearest half on one of the three weakest places in the other side's line; everyone on the weakest; a pincer round its largest mass; the towns; the walls.
+
+Each plan is fought out for six days on a COPY of the battle with the real engine (`engine.js rehearsal`, `rehearseOrders`, `rehearseDay`: a test proves the copy's days are the war's own, and that the war is not touched), the battle each leaves is weighed (ground by lawful home, towns, capitals, strength, troops cut off, wear, supply, troops in their works: eight weights), and the best is given. Then its four largest bodies of troops are each tried told otherwise (an attack made a digging in and the other way about), keeping each change that weighs better.
+
+**The fair duels** (`duel.mjs`): a board drawn at random from a seed (3 to 8 rows of regions, 6 to 14 columns, one against one or two against two, towns anywhere, hard ground, walls, air wings, any age, month and latitude), the same for both sides turned half round, with the same armies; each fought twice, each side beginning it once. `duels.mjs` measures a staff in them, `compare.mjs` and `versus.mjs` two settings of the planner against each other.
+
+**Plain weights, 40 duels each** (`runs/planner/eval-plain-40.json`):
+
+| against | margin a duel | won |
+|---|---|---|
+| always advancing | +65.1 | 31 of 40 |
+| the scripted staff | +84.5 | 38 of 40 |
+| always digging in | +119.2 | 40 of 40 |
+| every troop for a town | +111.6 | 35 of 40 |
+| every troop down one route to the capital | +144.8 | 39 of 40 |
+
+**The ladder** (`ladder.mjs`, run `runs/planner/ladder-1`): a challenger is tuned by evolution strategies in duels, half against the champion and half against every habit; every five generations it is tried on 16 duels it never trained on, and promoted when it beats the champion in 65% of them and every habit in 85% (one that beats the champion in fewer than half begins again from the champion's weights). Champion 1 came at generation 5: the plain weights 11/16, always advancing 15/16, the scripted staff 14/16, digging in 15/16, towns 16/16, the route 16/16. Since then four trials have come out level with it (7, 9, 8, 8 of 16) while still beating every habit 15 or 16 times in 16: the weights have converged for this search, and what has paid since is the search itself (with champion 1's weights, the dozen plans and the refinement beat the first search by +34.6 a duel over 24 duels, 13 won and 7 lost).
+
+**In the lab game** (`mind/trained.js`, `plannerWeights.js`): the sides nobody plays are led by it, with champion 1's weights, in the page only and unless `localStorage.setItem("oh:strategyNet", "0")`. A war's fronts then run a day at a time. On the largest frame (251 x 251 cells) a month costs about 17 s against 2.6 s for the scripted staff.
+
+**What it does not do yet**: it commands the land battle (every troop, the walls it breaches, what the air and the weather do to it); fleets, blockades and building fortifications are decided outside a battlefield and it has no say in them.
 
 ## 1. The reward (as of 2026-10-14)
 
@@ -179,7 +209,7 @@ The first league ran under the older reward: shares of the enemy's home ground, 
 
 ## Trying it in a game
 
-On the Wars and Fronts Pt.2 branch nothing is shipped (`src/runtime/fronts/mind/weights.js` holds none), and the switch below changes nothing there. On `experiment/strategy-nn` the troop-by-troop champion is shipped (`src/runtime/fronts/mind/weights.js`) behind a switch that is off. In that lab build, in the browser's console:
+On the Wars and Fronts Pt.2 branch no network is shipped (`src/runtime/fronts/mind/weights.js` holds none), so the lab's switch leads the sides nobody plays with the staff that looks ahead (section 0), with the champion's weights (`plannerWeights.js`). There it is ON in the game's page unless turned off: `localStorage.setItem("oh:strategyNet", "0")`. What follows is of `experiment/strategy-nn`, where the troop-by-troop champion is shipped (`src/runtime/fronts/mind/weights.js`) behind a switch that is off. In that lab build, in the browser's console:
 
 ```js
 localStorage.setItem("oh:strategyNet", "1")   // on: sides nobody plays are led by the network, troop by troop

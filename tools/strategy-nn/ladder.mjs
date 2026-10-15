@@ -17,7 +17,7 @@
 // than REVERT_BELOW begins again from the champion's weights.
 //
 //   node tools/strategy-nn/ladder.mjs [--run name] [--hours 2] [--workers N] [--pairs 6] [--duels 6]
-//                                     [--sigma 0.1] [--rate 0.03] [--every 6] [--trial 20] [--from file.json]
+//                                     [--sigma 0.1] [--rate 0.03] [--every 6] [--trial 20] [--from file.json] [--net-scale 1]
 //
 // Writes tools/strategy-nn/runs/planner/<run>/latest.json after every generation (picked up from when there is
 // one), champion-<n>.json at each promotion, and trials.jsonl with every trial.
@@ -47,6 +47,9 @@ const rate = Number(option("rate", "0.03"));
 const every = Number(option("every", "6"));
 const trialDuels = Number(option("trial", "20"));
 const fromFile = option("from", "");
+// How far the net's weights are nudged beside the weighing's (1: alike). Most of what the staff does is which plan
+// it weighs best, so a smaller nudge to the net's 451 puts what the duels say on the weighing's 8.
+const netScale = Number(option("net-scale", "1"));
 const dir = path.join(here, "runs", "planner", runName);
 fs.mkdirSync(dir, { recursive: true });
 const latestFile = path.join(dir, "latest.json");
@@ -65,7 +68,7 @@ const ROTA = ["champion", "advance", "champion", "staff", "champion", "dig", "ch
 const TRIAL_FROM = 900000;
 
 // How far each weight is nudged: the weighing by its own size, the net's by one.
-const SCALE = Float64Array.from({ length: PLAN_PARAMS }, (_, at) => (at < EVAL_NAMES.length ? Math.max(0.1, Math.abs(DEFAULT_EVAL[at])) : 1));
+const SCALE = Float64Array.from({ length: PLAN_PARAMS }, (_, at) => (at < EVAL_NAMES.length ? Math.max(0.1, Math.abs(DEFAULT_EVAL[at])) : netScale));
 
 const kept = fs.existsSync(latestFile) ? JSON.parse(fs.readFileSync(latestFile, "utf8")) : null;
 const started = fromFile ? Float64Array.from(JSON.parse(fs.readFileSync(fromFile, "utf8")).params) : plainPlanner();
@@ -104,7 +107,7 @@ const trial = async (pool) => {
 };
 
 const save = () => {
-  const state = { gen, run: runName, champion: { n: champion.n, params: rounded(champion.params) }, challenger: rounded(params), adam: { m: Array.from(adam.m), v: Array.from(adam.v), t: adam.t }, settings: { pairs, duels, sigma, rate, every, trialDuels }, history };
+  const state = { gen, run: runName, champion: { n: champion.n, params: rounded(champion.params) }, challenger: rounded(params), adam: { m: Array.from(adam.m), v: Array.from(adam.v), t: adam.t }, settings: { pairs, duels, sigma, rate, every, trialDuels, netScale }, history };
   fs.writeFileSync(`${latestFile}.tmp`, JSON.stringify(state));
   fs.renameSync(`${latestFile}.tmp`, latestFile);
 };
