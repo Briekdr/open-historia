@@ -363,12 +363,14 @@ test("a network that orders troops one by one: the same war twice, every troop g
   assert.deepEqual(runFronts(war(citySheet(), { staffPolicy: createTroopPolicy({ shape: MIND_SHAPE, params: weightsOf(1) }) })).battlefields, runFronts(war(citySheet())).battlefields);
 });
 
-test("the game uses a trained staff only in the lab, only when its switch is on, and only when one is shipped", async () => {
+test("the game uses the lab's own staff only in the lab, on unless its switch is turned off, a network where one is shipped and else the staff that looks ahead", async () => {
   const root = path.join(here, "../../..");
   const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8").split("\r\n").join("\n");
   const gate = read("Game/AI/frontsGate.js");
   assert.ok(gate.includes("export const STRATEGY_NET_KEY = \"oh:strategyNet\";"));
-  assert.ok(gate.includes("return globalThis.localStorage?.getItem(STRATEGY_NET_KEY) === \"1\";"), "off unless whoever is at the keyboard turns it on");
+  assert.ok(gate.includes("return typeof globalThis.window !== \"undefined\" && Boolean(globalThis.localStorage) && globalThis.localStorage.getItem(STRATEGY_NET_KEY) !== \"0\";"), "on in the lab build's page unless whoever is at the keyboard turns it off");
+  const { strategyNetOn } = await import("../../../Game/AI/frontsGate.js");
+  assert.equal(strategyNetOn(), false, "and never outside a page");
   // The turn hands it to the engine for the forecast and for the apply alike, so the two are one run.
   const apply = read("Game/AI/frontApply.js");
   assert.ok(apply.includes("...(strategyNetOn() && trainedStaffPolicy() ? { staffPolicy: trainedStaffPolicy() } : {}),"));
@@ -381,8 +383,12 @@ test("the game uses a trained staff only in the lab, only when its switch is on,
   const { trainedStaffInfo, trainedStaffPolicy } = await import("./trained.js");
   const { TRAINED_STAFF } = await import("./weights.js");
   if (TRAINED_STAFF === null) {
-    assert.equal(trainedStaffPolicy(), null);
-    assert.equal(trainedStaffInfo(), null);
+    // The staff that looks ahead, with the weights shipped for it.
+    assert.equal(typeof trainedStaffPolicy(), "function");
+    assert.equal(trainedStaffPolicy().often, true);
+    assert.equal(trainedStaffInfo().planner, true);
+    const led = runFronts(war(sheet(), { staffPolicy: trainedStaffPolicy() }));
+    assert.equal(led.battlefields.length, 1);
   } else {
     assert.equal(typeof trainedStaffPolicy(), "function");
     const shape = TRAINED_STAFF.shape?.head > 0 ? TROOP_SHAPE : MIND_SHAPE;

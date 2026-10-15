@@ -30,14 +30,17 @@ export const frontsPace = () => {
 };
 
 // EXPERIMENT, in the lab only (runtime/fronts/mind/). Whether the sides nobody
-// plays are led by the trained network in place of the engine's scripted
-// staff. Off unless whoever is at the keyboard turns it on, in the browser's
-// console: localStorage.setItem("oh:strategyNet", "1"). There is no setting
-// for it and no scenario can ask for it.
+// plays are led by the lab's own staff (mind/trained.js: on this branch the
+// staff that looks ahead) in place of the engine's scripted staff. On in this
+// lab build, for the owner to try ("put that current model on 3319 for me to
+// test", 2026-10-14), unless whoever is at the keyboard turns it off, in the
+// browser's console: localStorage.setItem("oh:strategyNet", "0"). There is no
+// setting for it and no scenario can ask for it. (Only in a page: what runs a
+// turn's fronts outside one, a test or a tool, has the engine's own staff.)
 export const STRATEGY_NET_KEY = "oh:strategyNet";
 export const strategyNetOn = () => {
   try {
-    return globalThis.localStorage?.getItem(STRATEGY_NET_KEY) === "1";
+    return typeof globalThis.window !== "undefined" && Boolean(globalThis.localStorage) && globalThis.localStorage.getItem(STRATEGY_NET_KEY) !== "0";
   } catch {
     return false;
   }

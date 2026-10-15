@@ -1138,6 +1138,9 @@ export const runTurnFronts = async ({
     },
     loadRegions: readRegions,
     pause,
+    // (A staff that looks every day weighs its plans on copies of the battle: a day at a time, so that the page
+    // is not held for the half month a chunk would be.)
+    ...(staffPolicy?.often === true ? { chunkDays: 1 } : {}),
   });
   // The map could not be read: the turn goes on without the engine.
   if (!result) return nothing(null);
