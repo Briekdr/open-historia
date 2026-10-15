@@ -13,7 +13,8 @@
 // duels it never trained on, fought both ways round: when it beat the champion
 // in at least PROMOTE_CHAMPION of them, and every habit in at least
 // PROMOTE_HABITS, it is the new champion, kept as champion-<n>.json, and the
-// next challenger is tuned against it.
+// next challenger is tuned against it; one that beat the champion in fewer
+// than REVERT_BELOW begins again from the champion's weights.
 //
 //   node tools/strategy-nn/ladder.mjs [--run name] [--hours 2] [--workers N] [--pairs 6] [--duels 6]
 //                                     [--sigma 0.1] [--rate 0.03] [--every 6] [--trial 20] [--from file.json]
@@ -54,6 +55,9 @@ const latestFile = path.join(dir, "latest.json");
 // this share.
 export const PROMOTE_CHAMPION = 0.65;
 export const PROMOTE_HABITS = 0.85;
+// A challenger that beat the champion in fewer than this share of the trial's duels has wandered off: it begins
+// again from the champion's weights (what a few duels a generation say is noisy, and noise is followed too).
+export const REVERT_BELOW = 0.5;
 const HABITS = ["advance", "staff", "dig", "cities", "thrust"];
 // Whom a generation's duels are fought against, in turn: the champion every other duel.
 const ROTA = ["champion", "advance", "champion", "staff", "champion", "dig", "champion", "cities", "champion", "thrust"];
@@ -170,6 +174,12 @@ while (Date.now() < until) {
       adam.m.fill(0);
       adam.v.fill(0);
       adam.t = 0;
+    } else if (results.champion.won < REVERT_BELOW * trialDuels) {
+      params.set(champion.params);
+      adam.m.fill(0);
+      adam.v.fill(0);
+      adam.t = 0;
+      console.log(`  (worse than champion ${champion.n}: the challenger begins again from its weights)`);
     }
   }
   save();

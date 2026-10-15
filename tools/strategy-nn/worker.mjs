@@ -25,6 +25,7 @@ const staffOf = (said) => {
       ...(said.look ? { look: said.look } : {}),
       ...(said.ahead ? { ahead: said.ahead } : {}),
       ...(said.plans ? { plans: said.plans } : {}),
+      ...(Number.isFinite(said.refine) ? { refine: said.refine } : {}),
       tally: (name) => { chosen[name] = (chosen[name] ?? 0) + 1; },
     });
   }

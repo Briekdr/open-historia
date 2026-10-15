@@ -35,7 +35,7 @@
 
 import { rehearsal, rehearseDay, rehearseOrders } from "../engine.js";
 import { isLive } from "../troops.js";
-import { DIG_IN, HOLD, PUSH, REST, TAKE_CAPITAL, TAKE_CITY, TROOP_ACTIONS, TROOP_FEATURE_COUNT, troopView } from "./troops.js";
+import { BREACH, DIG_IN, HOLD, PUSH, REST, TAKE_CAPITAL, TAKE_CITY, TROOP_ACTIONS, TROOP_FEATURE_COUNT, troopView } from "./troops.js";
 
 // What a battle as a plan leaves it is weighed by, for the side looking ahead (each its own less the other's).
 export const EVAL_NAMES = Object.freeze(["ground", "towns", "capitals", "strength", "cut off", "wear", "supply", "in its works"]);
@@ -45,7 +45,9 @@ export const DEFAULT_EVAL = Object.freeze([0.25, 4, 15, 1, 1.5, -1, 1, 0.3]);
 export const EXTRA_NAMES = Object.freeze(["nearest enemy: how far", "nearest enemy: dug in", "nearest enemy: strength", "nearest enemy: under way", "nearest enemy: cut off", "how nearly it is surrounded"]);
 export const NET_FEATURES = TROOP_FEATURE_COUNT + EXTRA_NAMES.length;
 // The plans it draws up, in the order they are weighed (the first of equals is kept).
-export const PLAN_NAMES = Object.freeze(["keep", "net", "net, digging in", "net, resting the worn", "push", "dig in", "the weakest place", "the second weakest place", "the third weakest place", "a pincer", "the towns"]);
+export const PLAN_NAMES = Object.freeze(["keep", "net", "net, digging in", "net, resting the worn", "push", "dig in", "the weakest place", "the second weakest place", "the third weakest place", "a pincer", "the towns", "everyone on the weakest place", "the walls"]);
+// The plans it first drew up (champion 1 of tools/strategy-nn/ladder.mjs was made with these).
+export const FIRST_PLAN_NAMES = Object.freeze(PLAN_NAMES.slice(0, 11));
 // The weights, in one flat array: the weighing (EVAL_NAMES), then the net's: for each of TROOP_ACTIONS its
 // weight of each of NET_FEATURES and a bias.
 export const NET_AT = EVAL_NAMES.length;
@@ -206,7 +208,21 @@ const drawPlans = (battle, params, view, features) => {
     strike(2),
     pincer,
     rows.map((row) => (row.valid[TAKE_CAPITAL] && row.t[18] < 0.5 ? row.goal[TAKE_CAPITAL] : row.valid[TAKE_CITY] && row.t[15] < 0.5 ? row.goal[TAKE_CITY] : "dig in")),
+    // Every troop that may, on the weakest place at once; and every one that may break a wall at the nearest of
+    // the other side's, the rest digging in.
+    view.places.get("strike 0")?.way?.[0] ? nearestHalf(battle, view, "strike 0", view.places.get("strike 0").way[0], 1, free) : null,
+    rows.some((row) => row.valid[BREACH]) ? rows.map((row) => (row.valid[BREACH] ? row.goal[BREACH] : "dig in")) : null,
   ];
+};
+
+// A plan's orders with one body of troops told otherwise: an attack made a digging in, and a digging in or a
+// holding made a push straight ahead. null for a body it cannot turn.
+const turned = (bodies, at) => {
+  const body = bodies[at];
+  const other = body.order === "advance" ? { order: "dig in", picked: body.picked }
+    : body.order === "dig in" || body.order === "hold" ? { order: "advance", picked: body.picked }
+      : null;
+  return other ? bodies.map((each, index) => (index === at ? other : each)) : null;
 };
 
 // ---- the weighing -----------------------------------------------------------------------
@@ -296,8 +312,12 @@ const valueOf = (params, battle, side) => {
 //   params    PLAN_PARAMS weights (plainPlanner() to begin with)
 //   look      how often it looks, in days (LOOK_DAYS); ahead, how far it looks (AHEAD_DAYS)
 //   plans     which of PLAN_NAMES it may choose among (all of them)
+//   refine    how many of the largest bodies of the plan it chose it then
+//             tries told otherwise, one at a time (turned above), keeping
+//             each change that leaves the battle better (REFINE_BODIES)
 //   tally     (name of the plan chosen) => anything, for whoever counts
-export const createPlanner = ({ params = plainPlanner(), look = LOOK_DAYS, ahead = AHEAD_DAYS, plans = null, tally = null } = {}) => {
+export const REFINE_BODIES = 4;
+export const createPlanner = ({ params = plainPlanner(), look = LOOK_DAYS, ahead = AHEAD_DAYS, plans = null, refine = REFINE_BODIES, tally = null } = {}) => {
   const allowed = plans ? new Set(plans) : null;
   const policy = (battle, side, context = {}, run = null) => {
     if (!run) return undefined;
@@ -307,6 +327,14 @@ export const createPlanner = ({ params = plainPlanner(), look = LOOK_DAYS, ahead
     for (const row of view.rows) row.troop = battle.troops[side][row.index];
     const drawn = drawPlans(battle, params, view, plannerFeatures(battle, side, view));
     const day = run.day + 1;
+    // How a battle stands `ahead` days after these orders (none: carrying on).
+    const weigh = (bodies) => {
+      const rehearsed = rehearsal(run, battle);
+      if (bodies) rehearseOrders(rehearsed, side, bodies, day);
+      // (It looks after the day's morning: the copy's first day begins from it.)
+      for (let days = 0; days < ahead; days += 1) if (!rehearseDay(rehearsed, day + days, { morning: days > 0 })) break;
+      return valueOf(params, rehearsed.battle, side);
+    };
     let chosen = -1;
     let best = -Infinity;
     let orders = null;
@@ -315,15 +343,24 @@ export const createPlanner = ({ params = plainPlanner(), look = LOOK_DAYS, ahead
       const keys = plan === 0 ? null : drawn[plan - 1];
       if (plan > 0 && !keys) continue;
       const bodies = keys ? bodiesOf(battle, view, keys) : null;
-      const rehearsed = rehearsal(run, battle);
-      if (bodies) rehearseOrders(rehearsed, side, bodies, day);
-      // (It looks after the day's morning: the copy's first day begins from it.)
-      for (let days = 0; days < ahead; days += 1) if (!rehearseDay(rehearsed, day + days, { morning: days > 0 })) break;
-      const value = valueOf(params, rehearsed.battle, side);
+      const value = weigh(bodies);
       if (value > best) {
         best = value;
         chosen = plan;
         orders = bodies;
+      }
+    }
+    // The plan chosen, bettered a body at a time: the largest first.
+    if (orders && refine > 0) {
+      const largest = orders.map((body, at) => ({ at, size: body.picked.length })).sort((a, b) => b.size - a.size || a.at - b.at).slice(0, refine);
+      for (const { at } of largest) {
+        const other = turned(orders, at);
+        if (!other) continue;
+        const value = weigh(other);
+        if (value > best) {
+          best = value;
+          orders = other;
+        }
       }
     }
     if (typeof tally === "function" && chosen >= 0) tally(PLAN_NAMES[chosen]);
