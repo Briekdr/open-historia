@@ -30,6 +30,8 @@ const out = option("out", "");
 
 const staffOf = (word) => {
   if (word === "staff") return { staff: true };
+  // The plainer commander (planner.js PLAINER_PLANNER), for a side a war is meant to lose.
+  if (word === "plainer") return { plainer: true };
   if (word === "planner") return { planner: true, ahead, look };
   if (word.endsWith(".json")) return { planner: true, ahead, look, params: JSON.parse(fs.readFileSync(word, "utf8")).params };
   return { habit: word };

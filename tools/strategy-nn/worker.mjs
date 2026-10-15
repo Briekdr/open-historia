@@ -11,14 +11,16 @@
 
 import { parentPort } from "node:worker_threads";
 
-import { createPlanner, withLateEval } from "../../src/runtime/fronts/mind/planner.js";
+import { createPlainerPlanner, createPlanner, valueFeatures, withLateEval } from "../../src/runtime/fronts/mind/planner.js";
 import { MIND_SHAPE, TROOP_SHAPE, createStaffPolicy, createTroopPolicy } from "../../src/runtime/fronts/mind/policy.js";
-import { HABITS, REWARD_PARTS, makeScenario, match } from "./arena.mjs";
+import { HABITS, REWARD_PARTS, fight, makeScenario, match } from "./arena.mjs";
 import { makeDuel } from "./duel.mjs";
 
 // What each plan of a staff that looks ahead was chosen, over a task's wars (with `detail`).
 let chosen = {};
 const staffOf = (said) => {
+  // The plainer commander, for a side a war is meant to lose (planner.js PLAINER_PLANNER).
+  if (said?.plainer) return createPlainerPlanner({ tally: (name) => { chosen[name] = (chosen[name] ?? 0) + 1; } });
   if (said?.planner) {
     return createPlanner({
       ...(said.params ? { params: withLateEval(said.params) } : {}),
@@ -38,7 +40,40 @@ const staffOf = (said) => {
   return null;
 };
 
-parentPort.on("message", ({ id, a, b, seeds = [], detail = false, duels = false }) => {
+// What a planner saw at each of its looks in a war, with how the war came out for its side: [{ x, y }], x the
+// weighing's features (planner.js valueFeatures), y its team's reward less the other's (values.mjs).
+const gather = ({ id, a, b, seeds }) => {
+  const records = [];
+  for (const seed of seeds) {
+    const scenario = makeDuel(seed);
+    for (const [first, second] of [[a, b], [b, a]]) {
+      const seen = [[], []];
+      const staffs = [first, second].map((said, team) => {
+        if (!said?.planner) return staffOf(said);
+        return createPlanner({
+          ...(said.params ? { params: withLateEval(said.params) } : {}),
+          observe: (battle, side) => { seen[team].push(Array.from(valueFeatures(battle, side), (value) => Math.round(value * 1e4) / 1e4)); },
+        });
+      });
+      const result = fight(scenario, staffs);
+      for (const team of [0, 1]) {
+        const y = result.rewards[team] - result.rewards[1 - team];
+        for (const x of seen[team]) records.push({ x, y: Math.round(y * 100) / 100, seed });
+      }
+    }
+  }
+  parentPort.postMessage({ id, results: records });
+};
+
+parentPort.on("message", ({ id, kind = "", a, b, seeds = [], detail = false, duels = false }) => {
+  if (kind === "values") {
+    try {
+      gather({ id, a, b, seeds });
+    } catch (error) {
+      parentPort.postMessage({ id, error: String(error?.stack ?? error) });
+    }
+    return;
+  }
   try {
     chosen = {};
     const first = staffOf(a);

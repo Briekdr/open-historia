@@ -26,13 +26,17 @@ export const compactWarSettings = (value) => {
   const kept = normalizeWarSettings(value);
   if (!kept) return null;
   const mechanics = Object.fromEntries(Object.entries(kept.mechanics).filter(([, on]) => on === false));
-  const compact = { mechanics, era: kept.era, menPerCounter: kept.menPerCounter, manpowerShare: kept.manpowerShare, muster: kept.muster };
-  const empty = Object.keys(mechanics).length === 0 && ["era", "menPerCounter", "manpowerShare", "muster"].every((key) => compact[key] === null);
+  const compact = { mechanics, era: kept.era, menPerCounter: kept.menPerCounter, manpowerShare: kept.manpowerShare, muster: kept.muster, ...(kept.outcomes ? { outcomes: kept.outcomes } : {}) };
+  const empty = Object.keys(mechanics).length === 0 && ["era", "menPerCounter", "manpowerShare", "muster"].every((key) => compact[key] === null) && !compact.outcomes;
   return empty ? null : compact;
 };
 
 // The settings with some of them changed.
 export const withWarSettings = (value, patch) => compactWarSettings({ ...EMPTY, ...(normalizeWarSettings(value) ?? {}), ...patch });
+
+// A war meant to end one way added (warOutcomes.js), or the one at `index` taken off.
+export const withWarOutcome = (value, winner, loser) => withWarSettings(value, { outcomes: [...(normalizeWarSettings(value)?.outcomes ?? []), { winner, loser }] });
+export const withoutWarOutcome = (value, index) => withWarSettings(value, { outcomes: (normalizeWarSettings(value)?.outcomes ?? []).filter((_, at) => at !== index) });
 
 // One mechanic switched on or off.
 export const withWarMechanic = (value, key, on) => {

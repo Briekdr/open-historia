@@ -337,6 +337,14 @@ const nearlySurrounded = (battle, side) => {
   }
   return sum;
 };
+// What the weighing weighs, all of it: EVAL_NAMES and then LATE_EVAL_NAMES, for a side (tools/strategy-nn/values.mjs
+// learns the weights from these and how wars came out).
+export const valueFeatures = (battle, side) => {
+  const out = new Float64Array(EVAL_NAMES.length + LATE_EVAL_NAMES.length);
+  out.set(standing(battle, side), 0);
+  out[EVAL_NAMES.length] = nearlySurrounded(battle, 1 - side) - nearlySurrounded(battle, side);
+  return out;
+};
 const valueOf = (params, battle, side) => {
   const seen = standing(battle, side);
   let value = 0;
@@ -359,16 +367,26 @@ const valueOf = (params, battle, side) => {
 //             carrying on only: what a chess engine does with a move
 //   tally     (name of the plan chosen) => anything, for whoever counts
 export const REFINE_BODIES = 4;
+// THE PLAINER COMMANDER, for a side its war is meant to lose (a scenario's designer or the story said so: trained.js
+// labStaffPolicy): "a below average performing model for war that still acts realistically for scripted wars that
+// are meant to be lost" (the owner, 2026-10-15). The same staff, looking less often and less far, at fewer plans,
+// with the plain weighing and its wings left on support: a cautious commander who carries on, pushes or digs in,
+// and is never a fool. Nothing is decided for it ("depending on player actions in war, it should be possible for
+// the opposite to happen too"): a side that fights it badly still loses to it.
+export const PLAINER_PLANS = Object.freeze([0, 4, 5]);
+export const PLAINER_PLANNER = Object.freeze({ look: 12, ahead: 2, refine: 0, airControl: false });
 export const REPLIES = Object.freeze(["carry on", "push", "dig in"]);
 //   airControl  whether it sends its wings on missions (air.js AIR_MISSIONS), or leaves them on support
+//   observe   (battle, side) => anything, at each of its looks, before it plans: for whoever is watching
 //   late      the later weighing's weights in place of those in `params` (to weigh without them: [0])
-export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS, ahead = AHEAD_DAYS, plans = null, refine = REFINE_BODIES, replies = false, airControl = true, late = null, tally = null } = {}) => {
+export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS, ahead = AHEAD_DAYS, plans = null, refine = REFINE_BODIES, replies = false, airControl = true, late = null, observe = null, tally = null } = {}) => {
   const params = withLateEval(given);
   if (Array.isArray(late)) late.forEach((value, at) => { params[LATE_AT + at] = Number(value) || 0; });
   const allowed = plans ? new Set(plans) : null;
   const policy = (battle, side, context = {}, run = null) => {
     if (!run) return undefined;
     if (battle.daysRun > 0 && battle.daysRun % look !== 0) return { keep: true };
+    if (typeof observe === "function") observe(battle, side);
     const view = troopView(battle, side);
     if (view.rows.length === 0) return { keep: true };
     for (const row of view.rows) row.troop = battle.troops[side][row.index];
@@ -441,3 +459,6 @@ export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS
   policy.often = true;
   return policy;
 };
+
+// The plainer commander (PLAINER_PLANNER), with the plain weighing.
+export const createPlainerPlanner = (extra = {}) => createPlanner({ params: plainPlanner(), ...PLAINER_PLANNER, plans: PLAINER_PLANS.map((at) => PLAN_NAMES[at]), ...extra });

@@ -13,7 +13,7 @@
 // (scenarioWarSettings.js). A country may say otherwise for itself: its
 // Military figures in the map editor's Countries panel (Editor/MilitaryFields.jsx).
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import { useTouchPrimary } from "../../runtime/mobileUi.js";
 import { MEN_PER_FORMATION_BY_ERA } from "../../runtime/fronts/constants.js";
@@ -22,7 +22,7 @@ import { formatPopulationFigure } from "../../runtime/populationFigure.js";
 import { eraOf } from "../../runtime/unitMotion.js";
 import { ERA_LABELS, WAR_MECHANICS, normalizeWarSettings } from "../../runtime/warSettings.js";
 import MusterChart from "../../Editor/MusterChart.jsx";
-import { warNumberText, withWarMechanic, withWarNumber, withWarSettings } from "./scenarioWarSettings.js";
+import { warNumberText, withWarMechanic, withWarNumber, withWarOutcome, withWarSettings, withoutWarOutcome } from "./scenarioWarSettings.js";
 
 const MECHANIC_LABELS = Object.freeze({
   fatigue: "Troop fatigue",
@@ -43,7 +43,7 @@ const MECHANIC_HINTS = Object.freeze({
   muster: "A war's levies come in over weeks, along the mustering curve, not all on its first morning.",
   military: "Each country's own quality, technology, arms, unit mix and men a counter, from the map editor's Countries panel.",
   air: "Air wings take part in the fighting below them.",
-  supply: "Advancing, attacking and building fortified lines use up a country's war resources, which its funding refills; an army low on them fights worse.",
+  supply: "Building fortified lines uses up a country's war resources, which its funding refills; an army low on them fights worse.",
   attrition: "Harsh weather and a hard winter wear down every army out in them, the more so tired, short of supply or cut off; what it costs weighs heavily on a country's will to fight.",
 });
 
@@ -86,6 +86,44 @@ const switchStyle = (on) => ({
 // On a touch screen .oh-tap (styles.css) makes a control a finger's 44 px,
 // which an inline minHeight would beat.
 const touchFit = (style, touch) => (touch ? { ...style, minHeight: undefined } : style);
+
+// The wars meant to end one way (runtime/warOutcomes.js): each as a line with its Remove, and two fields and an
+// Add for another.
+const WarOutcomes = ({ value, onChange, touch }) => {
+  const outcomes = normalizeWarSettings(value)?.outcomes ?? [];
+  const [winner, setWinner] = useState("");
+  const [loser, setLoser] = useState("");
+  const ready = winner.trim() !== "" && loser.trim() !== "" && winner.trim().toLowerCase() !== loser.trim().toLowerCase();
+  const add = () => {
+    if (!ready) return;
+    onChange(withWarOutcome(value, winner.trim(), loser.trim()));
+    setWinner("");
+    setLoser("");
+  };
+  return (
+    <>
+      <label style={{ ...labelStyle, marginTop: "0.9rem" }}>Scripted outcomes</label>
+      <div style={{ ...hintStyle, marginBottom: "0.45rem" }}>
+        A war meant to end one way: in any war between the two, a side nobody plays that is meant to lose is led by a plainer commander. Nothing is decided: a player who fights well can still win a war meant to be lost, and lose one meant to be won.
+      </div>
+      {outcomes.map((rule, index) => (
+        <div key={`${rule.winner}|${rule.loser}`} style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.3rem" }}>
+          <span data-no-translate style={{ color: "#f8fafc", fontSize: "0.78rem", fontWeight: 700 }}>{rule.winner}</span>
+          <span style={hintStyle}>is meant to beat</span>
+          <span data-no-translate style={{ color: "#f8fafc", fontSize: "0.78rem", fontWeight: 700 }}>{rule.loser}</span>
+          <button className="oh-tap" onClick={() => onChange(withoutWarOutcome(value, index))} style={touchFit(switchStyle(false), touch)} type="button">Remove</button>
+        </div>
+      ))}
+      <div style={{ alignItems: "center", display: "grid", gap: "0.4rem", gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr) auto" }}>
+        <input aria-label="Country meant to win" onChange={(event) => setWinner(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") add(); }} placeholder="Meant to win" style={inputStyle} value={winner} />
+        <span style={hintStyle}>is meant to beat</span>
+        <input aria-label="Country meant to lose" onChange={(event) => setLoser(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") add(); }} placeholder="Meant to lose" style={inputStyle} value={loser} />
+        <button className="oh-tap" disabled={!ready} onClick={add} style={touchFit(switchStyle(ready), touch)} type="button">Add</button>
+      </div>
+      <div style={{ ...hintStyle, marginTop: "0.3rem" }}>Countries by their exact names. The story may also mean a war it opens to end one way.</div>
+    </>
+  );
+};
 
 // A figure field: kept a keystroke at a time while it reads as a figure, and
 // shown what was kept when the author leaves it.
@@ -180,6 +218,8 @@ const ScenarioWarSettings = ({ value, gameDate = "", onChange }) => {
         onChange={(points) => onChange(withWarSettings(value, { muster: points }))}
         fieldStyle={{ ...inputStyle, padding: "0.4rem 0.5rem", textAlign: "right" }}
       />
+
+      <WarOutcomes value={value} onChange={onChange} touch={touch} />
 
       <label style={{ ...labelStyle, marginTop: "0.9rem" }}>Mechanics</label>
       <div style={{ ...hintStyle, marginBottom: "0.45rem" }}>Each is on unless you turn it off here.</div>

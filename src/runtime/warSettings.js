@@ -20,8 +20,12 @@
 //   muster          how long calling up an army takes: two points [share of
 //                   the army, days] the curve goes through besides (0, 0)
 //                   (mustering.js), or null for the game's own
+//   outcomes        wars meant to end one way: [{ winner, loser }], in any war
+//                   between the two (warOutcomes.js); kept only where there are some
 //
 // A country may say otherwise for itself: its military stats (militaryStats.js).
+
+import { normalizeWarOutcomes } from "./warOutcomes.js";
 
 export const WAR_MECHANICS = Object.freeze(["fatigue", "weather", "terrain", "walls", "muster", "military", "air", "supply", "attrition"]);
 export const ERA_LABELS = Object.freeze(["Before 1500", "1500 to 1850", "1850 to 1945", "From 1945"]);
@@ -58,12 +62,14 @@ export const normalizeWarSettings = (value) => {
   for (const key of WAR_MECHANICS) if (typeof value.mechanics?.[key] === "boolean") mechanics[key] = value.mechanics[key];
   const men = numberIn(value.menPerCounter, 1, MEN_PER_COUNTER_MOST);
   const share = numberIn(value.manpowerShare, 1, 100);
+  const outcomes = normalizeWarOutcomes(value.outcomes);
   return {
     mechanics,
     era: normalizeEra(value.era),
     menPerCounter: men === null ? null : Math.round(men),
     manpowerShare: share === null ? null : Math.round(share * 10) / 10,
     muster: normalizeMusterPoints(value.muster),
+    ...(outcomes.length > 0 ? { outcomes } : {}),
   };
 };
 

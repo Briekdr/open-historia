@@ -12,7 +12,8 @@
 // strategyNetOn).
 
 import { readWeights } from "./net.js";
-import { LATE_AT, PLAN_PARAMS, createPlanner, plainPlanner, withLateEval } from "./planner.js";
+import { LATE_AT, PLAN_PARAMS, createPlainerPlanner, createPlanner, plainPlanner, withLateEval } from "./planner.js";
+import { meantLoserOf, normalizeWarOutcomes } from "../../warOutcomes.js";
 import { SHIPPED_PLANNER } from "./plannerWeights.js";
 import { createStaffPolicy, createTroopPolicy } from "./policy.js";
 import { TRAINED_STAFF } from "./weights.js";
@@ -32,6 +33,25 @@ export const trainedStaffPolicy = () => {
   const weights = readWeights(TRAINED_STAFF);
   // (Weights with a head order troops one by one; without, the side as a whole; none, the staff that looks ahead.)
   policy = !weights ? createPlanner({ params: shippedPlannerParams() }) : weights.shape.head > 0 ? createTroopPolicy(weights) : createStaffPolicy(weights);
+  return policy;
+};
+
+// The lab's staff for a run: the trained one, and for a side a war is meant to lose the plainer commander
+// (planner.js PLAINER_PLANNER; runtime/warOutcomes.js). The run's own record of a war is looked for first, then
+// `wars` (the world's, as the turn's war records leave them: a war the story opened this turn is among them).
+//   outcomes   the scenario's (warSettings.outcomes)
+export const labStaffPolicy = ({ wars = [], outcomes = [] } = {}) => {
+  const trained = trainedStaffPolicy();
+  if (!trained) return null;
+  const records = new Map((Array.isArray(wars) ? wars : []).filter((war) => war?.id).map((war) => [String(war.id), war]));
+  const rules = normalizeWarOutcomes(outcomes);
+  if (rules.length === 0 && ![...records.values()].some((war) => war.meantWinner)) return trained;
+  const plainer = createPlainerPlanner();
+  // Who leads a side of a battle: "plainer" or "trained".
+  const commanderFor = (battle, side) => (meantLoserOf({ war: records.get(String(battle?.warId ?? "")) ?? null, sides: battle?.sides, outcomes: rules }) === side ? "plainer" : "trained");
+  const policy = (battle, side, context, run) => (commanderFor(battle, side) === "plainer" ? plainer : trained)(battle, side, context, run);
+  policy.often = trained.often === true;
+  policy.commanderFor = commanderFor;
   return policy;
 };
 
