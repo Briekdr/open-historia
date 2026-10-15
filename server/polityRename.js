@@ -266,6 +266,7 @@ export const renamePolityInWorld = (world, fromName, toName) => {
   // How weary of war it is, and what it has left to fight with (runtime/warWeariness.js, warResources.js).
   put("warWeariness", mapRows(world?.warWeariness, (row) => ({ ...row, country: one(row.country) })));
   put("warResources", mapRows(world?.warResources, (row) => ({ ...row, country: one(row.country) })));
+  put("attrition", mapRows(world?.attrition, (row) => ({ ...row, country: one(row.country) })));
   for (const field of ["countryStats", "countryTags", "internationalReputation", "intelligence", "playerGoals"]) {
     put(field, mapKeys(world?.[field], fromKey, to));
   }

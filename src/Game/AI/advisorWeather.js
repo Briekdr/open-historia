@@ -14,6 +14,7 @@
 // no request of its own.
 
 import { getLibraryState } from "../../runtime/library.js";
+import { attritionOf } from "../../runtime/attrition.js";
 import { normalizeZoneWeather } from "../../runtime/warGeography.js";
 import { warSettingsOf } from "../../runtime/warSettings.js";
 import { climateZonesOf } from "../../runtime/worldGeographyDefaults.js";
@@ -84,6 +85,11 @@ export const describeWeatherForAdvisor = ({ world = {}, player = "", date = "", 
     const told = [...byState.entries()].sort((a, b) => toldAt(a[0]) - toldAt(b[0]))
       .map(([state, names]) => `${state === "clear" ? "clear skies" : state}: ${names.join(", ")}`);
     lines.push(`Climate zones, by today's weather (each with its season): ${told.join("; ")}.`);
+  }
+  // What the weather and being cut off have cost the player's armies (runtime/attrition.js).
+  const worn = warSettingsOf(world).mechanics.attrition ? attritionOf(world?.attrition, player) : null;
+  if (worn && (worn.lastMen > 0 || worn.warMen > 0)) {
+    lines.push(`Attrition (the weather and being cut off, besides the fighting): ${worn.lastMen.toLocaleString("en-US")} men lost last turn, ${worn.warMen.toLocaleString("en-US")} in this war.`);
   }
   for (const front of fronts) {
     const total = front.days.reduce((sum, [, count]) => sum + Number(count), 0);

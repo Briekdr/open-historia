@@ -53,6 +53,7 @@ import { startingWearinessOf } from "../../runtime/militaryStats.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
 import { normalizeWarWeariness, wearinessGoingIn, wearinessOf, withTurnWeariness } from "../../runtime/warWeariness.js";
 import { economyRate, withTurnResources } from "../../runtime/warResources.js";
+import { withTurnAttrition } from "../../runtime/attrition.js";
 import { middleFundingPerHead } from "../../runtime/militaryFunding.js";
 import { warSettingsOf } from "../../runtime/warSettings.js";
 import { applyWarUpdates } from "./nativeWarLedger.js";
@@ -347,8 +348,12 @@ export const turnWarAndPeace = ({ world = {}, baseWorld = {}, days = 0, date = "
     flips: fronts?.flips,
     heldBy: (name) => holdings.get(fold(name)) ?? 0,
     blockades: fronts?.sea?.blockades,
+    // (And what attrition took, where the scenario's wars count it: runtime/fronts/attrition.js.)
+    attrition: fronts?.attrition,
   });
   next = { ...next, warWeariness: weariness };
+  // What attrition has cost each country at war (runtime/attrition.js).
+  if (warSettingsOf(next).mechanics.attrition) next = { ...next, attrition: withTurnAttrition(baseWorld?.attrition, { attrition: fronts?.attrition, wars: next.wars }) };
 
   // ---- war resources ----
   // What advancing and building fortified lines spent, and what each country's
@@ -366,6 +371,7 @@ export const turnWarAndPeace = ({ world = {}, baseWorld = {}, days = 0, date = "
         toDate: date,
         effort: fronts?.effort,
         fortifications: next.fortifications,
+        attrition: fronts?.attrition,
         rateOf: (name) => economyRate({ sheet: sheetOf(name), middle, pressure: pressed.get(fold(name)) ?? 0 }),
       }),
     };

@@ -10,6 +10,7 @@
 // Every name carries its kind ("city: Kyiv", "region: Donbas") and nothing in
 // it is an id: a model writes back the names it was shown.
 
+import { battleAttrition } from "./attrition.js";
 import { BRIEF_TEXT_MAX, FATIGUE_EXHAUSTED, HOLDER_SIDE_A, HOLDER_SIDE_B, RESERVES_AMPLE_PER_TROOP, SCENARIO_MARK } from "./constants.js";
 import { traceContour } from "./field.js";
 import { measureLine } from "./line.js";
@@ -174,6 +175,8 @@ export const buildBrief = (battle, since) => {
     ...(skyHeld(battle) ? { air: skyHeld(battle) } : {}),
     // The water frozen hard enough to cross there this turn (climate.js), by name.
     ...(frozenNames(battle).length > 0 ? { frozen: frozenNames(battle) } : {}),
+    // What the weather and being cut off took from each side this run, in formations' worth (attrition.js).
+    ...(battleAttrition(battle) ? { attrition: battleAttrition(battle) } : {}),
     // The season, today's weather and the days of each this run (weather.js): for the story.
     ...(battle.sky && battle.skies ? { weather: { season: battle.sky.season, now: battle.sky.state, days: { ...battle.skies } } } : {}),
   };
@@ -266,6 +269,10 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
       return `  Weather: ${brief.weather.season ? `${brief.weather.season}; ` : ""}${spells}${brief.weather.now ? `; ${brief.weather.now} now` : ""}`;
     })()
     : "";
+  // What the weather and being cut off took, besides the fighting (attrition.js): "Attrition: Aland lost 3.2 formations' worth, Borea 0.4".
+  const attrition = Array.isArray(brief.attrition) && brief.attrition.some((lost) => lost > 0)
+    ? `  Attrition: ${[HOLDER_SIDE_A, HOLDER_SIDE_B].map((side) => `${lead[side]} lost ${brief.attrition[side] ?? 0} formations' worth`).join(", ")} to the weather and to being cut off this period`
+    : "";
   // Who holds the sky (air.js): "Air: Aland holds the sky (6 wings against 2)".
   const air = brief.air && (brief.air.holds === 0 || brief.air.holds === 1) && Array.isArray(brief.air.wings)
     ? `  Air: ${lead[brief.air.holds]} holds the sky (${brief.air.wings[brief.air.holds]} wings against ${brief.air.wings[1 - brief.air.holds]})`
@@ -293,7 +300,7 @@ export const describeBattlefield = (record, { viewer = "" } = {}) => {
   // are listed, then fewer sectors.
   let text = "";
   for (const [mostSectors, mostNames] of [[3, 4], [3, 2], [3, 1], [2, 1], [0, 1]]) {
-    text = [head, strength, weather, ice, air, gone, lineText(mostSectors), sinceText(mostNames), orders, valid].filter(Boolean).join("\n");
+    text = [head, strength, weather, attrition, ice, air, gone, lineText(mostSectors), sinceText(mostNames), orders, valid].filter(Boolean).join("\n");
     if (text.length <= BRIEF_TEXT_MAX) return text;
   }
   return text.slice(0, BRIEF_TEXT_MAX - 1).trimEnd() + "…";

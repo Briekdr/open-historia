@@ -83,8 +83,9 @@ const terrainDefence = (speed) => 1 + Math.min(0.8, Math.max(0, 1 - speed)) * TE
 // What a troop is worth in defence where it stands; `front` is whether the
 // attacker comes at its front, where its works count.
 // (And what the day makes of it, dawn.js: 1 with no newer mechanic on.)
+// (Its works: battle.works, the stronger ones of Wars and Fronts Pt.2 where dawn.js set them.)
 const defensivePower = (battle, side, troop, front = true) =>
-  troop.strength * TROOP_DEFENCE[troop.kind] * (!front ? 1 : troop.dug ? DUG_IN_DEFENCE : 1 + troop.dig)
+  troop.strength * TROOP_DEFENCE[troop.kind] * (!front ? 1 : troop.dug ? (battle.works ? battle.works.defence : DUG_IN_DEFENCE) : 1 + troop.dig)
   * battle.quality[side] * battle.edge[side].power * troop.supply * (troop.pocket ? POCKET_DEFENCE : 1) * troop.guard;
 // And in attack.
 const offensivePower = (battle, side, troop) =>
@@ -261,6 +262,8 @@ export const stepForward = (battle, paceKm, pace) => {
       const aheadX = troop.x + troop.gx * entry.radius;
       const aheadY = troop.y + troop.gy * entry.radius;
       let defence = 0;
+      // How much of it comes from troops in their works (battle.works: dawn.js), for what the assault costs.
+      let entrenched = 0;
       const sparing = battle.spared[side];
       eachNear(standing[1 - side], aheadX, aheadY, (enemy) => {
         // A besieged place is not assaulted: its troops are in no fight they
@@ -272,7 +275,9 @@ export const stepForward = (battle, paceKm, pace) => {
         const weight = kernel(Math.sqrt(dx * dx + dy * dy), reach);
         if (!(weight > 0)) return;
         readDefender(battle, 1 - side, enemy, stepping[side], claims.moment);
-        defence += defenceAgainst(battle, 1 - side, enemy, troop.x, troop.y) * weight;
+        const part = defenceAgainst(battle, 1 - side, enemy, troop.x, troop.y) * weight;
+        defence += part;
+        if (battle.works && (enemy.dug || enemy.dig > 0)) entrenched += part * (enemy.dug ? 1 : enemy.dig < battle.works.most ? enemy.dig / battle.works.most : 1);
       });
       const raw = defence;
       if (inPlay(aheadX, aheadY)) defence *= terrainDefence(arena.speed[Math.floor(aheadY) * field.cols + Math.floor(aheadX)]);
@@ -305,7 +310,9 @@ export const stepForward = (battle, paceKm, pace) => {
         troop.fought = true;
       }
       if (raw > 0 && attack > 0) {
-        troop.loss += troop.strength * share * ATTACK_COST * clampRatio(Math.sqrt(defence / attack));
+        // (An assault on troops in their works costs the more: constants.js STRONG_WORKS.assault.)
+        const works = battle.works && raw > 0 ? 1 + (battle.works.assault - 1) * (entrenched < raw ? entrenched / raw : 1) : 1;
+        troop.loss += troop.strength * share * ATTACK_COST * clampRatio(Math.sqrt(defence / attack)) * works;
         troop.fought = true;
         const theirs = share * clampRatio(Math.sqrt(attack / defence));
         eachNear(standing[1 - side], aheadX, aheadY, (enemy) => {
@@ -401,8 +408,13 @@ export const closeDay = (battle) => {
       // off wastes: slowly in a besieged place or in squeezed ground, where
       // something still gets through, fast in a pocket.
       const wasting = troop.besieged ? SIEGE_LOSS : troop.sealed ? POCKET_LOSS : troop.squeezed ? SQUEEZED_LOSS : 0;
-      // (And what the day's cold or heat takes from a troop short of supply: weather.js.)
-      troop.strength -= troop.loss * (troop.dug ? DUG_IN_LOSS : 1) + wasting + (battle.sky ? weatherLoss(battle.sky, troop) : 0);
+      // (And what the day's cold or heat takes: from a troop short of supply, and
+      // with attrition on from every troop out in it: weather.js weatherLoss.
+      // Being cut off and the weather are its attrition, counted: dawn.js.)
+      const weathered = battle.sky ? weatherLoss(battle.sky, troop, battle.exposure ? battle.exposure[side] : null) : 0;
+      const wasted = wasting + weathered;
+      if (battle.lostBy && wasted > 0) battle.lostBy[side].set(troop.owner, (battle.lostBy[side].get(troop.owner) ?? 0) + (wasted < troop.strength ? wasted : troop.strength));
+      troop.strength -= troop.loss * (troop.dug ? (battle.works ? battle.works.loss : DUG_IN_LOSS) : 1) + wasted;
       // What is left of a cut-off troop, with the other side upon it, gives up.
       if (troop.pocket && !troop.besieged && troop.engaged && troop.strength < GIVES_UP_UNDER) troop.strength = 0;
     }
@@ -413,7 +425,10 @@ export const closeDay = (battle) => {
         const busy = troop.order !== null && !troop.order.done;
         if (troop.dug) troop.dig = 1;
         else if (troop.movedKm > DIG_LOST_KM) troop.dig = 0;
-        else if (!busy && troop.dig < DIG_MAX_HOLD) troop.dig = Math.min(DIG_MAX_HOLD, troop.dig + DIG_PER_DAY_HOLD);
+        else if (!busy && troop.dig < (battle.works ? battle.works.most : DIG_MAX_HOLD)) {
+          const most = battle.works ? battle.works.most : DIG_MAX_HOLD;
+          troop.dig = Math.min(most, troop.dig + (battle.works ? battle.works.perDay : DIG_PER_DAY_HOLD));
+        }
         // Reserves reach every troop that is not cut off.
         if (!troop.pocket && troop.strength < 100 && battle.pool[side] > 0) {
           // (And, weighing countries' own military figures, only with men its country still has: dawn.js dusk.)

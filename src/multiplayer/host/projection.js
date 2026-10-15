@@ -72,6 +72,8 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
   "warWeariness",
   // And what each country has left to fight with (runtime/warResources.js).
   "warResources",
+  // And what attrition has cost each (runtime/attrition.js).
+  "attrition",
   // How the scenario's wars are fought (runtime/warSettings.js): the scenario's own rules.
   "warSettings",
   // What the scenario draws on its map for war (runtime/warGeography.js): there for all to see.

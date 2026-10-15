@@ -53,6 +53,8 @@ import { fundingPerHead, treasuryFactor } from "./militaryFunding.js";
 export const RESOURCES_FULL = 100;
 export const RESOURCES_ADVANCE_A_MONTH = 60;
 export const RESOURCES_FORTIFY_A_DAY = 0.2;
+// And keeping armies out in harsh weather (fuel, winter clothing, fodder): this a month with all of them in it.
+export const RESOURCES_HARSH_A_MONTH = 20;
 export const RESOURCES_REFILL_A_MONTH = 15;
 export const RESOURCES_RATE_LEAST = 0.25;
 export const RESOURCES_RATE_MOST = 2;
@@ -143,11 +145,13 @@ export const buildingDaysIn = (line, from, to) => {
 //   warDays      the days of the period it had formations at war
 //   fortifying   days of building, summed over its lines being built
 //   rate         how fast its economy refills them (economyRate): 1 an ordinary country's
-export const resourcesAfter = ({ before = RESOURCES_FULL, days = 0, advanced = 0, warDays = 0, fortifying = 0, rate = 1 } = {}) => {
+//   harsh        the share of its armies' days out spent in harsh weather (fronts/attrition.js), 0 to 1
+export const resourcesAfter = ({ before = RESOURCES_FULL, days = 0, advanced = 0, warDays = 0, fortifying = 0, rate = 1, harsh = 0 } = {}) => {
   const had = within(figure(before), 0, RESOURCES_FULL);
   const refill = (RESOURCES_REFILL_A_MONTH * Math.max(0, figure(rate)) * Math.max(0, figure(days))) / 30;
   const spent = (RESOURCES_ADVANCE_A_MONTH * within(figure(advanced), 0, 1) * Math.max(0, figure(warDays))) / 30
-    + RESOURCES_FORTIFY_A_DAY * Math.max(0, figure(fortifying));
+    + RESOURCES_FORTIFY_A_DAY * Math.max(0, figure(fortifying))
+    + (RESOURCES_HARSH_A_MONTH * within(figure(harsh), 0, 1) * Math.max(0, figure(warDays))) / 30;
   return within(had + refill - spent, 0, RESOURCES_FULL);
 };
 
@@ -159,7 +163,8 @@ export const resourcesAfter = ({ before = RESOURCES_FULL, days = 0, advanced = 0
 //                    (formation-days advancing, formation-days at war, days at war: fronts/dawn.js)
 //   fortifications   world.fortifications as the turn ends
 //   rateOf           (name) => how fast its economy refills them (economyRate); 1 where it is not given
-export const withTurnResources = (kept, { days = 0, toDate = "", effort = [], fortifications = [], rateOf = null } = {}) => {
+//   attrition        what attrition counted (fronts/attrition.js): its armies' days in harsh weather
+export const withTurnResources = (kept, { days = 0, toDate = "", effort = [], fortifications = [], rateOf = null, attrition = [] } = {}) => {
   const before = normalizeWarResources(kept);
   const names = new Map(before.map((entry) => [fold(entry.country), entry.country]));
   const effortOf = new Map();
@@ -169,6 +174,7 @@ export const withTurnResources = (kept, { days = 0, toDate = "", effort = [], fo
     if (!names.has(key)) names.set(key, clean(entry.name));
     effortOf.set(key, entry);
   }
+  const harshOf = new Map(list(attrition).filter((entry) => figure(entry?.troopDays) > 0).map((entry) => [fold(entry.name), figure(entry.harshDays) / figure(entry.troopDays)]));
   const span = Math.max(0, Math.round(figure(days)));
   const from = toDate ? addGameDays(toDate, -span) : "";
   const building = new Map();
@@ -191,6 +197,7 @@ export const withTurnResources = (kept, { days = 0, toDate = "", effort = [], fo
       advanced: troopDays > 0 ? figure(done?.advanced) / troopDays : 0,
       warDays: figure(done?.warDays),
       fortifying: building.get(key) ?? 0,
+      harsh: harshOf.get(key) ?? 0,
       rate: typeof rateOf === "function" && Number.isFinite(Number(rateOf(country))) ? Number(rateOf(country)) : 1,
     });
     if (value < RESOURCES_FULL) next.push({ country, value });

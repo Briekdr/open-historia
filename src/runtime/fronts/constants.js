@@ -296,6 +296,22 @@ export const FATIGUE_STILL_KM = 2;
 // it so troops that are not advancing also get a small strength boost" (the
 // owner, 2026-10-14). With the fatigue mechanic (dawn.js).
 export const STILL_EDGE = 0.08;
+// ATTRITION (mechanics.js "attrition"): what the weather and a hard climate
+// take from every troop out in them each day, supplied or not ("make it so
+// strong winters or dangerous weather conditions can directly harm armies",
+// the owner, 2026-10-14): ATTRITION_WEATHER strength a day for each point of
+// cold or heat (a blizzard is 1, frost 0.6, a Siberian winter's ground 1.3
+// more: weather.js, climate.js). A spent troop suffers up to (1 +
+// ATTRITION_TIRED) times that, a dug-in one ATTRITION_DUG of it, and a side
+// short of what it needs (a blockade, its weariness, its war resources spent:
+// handicap.js) up to (1 + ATTRITION_SHORT) times. A day at ATTRITION_HARSH_FROM
+// or worse is a hard day on morale (runtime/warWeariness.js) and on supplies
+// (runtime/warResources.js).
+export const ATTRITION_WEATHER = 0.25;
+export const ATTRITION_TIRED = 1;
+export const ATTRITION_DUG = 0.6;
+export const ATTRITION_SHORT = 1;
+export const ATTRITION_HARSH_FROM = 0.8;
 export const FATIGUE_PUNCH = 0.35;
 export const FATIGUE_GUARD = 0.15;
 export const FATIGUE_LEGS = 0.4;
@@ -711,6 +727,14 @@ export const ADRIFT_DAYS = 2;
 // Thrown out of its works when the ground under it is lost, at this cost.
 export const DUG_IN_DEFENCE = 1.6;
 export const DUG_IN_LOSS = 0.55;
+// Stronger works with the fatigue mechanic on (Wars and Fronts Pt.2: dawn.js
+// sets battle.works): "make dug-in troops even stronger to make always
+// advancing a worse strategic decision" (the owner, 2026-10-14). A troop that
+// holds digs in faster and deeper, one dug in defends harder and loses less,
+// and an assault on troops in their works costs the attacker up to `assault`
+// times its losses (all of the defence dug in; a part of it, that part).
+export const WORKS = Object.freeze({ defence: DUG_IN_DEFENCE, loss: DUG_IN_LOSS, perDay: DIG_PER_DAY_HOLD, most: DIG_MAX_HOLD, assault: 1 });
+export const STRONG_WORKS = Object.freeze({ defence: 2.5, loss: 0.35, perDay: 0.06, most: 0.7, assault: 2.5 });
 export const THROWN_OUT_LOSS = 15;
 
 // Ground to be closed on draws in the nearest troops, whatever they are at: one

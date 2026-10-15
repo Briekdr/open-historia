@@ -32,6 +32,7 @@ import { diffGameDays, parseGameDate } from "../gameDates.js";
 import { hashSeed } from "../unitMotion.js";
 import { climateAt, oddsAt, zoneNeighbours, zoneWeatherOn, zoneWeathersOn, zonesToday } from "./climate.js";
 import { cellAt } from "./ground.js";
+import { ATTRITION_DUG, ATTRITION_SHORT, ATTRITION_TIRED, ATTRITION_WEATHER } from "./constants.js";
 
 export const WEATHER_STATES = Object.freeze(["clear", "rain", "storm", "mud", "snow", "blizzard", "frost", "heat", "fog"]);
 export const SEASONS = Object.freeze(["winter", "spring", "summer", "autumn"]);
@@ -180,12 +181,23 @@ export const skyOver = (run, battle, day) => {
   return battle.sky;
 };
 
-// What a day of weather takes from a troop's strength, by its supply (a troop cut off has none): the day's
-// weather's cold and heat, and its own ground's where a scenario's climate zones say more (climate.js).
-export const weatherLoss = (sky, troop) => {
+// How harsh a troop's day is: the day's weather's cold and heat, and its own
+// ground's where a scenario's climate zones say more (climate.js).
+export const harshnessOf = (sky, troop) => (sky ? sky.effects.cold + sky.effects.heat + (troop.climate ? troop.climate.cold + troop.climate.heat : 0) : 0);
+
+// What a day of weather takes from a troop's strength: by its supply (a troop
+// cut off has none), and with attrition on (`exposure`: { short }, the side's
+// shortage) from every troop out in it, supplied or not: the more so tired and
+// short, the less so dug in (constants.js ATTRITION_*).
+export const weatherLoss = (sky, troop, exposure = null) => {
   if (!sky) return 0;
-  const harsh = sky.effects.cold + sky.effects.heat + (troop.climate ? troop.climate.cold + troop.climate.heat : 0);
+  const harsh = harshnessOf(sky, troop);
   if (!(harsh > 0)) return 0;
   const short = troop.pocket ? 1 : 1 - troop.supply;
-  return short > 0 ? harsh * WEATHER_LOSS * short : 0;
+  const unsupplied = short > 0 ? harsh * WEATHER_LOSS * short : 0;
+  if (!exposure) return unsupplied;
+  const tired = troop.fatigue > 0 ? (troop.fatigue < 1 ? troop.fatigue : 1) : 0;
+  const lacking = exposure.short > 0 ? (exposure.short < 1 ? exposure.short : 1) : 0;
+  const exposed = harsh * ATTRITION_WEATHER * (1 + ATTRITION_TIRED * tired) * (troop.dug ? ATTRITION_DUG : 1);
+  return (unsupplied + exposed) * (1 + ATTRITION_SHORT * lacking);
 };

@@ -199,7 +199,9 @@ export const setHandicap = (battle, run) => {
   const edges = handicapOf({ difficulty: run.input?.difficulty, sides, players: run.input?.players }).edges;
   // And what a side is short of because its countries are cut off from the
   // sea (handicap.js shortEdge): the same four figures, weighed down.
-  battle.edge = edges.map((edge, side) => shortEdge(edge, sideShortage(sides[side], run.shortageOf, run.strengthOf)));
+  // (Kept, for what the weather takes from a side short of what it needs: weather.js weatherLoss.)
+  battle.short = [0, 1].map((side) => sideShortage(sides[side], run.shortageOf, run.strengthOf));
+  battle.edge = edges.map((edge, side) => shortEdge(edge, battle.short[side]));
   // Weighing countries' own military figures (military.js), what each member's
   // troops fight with on land, against what every country had before: by its
   // place in its side's list, as a troop's owner is. Not kept: read again with the edge.

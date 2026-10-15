@@ -27,6 +27,8 @@ import PoliticalOverview from "./PoliticalOverview.jsx";
 import { buildRanking, openingMetric, rankingMetricsFor, regionCountsOf } from "./countryRanking.js";
 import { MANPOWER_PERCENT, militaryProfile } from "../../runtime/militaryPower.js";
 import { RESOURCES_SHORT_FROM } from "../../runtime/warResources.js";
+import { attritionOf } from "../../runtime/attrition.js";
+import { warSettingsOf } from "../../runtime/warSettings.js";
 import { PeaceControls, ReparationsNote } from "./warAndPeace.jsx";
 import { institutionPortfolioForPolity } from "../../runtime/institutionLifecycleCore.js";
 import { TURN_RUNNING_NOTE, isSimulationBusy } from "../AI/simulationStatus.js";
@@ -440,6 +442,8 @@ const MilitaryCard = ({ world, country, style }) => {
     }, [world, country]);
     if (!profile) return null;
     const { figures, own } = profile;
+    // What attrition has cost it in its war (runtime/attrition.js), where the scenario counts it.
+    const worn = warSettingsOf(world).mechanics.attrition ? attritionOf(world?.attrition, country) : null;
     const power = profile.power === null ? "—" : (Math.round(profile.power * 10) / 10).toLocaleString();
     return (
         <div style={{ ...cardStyle, ...style }}>
@@ -472,6 +476,11 @@ const MilitaryCard = ({ world, country, style }) => {
                     ? "In colour: its own figures. In grey: what every country has. The mark on a bar is where every country stands."
                     : "This scenario does not count countries' own military figures: every country fights with the same."}
             </div>
+            {worn && (
+                <div data-oh-attrition="" style={{ color: "rgba(255,255,255,0.38)", fontSize: "0.62rem", lineHeight: 1.4, marginTop: "0.3rem" }}>
+                    {`Lost to attrition, the weather and being cut off: ${worn.lastMen.toLocaleString()} men last turn, ${worn.warMen.toLocaleString()} in this war.`}
+                </div>
+            )}
             {profile.supplied && profile.refill !== null && (
                 <div data-oh-war-resources-refill="" style={{ color: "rgba(255,255,255,0.38)", fontSize: "0.62rem", lineHeight: 1.4, marginTop: "0.3rem" }}>
                     {`Its economy refills its war resources by about ${profile.refill} a month, less under a blockade.`}

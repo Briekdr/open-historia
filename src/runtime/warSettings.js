@@ -5,9 +5,10 @@
 //   mechanics       which of the front engine's newer mechanics are on, each
 //                   true or false: troop fatigue, seasons and weather, terrain,
 //                   fortified lines, mustering, countries' military stats, air
-//                   in battles, and supplies (war resources spent by advancing
-//                   and building: warResources.js). One the scenario says
-//                   nothing of is ON.
+//                   in battles, supplies (war resources spent by advancing
+//                   and building: warResources.js), and attrition (harsh
+//                   weather wearing armies down: attrition.js). One the
+//                   scenario says nothing of is ON.
 //   era             the era its wars are fought in, 0 to 3 (before 1500, 1500
 //                   to 1850, 1850 to 1945, from 1945), or null to read it off
 //                   the date (unitMotion.js eraOf). A calendar of its own
@@ -22,7 +23,7 @@
 //
 // A country may say otherwise for itself: its military stats (militaryStats.js).
 
-export const WAR_MECHANICS = Object.freeze(["fatigue", "weather", "terrain", "walls", "muster", "military", "air", "supply"]);
+export const WAR_MECHANICS = Object.freeze(["fatigue", "weather", "terrain", "walls", "muster", "military", "air", "supply", "attrition"]);
 export const ERA_LABELS = Object.freeze(["Before 1500", "1500 to 1850", "1850 to 1945", "From 1945"]);
 export const MEN_PER_COUNTER_MOST = 1000000;
 export const MUSTER_DAYS_MOST = 3650;

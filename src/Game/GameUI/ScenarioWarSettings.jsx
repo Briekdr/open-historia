@@ -33,6 +33,7 @@ const MECHANIC_LABELS = Object.freeze({
   military: "Countries' military figures",
   air: "Air in battles",
   supply: "Supplies",
+  attrition: "Attrition",
 });
 const MECHANIC_HINTS = Object.freeze({
   fatigue: "Troops tire as they march and fight, and recover at rest; a day after they hold their ground, they fight a little harder.",
@@ -43,6 +44,7 @@ const MECHANIC_HINTS = Object.freeze({
   military: "Each country's own quality, technology, arms, unit mix and men a counter, from the map editor's Countries panel.",
   air: "Air wings take part in the fighting below them.",
   supply: "Advancing, attacking and building fortified lines use up a country's war resources, which its funding refills; an army low on them fights worse.",
+  attrition: "Harsh weather and a hard winter wear down every army out in them, the more so tired, short of supply or cut off; what it costs weighs heavily on a country's will to fight.",
 });
 
 const inputStyle = {

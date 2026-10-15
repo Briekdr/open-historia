@@ -8,6 +8,7 @@ import { normalizeCallsToArms } from "./alliances.js";
 import { normalizePeaceOffers, normalizePeaceTreaties, normalizeReparations } from "./peaceTerms.js";
 import { normalizeWarWeariness } from "./warWeariness.js";
 import { normalizeWarResources } from "./warResources.js";
+import { normalizeAttrition } from "./attrition.js";
 import { eraSettingOf, normalizeWarSettings } from "./warSettings.js";
 import { normalizeClimateZones, normalizeFortifications, normalizeFreezingRegions, normalizeTerrainAreas, normalizeZoneWeather } from "./warGeography.js";
 import { normalizeMilitaryShift, normalizeMilitaryStats, shiftedMilitary } from "./militaryStats.js";
@@ -282,6 +283,8 @@ export const WORLD_DEFAULTS = {
   // What each country has left to fight with, 0 to 100 (warResources.js): spent
   // by advancing and building fortified lines, refilled by its funding.
   warResources: [],
+  // What the weather and being cut off have cost each country at war (attrition.js).
+  attrition: [],
   // How the scenario's wars are fought (warSettings.js): null where it says nothing.
   warSettings: null,
   // What the scenario draws on its map for war (warGeography.js): ground harder
@@ -4478,6 +4481,7 @@ export const normalizeWorldState = (world) => {
     blockades: normalizeBlockades(nextWorld.blockades),
     warWeariness: normalizeWarWeariness(nextWorld.warWeariness),
     warResources: normalizeWarResources(nextWorld.warResources),
+    attrition: normalizeAttrition(nextWorld.attrition),
     // How the scenario's wars are fought (warSettings.js): null where it says nothing.
     warSettings: normalizeWarSettings(nextWorld.warSettings),
     // What it draws on its map for war (warGeography.js).

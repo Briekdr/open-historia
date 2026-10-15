@@ -1292,6 +1292,8 @@ export const runTurnFronts = async ({
     manpower: asArray(result.manpower),
     // How much each country's formations advanced, which its war resources pay for (runtime/warResources.js).
     effort: asArray(result.effort),
+    // What the weather and being cut off took from each country, besides the fighting (runtime/fronts/attrition.js).
+    attrition: asArray(result.attrition),
     // What the fighting did to the walls: their breaches and wear (runtime/fronts/walls.js).
     fortifications: asArray(result.fortifications),
     // The water frozen this turn (runtime/fronts/climate.js): for the map to show as ice.

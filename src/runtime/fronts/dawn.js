@@ -16,14 +16,15 @@
 //
 // Only + - * / and comparisons.
 
-import { STILL_EDGE } from "./constants.js";
+import { STILL_EDGE, STRONG_WORKS } from "./constants.js";
 import { guardLeft, legsLeft, punchLeft, tireDay } from "./fatigue.js";
 import { mendBudget } from "./manpower.js";
 import { anyMechanic } from "./mechanics.js";
 import { isLive } from "./troops.js";
 import { skyOfWings, wearWings } from "./air.js";
 import { keptWith, raiseWalls } from "./walls.js";
-import { skyOver } from "./weather.js";
+import { harshnessOf, skyOver } from "./weather.js";
+import { ATTRITION_HARSH_FROM } from "./constants.js";
 import { climateAt } from "./climate.js";
 import { cellAt } from "./ground.js";
 
@@ -51,6 +52,17 @@ export const dawn = (run, battle, day) => {
   const blows = sky ? sky.effects.attack : 1;
   // Who holds the sky over it, and what that does to each side (air.js).
   const air = run.mech.air ? skyOfWings(run, battle, day) : null;
+  // With the fatigue mechanic, troops dig in deeper and faster and their works hold better (constants.js STRONG_WORKS).
+  battle.works = run.mech.fatigue ? STRONG_WORKS : null;
+  // Attrition (mechanics.js "attrition"): what the weather takes from every troop out in it (combat.js closeDay),
+  // and each country's count of it this run: its formation-days out, those in harsh weather, and what it lost.
+  const counting = run.mech.attrition === true;
+  if (counting && !battle.outBy) {
+    battle.outBy = [new Map(), new Map()];
+    battle.harshBy = [new Map(), new Map()];
+    battle.lostBy = [new Map(), new Map()];
+  }
+  battle.exposure = counting ? [{ short: battle.short?.[0] ?? 0 }, { short: battle.short?.[1] ?? 0 }] : null;
   for (const side of [0, 1]) {
     const punch = steered(run, "punch", side);
     const guard = steered(run, "guard", side);
@@ -64,6 +76,10 @@ export const dawn = (run, battle, day) => {
       // What a scenario's climate zones make of its own ground today (climate.js).
       troop.climate = sky && battle.climateToday ? climateAt(battle.climateToday, cellAt(battle.field, troop.x, troop.y)) : null;
       const local = troop.climate;
+      if (counting) {
+        battle.outBy[side].set(troop.owner, (battle.outBy[side].get(troop.owner) ?? 0) + 1);
+        if (sky && harshnessOf(sky, troop) >= ATTRITION_HARSH_FROM) battle.harshBy[side].set(troop.owner, (battle.harshBy[side].get(troop.owner) ?? 0) + 1);
+      }
       // A troop that did not advance yesterday is a little stronger today (constants.js STILL_EDGE).
       const still = run.mech.fatigue && troop.still === true ? 1 + STILL_EDGE : 1;
       troop.punch = (tired ? punch * punchLeft(troop.fatigue) : punch) * worth * blows * (air ? air.punch[side] : 1) * (local ? local.attack : 1) * still;

@@ -388,7 +388,7 @@ export const fight = (scenario, staffs = [null, null]) => {
       units: wings,
       map: { ...world.map, ...((scenario.terrain ?? []).length > 0 ? { terrain: { key: `terrain-${scenario.seed}`, areas: scenario.terrain } } : {}) },
       // Every newer mechanic of the engine's (Wars and Fronts Pt.2).
-      mechanics: { fatigue: true, weather: true, terrain: true, walls: true, muster: true, military: true, air: true },
+      mechanics: { fatigue: true, weather: true, terrain: true, walls: true, muster: true, military: true, air: true, supply: true, attrition: true },
       militaryOf: (name) => militaryOf.get(fold(name)) ?? null,
       musterOf: (name) => musterOf.get(fold(name)) ?? null,
       gameBegan: `${String(scenario.year - 1).padStart(4, "0")}-01-01`,

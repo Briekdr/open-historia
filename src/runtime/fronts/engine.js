@@ -23,6 +23,7 @@
 // arena not kept) it answers { needsRegions: true } having changed nothing,
 // and is run again in full with them.
 
+import { attritionReport } from "./attrition.js";
 import { addGameDays, compareGameDates, diffGameDays, gameDateYear } from "../gameDates.js";
 import { waterTypeIds } from "../regionTypes.js";
 import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf, yearInEra } from "../unitMotion.js";
@@ -2163,6 +2164,8 @@ const snapshot = (run) => {
     manpower: manpowerReport(run),
     // How much each country's formations advanced, which its war resources pay for (runtime/warResources.js).
     ...(run.mech.supply ? { effort: [...run.effort.values()].map(({ name, advanced, troopDays, warDays }) => ({ name, advanced, troopDays, warDays })) } : {}),
+    // What the weather and being cut off took from each country, besides the fighting (attrition.js).
+    ...(run.mech.attrition ? { attrition: attritionReport(run, day) } : {}),
     // What the fighting did to the scenario's walls: their breaches and wear (walls.js).
     ...(run.lines && run.lines.some((line) => line.changed) ? { fortifications: linesChanged(run) } : {}),
     stats: { days: day, steps: run.steps },
