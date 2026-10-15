@@ -52,7 +52,19 @@ Each plan is fought out for six days on a COPY of the battle with the real engin
 
 **In the lab game** (`mind/trained.js`, `plannerWeights.js`): the sides nobody plays are led by it, with champion 1's weights, in the page only and unless `localStorage.setItem("oh:strategyNet", "0")`. A war's fronts then run a day at a time. On the largest frame (251 x 251 cells) a month costs about 17 s against 2.6 s for the scripted staff.
 
-**What it does not do yet**: it commands the land battle (every troop, the walls it breaches, what the air and the weather do to it); fleets, blockades and building fortifications are decided outside a battlefield and it has no say in them.
+**Where the ladder stopped** (2026-10-15, 10:20): eight trials after champion 1 none beat it (7, 9, 8, 8, 9, 8, 9 and 3 of 16), and the generation-35 challenger, fought against it at length (`headtohead.mjs`, 40 duels), won 18 and lost 15 (+19.7 a duel, SE 13.8): close to it, not consistently better. The weights have converged for this search.
+
+**Champion 1 with the search as shipped**, 40 fair duels each it never trained on (`runs/planner/eval-champion1-40.json`):
+
+| against | margin a duel | won / lost |
+|---|---|---|
+| always advancing | +136.2 (SE 25.0) | 36 / 4 |
+| the scripted staff | +126.8 (SE 16.3) | 37 / 3 |
+| always digging in | +138.7 (SE 19.6) | 32 / 7 |
+| every troop for a town | +197.4 (SE 18.2) | 40 / 0 |
+| every troop down one route to the capital | +197.7 (SE 18.6) | 39 / 1 |
+
+**Beyond the land battle**: an admiral (`runtime/naval/admiral.js`) chooses the postures of the fleets of countries nobody plays by fighting the period's war at sea out with each (blockading a coast nobody defends, keeping an outmatched fleet out of the battle it would lose), and an engineer (`runtime/fronts/engineer.js`) has an outmatched country build a fortified line behind its front, by the war room's own op, on its own ground. Both run where the staff that looks ahead leads. Air wings are not commanded: they support the nearest battle by themselves, and the staff weighs what they do.
 
 ## 1. The reward (as of 2026-10-14)
 
