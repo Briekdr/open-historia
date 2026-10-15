@@ -326,6 +326,7 @@ export const createWarGeographyLayers = ({ getZoom, selectedId }) => {
 
   const terrainLayer = new VectorLayer({
     source: sources.terrain,
+    visible: false,
     wrapX: false,
     updateWhileInteracting: false,
     updateWhileAnimating: false,
@@ -379,10 +380,13 @@ export const createWarGeographyLayers = ({ getZoom, selectedId }) => {
   });
   hatchLayer.setZIndex(11);
 
-  // The Layers panel turns the zones' colours and outlines on and off as one.
-  // The colours stay off while there is no zone, so an old picture can never
-  // linger on the map.
-  let climateShown = true;
+  // Terrain and climate zones are on the map only while the designer works on
+  // them ("when your not in the climate or terrain menu, you dont see the
+  // climate or the terrain to keep the map from clutter", the owner,
+  // 2026-10-14): MapEditor.jsx says when, through showWorkingOn. The zones'
+  // colours and outlines go on and off as one; the colours stay off while there
+  // is no zone, so an old picture can never linger on the map.
+  let climateShown = false;
   const showClimate = () => {
     climateLayer.setVisible(climateShown);
     blendLayer.setVisible(climateShown && blendSource.hasZones());
@@ -393,19 +397,20 @@ export const createWarGeographyLayers = ({ getZoom, selectedId }) => {
   return {
     sources,
     layers: [blendLayer, hatchLayer, terrainLayer, climateLayer, wallLayer],
-    // Whether a kind of shape is on the map now, or hidden in the Layers panel.
+    // Whether a kind of shape is on the map now: terrain and climate zones while
+    // they are worked on, fortified lines unless hidden in the Layers panel.
     shown: (kind) => shapeLayers[kind]?.getVisible() ?? false,
+    // The Layers panel's switches.
     toggles: {
-      terrain: terrainLayer,
       fortifications: wallLayer,
-      climate: {
-        setVisible: (visible) => {
-          climateShown = Boolean(visible);
-          showClimate();
-        },
-        getVisible: () => climateShown,
-      },
       freezing: hatchLayer,
+    },
+    // What the designer is working on: the War map panel open on the Terrain
+    // or the Climate tab, or that tool picked.
+    showWorkingOn: ({ terrain = false, climate = false } = {}) => {
+      terrainLayer.setVisible(Boolean(terrain));
+      climateShown = Boolean(climate);
+      showClimate();
     },
     setClimateZones: (zones) => {
       blendSource.setZones(zones);

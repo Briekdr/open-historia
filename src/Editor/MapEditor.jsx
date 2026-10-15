@@ -378,6 +378,9 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
   useEffect(() => {
     if (warSelection && !warPickedRow) setWarSelection(null);
   }, [warSelection, warPickedRow]);
+  // Terrain and climate zones are on the map only while the designer works on
+  // them: the War map panel open on their tab, or their tool picked.
+  const workingOnWar = (kind) => d.activeTool === kind || (openPanel === "war" && warTab === kind);
   // Picking one of the war tools opens the War map panel on its tab.
   useEffect(() => {
     if (!isWarTool(d.activeTool)) return;
@@ -1313,6 +1316,8 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
         fortifications={d.fortifications}
         climateZones={d.climateZones}
         freezingRegions={d.freezingRegions}
+        showTerrain={workingOnWar("terrain")}
+        showClimate={workingOnWar("climate")}
         warSelection={warPickedRow ? warSelection : null}
         onWarSelect={pickWarShape}
         onWarShapeCreate={createWarShape}

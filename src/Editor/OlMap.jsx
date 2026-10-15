@@ -514,6 +514,10 @@ const OlMap = ({
   fortifications = NO_SHAPES,
   climateZones = NO_SHAPES,
   freezingRegions = NO_SHAPES,
+  // Whether terrain and climate zones are on the map: only while the designer
+  // works on them (MapEditor.jsx).
+  showTerrain = false,
+  showClimate = false,
   warSelection = null,
   onWarSelect,
   onWarShapeCreate,
@@ -901,8 +905,8 @@ const OlMap = ({
     borderAssistLayerRef.current = borderAssistLayer;
     mapRef.current = map;
     // "features" is every point marker: cities and map features alike. The war
-    // geography's are terrain, fortifications, climate (the zones' colours and
-    // outlines together) and freezing.
+    // geography's are fortifications and freezing; terrain and climate zones
+    // are shown only while they are worked on (showTerrain, showClimate).
     const toggleableLayers = { regions: regionLayer, labels: labelLayer, features: pointLayer, units: unitLayer, groups: groupOutlineLayer, ...war.toggles };
     requestAnimationFrame(() => map.updateSize());
     if (typeof window !== "undefined") window.__editorMap = map;
@@ -2852,6 +2856,9 @@ const OlMap = ({
   useEffect(() => {
     warLayersRef.current?.restyle();
   }, [warSelectedKey]);
+  useEffect(() => {
+    warLayersRef.current?.showWorkingOn({ terrain: showTerrain, climate: showClimate });
+  }, [showTerrain, showClimate]);
 
   // ---- mount/remove editing interactions when the active tool changes ------
   useEffect(() => {
