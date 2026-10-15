@@ -2636,7 +2636,7 @@ const SettingsWorkspace = ({
                     <Toggle label="Hide country labels" enabled={mapSettings.hideCountryLabels} onToggle={() => updateMapSetting("hideCountryLabels", MAP_SETTING_KEYS.hideCountryLabels, !mapSettings.hideCountryLabels)} />
                     <Toggle label="Seasons and weather" enabled={mapSettings.seasonsWeather} onToggle={() => updateMapSetting("seasonsWeather", MAP_SETTING_KEYS.seasonsWeather, !mapSettings.seasonsWeather)} />
                     <div style={settingsHelper}>
-                    On (default): the map is tinted by the season, each battlefield shows its weather, and water that can freeze is marked. Frozen water is drawn as ice either way.
+                    On (default): the map is tinted by the season and shows its weather. Frozen water is drawn as ice either way.
                     </div>
                     {mapSettings.seasonsWeather && (
                         <>

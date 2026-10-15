@@ -2,8 +2,7 @@
 // Water a scenario lets freeze (runtime/warGeography.js freezingRegions) that
 // the last turn left frozen hard enough to cross (world.frozenRegions, written
 // by the turn from fronts/climate.js) is drawn as ice: so that it is seen to be
-// frozen by looking. Water that can freeze and has not is marked only faintly,
-// and only while the map shows the seasons.
+// frozen by looking. Water that can freeze and has not is not marked.
 //
 // The ice is laid over the regions themselves, by id, on the sources the map
 // already draws them from (Nations.jsx): the scenario's own regions, and for a
@@ -18,16 +17,8 @@ import { normalizeFreezingRegions } from "../../runtime/warGeography.js";
 // anew for each filter: the map keeps what it is handed).
 export const regionIdExpression = () => ["to-string", ["coalesce", ["get", "id"], ["get", "GID_1"], ""]];
 
-// The water to draw: { frozen, hint }, each a sorted list of region ids.
-// `hint` is the water that can freeze and is not frozen, and only when asked for.
-export const iceRegionIds = ({ frozen = [], freezing = [], hint = false } = {}) => {
-  const iced = normalizeFreezingRegions(frozen).sort();
-  const known = new Set(iced);
-  return {
-    frozen: iced,
-    hint: hint ? normalizeFreezingRegions(freezing).filter((id) => !known.has(id)).sort() : [],
-  };
-};
+// The water to draw: { frozen }, a sorted list of region ids.
+export const iceRegionIds = ({ frozen = [] } = {}) => ({ frozen: normalizeFreezingRegions(frozen).sort() });
 
 // The filter that picks out the regions with these ids, leaving out those in
 // `except` (another source draws them), or null when that leaves none.
@@ -37,16 +28,16 @@ export const regionIdFilter = (ids, except = []) => {
   return kept.length > 0 ? ["match", regionIdExpression(), kept, true, false] : null;
 };
 
-// The ice's filters on the scenario's own regions and on the repair: for each
-// of `frozen` and `hint`, { own, repair }, a filter or null. `repaired` are the
-// ids the repair source holds.
-export const iceFilters = ({ frozen = [], hint = [], repaired = [] } = {}) => {
+// The ice's filters on the scenario's own regions and on the repair:
+// { frozen: { own, repair } }, each a filter or null. `repaired` are the ids
+// the repair source holds.
+export const iceFilters = ({ frozen = [], repaired = [] } = {}) => {
   const mended = new Set(Array.isArray(repaired) ? repaired.map(String) : []);
   const split = (ids) => ({
     own: regionIdFilter(ids, [...mended]),
     repair: regionIdFilter(ids.filter((id) => mended.has(String(id)))),
   });
-  return { frozen: split(frozen), hint: split(hint) };
+  return { frozen: split(frozen) };
 };
 
 // The ids a GeoJSON feature collection holds, sorted, as the region sources key them.

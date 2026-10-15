@@ -15,7 +15,6 @@ import {
   ICE_TINT,
   WEATHER_DRAWN,
   WEATHER_LAYERS,
-  iceHintPattern,
   iceImageId,
   icePattern,
   weatherImageId,
@@ -130,7 +129,7 @@ test("the speckle gathers into drifts and thins into bare patches, and nothing o
   assert.deepEqual([1, 2].map((layer) => weatherImageId("snow", layer)), ["oh-weather-snow-b", "oh-weather-snow-c"]);
 });
 
-test("ice is a thin pale tint the map shows through, cracked on clear tiles of prime sizes; water that can freeze, faint dashes", () => {
+test("ice is a thin pale tint the map shows through, cracked on clear tiles of prime sizes", () => {
   assert.ok(ICE_LAYERS.length === 2 && ICE_LAYERS.every(isPrime));
   let cracked = 0;
   ICE_LAYERS.forEach((size, layer) => {
@@ -154,9 +153,6 @@ test("ice is a thin pale tint the map shows through, cracked on clear tiles of p
   assert.deepEqual(ICE_LAYERS.map((_, layer) => iceImageId(layer)), ["oh-ice", "oh-ice-b"]);
   const [red, green, blue] = [1, 3, 5].map((at) => parseInt(ICE_TINT.slice(at, at + 2), 16));
   assert.ok(blue >= green && green >= red && red > 200, "the tint is pale blue-white");
-  const hint = iceHintPattern();
-  const dashes = shown(hint);
-  assert.ok(dashes > 0 && dashes < hint.width * hint.height * 0.1, "a few faint dashes, the water showing through");
 });
 
 test("the battlefields drawn are those being fought over whose brief says the day's weather", () => {

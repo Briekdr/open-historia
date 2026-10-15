@@ -1,7 +1,6 @@
 /*! Open Historia — the map's weather and ice, drawn as tiles © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 // The small pictures the map repeats over an area to say what is there
-// (fill-pattern): the cracks in ice, water that can freeze, and each kind of
-// weather. Each is drawn here pixel by
+// (fill-pattern): the cracks in ice and each kind of weather. Each is drawn here pixel by
 // pixel in flat colours, with no fade anywhere, and wraps at its edges, so the
 // tiles meet without a seam.
 //
@@ -31,11 +30,9 @@
 // The three tiles of a weather, and the two of the ice's cracks, each a prime number of pixels across.
 export const WEATHER_LAYERS = Object.freeze([97, 131, 173]);
 export const ICE_LAYERS = Object.freeze([181, 241]);
-export const ICE_HINT_TILE = 32;
 
 // The ice's colour, laid thin under its cracks so the map shows through it.
 export const ICE_TINT = "#dcecf8";
-export const ICE_HINT_IMAGE = "oh-ice-hint";
 // A tile on the map: the first "oh-weather-frost", the others "-b" and "-c" after it.
 const layerSuffix = (layer) => (layer > 0 ? `-${"abc"[layer]}` : "");
 export const weatherImageId = (state, layer = 0) => `oh-weather-${state}${layerSuffix(layer)}`;
@@ -265,14 +262,5 @@ export const icePattern = (layer = 0) => {
     const y = next() * size;
     line(image, x, y, x + 1 + Math.floor(next() * 3), y, GLINT);
   }
-  return image;
-};
-
-const HINT = [206, 230, 248, 220];
-
-// Water that can freeze: short pale dashes, as of floes, staggered row by row.
-export const iceHintPattern = () => {
-  const image = picture(ICE_HINT_TILE);
-  [[3, 6], [19, 6], [11, 22], [27, 22]].forEach(([x, y]) => line(image, x, y, x + 4, y, HINT));
   return image;
 };

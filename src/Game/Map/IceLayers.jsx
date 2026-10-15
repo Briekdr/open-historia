@@ -5,9 +5,10 @@
 // tint the basemap shows through, cracked all over (two tiles of wandering
 // cracks of prime sizes, so they do not repeat to the eye: mapPatterns.js),
 // with a crisp light edge. It is shown whatever the
-// Seasons and weather switch says, since it changes where troops can go; the
-// water that can freeze and has not is marked, faintly, only while the switch
-// is on.
+// Seasons and weather switch says, since it changes where troops can go.
+// Water that can freeze and has not is not marked at all: "frozen water
+// shouldnt be marked as ice either, just show the visuals" (the owner,
+// 2026-10-14).
 //
 // The ice is laid on the regions the map already draws (Nations.jsx), by id:
 // these layers are on the scenario's own regions' source, and on the repair
@@ -17,25 +18,20 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Layer, useMap } from "react-map-gl/maplibre";
-import { MAP_SETTING_KEYS, useMapSettingDefaultOn } from "../../runtime/mapSettings.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
-import { warSettingsOf } from "../../runtime/warSettings.js";
 import { featureIdsOf, iceFilters, iceRegionIds } from "./iceFeatures.js";
-import { ICE_HINT_IMAGE, ICE_LAYERS, ICE_TINT, iceHintPattern, iceImageId, icePattern } from "./mapPatterns.js";
+import { ICE_LAYERS, ICE_TINT, iceImageId, icePattern } from "./mapPatterns.js";
 import { useLayerOrder } from "./useLayerOrder.js";
 
 const OWN = "custom-regions-source";
 const REPAIR = "custom-regions-repair-source";
-const LAYERS = ["ice-hint", "ice-hint-repair", "ice-fill", "ice-fill-repair", "ice-cracks", "ice-cracks-repair", "ice-cracks-b", "ice-cracks-b-repair", "ice-edge", "ice-edge-repair"];
+const LAYERS = ["ice-fill", "ice-fill-repair", "ice-cracks", "ice-cracks-repair", "ice-cracks-b", "ice-cracks-b-repair", "ice-edge", "ice-edge-repair"];
 const NONE = Object.freeze([]);
 const selectFrozen = (world) => (Array.isArray(world?.frozenRegions) ? world.frozenRegions : NONE);
-const selectFreezing = (world) => (Array.isArray(world?.freezingRegions) ? world.freezingRegions : NONE);
-const selectSeasons = (world) => warSettingsOf(world).mechanics.weather === true;
 
 // The ice thin enough for the map under it to show ("the frozen water doesnt show the basemap behind it, it should").
 const ICE_PAINT = { "fill-color": ICE_TINT, "fill-opacity": 0.3 };
 const CRACK_PAINT = ICE_LAYERS.map((_, layer) => ({ "fill-pattern": iceImageId(layer), "fill-opacity": 0.9 }));
-const HINT_PAINT = { "fill-pattern": ICE_HINT_IMAGE, "fill-opacity": 0.6 };
 const EDGE_LAYOUT = { "line-join": "round" };
 const EDGE_PAINT = {
   "line-color": "#eef6ff",
@@ -46,10 +42,7 @@ const EDGE_PAINT = {
 // The pictures the ice is drawn with: put on the map when it has not got
 // them, after every change of style (which takes a map's images away), and the
 // moment the map asks for one it lacks.
-const PICTURES = {
-  ...Object.fromEntries(ICE_LAYERS.map((_, layer) => [iceImageId(layer), () => icePattern(layer)])),
-  [ICE_HINT_IMAGE]: iceHintPattern,
-};
+const PICTURES = Object.fromEntries(ICE_LAYERS.map((_, layer) => [iceImageId(layer), () => icePattern(layer)]));
 const provide = (map, id) => {
   try {
     if (Object.hasOwn(PICTURES, id) && !map.hasImage(id)) map.addImage(id, PICTURES[id](), { pixelRatio: 1 });
@@ -112,17 +105,11 @@ const IceLayers = () => {
   const { current: mapRef } = useMap();
   const map = mapRef?.getMap?.() ?? mapRef ?? null;
   const frozenRaw = useRuntimeState("world", selectFrozen);
-  const freezingRaw = useRuntimeState("world", selectFreezing);
-  const seasons = useRuntimeState("world", selectSeasons);
-  const switchedOn = useMapSettingDefaultOn(MAP_SETTING_KEYS.seasonsWeather);
 
-  const { frozen, hint } = useMemo(
-    () => iceRegionIds({ frozen: frozenRaw, freezing: freezingRaw, hint: switchedOn && seasons }),
-    [frozenRaw, freezingRaw, switchedOn, seasons],
-  );
-  const any = frozen.length > 0 || hint.length > 0;
+  const { frozen } = useMemo(() => iceRegionIds({ frozen: frozenRaw }), [frozenRaw]);
+  const any = frozen.length > 0;
   const repaired = useRepairedIds(map, any);
-  const filters = useMemo(() => iceFilters({ frozen, hint, repaired }), [frozen, hint, repaired]);
+  const filters = useMemo(() => iceFilters({ frozen, repaired }), [frozen, repaired]);
 
   useEffect(() => {
     if (!map || !any) return undefined;
@@ -141,8 +128,6 @@ const IceLayers = () => {
   if (!any) return null;
   return (
     <>
-      {filters.hint.own && <Layer id="ice-hint" type="fill" source={OWN} filter={filters.hint.own} paint={HINT_PAINT} />}
-      {filters.hint.repair && <Layer id="ice-hint-repair" type="fill" source={REPAIR} filter={filters.hint.repair} paint={HINT_PAINT} />}
       {filters.frozen.own && <Layer id="ice-fill" type="fill" source={OWN} filter={filters.frozen.own} paint={ICE_PAINT} />}
       {filters.frozen.repair && <Layer id="ice-fill-repair" type="fill" source={REPAIR} filter={filters.frozen.repair} paint={ICE_PAINT} />}
       {filters.frozen.own && <Layer id="ice-cracks" type="fill" source={OWN} filter={filters.frozen.own} paint={CRACK_PAINT[0]} />}

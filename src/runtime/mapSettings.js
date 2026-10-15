@@ -103,8 +103,8 @@ export const MAP_SETTING_KEYS = {
     // Display, under the door's own switch.
     vaultDoorAlways: "vault_door_every_time",
     // The seasons and the weather on the map (Map/SeasonLayers.jsx,
-    // FrontWeatherLayers.jsx, IceLayers.jsx): the season's tint over the whole
-    // map, each battlefield's weather, and the water that can freeze. ON by
+    // FrontWeatherLayers.jsx): the season's tint over the whole map and the
+    // weather. ON by
     // default — read with getMapSettingDefaultOn (useMapSettingDefaultOn).
     // Frozen water is drawn as ice either way: troops cross it. Settings → Map.
     seasonsWeather: "map_seasons_weather",

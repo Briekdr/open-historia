@@ -13,13 +13,12 @@ import { featureIdsOf, iceFilters, iceRegionIds, regionIdExpression, regionIdFil
 const here = path.dirname(fileURLToPath(import.meta.url));
 const read = (name) => fs.readFileSync(path.join(here, name), "utf8").split("\r\n").join("\n");
 
-test("the frozen water is drawn as ice, and the water that could freeze only when the seasons are shown", () => {
+test("the frozen water is drawn as ice, and the water that could freeze is not marked", () => {
   const world = { frozen: ["lake-ladoga", "gulf-of-finland", " lake-ladoga ", "", null], freezing: ["lake-ladoga", "gulf-of-finland", "lake-onega", "white-sea"] };
-  assert.deepEqual(iceRegionIds({ ...world, hint: true }), { frozen: ["gulf-of-finland", "lake-ladoga"], hint: ["lake-onega", "white-sea"] });
-  assert.deepEqual(iceRegionIds({ ...world, hint: false }), { frozen: ["gulf-of-finland", "lake-ladoga"], hint: [] });
+  assert.deepEqual(iceRegionIds(world), { frozen: ["gulf-of-finland", "lake-ladoga"] });
   // Water the last turn left frozen is ice even where the scenario no longer lists it as freezing.
-  assert.deepEqual(iceRegionIds({ frozen: ["old-lake"], freezing: [], hint: true }), { frozen: ["old-lake"], hint: [] });
-  assert.deepEqual(iceRegionIds(), { frozen: [], hint: [] });
+  assert.deepEqual(iceRegionIds({ frozen: ["old-lake"] }), { frozen: ["old-lake"] });
+  assert.deepEqual(iceRegionIds(), { frozen: [] });
 });
 
 test("the regions are picked out by their id, as the map's region sources key them", () => {
@@ -33,11 +32,9 @@ test("the regions are picked out by their id, as the map's region sources key th
 });
 
 test("a region the map repaired is iced on the repair, where it is drawn, and not on its own broken shape", () => {
-  const filters = iceFilters({ frozen: ["lake", "sea"], hint: ["bay"], repaired: ["sea", "elsewhere"] });
+  const filters = iceFilters({ frozen: ["lake", "sea"], repaired: ["sea", "elsewhere"] });
   assert.deepEqual(filters.frozen.own, ["match", regionIdExpression(), ["lake"], true, false]);
   assert.deepEqual(filters.frozen.repair, ["match", regionIdExpression(), ["sea"], true, false]);
-  assert.deepEqual(filters.hint.own, ["match", regionIdExpression(), ["bay"], true, false]);
-  assert.equal(filters.hint.repair, null);
   assert.deepEqual(iceFilters({ frozen: ["lake"] }).frozen, { own: ["match", regionIdExpression(), ["lake"], true, false], repair: null });
   // The ids the repair source holds, read from its data.
   assert.deepEqual(featureIdsOf({ features: [{ properties: { id: "sea" } }, { properties: { GID_1: "RUS.1_1" } }, { id: 7 }, { properties: { id: "sea" } }, null] }), ["7", "RUS.1_1", "sea"]);
@@ -46,7 +43,7 @@ test("a region the map repaired is iced on the repair, where it is drawn, and no
 
 test("the ice lies over the season's tint and under the borders, on the regions' own sources, and the scene mounts it", () => {
   const index = (id) => MAP_LAYER_ORDER.indexOf(id);
-  const layers = ["ice-hint", "ice-hint-repair", "ice-fill", "ice-fill-repair", "ice-cracks", "ice-cracks-repair", "ice-cracks-b", "ice-cracks-b-repair", "ice-edge", "ice-edge-repair"];
+  const layers = ["ice-fill", "ice-fill-repair", "ice-cracks", "ice-cracks-repair", "ice-cracks-b", "ice-cracks-b-repair", "ice-edge", "ice-edge-repair"];
   for (const id of layers) assert.ok(index(id) >= 0, `${id} is missing from the map's order`);
   assert.deepEqual([...layers].sort((a, b) => index(a) - index(b)), layers);
   for (const id of layers) {
@@ -60,8 +57,9 @@ test("the ice lies over the season's tint and under the borders, on the regions'
   // A thin tint the basemap shows through, and two tiles of cracks over it.
   assert.match(component, /const ICE_PAINT = \{ "fill-color": ICE_TINT, "fill-opacity": 0\.3 \};/);
   assert.match(component, /"fill-pattern": iceImageId\(layer\)/);
-  // The ice is shown whatever the switch says; the water that could freeze only with it.
-  assert.match(component, /hint: switchedOn && seasons/);
+  // The ice is shown whatever the switch says, and water that could freeze is not marked at all.
+  assert.doesNotMatch(component, /hint|freezingRegions|seasonsWeather/);
+  assert.ok(!MAP_LAYER_ORDER.some((id) => /ice-hint/.test(id)));
   assert.match(component, /map\.on\("styleimagemissing", asked\);/);
   assert.match(read("MapScene.jsx"), /<SeasonLayers isGlobe=\{isGlobe\} \/>\s*<IceLayers \/>/);
   // Nations.jsx still keys its regions the way the ice picks them out.
