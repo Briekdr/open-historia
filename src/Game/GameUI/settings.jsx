@@ -963,7 +963,8 @@ const AgentConnectionHelp = () => {
         <p style={{ margin: "0 0 0.5rem" }}>Time skips that reach this entry wait for your own Agent, on your own subscription. No API key is used.</p>
         <p style={{ margin: "0 0 0.5rem" }}>Open a terminal in the Agent folder, start Claude Code, Codex or Antigravity CLI there, signed in with your own account, and type /skip whenever a time skip is waiting. One /skip answers the whole skip.</p>
         <p style={{ margin: "0 0 0.5rem" }}>Your Agent's own model and effort settings are the ones used. The game never starts your Agent and never reads its sign-in.</p>
-        <p style={{ margin: 0 }}>Only time skips use this entry. The advisor, diplomacy and background AI go to the entry below it.</p>
+        <p style={{ margin: "0 0 0.5rem" }}>Only time skips use this entry. The advisor, diplomacy, background AI and stat sheets read outside a skip go to the entry below it.</p>
+        <p style={{ margin: 0 }}>With nothing below it, those don't run. Add an entry below it, such as a free Gemini key, to keep them.</p>
         </div>
         {folder && (
             <div data-no-translate style={{ ...helperStyle, marginTop: "0.5rem", overflowWrap: "anywhere", fontFamily: "monospace" }}>{folder}</div>
