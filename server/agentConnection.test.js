@@ -279,11 +279,12 @@ describe("Agent MCP server", () => {
     assert.match(prompt, /What happens next in 1914\?/);
 
     const answer = '{"events":[{"title":"The guns of August"}]}';
-    assert.deepEqual(await client.tool("answer_request", { id: asked.id, text: answer }), { ok: true });
+    assert.equal((await client.tool("answer_request", { id: asked.id, text: answer })).ok, true);
 
     const polled = await side.poll(asked.id);
     assert.equal(polled.state, "answered");
     assert.equal(polled.answer, answer);
+    assert.match((await client.tool("read_request", { id: asked.id })).refused ?? "", /not waiting/);
     assert.equal(existsSync(read.promptFile), false);
 
     // A second answer to the same request is refused.
@@ -300,7 +301,7 @@ describe("Agent MCP server", () => {
     const asked = await side.ask("skip-1", "review", "Review the turn.");
     const read = await client.tool("read_request", { id: asked.id });
     writeFileSync(read.answerFile, "{\"ok\":true}");
-    assert.deepEqual(await client.tool("answer_request", { id: asked.id }), { ok: true });
+    assert.equal((await client.tool("answer_request", { id: asked.id })).ok, true);
     assert.equal((await side.poll(asked.id)).answer, "{\"ok\":true}");
   });
 

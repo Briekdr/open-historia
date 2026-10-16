@@ -61,7 +61,10 @@ The game is reached through its MCP server, \`${AGENT_MCP_SERVER_NAME}\`, which 
 - \`lookup\`: asks the game one of those lookup functions (a region's
   neighbours, the exact name of a power, a war's ledger) while you answer.
 - \`answer_request\`: hands the answer to the game. It is the only way an answer
-  reaches the game.
+  reaches the game. It means delivered, not accepted: the game checks every
+  answer itself. If it refuses one, it asks once more, as a new request with
+  the reason in the prompt; if it refuses that too, it gives up and tells the
+  player. So never tell the player an answer was accepted.
 
 ## Rules
 

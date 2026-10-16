@@ -13,35 +13,41 @@ import { agentClient, openAgentFolder } from "../AI/agentConnection.js";
 import { AGENT_KINDS, agentHasEntryBelow } from "../AI/providerConfig.js";
 import { REQUEST_AGENT, requestActivity } from "../AI/requestActivity.js";
 
+// One short line each, at the top of the screen where the game's other notices
+// are (fallbackSwitchNotice.jsx), so it never covers the map.
 const WAITING_TEXTS = {
-  advisor: "Your advisor is waiting for your Agent. Type /answer in your Claude Code, Codex or Antigravity CLI.",
-  diplomacy: "A reply to your message is waiting for your Agent. Type /answer in your Claude Code, Codex or Antigravity CLI.",
-  gameMaster: "Your Game Master command is waiting for your Agent. Type /answer in your Claude Code, Codex or Antigravity CLI.",
-  interactive: "Your interactive event is waiting for your Agent. Type /answer in your Claude Code, Codex or Antigravity CLI.",
-  skip: "Your time skip's follow-up is waiting for your Agent. Type /answer in your Claude Code, Codex or Antigravity CLI.",
+  advisor: "Your advisor's reply is waiting for your Agent: type /answer",
+  diplomacy: "A diplomatic reply is waiting for your Agent: type /answer",
+  gameMaster: "Your Game Master command is waiting for your Agent: type /answer",
+  interactive: "Your interactive event is waiting for your Agent: type /answer",
+  skip: "Your time skip's last step is waiting for your Agent: type /answer",
 };
 
 const noticeStyle = {
   position: "fixed",
-  bottom: "5.5rem",
+  top: "4.25rem",
   left: "50%",
   transform: "translateX(-50%)",
   zIndex: 9999,
   display: "flex",
-  flexDirection: "column",
-  gap: "0.45rem",
-  maxWidth: "min(34rem, calc(100vw - 2rem))",
-  padding: "0.6rem 0.8rem",
+  alignItems: "center",
+  flexWrap: "wrap",
+  gap: "0.4rem 0.6rem",
+  maxWidth: "min(40rem, calc(100vw - 2rem))",
+  padding: "0.45rem 0.7rem",
   borderRadius: "12px",
-  border: "1px solid rgba(251,191,36,0.35)",
+  border: "1px solid rgba(251,191,36,0.32)",
   backgroundColor: "rgba(16,21,24,0.96)",
   boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
   color: "#fef3c7",
   fontFamily: "sans-serif",
-  fontSize: "0.76rem",
-  lineHeight: 1.45,
+  fontSize: "0.74rem",
+  lineHeight: 1.4,
   pointerEvents: "auto",
 };
+
+// As the game's other top notices sit on a phone: below the game-menu button.
+const phoneNoticeStyle = { top: "4.75rem", width: "max-content" };
 
 export const AGENT_BUTTON_STYLE = {
   background: "rgba(255,255,255,0.08)",
@@ -49,8 +55,9 @@ export const AGENT_BUTTON_STYLE = {
   borderRadius: "8px",
   color: "white",
   cursor: "pointer",
-  fontSize: "0.72rem",
-  padding: "0.26rem 0.7rem",
+  fontSize: "0.7rem",
+  padding: "0.2rem 0.6rem",
+  whiteSpace: "nowrap",
 };
 
 // Read as one string so the store's snapshot stays the same while nothing changes.
@@ -66,10 +73,12 @@ export const AgentWaitingNotice = () => {
   if (!kinds.length) return null;
   const canPassOn = agentHasEntryBelow();
   return (
-    <div role="status" aria-live="polite" style={{ ...noticeStyle, ...(isMobile ? { width: "max-content" } : null) }}>
-      {kinds.map((kind) => <span key={kind}>{WAITING_TEXTS[kind]}</span>)}
-      <span style={{ color: "rgba(254,243,199,0.7)" }}>Your Agent writes the reply once you do.</span>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+    <div role="status" aria-live="polite" style={{ ...noticeStyle, ...(isMobile ? phoneNoticeStyle : null) }}>
+      <span aria-hidden="true" style={{ color: "#fbbf24", fontWeight: 800 }}>⏳</span>
+      <span style={{ display: "flex", flexDirection: "column", flex: "1 1 14rem", minWidth: 0 }}>
+        {kinds.map((kind) => <span key={kind}>{WAITING_TEXTS[kind]}</span>)}
+      </span>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
         <button type="button" className="oh-tap-row" style={AGENT_BUTTON_STYLE} onClick={() => { void openAgentFolder(); }}>Open the Agent folder</button>
         {canPassOn && (
           <button type="button" className="oh-tap-row" style={AGENT_BUTTON_STYLE} onClick={() => agentClient.passOn(kinds)}>Use API key</button>

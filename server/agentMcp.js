@@ -14,6 +14,8 @@ import { NOT_WAITING } from "./agentQueue.js";
 
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
+export const DELIVERED_NOTE = "Delivered to the game, which checks it now. If the game refuses it, the same request comes back once, as a new request, with the reason in its prompt; a second refusal is final. Tell the player it was delivered, not accepted.";
+
 const TOOLS = [
   {
     name: "list_requests",
@@ -92,7 +94,8 @@ const callTool = async (queue, name, args = {}) => {
   }
   if (name === "answer_request") {
     const outcome = queue.answer(args.id, args.text);
-    return outcome.ok ? toolText({ ok: true }) : toolRefusal(outcome.reason);
+    // Delivered, not accepted: the game checks the answer itself.
+    return outcome.ok ? toolText({ ok: true, delivered: DELIVERED_NOTE }) : toolRefusal(outcome.reason);
   }
   return null;
 };
