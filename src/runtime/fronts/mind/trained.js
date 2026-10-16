@@ -20,6 +20,16 @@ import { TRAINED_STAFF } from "./weights.js";
 
 let made = false;
 let policy = null;
+// What each commander decided at each of its looks this sitting (planner.js `memo`): a skip fights its period
+// twice, before its story is written and again as it is applied, and the second time each has what it decided the
+// first time at hand rather than thinking it all again.
+const TRAINED_MEMO = new Map();
+const PLAINER_MEMO = new Map();
+let plainer = null;
+const plainerPolicy = () => {
+  plainer ??= createPlainerPlanner({ memo: PLAINER_MEMO });
+  return plainer;
+};
 
 // The weights the staff that looks ahead is shipped with: a champion's that fit, or its plain ones.
 // (Weights made before the later weighing, LATE_AT long, are read with it at its defaults: planner.js withLateEval.)
@@ -32,7 +42,7 @@ export const trainedStaffPolicy = () => {
   made = true;
   const weights = readWeights(TRAINED_STAFF);
   // (Weights with a head order troops one by one; without, the side as a whole; none, the staff that looks ahead.)
-  policy = !weights ? createPlanner({ params: shippedPlannerParams() }) : weights.shape.head > 0 ? createTroopPolicy(weights) : createStaffPolicy(weights);
+  policy = !weights ? createPlanner({ params: shippedPlannerParams(), memo: TRAINED_MEMO }) : weights.shape.head > 0 ? createTroopPolicy(weights) : createStaffPolicy(weights);
   return policy;
 };
 
@@ -44,10 +54,15 @@ export const labStaffPolicy = ({ outcomes = [] } = {}) => {
   if (!trained) return null;
   const rules = normalizeWarOutcomes(outcomes);
   if (rules.length === 0) return trained;
-  const plainer = createPlainerPlanner();
   // Who leads a side of a battle: "plainer" or "trained".
   const commanderFor = (battle, side) => (meantLoserOf({ sides: battle?.sides, outcomes: rules }) === side ? "plainer" : "trained");
-  const policy = (battle, side, context, run) => (commanderFor(battle, side) === "plainer" ? plainer : trained)(battle, side, context, run);
+  const leadOf = (battle, side) => (commanderFor(battle, side) === "plainer" ? plainerPolicy() : trained);
+  const policy = (battle, side, context, run) => leadOf(battle, side)(battle, side, context, run);
+  // (A look in steps, as the engine takes it where a run is played out in slices: planner.js.)
+  policy.steps = function* steps(battle, side, context, run) {
+    const lead = leadOf(battle, side);
+    return typeof lead.steps === "function" ? yield* lead.steps(battle, side, context, run) : lead(battle, side, context, run);
+  };
   policy.often = trained.often === true;
   policy.commanderFor = commanderFor;
   return policy;

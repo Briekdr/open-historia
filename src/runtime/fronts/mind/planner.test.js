@@ -11,9 +11,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { rehearsal, rehearseDay, rehearseOrders, runFronts } from "../engine.js";
+import { createFrontRun, rehearsal, rehearseDay, rehearseOrders, runFronts } from "../engine.js";
 import { frontInput, syntheticMap } from "../syntheticMap.js";
-import { EVAL_NAMES, LATE_EVAL_NAMES, NET_FEATURES, PLAN_NAMES, PLAN_PARAMS, createPlanner, plainPlanner, plannerFeatures, standing, withLateEval } from "./planner.js";
+import { EVAL_NAMES, LATE_EVAL_NAMES, NET_FEATURES, PLAN_NAMES, PLAN_PARAMS, battlePrint, createPlanner, drain, plainPlanner, plannerFeatures, standing, withLateEval } from "./planner.js";
 import { TROOP_ACTIONS, TROOP_FEATURE_COUNT, troopView } from "./troops.js";
 import { makeDuel } from "../../../../tools/strategy-nn/duel.mjs";
 
@@ -193,6 +193,66 @@ test("a fair duel: the same board for both sides, turned half round", () => {
     assert.equal(wingTeams.filter((team) => team === 0).length, wingTeams.filter((team) => team === 1).length);
     assert.deepEqual(makeDuel(seed), duel, "a seed is always the same duel");
   }
+});
+
+test("the staff that looks ahead thinks in steps a run may be stopped between, and decides as it does at once", () => {
+  // "its SOO LAGGY while in war" (the owner, 2026-10-15): a look is a step a day rehearsed, and the run's days are
+  // steps too (engine.js createFrontRun steps), which the game takes a slice at a time with the page drawn between.
+  const whole = runFronts(war({ staffPolicy: createPlanner() }));
+  const run = createFrontRun(war({ staffPolicy: createPlanner() }));
+  let steps = 0;
+  const days = run.steps(Infinity);
+  for (let step = days.next(); !step.done; step = days.next()) steps += 1;
+  assert.ok(run.finished());
+  assert.ok(steps >= 100, `${steps} steps`);
+  assert.deepEqual(run.finish().battlefields, whole.battlefields, "the same war, taken in steps");
+  // A look asked at once is its steps taken one after another.
+  const planner = createPlanner();
+  assert.equal(typeof planner.steps, "function");
+  let looked = null;
+  runFronts(war({ staffPolicy: Object.assign((battle, side, context, at) => {
+    if (!looked && battle.daysRun === 5) looked = { at: drain(planner.steps(battle, side, context, at)), now: planner(battle, side, context, at) };
+    return planner(battle, side, context, at);
+  }, { often: true }) }));
+  assert.ok(looked);
+  assert.deepEqual(looked.at, looked.now);
+});
+
+test("a staff with a memo has what it decided at a look again, and thinks afresh about a battle that stands otherwise", () => {
+  // "why is it running 2 times?" / "cant you make it do both on the same run?" (the owner, 2026-10-15): a skip fights
+  // its period before its story and again as it is applied, and the second time the staff thinks nothing through.
+  const memo = new Map();
+  const chosen = [];
+  const remembering = createPlanner({ memo, tally: (name) => chosen.push(name) });
+  const first = runFronts(war({ staffPolicy: remembering, seed: "memo" }));
+  const thought = chosen.length;
+  assert.ok(thought >= 6 && memo.size >= thought, `${thought} looks, ${memo.size} kept`);
+  const again = runFronts(war({ staffPolicy: remembering, seed: "memo" }));
+  assert.equal(chosen.length, thought, "every look had again, none thought through");
+  assert.deepEqual(again.battlefields, first.battlefields);
+  assert.deepEqual(runFronts(war({ staffPolicy: createPlanner(), seed: "memo" })).battlefields, first.battlefields, "the same war as a staff that remembers nothing");
+  // Another run's looks are its own.
+  runFronts(war({ staffPolicy: remembering, seed: "another" }));
+  assert.ok(chosen.length > thought);
+  // A battle that stands otherwise has another print: one troop moved, one cell changed hands.
+  let prints = null;
+  runFronts(war({ staffPolicy: Object.assign((battle) => {
+    if (prints) return undefined;
+    const before = battlePrint(battle);
+    const troop = battle.troops[0].find((one) => one.strength > 0);
+    troop.x += 0.25;
+    const moved = battlePrint(battle);
+    troop.x -= 0.25;
+    const cell = battle.field.holders.findIndex((holder) => holder === 0);
+    battle.field.holders[cell] = 1;
+    const taken = battlePrint(battle);
+    battle.field.holders[cell] = 0;
+    prints = { before, moved, taken, back: battlePrint(battle) };
+    return undefined;
+  }, { often: true }) }));
+  assert.equal(prints.back, prints.before);
+  assert.notEqual(prints.moved, prints.before);
+  assert.notEqual(prints.taken, prints.before);
 });
 
 test("the staff that looks ahead decides with the engine's own arithmetic", () => {

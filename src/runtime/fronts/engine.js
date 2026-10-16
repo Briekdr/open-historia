@@ -2025,12 +2025,19 @@ const orderTroopsByMind = (run, battle, side, bodies, day, today, lead) => {
   battle.planKey = "";
 };
 
+// A staff of the run's own asked what it orders: as steps the run may be stopped between, where it thinks in them
+// (mind/planner.js `steps`), else at once.
+function* askOwnStaff(policy, battle, side, context, run) {
+  if (typeof policy.steps === "function") return yield* policy.steps(battle, side, context, run);
+  return policy(battle, side, context, run);
+}
+
 // The staff of each side nobody plays looks at how it stands and decides what
 // it does (staff.js): on a battle's first day of a run and every
 // STAFF_REVIEW_DAYS after. Before the day is fought, and after whatever the
 // story ordered for that day or before it: an order of the story's is left
 // alone, and the staff's own is replaced only when it would decide otherwise.
-const reviewStaff = (run, battle, day, regular = true) => {
+function* reviewStaff(run, battle, day, regular = true) {
   // (A run may be told to leave every side to its orders: the engine's own tests of other things are.)
   if (run.input?.staff === false) return;
   const war = run.wars.get(battle.warId);
@@ -2104,7 +2111,7 @@ const reviewStaff = (run, battle, day, regular = true) => {
     // EXPERIMENT, in the lab (mind/policy.js): a run may be handed a staff of
     // its own, a trained network, asked first. `undefined` from it leaves the
     // side to the staff the engine has.
-    const own = asks ? policy(battle, side, { ...context, regular }, run) : undefined;
+    const own = asks ? (yield* askOwnStaff(policy, battle, side, { ...context, regular }, run)) : undefined;
     // What its wings are sent to do over the battle (air.js AIR_MISSIONS), whatever it says of its troops.
     if (own && typeof own.air === "string") setAirMission(battle, side, own.air);
     if (asks) {
@@ -2157,9 +2164,9 @@ const reviewStaff = (run, battle, day, regular = true) => {
     // Going over to the attack is something to tell.
     if (decided.order === "advance" && !stands.startsWith("advance")) battle.log.push({ d: run.dateOf(day), k: "offensive", s: side, at: decided.sector === "all" ? "the whole line" : decided.sector });
   }
-};
+}
 
-const stepDay = (run) => {
+function* stepDay(run) {
   const day = run.day + 1;
   for (let index = 0; index < run.battles.length; index += 1) {
     const battle = run.battles[index];
@@ -2176,7 +2183,7 @@ const stepDay = (run) => {
       // (`often` on it: mind/planner.js) is asked every day, and the engine's own staff only on its days.
       const regular = battle.begun || battle.daysRun === 0 || battle.daysRun % STAFF_REVIEW_DAYS === 0;
       // (With the newer mechanics the staff watches for a breakthrough every day too: staff.js breakthroughAnswer.)
-      if (regular || run.input?.staffPolicy?.often === true || anyMechanic(run.mech)) reviewStaff(run, battle, day, regular);
+      if (regular || run.input?.staffPolicy?.often === true || anyMechanic(run.mech)) yield* reviewStaff(run, battle, day, regular);
       run.steps += simulateDay(battle, run, day);
       // Whoever was told to withdraw and has got clear is gone from the battlefield.
       withdrawWhoLeft(run, battle, day);
@@ -2193,7 +2200,7 @@ const stepDay = (run) => {
     if (battle.status !== "closed") assignCommands(battle);
   }
   run.day = day;
-};
+}
 
 // The result of a run as it stands after the days simulated so far.
 const snapshot = (run) => {
@@ -2295,6 +2302,10 @@ export const rehearsal = (run, battle) => {
     spendFlip: () => {},
     input: { ...run.input, watch: null, staffPolicy: null },
   });
+  // Its walls are worn on its own lines (walls.js wearWall wears those of battle.wallRun): the copy's first day
+  // begins after the morning that sets them, and it wore and broke the real walls. Found 2026-10-15, when a skip's
+  // second run, its staff's looks had again rather than rehearsed, came out otherwise than the first.
+  if (copy.wallRun) copy.wallRun = stub;
   return { run: stub, battle: copy };
 };
 
@@ -2348,15 +2359,29 @@ export const createFrontRun = (input) => {
     run = createRun(input ?? {});
     begin(run);
   });
+  // The days as steps a caller may stop between: between any two a staff of the run's own may be thinking
+  // (mind/planner.js), and Game/AI/frontTurn.js runFrontTurn lets the page draw there.
+  function* daySteps(maxDays = Infinity) {
+    if (needsRegions) return;
+    try {
+      for (let done = 0; done < maxDays && run.day < run.days; done += 1) yield* stepDay(run);
+    } catch (error) {
+      if (error !== REGIONS_NEEDED) throw error;
+      needsRegions = true;
+    }
+  }
+  const finished = () => needsRegions || run.day >= run.days;
   const advance = (maxDays = Infinity) => {
-    work(() => {
-      for (let done = 0; done < maxDays && run.day < run.days; done += 1) stepDay(run);
-    });
-    return needsRegions || run.day >= run.days;
+    const steps = daySteps(maxDays);
+    for (let step = steps.next(); !step.done; step = steps.next()) { /* taken one after another */ }
+    return finished();
   };
   return {
     // Simulates up to `maxDays` more days; true when the run is finished.
     advance,
+    // The same, as steps (a generator); then finished() says whether the run is.
+    steps: daySteps,
+    finished,
     // The result as it stands now, without ending the run: what a run cut here would give.
     snapshot: () => (needsRegions ? { needsRegions: true } : snapshot(run)),
     finish: () => {

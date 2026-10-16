@@ -11,6 +11,7 @@ import {
   attachAttemptOutcome,
   attachCallMetrics,
   attachRequestOutcome,
+  attachSkipTiming,
   clearAiRecords,
   exportTelemetryCsv,
   finishAiRecord,
@@ -25,6 +26,26 @@ import {
 } from "./telemetry.js";
 
 test.beforeEach(async () => { await clearAiRecords(); });
+
+test("a time skip's whole time goes on its own request's generations, beside the request's", () => {
+  // "it reports that the jump forward was 16.6 seconds but the time skip took much longer than that" (the owner, 2026-10-15).
+  const before = startAiRecord({ taskKey: "jumpForward" });
+  before.startedAt -= 60000;
+  finishAiRecord(before, { ok: true });
+  const since = Date.now() - 1;
+  const jump = startAiRecord({ taskKey: "jumpForward" });
+  finishAiRecord(jump, { ok: true });
+  const review = startAiRecord({ taskKey: "turnReview" });
+  finishAiRecord(review, { ok: true });
+  const summary = { totalMs: 152300, phases: [{ phase: "fighting", label: "Fighting the war", ms: 80500, requests: 0 }, { phase: "writing", label: "Writing the events", ms: 16600, requests: 1 }] };
+  assert.equal(attachSkipTiming(since, summary), 1);
+  assert.equal(jump.skip.totalMs, 152300);
+  assert.deepEqual(jump.skip.phases[0], { label: "Fighting the war", ms: 80500, requests: 0 });
+  assert.equal(before.skip, undefined, "an earlier skip's request is not this one's");
+  assert.equal(review.skip, undefined, "only the skip's own request");
+  assert.equal(attachSkipTiming(since, summary), 0, "marked once");
+  assert.equal(attachSkipTiming(since, { totalMs: 0, phases: [] }), 0);
+});
 
 test("recording defaults to on and rating to off when nothing is stored", () => {
   assert.equal(isTelemetryEnabled(), true);

@@ -635,15 +635,35 @@ export const battlefieldRegionTest = ({ battlefields = [], rows = [], readers = 
 //   input           everything but map.regions
 //   loadRegions     async () => the map's regions, or null when they cannot be read
 //   pause           async () => {} between chunks of days, so a long war does
-//                   not hold the page
+//                   not hold the page; and, where a staff thinks in steps
+//                   (runtime/fronts/mind/planner.js), whenever ENGINE_SLICE_MS
+//                   have gone by between them
 // null when the regions were needed and could not be had: the turn then goes on
 // without the engine, and the battlefields stay as they were.
+// How long the engine works on before the page is let draw. The staff that looks ahead thinks for seconds at a time,
+// and the page stood still while it did: "its SOO LAGGY while in war" (the owner, 2026-10-15).
+export const ENGINE_SLICE_MS = 16;
+const clock = () => (typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now());
+// Up to `days` more days of a run: a run that gives its days as steps is taken a step at a time and the page let draw
+// (pause) whenever ENGINE_SLICE_MS have gone by. True once the run is finished.
+const advanceIn = async (run, days, pause) => {
+  if (typeof run.steps !== "function" || typeof pause !== "function") return run.advance(days);
+  let since = clock();
+  const steps = run.steps(days);
+  for (let step = steps.next(); !step.done; step = steps.next()) {
+    if (clock() - since < ENGINE_SLICE_MS) continue;
+    await pause();
+    since = clock();
+  }
+  return run.finished();
+};
+
 export const runFrontTurn = async ({ createFrontRun, input, loadRegions = null, pause = null, chunkDays = 15 } = {}) => {
   if (typeof createFrontRun !== "function") return null;
   let regions = input?.map?.regions ?? null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const run = createFrontRun({ ...input, map: { ...input?.map, regions } });
-    while (!run.advance(chunkDays)) {
+    while (!(await advanceIn(run, chunkDays, pause))) {
       if (typeof pause === "function") await pause();
     }
     const result = run.finish();

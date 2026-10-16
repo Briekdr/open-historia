@@ -298,7 +298,7 @@ import {
   renamePolityInGame,
 } from "../../../server/polityRename.js";
 import { renderTemplateCached, staticPrefixEndOf } from "./promptLayout.js";
-import { attachAttemptOutcome, finishAiRecord, normalizeParsedSummary } from "./telemetry.js";
+import { attachAttemptOutcome, attachSkipTiming, finishAiRecord, normalizeParsedSummary } from "./telemetry.js";
 import {
   JSON_URLS,
   getPrimedScenarioRegionCatalog,
@@ -4649,6 +4649,9 @@ const afterJumpWritten = async (applied, { applyArgs, signal, phases = null, dat
   const phaseSummary = phases?.finish();
   if (phaseSummary?.phases?.length) {
     logDebugEvent("turn", `Time skip phases: ${formatSkipPhases(phaseSummary)}.`, phaseSummary);
+    // And on the skip's own generations, beside each request's time (the console's Generations): "it reports that
+    // the jump forward was 16.6 seconds but the time skip took much longer than that" (the owner, 2026-10-15).
+    attachSkipTiming(Date.now() - phaseSummary.totalMs - 50, phaseSummary);
   }
   return phaseSummary ? { ...applied, phases: phaseSummary } : applied;
 };
@@ -8970,6 +8973,9 @@ const applySimulationResult = async ({
   // (a held turn retried, a kept one written later, a round stopped part-way)
   // has the first run's operations taken out and is worked out afresh. Null
   // with fronts off: nothing is read, and the events are not touched.
+  // (A phase of its own, and then back to whatever this was a part of.)
+  const phaseBeforeWar = phases?.current ?? "";
+  phases?.enter("recordingWar");
   const turnFronts = await applyTurnFronts({
     baseGame,
     baseWorld,
@@ -8989,6 +8995,7 @@ const applySimulationResult = async ({
     warUpdates,
   });
   if (turnFronts) freshEvents.splice(0, freshEvents.length, ...turnFronts.events);
+  if (phaseBeforeWar) phases?.enter(phaseBeforeWar);
 
   const impactMerge = applyEventImpactsToWorld({
     colors: baseColors,
@@ -17776,6 +17783,8 @@ export const simulateTimelineJump = async ({ days, mode = "jump", onEvents, onPr
   // reads the action, then calls a function with the order and the period is
   // fought again with it (frontOrderFunction.js, frontOrderCall below). (A
   // copy: what that function learns is this skip's, not the kept forecast's.)
+  // (A phase of its own: where there is a war, it is most of the time a skip takes before its request is sent.)
+  phases.enter("fighting");
   const foughtBefore = await forecastTurnFronts({
     world: bundle.world,
     game: bundle.game,
@@ -17785,6 +17794,7 @@ export const simulateTimelineJump = async ({ days, mode = "jump", onEvents, onPr
     loadRegions: createRenderedRegionsReader(),
     signal,
   });
+  phases.enter("reading");
   // (For the map, which plays it at each event while the story is written: foreseenFronts.js.)
   foreseeFronts(foughtBefore);
   const frontsForecast = foughtBefore ? { ...foughtBefore } : null;

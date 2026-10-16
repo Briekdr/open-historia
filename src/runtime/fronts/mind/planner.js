@@ -354,6 +354,51 @@ const valueOf = (params, battle, side) => {
   return value;
 };
 
+// ---- what it decided before -----------------------------------------------------------------
+// A time skip fights its period twice, before its story is written and again as it is applied
+// (Game/AI/frontApply.js), and the second time is the first again: "cant you make it do both on the same run?" (the
+// owner, 2026-10-15). A staff given a `memo` keeps what it decided at each look, by the run's key for that look
+// (engine.js: the run, the battle, the side, the day) and a print of the battle as it stood, and has it again rather
+// than thinking it all through a second time. A battle that stands otherwise is thought about afresh.
+export const MEMO_MOST = 4000;
+const FNV_PRIME = 16777619;
+const stir = (hash, value) => Math.imul(hash ^ (Math.round((Number(value) || 0) * 4096) | 0), FNV_PRIME) >>> 0;
+const stirWord = (hash, word) => {
+  let out = hash;
+  const text = typeof word === "string" ? word : "";
+  for (let at = 0; at < text.length; at += 1) out = Math.imul(out ^ text.charCodeAt(at), FNV_PRIME) >>> 0;
+  return Math.imul(out ^ 255, FNV_PRIME) >>> 0;
+};
+// A battle as it stands, in a word: every troop of both sides (where it stands, how strong, dug in, how worn, what
+// it is doing), the orders standing, and who holds each cell.
+export const battlePrint = (battle) => {
+  let hash = stir(stir(2166136261, battle.daysRun), Array.isArray(battle.orders) ? battle.orders.length : 0);
+  for (const list of battle.troops) {
+    hash = stir(hash, list.length);
+    for (const troop of list) {
+      hash = stir(stir(stir(stir(hash, troop.x), troop.y), troop.strength), troop.dig);
+      hash = stir(stir(stir(stir(hash, troop.state), troop.hx), troop.hy), troop.fatigue);
+      hash = stir(stir(hash, troop.dug ? 1 : 0), troop.serves);
+      const order = troop.order;
+      hash = order && !order.done ? stir(stir(stirWord(stirWord(hash, order.kind), order.word), order.leg), order.since) : stir(hash, -1);
+    }
+  }
+  const holders = battle.field?.holders;
+  if (holders) for (let cell = 0; cell < holders.length; cell += 1) hash = Math.imul(hash ^ holders[cell], FNV_PRIME) >>> 0;
+  return hash.toString(36);
+};
+const lookKey = (battle, side, key) => `${key}|${side}|${battlePrint(battle)}`;
+const keep = (memo, key, answer) => {
+  if (memo.size >= MEMO_MOST) memo.delete(memo.keys().next().value);
+  memo.set(key, structuredClone(answer));
+};
+// A look's steps taken one after another, to what it decided.
+export const drain = (steps) => {
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+};
+
 // ---- the staff ----------------------------------------------------------------------------
 //   params    PLAN_PARAMS weights (plainPlanner() to begin with)
 //   look      how often it looks, in days (LOOK_DAYS); ahead, how far it looks (AHEAD_DAYS)
@@ -379,13 +424,25 @@ export const REPLIES = Object.freeze(["carry on", "push", "dig in"]);
 //   airControl  whether it sends its wings on missions (air.js AIR_MISSIONS), or leaves them on support
 //   observe   (battle, side) => anything, at each of its looks, before it plans: for whoever is watching
 //   late      the later weighing's weights in place of those in `params` (to weigh without them: [0])
-export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS, ahead = AHEAD_DAYS, plans = null, refine = REFINE_BODIES, replies = false, airControl = true, late = null, observe = null, tally = null } = {}) => {
+//   memo      a Map to keep what it decided at each look in, and have it again at a look just like it (lookKey)
+export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS, ahead = AHEAD_DAYS, plans = null, refine = REFINE_BODIES, replies = false, airControl = true, late = null, observe = null, tally = null, memo = null } = {}) => {
   const params = withLateEval(given);
   if (Array.isArray(late)) late.forEach((value, at) => { params[LATE_AT + at] = Number(value) || 0; });
   const allowed = plans ? new Set(plans) : null;
-  const policy = (battle, side, context = {}, run = null) => {
+  // A look, as steps it may be stopped between (one a day it rehearses): the engine takes it so where a run is played
+  // out in slices (Game/AI/frontTurn.js runFrontTurn), and the page is drawn between them: "its SOO LAGGY while in
+  // war" (the owner, 2026-10-15). A look at a battle on a day it was looked at before, standing just as it stood
+  // then, has what was decided then (memo).
+  function* think(battle, side, context = {}, run = null) {
     if (!run) return undefined;
     if (battle.daysRun > 0 && battle.daysRun % look !== 0) return { keep: true };
+    const key = memo && context?.key ? lookKey(battle, side, context.key) : "";
+    if (key && memo.has(key)) return structuredClone(memo.get(key));
+    const answer = yield* decide(battle, side, run);
+    if (key) keep(memo, key, answer);
+    return answer;
+  }
+  function* decide(battle, side, run) {
     if (typeof observe === "function") observe(battle, side);
     const view = troopView(battle, side);
     if (view.rows.length === 0) return { keep: true };
@@ -398,20 +455,29 @@ export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS
       ? REPLIES.map((word) => (word === "push" ? [{ order: "advance", picked: theirs }] : word === "dig in" ? [{ order: "dig in", picked: theirs }] : null))
       : [null];
     // How a battle stands `ahead` days after these orders (none: carrying on), its wings sent on `air` (as they
-    // are: null): against each answer, the worst.
-    const weigh = (bodies, air = null) => {
+    // are: null): against each answer, the worst. Orders already weighed at this look (two plans that came to the
+    // same orders, a body turned back to what another plan had it doing) are not fought out again: a rehearsal
+    // touches nothing another sees (engine.js rehearsal), and the same orders on the same battle come out the same.
+    const weighed = new Map();
+    function* weigh(bodies, air = null) {
+      const said = `${air ?? ""}|${bodies ? JSON.stringify(bodies) : "carry on"}`;
+      if (weighed.has(said)) return weighed.get(said);
       let worst = Infinity;
       for (const answer of answers) {
         const rehearsed = rehearsal(run, battle);
         if (bodies || air) rehearseOrders(rehearsed, side, bodies ?? [], day, { air });
         if (answer) rehearseOrders(rehearsed, 1 - side, answer, day);
-        // (It looks after the day's morning: the copy's first day begins from it.)
-        for (let days = 0; days < ahead; days += 1) if (!rehearseDay(rehearsed, day + days, { morning: days > 0 })) break;
+        // (It looks after the day's morning: the copy's first day begins from it. A step a day rehearsed.)
+        for (let days = 0; days < ahead; days += 1) {
+          if (!rehearseDay(rehearsed, day + days, { morning: days > 0 })) break;
+          yield;
+        }
         const value = valueOf(params, rehearsed.battle, side);
         if (value < worst) worst = value;
       }
+      weighed.set(said, worst);
       return worst;
-    };
+    }
     let chosen = -1;
     let best = -Infinity;
     let orders = null;
@@ -420,7 +486,7 @@ export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS
       const keys = plan === 0 ? null : drawn[plan - 1];
       if (plan > 0 && !keys) continue;
       const bodies = keys ? bodiesOf(battle, view, keys) : null;
-      const value = weigh(bodies);
+      const value = yield* weigh(bodies);
       if (value > best) {
         best = value;
         chosen = plan;
@@ -433,7 +499,7 @@ export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS
       for (const { at } of largest) {
         const other = turned(orders, at);
         if (!other) continue;
-        const value = weigh(other);
+        const value = yield* weigh(other);
         if (value > best) {
           best = value;
           orders = other;
@@ -445,7 +511,7 @@ export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS
     if (airControl && (run.airOver?.get(battle)?.[side]?.length ?? 0) > 0) {
       for (const mission of AIR_MISSIONS) {
         if (mission === airMissionOf(battle, side)) continue;
-        const value = weigh(orders, mission);
+        const value = yield* weigh(orders, mission);
         if (value > best) {
           best = value;
           air = mission;
@@ -455,7 +521,9 @@ export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS
     if (typeof tally === "function" && chosen >= 0) tally(PLAN_NAMES[chosen]);
     if (chosen <= 0 || !orders) return air ? { keep: true, air } : { keep: true };
     return air ? { troops: orders, air } : { troops: orders };
-  };
+  }
+  const policy = (battle, side, context = {}, run = null) => drain(think(battle, side, context, run));
+  policy.steps = think;
   policy.often = true;
   return policy;
 };

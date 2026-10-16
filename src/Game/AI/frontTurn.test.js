@@ -8,6 +8,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  ENGINE_SLICE_MS,
   FRONT_MARK,
   applyFrontUnitChanges,
   attachFrontFlips,
@@ -191,6 +192,33 @@ test("the engine is run with what it has, and again with the map when it asks fo
   assert.equal(await runFrontTurn({ createFrontRun, input: { map: {} }, loadRegions: async () => null }), null);
   assert.equal(await runFrontTurn({ createFrontRun, input: { map: {} } }), null);
   assert.equal(await runFrontTurn({ input: { map: {} } }), null);
+});
+
+test("a run that gives its days as steps is taken in slices, the page let draw between them", async () => {
+  // "its SOO LAGGY while in war" (the owner, 2026-10-15): a staff that thinks for seconds no longer holds the page.
+  const busy = (ms) => {
+    const until = performance.now() + ms;
+    while (performance.now() < until) { /* thinking */ }
+  };
+  let taken = 0;
+  const createFrontRun = () => ({
+    advance: () => { throw new Error("taken whole"); },
+    steps: function* steps() {
+      for (let step = 0; step < 6; step += 1) {
+        busy(ENGINE_SLICE_MS + 4);
+        taken += 1;
+        yield;
+      }
+    },
+    finished: () => taken >= 6,
+    finish: () => ({ battlefields: ["ok"], flips: [], unitChanges: [], notes: [] }),
+  });
+  let pauses = 0;
+  const result = await runFrontTurn({ createFrontRun, input: { map: { regions: [] } }, pause: async () => { pauses += 1; } });
+  assert.deepEqual(result.battlefields, ["ok"]);
+  assert.ok(pauses >= 5, `${pauses} pauses over six long steps`);
+  // Without a pause it is taken whole, as ever.
+  assert.equal(await runFrontTurn({ createFrontRun: () => ({ advance: () => true, finish: () => ({ battlefields: ["whole"] }) }), input: { map: {} } }).then((run) => run.battlefields[0]), "whole");
 });
 
 test("a change of hands goes on the first event of its day or later, never on one told to some governments only", () => {

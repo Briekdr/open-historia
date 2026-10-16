@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { withFrontFortifications } from "../warGeography.js";
-import { runFronts } from "./engine.js";
+import { rehearsal, rehearseDay, rehearseOrders, runFronts } from "./engine.js";
 import { frontInput, syntheticMap } from "./syntheticMap.js";
 import { WALL_DAYS, brokenAt, standsOn } from "./walls.js";
 
@@ -32,6 +32,31 @@ const fight = (extra = {}) => {
   });
   return { result, beyond };
 };
+
+test("a staff that rehearses on a copy of the battle wears no real wall doing it", () => {
+  // The copy kept the real run's walls, and the first day of each rehearsal wore and broke them: walls fell many
+  // times faster in a war the staff that looks ahead led (found 2026-10-15).
+  const plain = fight({ mechanics: { walls: true }, fortifications: [wall(3)], days: 20 });
+  let rehearsed = 0;
+  const rehearsing = (battle, side, context, run) => {
+    if (run && battle.sides[side][0] === "Aland") {
+      const day = run.day + 1;
+      for (let again = 0; again < 3; again += 1) {
+        const copy = rehearsal(run, battle);
+        const live = copy.battle.troops[side].map((troop, index) => (troop.strength > 0 ? index : -1)).filter((index) => index >= 0);
+        rehearseOrders(copy, side, [{ order: "advance", picked: live }], day);
+        for (let days = 0; days < 4; days += 1) rehearseDay(copy, day + days, { morning: days > 0 });
+        rehearsed += 1;
+      }
+    }
+    return fixed(battle, side);
+  };
+  const watched = fight({ mechanics: { walls: true }, fortifications: [wall(3)], days: 20, staffPolicy: rehearsing });
+  assert.ok(rehearsed >= 6);
+  assert.ok(plain.result.fortifications?.length > 0, "the wall is worn by the war itself");
+  assert.deepEqual(watched.result.fortifications, plain.result.fortifications);
+  assert.equal(watched.beyond, plain.beyond);
+});
 
 test("a line stands once it is built and where it is not broken", () => {
   const line = { level: 5, building: { since: "2024-03-01", days: 10 }, breaches: [[5, 10]] };
