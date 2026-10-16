@@ -26,6 +26,17 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },
   },
   {
+    name: "lookup",
+    description:
+      "Ask the game one of the lookup functions read_request lists for a request, while you answer it. Returns the game's answer as JSON.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" }, name: { type: "string" }, arguments: { type: "object" } },
+      required: ["id", "name"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "answer_request",
     description:
       "Hand a request's answer to the game. Pass text, or leave it out after writing the answer to the request's answer file.",
@@ -61,7 +72,13 @@ const callTool = async (queue, name, args = {}) => {
       promptFile: request.promptFile,
       answerFile: request.answerFile,
       answer: "Exactly what the prompt file asks for (usually one JSON object), written to answerFile, then answer_request with this id.",
+      lookups: request.lookupTools,
+      ...(request.lookupTools.length ? { lookupHow: "Where the prompt says to call one of these functions, call the lookup tool with this request's id, the function's name and its arguments." } : {}),
     });
+  }
+  if (name === "lookup") {
+    const outcome = await queue.lookup(args.id, String(args.name || ""), args.arguments);
+    return outcome.ok ? toolText(outcome.result) : toolRefusal(outcome.reason);
   }
   if (name === "answer_request") {
     const outcome = queue.answer(args.id, args.text);

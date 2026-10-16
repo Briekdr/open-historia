@@ -1548,10 +1548,10 @@ app.delete("/api/agent/skips/:skipId", agentLocalOnly, (req, res) => {
 });
 
 app.post("/api/agent/requests", agentLocalOnly, largeJsonParser, (req, res) => {
-  const { skipId, task, system, prompt } = req.body || {};
+  const { skipId, task, system, prompt, lookupTools } = req.body || {};
   if (typeof prompt !== "string" || !prompt) return sendError(res, 400, new Error("A request needs its prompt."));
   try {
-    const request = agentQueue.ask({ skipId, task, system: typeof system === "string" ? system : "", prompt });
+    const request = agentQueue.ask({ skipId, task, system: typeof system === "string" ? system : "", prompt, lookupTools });
     res.json({ id: request.id });
   } catch (error) {
     sendError(res, 500, error);
@@ -1565,6 +1565,13 @@ app.get("/api/agent/requests/:id", agentLocalOnly, async (req, res) => {
   const polled = await agentQueue.poll(req.params.id, waitMs);
   if (!polled) return res.status(404).json({ error: "This request is not in the Agent queue." });
   res.json(polled);
+});
+
+// The game's answer to a lookup the Agent asked (GET above hands them over).
+app.post("/api/agent/requests/:id/lookups/:callId", agentLocalOnly, largeJsonParser, (req, res) => {
+  const taken = agentQueue.answerLookup(req.params.id, req.params.callId, req.body?.result);
+  if (!taken) return res.status(404).json({ error: "That lookup is not waiting for an answer." });
+  res.json({ ok: true });
 });
 
 app.delete("/api/agent/requests/:id", agentLocalOnly, (req, res) => {

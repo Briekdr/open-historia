@@ -669,11 +669,6 @@ const entryIsConfigured = (entry) => {
     return requirement === "none" || String(entry[requirement] ?? "").trim().length > 0;
 };
 
-// Whether the player's own Agent is in the list, to answer time skips.
-export function agentInFallbackList() {
-    return getResolvedFallbackList().some((entry) => entry.provider === AGENT_PROVIDER);
-}
-
 export function isFallbackListConfigured() {
     return getResolvedFallbackList().some(entryIsConfigured);
 }

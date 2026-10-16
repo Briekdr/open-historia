@@ -94,7 +94,8 @@ const game = (port) => {
   return {
     openSkip: (skipId) => call("POST", "/api/agent/skips", { skipId }),
     finishSkip: (skipId) => call("DELETE", `/api/agent/skips/${encodeURIComponent(skipId)}`),
-    ask: (skipId, task, prompt) => call("POST", "/api/agent/requests", { skipId, task, system: "You write history.", prompt }),
+    ask: (skipId, task, prompt, lookupTools) => call("POST", "/api/agent/requests", { skipId, task, system: "You write history.", prompt, ...(lookupTools ? { lookupTools } : {}) }),
+    answerLookup: (id, callId, result) => call("POST", `/api/agent/requests/${encodeURIComponent(id)}/lookups/${encodeURIComponent(callId)}`, { result }),
     poll: (id, waitMs = 0) => call("GET", `/api/agent/requests/${encodeURIComponent(id)}?waitMs=${waitMs}`),
     cancel: (id) => call("DELETE", `/api/agent/requests/${encodeURIComponent(id)}`),
     folder: () => call("GET", "/api/agent/folder"),
@@ -182,7 +183,7 @@ describe("Agent MCP server", () => {
 
     const current = await agent(mcpSettings(dataDir)).rpc("tools/list", {});
     assert.equal(current.status, 200);
-    assert.deepEqual(current.result.tools.map((entry) => entry.name).sort(), ["answer_request", "list_requests", "read_request"]);
+    assert.deepEqual(current.result.tools.map((entry) => entry.name).sort(), ["answer_request", "list_requests", "lookup", "read_request"]);
   });
 
   test("speaks the MCP handshake", async () => {
@@ -323,6 +324,61 @@ describe("Agent MCP server", () => {
     const old = await side.ask("skip-1", "jump", "Go.");
     await side.openSkip("skip-2");
     assert.equal((await side.poll(old.id)).state, "cancelled");
+  });
+
+  test("a lookup the Agent asks reaches the game while it waits, and the game's answer goes back to the Agent", async () => {
+    const dataDir = newDataDir();
+    const { port } = await startServer(dataDir);
+    const side = game(port);
+    const client = agent(mcpSettings(dataDir));
+    const neighbours = { name: "region_neighbours", description: "The regions next to a region.", schema: { type: "object", properties: { region: { type: "string" } } } };
+
+    await side.openSkip("skip-1");
+    const asked = await side.ask("skip-1", "jump", "Go.", [neighbours]);
+    const read = await client.tool("read_request", { id: asked.id });
+    assert.deepEqual(read.lookups.map((entry) => entry.name), ["region_neighbours"]);
+
+    // The game is waiting on its answer when the Agent asks.
+    const waiting = side.poll(asked.id, 5000);
+    const looking = client.tool("lookup", { id: asked.id, name: "region_neighbours", arguments: { region: "Alsace" } });
+    const polled = await waiting;
+    assert.equal(polled.state, "waiting");
+    assert.equal(polled.lookups.length, 1);
+    const [question] = polled.lookups;
+    assert.equal(question.name, "region_neighbours");
+    assert.deepEqual(question.args, { region: "Alsace" });
+
+    await side.answerLookup(asked.id, question.callId, { neighbours: ["Lorraine", "Baden"] });
+    assert.deepEqual(await looking, { neighbours: ["Lorraine", "Baden"] });
+
+    // A question is handed to the game once.
+    assert.deepEqual((await side.poll(asked.id)).lookups ?? [], []);
+  });
+
+  test("a lookup the request did not offer, or on a request that is not waiting, is refused", async () => {
+    const dataDir = newDataDir();
+    const { port } = await startServer(dataDir);
+    const side = game(port);
+    const client = agent(mcpSettings(dataDir));
+
+    await side.openSkip("skip-1");
+    const asked = await side.ask("skip-1", "jump", "Go.");
+    assert.ok((await client.tool("lookup", { id: asked.id, name: "region_neighbours", arguments: {} })).refused);
+    await side.cancel(asked.id);
+    assert.ok((await client.tool("lookup", { id: asked.id, name: "region_neighbours", arguments: {} })).refused);
+  });
+
+  test("a lookup the game does not answer in time tells the Agent to ask again", async () => {
+    const dataDir = newDataDir();
+    const { port } = await startServer(dataDir);
+    const side = game(port);
+    const client = agent(mcpSettings(dataDir));
+
+    await side.openSkip("skip-1");
+    const asked = await side.ask("skip-1", "jump", "Go.", [{ name: "region_neighbours", description: "", schema: { type: "object" } }]);
+    const looked = await client.tool("lookup", { id: asked.id, name: "region_neighbours", arguments: {} });
+    assert.ok(looked.refused);
+    assert.match(looked.refused, /again/);
   });
 
   test("a page that loads afresh drops the skip an earlier page left open", async () => {

@@ -15,6 +15,7 @@ import { buildAgentPrompt, createAgentClient } from "./agentConnection.js";
 const fakeServer = () => {
   const requests = new Map();
   const skips = { opened: [], finished: [] };
+  const lookupAnswers = [];
   let nextId = 1;
   const json = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
   const fetch = async (url, { method = "GET", body } = {}) => {
@@ -29,23 +30,30 @@ const fakeServer = () => {
       skips.finished.push(decodeURIComponent(parts[3]));
       return json({ ok: true });
     }
-    if (parts[2] === "requests" && method === "POST") {
+    if (parts[2] === "requests" && parts.length === 3 && method === "POST") {
       const id = `r${nextId++}`;
       requests.set(id, { ...JSON.parse(body), state: "waiting", polls: 0 });
       return json({ id });
     }
     const request = requests.get(decodeURIComponent(parts[3]));
     if (!request) return json({ error: "gone" }, 404);
+    if (parts[4] === "lookups" && method === "POST") {
+      lookupAnswers.push({ callId: decodeURIComponent(parts[5]), ...JSON.parse(body) });
+      return json({ ok: true });
+    }
     if (method === "DELETE") {
       request.state = "cancelled";
       return json({ ok: true });
     }
     request.polls += 1;
     await new Promise((resolve) => setTimeout(resolve, 5));
-    return json(request.state === "answered" ? { state: "answered", answer: request.answer } : { state: request.state });
+    if (request.state === "answered") return json({ state: "answered", answer: request.answer });
+    const lookups = (request.asked ?? []).splice(0);
+    return json({ state: request.state, ...(lookups.length ? { lookups } : {}) });
   };
   const answer = (id, text) => Object.assign(requests.get(id), { state: "answered", answer: text });
-  return { fetch, requests, skips, answer };
+  const ask = (id, lookup) => { const request = requests.get(id); request.asked = [...(request.asked ?? []), lookup]; };
+  return { fetch, requests, skips, answer, ask, lookupAnswers };
 };
 
 const tool = {
@@ -151,4 +159,39 @@ test("a request the server no longer holds (it restarted) fails the call and say
   await until(() => server.requests.size === 1);
   server.requests.clear();
   await assert.rejects(call, /restarted|no longer/i);
+});
+
+test("the lookups a call offers go with the request, and the Agent's lookups are answered by the game while it waits", async () => {
+  const server = fakeServer();
+  const client = createAgentClient({ fetch: server.fetch, pollMs: 0 });
+  const executed = [];
+  const lookups = {
+    tools: [{ name: "region_neighbours", description: "Next door.", schema: { type: "object" } }],
+    execute: async (name, args) => { executed.push([name, args]); return { neighbours: ["Lorraine"] }; },
+    onRound: () => { throw new Error("an Agent's lookups are not the skip's requests"); },
+  };
+  const call = client.call("s", history, { spender: "jump", agentLookups: lookups });
+  await until(() => server.requests.size === 1);
+  assert.deepEqual(server.requests.get("r1").lookupTools, [{ name: "region_neighbours", description: "Next door.", schema: { type: "object" } }]);
+
+  server.ask("r1", { callId: "c1", name: "region_neighbours", args: { region: "Alsace" } });
+  await until(() => server.lookupAnswers.length === 1);
+  assert.deepEqual(executed, [["region_neighbours", { region: "Alsace" }]]);
+  assert.deepEqual(server.lookupAnswers[0], { callId: "c1", result: { neighbours: ["Lorraine"] } });
+
+  server.answer("r1", "{}");
+  await call;
+});
+
+test("a lookup that throws answers the Agent with the error, and the wait goes on", async () => {
+  const server = fakeServer();
+  const client = createAgentClient({ fetch: server.fetch, pollMs: 0 });
+  const lookups = { tools: [{ name: "broken", description: "", schema: { type: "object" } }], execute: async () => { throw new Error("no such region"); } };
+  const call = client.call("s", history, { spender: "jump", agentLookups: lookups });
+  await until(() => server.requests.size === 1);
+  server.ask("r1", { callId: "c1", name: "broken", args: {} });
+  await until(() => server.lookupAnswers.length === 1);
+  assert.deepEqual(server.lookupAnswers[0].result, { error: "no such region" });
+  server.answer("r1", "{}");
+  await call;
 });

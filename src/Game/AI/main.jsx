@@ -3119,8 +3119,10 @@ export async function callAI(systemPrompt, history, opts = {}) {
                         : limit.source === "custom" ? `${limit.tokens} (the entry's custom parameters)`
                         : callShape.maxTokens,
                 }, { verbose: true });
-                // An Agent skip has no lookup rounds: its prompt carries everything.
-                return runWithLookups(entry.provider === AGENT_PROVIDER ? null : lookups, history, (roundHistory, roundOpts) => {
+                // An Agent has no lookup rounds: it calls the task's lookups as
+                // tools while it answers (agentConnection.js), so none is a request.
+                const agentEntry = entry.provider === AGENT_PROVIDER;
+                return runWithLookups(agentEntry ? null : lookups, history, (roundHistory, roundOpts) => {
                     // Open from here until this round's answer is in or has
                     // failed: one request, or several when the provider path
                     // asks again (it says so with onSend).
@@ -3139,6 +3141,7 @@ export async function callAI(systemPrompt, history, opts = {}) {
                         onReceived: live?.received,
                         onAgentWait: live?.agentWaiting,
                         spender,
+                        ...(agentEntry && lookups ? { agentLookups: lookups } : {}),
                         onUnmarkedEnd: () => { endedUnmarked = true; },
                         onRequest: noteRequest,
                         onUsage: (data) => {

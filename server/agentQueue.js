@@ -17,6 +17,7 @@ import path from "path";
 
 export const NO_SKIP_PENDING = "No time skip is pending.";
 export const SKIP_STILL_RUNNING = "The time skip is still running. Call list_requests again.";
+export const LOOKUP_NOT_ANSWERED = "The game did not answer that lookup in time. Ask it again.";
 
 const settle = (waiters) => {
   for (const wake of waiters.splice(0)) wake();
@@ -96,8 +97,10 @@ export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, log = () => {
     },
 
     // `system` and `prompt` are the finished prompt the game built, written to
-    // the request's prompt file as they are.
-    ask({ skipId, task, system, prompt }) {
+    // the request's prompt file as they are. `lookupTools`: the lookup
+    // functions the Agent may call while it answers ({ name, description,
+    // schema }), answered by the game itself (lookup below).
+    ask({ skipId, task, system, prompt, lookupTools = [] }) {
       const id = crypto.randomUUID();
       const dir = path.join(folder, id);
       fs.mkdirSync(dir, { recursive: true });
@@ -105,7 +108,13 @@ export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, log = () => {
       const answerFile = path.join(dir, "answer.md");
       const text = [system ? `# Instructions\n\n${system}` : "", `# Request\n\n${prompt || ""}`].filter(Boolean).join("\n\n");
       fs.writeFileSync(promptFile, `${text}\n`, "utf8");
-      const request = { id, skipId: String(skipId || openSkip || ""), task: String(task || ""), dir, promptFile, answerFile, state: "waiting", read: false };
+      const offered = (Array.isArray(lookupTools) ? lookupTools : [])
+        .filter((tool) => tool && typeof tool.name === "string" && tool.name)
+        .map(({ name, description = "", schema = { type: "object" } }) => ({ name, description: String(description), schema }));
+      const request = {
+        id, skipId: String(skipId || openSkip || ""), task: String(task || ""), dir, promptFile, answerFile,
+        state: "waiting", read: false, lookupTools: offered, lookups: new Map(),
+      };
       requests.set(id, request);
       log("agent.queued", { id, task: request.task, skipId: request.skipId });
       settle(waiters);
@@ -113,15 +122,53 @@ export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, log = () => {
     },
 
     // The game's wait for one request: what it is now, or once it changes,
-    // within `ms`. Null for a request this run never held.
+    // within `ms`. While it waits, the lookups the Agent has asked come with it,
+    // each handed to the game once. Null for a request this run never held.
     async poll(id, ms = 0) {
       const request = requests.get(String(id));
       if (!request) return null;
+      const asked = () => [...request.lookups.values()].filter((call) => !call.handed);
       const deadline = Date.now() + Math.max(0, Number(ms) || 0);
-      while (request.state === "waiting" && Date.now() < deadline) {
+      while (request.state === "waiting" && !asked().length && Date.now() < deadline) {
         await sleepUntilWoken(waiters, deadline - Date.now());
       }
-      return request.state === "answered" ? { state: "answered", answer: request.answer } : { state: request.state };
+      if (request.state === "answered") return { state: "answered", answer: request.answer };
+      if (request.state !== "waiting") return { state: request.state };
+      const lookups = asked().map((call) => {
+        call.handed = true;
+        return { callId: call.callId, name: call.name, args: call.args };
+      });
+      return { state: "waiting", lookups };
+    },
+
+    // The Agent asks one of the request's lookups. The game answers it on its
+    // next wait (answerLookup); held up to `waitMs`, then the Agent is told to
+    // ask again.
+    async lookup(id, name, args = {}) {
+      const request = requests.get(String(id));
+      if (!request || request.state !== "waiting") return { ok: false, reason: "That request is not waiting for an answer." };
+      if (!request.lookupTools.some((tool) => tool.name === name)) return { ok: false, reason: `This request offers no lookup called ${name}.` };
+      const call = { callId: crypto.randomUUID(), name, args: args && typeof args === "object" ? args : {}, handed: false, answered: false, result: null };
+      request.lookups.set(call.callId, call);
+      log("agent.lookup", { id: request.id, name });
+      settle(waiters);
+      const deadline = Date.now() + waitMs;
+      while (!call.answered && request.state === "waiting" && Date.now() < deadline) {
+        await sleepUntilWoken(waiters, deadline - Date.now());
+      }
+      request.lookups.delete(call.callId);
+      if (call.answered) return { ok: true, result: call.result };
+      if (request.state !== "waiting") return { ok: false, reason: "That request is not waiting for an answer." };
+      return { ok: false, reason: LOOKUP_NOT_ANSWERED };
+    },
+
+    answerLookup(id, callId, result) {
+      const call = requests.get(String(id))?.lookups.get(String(callId));
+      if (!call || call.answered) return false;
+      call.answered = true;
+      call.result = result ?? null;
+      settle(waiters);
+      return true;
     },
 
     cancel(id) {

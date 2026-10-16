@@ -427,7 +427,7 @@ import { MAP_SETTING_KEYS, getMapSetting, getMapSettingDefaultOn } from "../../r
 import { AI_FIRST_BYTE_TIMEOUT_MS, AI_IDLE_TIMEOUT_MS, createIdleDeadline, runWithIdleDeadline } from "./idleDeadline.js";
 import { REPAIR_STOP_TIME_BUDGET, runBoundedRepairCall } from "./repairCall.js";
 import { isDebugLogVerbose, logDebugEvent } from "../../runtime/debugLog.js";
-import { agentInFallbackList, isFallbackListConfigured } from "./providerConfig.js";
+import { isFallbackListConfigured } from "./providerConfig.js";
 import { assertCampaignUnchanged, campaignChanged } from "../../runtime/campaignGuard.js";
 import { HELD_TURN_STALE_NOTE, heldTurnOutdated, mergeActionsAtCommit, restorePointProblem, restorePointsFor, storedActionsForMerge } from "../../runtime/turnCommit.js";
 import { getLibraryState, readGameParkedTurn, removeGameParkedTurn, writeGameParkedTurn } from "../../runtime/library.js";
@@ -1667,13 +1667,10 @@ const abortableWait = (ms, signal) => new Promise((resolve, reject) => {
 // is three requests at most, and that function calling is the only thing that
 // makes it more than one.
 //
-// Not inside a time skip with the player's own Agent in the Fallback list: an
-// Agent skip is answered from one prompt file that carries everything, as with
-// Save AI requests on (ADR 0008), and a skip's prompts are built before the
-// list picks who answers them. Everything outside a skip (the advisor,
-// diplomacy, the Game Master) never goes to the Agent, so it keeps them.
-const lookupFunctionsEnabled = () => !savingRequests() && getMapSettingDefaultOn(MAP_SETTING_KEYS.lookupFunctions)
-  && !(isSimulationBusy() && agentInFallbackList());
+//
+// The player's own Agent calls them as tools of the game's MCP server while it
+// answers (ADR 0008), so they are on for it exactly as for an API entry.
+const lookupFunctionsEnabled = () => !savingRequests() && getMapSettingDefaultOn(MAP_SETTING_KEYS.lookupFunctions);
 
 // audience: who is asking (audience.js). Every task that carries lookups today is
 // the narrator - the jump, the directors, the game master - so that is the

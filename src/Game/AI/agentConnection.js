@@ -84,13 +84,23 @@ export const createAgentClient = ({ fetch: send = (...args) => globalThis.fetch(
 
         // `spender` names the task (requestBudget.js); the Agent sees it with
         // the request. `onAgentWait` says the call is now waiting on the player.
+        // `agentLookups`: the task's lookup functions ({ tools, execute }). The
+        // Agent may call them while it answers; the game answers each from here,
+        // as it does a provider's lookup round, but none is a request of the skip.
         async call(systemPrompt, history, opts = {}) {
-            const { signal, tool, spender, taskKey, onSend, onActivity, onAgentWait, onToolStream, onReceived } = opts;
+            const { signal, tool, spender, taskKey, onSend, onActivity, onAgentWait, onToolStream, onReceived, agentLookups = null } = opts;
+            const lookupTools = Array.isArray(agentLookups?.tools) && typeof agentLookups?.execute === "function"
+                ? agentLookups.tools.filter((entry) => entry?.name && entry?.schema)
+                    .map(({ name, description = "", schema }) => ({ name, description, schema }))
+                : [];
             if (signal?.aborted) throw abortReason(signal);
             const { system, prompt } = buildAgentPrompt(systemPrompt, history, { tool });
             const open = currentSkip();
             await open.opened;
-            const queued = await call("POST", "/api/agent/requests", { skipId: open.id, task: String(spender || taskKey || ""), system, prompt }, signal);
+            const queued = await call("POST", "/api/agent/requests", {
+                skipId: open.id, task: String(spender || taskKey || ""), system, prompt,
+                ...(lookupTools.length ? { lookupTools } : {}),
+            }, signal);
             if (!queued.ok || !queued.json?.id) throw new Error(queued.json?.error || "The Agent queue did not take the request.");
             const id = queued.json.id;
             onSend?.();
@@ -101,7 +111,16 @@ export const createAgentClient = ({ fetch: send = (...args) => globalThis.fetch(
                     if (signal?.aborted) throw abortReason(signal);
                     const polled = await call("GET", `/api/agent/requests/${encodeURIComponent(id)}?waitMs=${pollMs}`, undefined, signal);
                     if (polled.status === 404) throw new Error(AGENT_GONE_MESSAGE);
-                    const { state, answer } = polled.json ?? {};
+                    const { state, answer, lookups: asked } = polled.json ?? {};
+                    for (const question of Array.isArray(asked) ? asked : []) {
+                        let result;
+                        try {
+                            result = await agentLookups.execute(question.name, question.args ?? {});
+                        } catch (error) {
+                            result = { error: String(error?.message || error) };
+                        }
+                        await call("POST", `/api/agent/requests/${encodeURIComponent(id)}/lookups/${encodeURIComponent(question.callId)}`, { result: result ?? null }, signal);
+                    }
                     if (state === "answered") {
                         const rawText = String(answer ?? "");
                         onReceived?.({ answerChars: rawText.length });

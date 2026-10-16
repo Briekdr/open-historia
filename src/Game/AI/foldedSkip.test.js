@@ -328,9 +328,8 @@ test("function calling inside a skip spends the skip's budget: a round is a requ
   assert.match(task, /budget\?\.take\(`\$\{spender \|\| taskKey\}Lookup`\);/, "recorded as it is made");
   // Decided after the attempt's own request is taken, so `free` is what is left.
   assert.ok(task.indexOf("budget.take(outputAttempt === 1 ?") < task.indexOf("const lookupRounds ="));
-  // Function calling is still the player's switch, off while saving, and off
-  // inside a skip with the player's own Agent in the list (ADR 0008: one prompt file).
-  assert.match(gameplaySource, /const lookupFunctionsEnabled = \(\) => !savingRequests\(\) && getMapSettingDefaultOn\(MAP_SETTING_KEYS\.lookupFunctions\)\s*&& !\(isSimulationBusy\(\) && agentInFallbackList\(\)\);/);
+  // Function calling is still the player's switch, and off while saving.
+  assert.match(gameplaySource, /const lookupFunctionsEnabled = \(\) => !savingRequests\(\) && getMapSettingDefaultOn\(MAP_SETTING_KEYS\.lookupFunctions\);/);
 });
 
 test("the folded review takes the ops off the events before anything applies them", () => {

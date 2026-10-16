@@ -30,13 +30,15 @@ here (Claude Code, Codex or Antigravity CLI) and types \`/skip\` to answer the
 time skip the game is waiting on. The game writes this file at every start, so
 any change to it is lost; put your own notes in a file of your own.
 
-The game is reached through its MCP server, \`${AGENT_MCP_SERVER_NAME}\`, which has three tools:
+The game is reached through its MCP server, \`${AGENT_MCP_SERVER_NAME}\`, which has four tools:
 
 - \`list_requests\`: what the game is waiting on. Its \`status\` is
   \`waiting\` (with \`requests\`), \`running\` (the skip is still going, nothing to
   answer yet: ask again) or \`idle\` (no time skip is pending).
 - \`read_request\`: one request's prompt file, the file to write the answer to,
-  and what the answer must look like.
+  what the answer must look like, and the lookup functions it offers.
+- \`lookup\`: asks the game one of those lookup functions (a region's
+  neighbours, the exact name of a power, a war's ledger) while you answer.
 - \`answer_request\`: hands the answer to the game. It is the only way an answer
   reaches the game.
 
@@ -98,7 +100,7 @@ ${SKIP_STEPS}`;
 const SKIP_ANSWERER = `---
 name: skip-answerer
 description: Answers one Open Historia time-skip request, given its id. Used by /skip.
-tools: ${TOOL("read_request")}, ${TOOL("answer_request")}, Read, Write
+tools: ${TOOL("read_request")}, ${TOOL("lookup")}, ${TOOL("answer_request")}, Read, Write
 ---
 
 You answer one request from the Open Historia game. You are given its id.
@@ -107,6 +109,8 @@ You answer one request from the Open Historia game. You are given its id.
    what the answer must look like.
 2. Read the whole prompt file. It holds the game's instructions and the world as
    it stands. Follow those instructions exactly, as the game's AI would.
+   Where it tells you to call a lookup function, and \`read_request\` listed it,
+   call the \`lookup\` tool with the id, the function's name and its arguments.
 3. Write your answer, and nothing else, to \`answerFile\`. For a JSON answer
    that is the JSON object alone: no code fence, no commentary.
 4. Call \`answer_request\` with the id. Leave out \`text\`: the game reads the
