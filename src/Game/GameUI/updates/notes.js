@@ -176,7 +176,7 @@ const NEW_UPDATES = [
               "Trained in thousands of fair duels on random battlefields, it beats every simple habit, from always attacking to always digging in.",
               "A deep thrust into its land is answered with a counter-offensive.",
               "It thinks away from the page, so the map stays smooth while it does, and on a computer it thinks the next turn through while you read.",
-              "On a computer with several cores it weighs its plans on all of them at once, so a war turn takes about half the time.",
+              "On a computer with several cores it weighs its plans on all of them at once, so war turns go faster.",
             ],
           },
           {
