@@ -141,13 +141,6 @@ export const writeAgentFolder = (folder, { url, token }) => {
     path.join(folder, ".mcp.json"),
     `${JSON.stringify({ mcpServers: { [AGENT_MCP_SERVER_NAME]: { type: "http", url, headers: { Authorization: authorization } } } }, null, 2)}\n`,
   );
-  writeIfChanged(
-    path.join(folder, ".claude", "settings.json"),
-    `${JSON.stringify({
-      enabledMcpjsonServers: [AGENT_MCP_SERVER_NAME],
-      permissions: { allow: ["list_requests", "read_request", "answer_request"].map(TOOL) },
-    }, null, 2)}\n`,
-  );
   writeIfChanged(path.join(folder, ".claude", "skills", "skip", "SKILL.md"), CLAUDE_SKILL);
   writeIfChanged(path.join(folder, ".claude", "agents", "skip-answerer.md"), SKIP_ANSWERER);
 

@@ -935,8 +935,6 @@ const StatusChip = ({ status, at }) => {
 // The first Connection, made if there is none: an entry cannot exist without one.
 const ensureConnectionId = (connections) => connections[0]?.id ?? addConnection({ provider: DEFAULT_PROVIDER });
 
-// A Connection's own fields: where it is and what reaches it. Shared by every
-// entry that uses it, which the editor says when it is more than one.
 // The commands that open each Agent in the Agent folder. The game never runs
 // them: the player does, in their own terminal (ADR 0008).
 const AGENT_COMMANDS = [
@@ -956,7 +954,8 @@ const AgentConnectionHelp = () => {
         return () => { live = false; };
     }, []);
     const copy = async (command) => {
-        if (await copyToClipboard(`cd "${folder}"; ${command}`)) setCopied(command);
+        // A shell command, not interface text: built so no language pack sees it.
+        if (await copyToClipboard(["cd", JSON.stringify(folder) + ";", command].join(" "))) setCopied(command);
     };
     return (
         <div style={fieldGroupStyle}>
@@ -981,6 +980,8 @@ const AgentConnectionHelp = () => {
     );
 };
 
+// A Connection's own fields: where it is and what reaches it. Shared by every
+// entry that uses it, which the editor says when it is more than one.
 const ConnectionFields = ({ connection, sharedBy = 1 }) => {
     const set = (field) => (value) => updateConnection(connection.id, { [field]: value });
     const selfHosted = providerSetupRequirement(connection.provider) === "endpoint";

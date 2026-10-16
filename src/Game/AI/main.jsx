@@ -20,10 +20,7 @@ import { BACKGROUND_REQUEST, PLAYER_REQUEST, requestLedger, savingRequests } fro
 import { requestActivity } from "./requestActivity.js";
 import { agentClient } from "./agentConnection.js";
 import { onSimulationsIdle } from "./simulationStatus.js";
-
-// A time skip the player's Agent was answering is over once the game stops
-// simulating, so the Agent's `/skip` stops too (ADR 0008).
-onSimulationsIdle(() => { void agentClient.finishSkip(); });
+import { hostingSharedGame } from "../../runtime/humanPolities.js";
 import {
     DEFAULT_ANSWER_RESERVE_TOKENS,
     LOCAL_OUTPUT_LIMIT_TOKENS,
@@ -153,6 +150,14 @@ import { buildDiplomaticPoliticalContext } from "./diplomaticPoliticalContext.js
 import { buildAdvisorPoliticalDiplomacyContext } from "./advisorPoliticalDiplomacyContext.js";
 import { describeLeaderStanding, describeOurFigures, describeTerritoryForConversation } from "./standingContext.js";
 import { beginAiRequestScope } from "./aiRequestControl.js";
+
+// A time skip the player's Agent was answering is over once the game stops
+// simulating, so the Agent's `/skip` stops too (ADR 0008).
+onSimulationsIdle(() => { void agentClient.finishSkip(); });
+// A page that loads afresh has no skip running: whatever an earlier page left
+// waiting in the Agent queue (a reload mid-skip) is dropped, so `/skip` neither
+// answers it nor waits on it.
+if (typeof window !== "undefined" && !import.meta.env?.VITE_OH_WEB) void agentClient.dropStaleSkips();
 
 // main.jsx - AI chat module
 // Supports Gemini, OpenAI, Anthropic, and OpenAI-compatible endpoints
@@ -3093,7 +3098,7 @@ export async function callAI(systemPrompt, history, opts = {}) {
             onChunk: providerOpts.onChunk,
             // An Agent entry answers only a player's time-skip calls of the tasks
             // it names; every other call goes past it without a word (ADR 0008).
-            serves: (entry) => entryServesCall(entry, { spender, requestKind }),
+            serves: (entry) => entryServesCall(entry, { spender, requestKind, sharedGame: hostingSharedGame() }),
             canAttempt: (entry) => entry.provider === AGENT_PROVIDER ? "" : contextWindows.refusal(contextWindowKey(entry), requestTokens, { reserveTokens: answerReserve, trustLearned: windowIsLearned(entry) }),
             tooBigError: (refused) => providerFailureError(
                 nothingFitsMessage(refused.map(({ entry, reason }) => ({ label: entry.label, reason })), requestTokens),

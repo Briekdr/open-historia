@@ -133,7 +133,7 @@ const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 import { DATA_DIR } from "./dataDir.js";
 import { AGENT_REQUESTS_DIR, writeAgentFolder } from "./agentFolder.js";
 import { handleMcpMessage, tokenMatches } from "./agentMcp.js";
-import { createAgentQueue } from "./agentQueue.js";
+import { AGENT_WAIT_MS, createAgentQueue } from "./agentQueue.js";
 import { appKindOf } from "./appKind.js";
 import { createDiscordPresence, DISCORD_APPLICATION_ID, normalizePresence } from "./discordPresence.js";
 const app = express();
@@ -1502,7 +1502,7 @@ const AGENT_FOLDER = path.join(DATA_DIR, "agent");
 const AGENT_TOKEN = crypto.randomBytes(32).toString("base64url");
 const agentQueue = createAgentQueue({
   folder: path.join(AGENT_FOLDER, AGENT_REQUESTS_DIR),
-  waitMs: Number(process.env.OH_AGENT_WAIT_MS) || 30000,
+  waitMs: Number(process.env.OH_AGENT_WAIT_MS) || AGENT_WAIT_MS,
   log: (event, data) => appendLog({ level: "info", source: "server", event, message: event, data }),
 });
 try {
@@ -1536,6 +1536,12 @@ app.post("/api/agent/skips", agentLocalOnly, jsonParser, (req, res) => {
   res.json({ skipId: agentQueue.openSkip(req.body?.skipId) });
 });
 
+// A page that loads afresh: the skip an earlier page left open is over.
+app.delete("/api/agent/skips", agentLocalOnly, (_req, res) => {
+  agentQueue.finishOpenSkip();
+  res.json({ ok: true });
+});
+
 app.delete("/api/agent/skips/:skipId", agentLocalOnly, (req, res) => {
   agentQueue.finishSkip(req.params.skipId);
   res.json({ ok: true });
@@ -1553,9 +1559,9 @@ app.post("/api/agent/requests", agentLocalOnly, largeJsonParser, (req, res) => {
 });
 
 // The game's wait: answers once the request changes, or after `waitMs` (at
-// most 30 s) with it still waiting, and the game asks again.
+// most AGENT_WAIT_MS) with it still waiting, and the game asks again.
 app.get("/api/agent/requests/:id", agentLocalOnly, async (req, res) => {
-  const waitMs = Math.min(30000, Math.max(0, Number(req.query.waitMs) || 0));
+  const waitMs = Math.min(AGENT_WAIT_MS, Math.max(0, Number(req.query.waitMs) || 0));
   const polled = await agentQueue.poll(req.params.id, waitMs);
   if (!polled) return res.status(404).json({ error: "This request is not in the Agent queue." });
   res.json(polled);

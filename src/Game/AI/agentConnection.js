@@ -67,6 +67,11 @@ export const createAgentClient = ({ fetch: send = (...args) => globalThis.fetch(
     };
 
     return {
+        // A page that loads afresh: no skip of an earlier page is running.
+        async dropStaleSkips() {
+            await call("DELETE", "/api/agent/skips").catch(() => {});
+        },
+
         // The game has stopped simulating: the skip is finished, and the
         // Agent's `/skip` stops.
         async finishSkip() {

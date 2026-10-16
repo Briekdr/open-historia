@@ -325,6 +325,18 @@ describe("Agent MCP server", () => {
     assert.equal((await side.poll(old.id)).state, "cancelled");
   });
 
+  test("a page that loads afresh drops the skip an earlier page left open", async () => {
+    const dataDir = newDataDir();
+    const { port } = await startServer(dataDir);
+    const side = game(port);
+    await side.openSkip("skip-1");
+    const old = await side.ask("skip-1", "jump", "Go.");
+    const dropped = await fetch(`http://127.0.0.1:${port}/api/agent/skips`, { method: "DELETE", headers: { Origin: `http://127.0.0.1:${port}` } });
+    assert.equal(dropped.status, 200);
+    assert.equal((await side.poll(old.id)).state, "cancelled");
+    assert.equal((await agent(mcpSettings(dataDir)).tool("list_requests")).status, "idle");
+  });
+
   test("a restart drops the queue", async () => {
     const dataDir = newDataDir();
     const first = await startServer(dataDir);

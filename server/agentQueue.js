@@ -41,7 +41,10 @@ const sleepUntilWoken = (waiters, ms) =>
 // "what next?" from the Agent may wait before it is told to ask again; an
 // Agent gives up on a tool call held open much longer. `log(event, data)`:
 // the Diagnostics log.
-export const createAgentQueue = ({ folder, waitMs = 30000, log = () => {} }) => {
+// The longest any wait on the queue is held open, by the Agent or the game.
+export const AGENT_WAIT_MS = 30000;
+
+export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, log = () => {} }) => {
   const requests = new Map();
   let openSkip = null;
   // Woken whenever anything changes: a request queued, answered or cancelled,
@@ -86,6 +89,10 @@ export const createAgentQueue = ({ folder, waitMs = 30000, log = () => {} }) => 
       if (openSkip === id) openSkip = null;
       log("agent.skip-finished", { skipId: id });
       settle(waiters);
+    },
+
+    finishOpenSkip() {
+      if (openSkip) this.finishSkip(openSkip);
     },
 
     // `system` and `prompt` are the finished prompt the game built, written to
@@ -147,8 +154,9 @@ export const createAgentQueue = ({ folder, waitMs = 30000, log = () => {} }) => 
       return request;
     },
 
-    // `text`, or what the Agent left in the request's answer file. False when
-    // the request is not waiting (answered, cancelled, or never held).
+    // `text`, or what the Agent left in the request's answer file. Refused,
+    // with the reason, when the request is not waiting (answered, cancelled,
+    // or never held) or the answer is missing or empty.
     answer(id, text) {
       const request = requests.get(String(id));
       if (!request || request.state !== "waiting") return { ok: false, reason: "That request is not waiting for an answer." };

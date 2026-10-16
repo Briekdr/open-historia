@@ -723,6 +723,7 @@ test("an Agent entry serves a player's time-skip calls, retries included, and no
   assert.equal(serves({}), false, "a call outside a time skip (an advisor or diplomacy chat) has no spender");
   assert.equal(serves({ spender: "geography" }), false);
   assert.equal(serves({ spender: "jump", requestKind: "background" }), false, "nobody is at the terminal for background AI");
+  assert.equal(serves({ spender: "jump", sharedGame: true }), false, "a shared game's skips do not wait on one player's terminal");
   assert.equal(config.entryServesCall({ provider: "gemini" }, {}), true, "every other Connection serves every call");
 });
 

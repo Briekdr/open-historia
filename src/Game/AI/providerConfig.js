@@ -31,6 +31,12 @@ const FORMER_GEMINI_DEFAULT = "gemini-3.5-flash-lite";
 // quicker and better. A model the player types is theirs instead.
 export const OPENAI_DEFAULT_MODEL = "gpt-6-luna";
 
+// An Agent Connection (docs/adr/0008-subscription-agents-answer-through-the-game.md):
+// answered by the player's own Claude Code, Codex or Antigravity CLI through
+// the local server's Agent queue, never by a provider's API. Desktop only,
+// since the queue lives on the local server.
+export const AGENT_PROVIDER = "agent";
+
 export const PROVIDER_OPTIONS = [
     {
         value: "gemini",
@@ -68,19 +74,13 @@ export const PROVIDER_OPTIONS = [
         searchTerms: ["claude", "anthropic", "messages api", "proxy", "gateway", "self-hosted"],
     },
     {
-        value: "agent",
+        value: AGENT_PROVIDER,
         label: "Your own Agent",
         group: "Your subscription",
         description: "Claude Code, Codex or Antigravity CLI answers time skips when you type /skip",
         searchTerms: ["claude code", "codex", "antigravity", "subscription", "pro", "max", "plus", "/skip", "agent"],
     },
 ];
-
-// An Agent Connection (docs/adr/0008-subscription-agents-answer-through-the-game.md):
-// answered by the player's own Claude Code, Codex or Antigravity CLI through
-// the local server's Agent queue, never by a provider's API. Desktop only,
-// since the queue lives on the local server.
-export const AGENT_PROVIDER = "agent";
 
 // The tasks an Agent Connection answers: what a time skip spends requests on.
 export const AGENT_DEFAULT_TASKS = Object.freeze([...SKIP_SPENDERS]);
@@ -93,11 +93,12 @@ export const providerOptionsFor = ({ localServer }) =>
 // Whether an entry answers this call at all (fallbackRunner `serves`). An Agent
 // entry answers a player's time-skip calls of the tasks it names, retries and
 // lookups counted as their task; a call with no spender is outside a time skip
-// (an advisor or diplomacy chat), and background AI has nobody at the terminal.
-// Every other entry answers every call.
-export function entryServesCall(entry, { spender = "", requestKind = "" } = {}) {
+// (an advisor or diplomacy chat), background AI has nobody at the terminal,
+// and a shared game's round must not wait on one player's terminal (not in
+// this first version). Every other entry answers every call.
+export function entryServesCall(entry, { spender = "", requestKind = "", sharedGame = false } = {}) {
     if (entry?.provider !== AGENT_PROVIDER) return true;
-    if (!spender || requestKind === BACKGROUND_REQUEST) return false;
+    if (!spender || requestKind === BACKGROUND_REQUEST || sharedGame) return false;
     const tasks = Array.isArray(entry.tasks) ? entry.tasks : AGENT_DEFAULT_TASKS;
     return tasks.includes(spenderBase(spender));
 }
@@ -395,13 +396,15 @@ const writeJsonSetting = (key, value) => {
     localStorage.setItem(key, JSON.stringify(value));
 };
 
-// Names and models are stored as typed — the Settings fields save on every
-// keystroke — and trimmed where they are used.
+// The tasks an Agent Connection names: only time-skip tasks, and all of them
+// when it names none.
 const agentTasks = (tasks) => {
     const named = Array.isArray(tasks) ? tasks.map(String).filter((task) => AGENT_DEFAULT_TASKS.includes(task)) : [];
     return named.length ? [...new Set(named)] : [...AGENT_DEFAULT_TASKS];
 };
 
+// Names and models are stored as typed — the Settings fields save on every
+// keystroke — and trimmed where they are used.
 const normalizeConnection = (connection) => ({
     id: String(connection?.id || newId("conn")),
     provider: normalizeProvider(connection?.provider),

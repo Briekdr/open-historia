@@ -3789,7 +3789,7 @@ const runJsonTask = async (taskKey, {
           ...(requestKind ? { requestKind } : {}),
           ...(typeof onRequest === "function" ? { onRequest } : {}),
           // What the skip spends on, which is what an Agent entry answers.
-          ...(budget ? { spender: outputAttempt === 1 ? (spender || taskKey) : `${spender || taskKey}Retry` } : {}),
+          ...(budget || spender ? { spender: outputAttempt === 1 ? (spender || taskKey) : `${spender || taskKey}Retry` } : {}),
           // The arguments as they assemble (streamAssembly.js). A lookup round's
           // call is ignored by name, so only the answer itself is read.
           ...(eventReader ? {
@@ -4916,7 +4916,7 @@ const prepareSkipHistoryFold = async (bundle, { campaignId = activeCampaignId() 
   };
 };
 
-const consolidateHistoryBatch = async (bundle, events, chats, actions = [], { onBatchResult, batchResume = null, onRequest, signal, campaignId = "" } = {}) => {
+const consolidateHistoryBatch = async (bundle, events, chats, actions = [], { onBatchResult, batchResume = null, onRequest, signal, campaignId = "", spender = "" } = {}) => {
   // The document this pass revises, and the revision it was read at: a pass
   // that lands against a different revision (a hand edit in the meantime)
   // appends rather than overwrites (applyHistoryDocumentUpdate).
@@ -4935,6 +4935,8 @@ const consolidateHistoryBatch = async (bundle, events, chats, actions = [], { on
     }),
     userMessage: "Consolidate the supplied campaign history with the required tool.",
     ...(typeof onRequest === "function" ? { onRequest } : {}),
+    // Inside a time skip: the skip's own task, which the player's Agent answers.
+    ...(spender ? { spender } : {}),
     ...(signal ? { signal } : {}),
     variables,
     // Off the critical path when the caller supplies an applier: the summary
@@ -5105,6 +5107,7 @@ const compactHistoryIfNeeded = async (bundle, { force = false, requests = null, 
       actionsToConsolidate,
       {
         onRequest: jumpTaskOptions(requests, "history").onRequest,
+        ...(requests ? { spender: "history" } : {}),
         signal,
         campaignId,
         // The jump that asked for it carries on with the events unconsolidated
