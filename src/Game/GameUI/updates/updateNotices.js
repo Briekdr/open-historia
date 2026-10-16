@@ -15,13 +15,17 @@
 // whose kept id is not in the list at all, or that has none (a first opening),
 // is shown the newest and the MAJOR ones released within FIRST_LOOK_DAYS of it
 // (so the music, released before there was a notice to tell of it, is told
-// with the updates after it; the minor ones are in the history). Opening the game with ?updateNotice=<id> (or "latest")
+// with the updates after it; the minor ones are in the history). Only the
+// updates written as notices are ever shown (notes.js NOTICE_UPDATES), never
+// the history from before them: "make sure people ONLY see the update popup
+// things for the updates that are actually being added (plus the music one),
+// not for every update in the history" (the owner, 2026-10-16). Opening the game with ?updateNotice=<id> (or "latest")
 // shows that update whatever is kept, and keeps nothing: for whoever is making
 // one.
 //
 // Pure but for the storage, which is handed in; no React.
 
-import { UPDATES } from "./notes.js";
+import { NOTICE_UPDATES, UPDATES } from "./notes.js";
 
 export const UPDATE_NOTE_KEY = "oh-update-note-seen";
 export const UPDATE_NOTICE_PARAM = "updateNotice";
@@ -76,7 +80,7 @@ export const rememberUpdate = (id, storage = browserStorage()) => {
 };
 
 // The updates to show at this opening, newest first ([] for none; none where nothing can be kept).
-export const pendingUpdates = ({ updates = UPDATES, seen = seenUpdate(), keeps = canRememberUpdates() } = {}) => {
+export const pendingUpdates = ({ updates = NOTICE_UPDATES, seen = seenUpdate(), keeps = canRememberUpdates() } = {}) => {
   if (updates.length === 0 || !keeps) return [];
   const at = seen ? updates.findIndex((update) => update.id === seen) : -1;
   if (at === 0) return [];

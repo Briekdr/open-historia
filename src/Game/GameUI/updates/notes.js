@@ -245,8 +245,14 @@ const NEW_UPDATES = [
   },
 ];
 
-// Every update, newest first (an update of the same day keeps its place).
-export const UPDATES = Object.freeze([...NEW_UPDATES, ...PAST_UPDATES]
+// Newest first (an update of the same day keeps its place).
+const newestFirst = (list) => Object.freeze(list
   .map((update, index) => ({ update, index }))
   .sort((a, b) => (a.update.date < b.update.date ? 1 : a.update.date > b.update.date ? -1 : a.index - b.index))
   .map(({ update }) => update));
+// Every update, for the history.
+export const UPDATES = newestFirst([...NEW_UPDATES, ...PAST_UPDATES]);
+// The updates a device may be shown behind the door: those written as notices, never the history from before
+// notices existed (notesPast.js). "make sure people ONLY see the update popup things for the updates that are
+// actually being added (plus the music one), not for every update in the history" (the owner, 2026-10-16).
+export const NOTICE_UPDATES = newestFirst(NEW_UPDATES);

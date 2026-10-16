@@ -5,7 +5,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 
-import { UPDATES } from "./notes.js";
+import { NOTICE_UPDATES, UPDATES } from "./notes.js";
+import { PAST_UPDATES } from "./notesPast.js";
 import { UPDATES_SHOWN_MOST, UPDATE_NOTE_KEY, canRememberUpdates, noticePages, pendingUpdates, previewedUpdates, rememberUpdate, seenUpdate } from "./updateNotices.js";
 
 const memory = () => {
@@ -38,10 +39,19 @@ test("each update is shown once a device; one that missed several is shown all o
   // ... and the major ones of the month before it (the music, released before there was a notice); a minor one waits in the history.
   const recent = [list[0], { ...list[1], date: "2026-10-13" }, { ...list[2], date: "2026-10-12" }];
   assert.deepEqual(pendingUpdates({ updates: recent, seen: null, keeps: true }).map((update) => update.id), ["c", "a"]);
-  const firstLook = pendingUpdates({ updates: UPDATES, seen: null, keeps: true }).map((update) => update.id);
-  assert.equal(firstLook[0], UPDATES[0].id);
+  const firstLook = pendingUpdates({ seen: null, keeps: true }).map((update) => update.id);
+  assert.equal(firstLook[0], NOTICE_UPDATES[0].id);
   assert.ok(firstLook.includes("2026-10-music"), "the music, told with the update after it");
   assert.ok(firstLook.length <= UPDATES_SHOWN_MOST);
+  // Only the updates written as notices, never the history before them: "make sure people ONLY see the update popup
+  // things for the updates that are actually being added (plus the music one), not for every update in the history"
+  // (the owner, 2026-10-16).
+  assert.deepEqual(firstLook, ["2026-10-diplomatic-map", "2026-10-wars-and-fronts-2", "2026-10-music"]);
+  const past = new Set(PAST_UPDATES.map((update) => update.id));
+  for (const seen of [null, "gone", ...past]) {
+    assert.deepEqual(pendingUpdates({ seen, keeps: true }).filter((update) => past.has(update.id)), [], `seen ${seen}: no history entry`);
+  }
+  assert.ok(UPDATES.length > NOTICE_UPDATES.length, "the history keeps every entry");
   assert.deepEqual(pendingUpdates({ updates: list, seen: "c", keeps: true }), [], "seen: nothing");
   assert.deepEqual(pendingUpdates({ updates: list, seen: "a", keeps: true }).map((update) => update.id), ["c", "b"]);
   assert.deepEqual(pendingUpdates({ updates: list, seen: "gone", keeps: true }).map((update) => update.id), ["c"], "a kept id no longer listed: the newest (and its month's)");
