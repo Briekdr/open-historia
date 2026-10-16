@@ -78,8 +78,9 @@ export const pageAnswersOf = (args = {}) => {
 };
 
 // The run fought here: `data` as awayInputOf gave it; `ask(name, value)` asks the page; `pause` is called between
-// slices of the run (frontTurn.js runFrontTurn), and stops it by throwing.
-export const fightAway = (data = {}, { ask, pause = null } = {}) => {
+// slices of the run (frontTurn.js runFrontTurn), and stops it by throwing; `rehearsers`, the cores its staff's plans
+// may be fought on together (runtime/fronts/mind/rehearsers.js).
+export const fightAway = (data = {}, { ask, pause = null, rehearsers = null } = {}) => {
   const { staff = null, tempo = 0, narrates = false, strikes = [], readsMap = false, readsRegions = false, ...rest } = data ?? {};
   const asks = Array.isArray(strikes) ? strikes : [];
   return runTurnFronts({
@@ -94,7 +95,7 @@ export const fightAway = (data = {}, { ask, pause = null } = {}) => {
     ...(readsRegions ? { loadRegions: () => ask("loadRegions") } : {}),
     ...(typeof pause === "function" ? { pause } : {}),
     ...(tempo > 0 ? { tempoAllowance: (days) => territoryTempoAllowance(tempo, Math.max(1, days)) } : {}),
-    ...(staff && trainedStaffPolicy() ? { staffPolicy: labStaffPolicy(staff) } : {}),
+    ...(staff && trainedStaffPolicy() ? { staffPolicy: labStaffPolicy(staff), ...(rehearsers ? { rehearsers } : {}) } : {}),
     ...(narrates ? { narratesCombat: eventNarratesHardCombat } : {}),
     ...(asks.length > 0 ? {
       strikePlaces: Object.fromEntries(asks.map((name) => [name, (value) => ask(`strike.${name}`, value)])),

@@ -645,12 +645,24 @@ export const battlefieldRegionTest = ({ battlefields = [], rows = [], readers = 
 export const ENGINE_SLICE_MS = 16;
 const clock = () => (typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now());
 // Up to `days` more days of a run: a run that gives its days as steps is taken a step at a time and the page let draw
-// (pause) whenever ENGINE_SLICE_MS have gone by. True once the run is finished.
+// (pause) whenever ENGINE_SLICE_MS have gone by. True once the run is finished. A step that is something to wait for
+// ({ wait }: a staff's plans being fought on other cores, runtime/fronts/mind/rehearsers.js) is waited for, and what
+// it came to handed back to the run.
 const advanceIn = async (run, days, pause) => {
   if (typeof run.steps !== "function" || typeof pause !== "function") return run.advance(days);
   let since = clock();
   const steps = run.steps(days);
-  for (let step = steps.next(); !step.done; step = steps.next()) {
+  let reply;
+  for (let step = steps.next(); !step.done; step = steps.next(reply)) {
+    reply = undefined;
+    if (typeof step.value?.wait === "function") {
+      try {
+        reply = await step.value.wait();
+      } catch {
+        reply = undefined;
+      }
+      continue;
+    }
     if (clock() - since < ENGINE_SLICE_MS) continue;
     await pause();
     since = clock();
@@ -914,6 +926,8 @@ export const runTurnFronts = async ({
   staff = true,
   // EXPERIMENT, in the lab (runtime/fronts/mind/policy.js): a staff of the caller's own, asked before the engine's.
   staffPolicy = null,
+  // The cores such a staff's plans may be fought on together (runtime/fronts/mind/rehearsers.js), where the caller has them.
+  rehearsers = null,
   // How many troops are raised, of the usual: a factor, 1 unless a run says (runtime/fronts/troops.js troopsFactor).
   troops = 1,
   // false charges no country's people for the troops raised (runtime/fronts/manpower.js).
@@ -1190,7 +1204,7 @@ export const runTurnFronts = async ({
       // (runtime/naval/blockade.js): the side it fights on is weighed for it (runtime/fronts/handicap.js).
       ...(short.size > 0 ? { shortageOf: (name) => short.get(fold(name)) ?? 0 } : {}),
       ...(staff === false ? { staff: false } : {}),
-      ...(typeof staffPolicy === "function" ? { staffPolicy } : {}),
+      ...(typeof staffPolicy === "function" ? { staffPolicy, ...(rehearsers ? { rehearsers } : {}) } : {}),
       ...(Number(troops) > 0 && Number(troops) !== 1 ? { troops: Number(troops) } : {}),
       pace,
       flipAllowance: frontFlipAllowance({ allowance, events: list }),

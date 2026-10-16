@@ -6,6 +6,7 @@
 // while the next turn is being thought through): each has its own.
 
 import { fightAway } from "./frontWorkerCore.js";
+import { createRehearsers, rehearserCount } from "../../runtime/fronts/mind/rehearsers.js";
 
 // How long a run works on between the moments it stops to hear an abort. Nothing is drawn here: long slices.
 const SLICE_MS = 150;
@@ -13,6 +14,20 @@ const SLICE_MS = 150;
 const runs = new Map();
 const asks = new Map();
 let asked = 0;
+
+// The cores the staff's plans are fought on, together (runtime/fronts/mind/rehearsers.js: "do the multi-core
+// rehearsals too", the owner, 2026-10-16): workers of this one's own, made when a staff first looks, shared by
+// every run fought here and let go when nothing has been weighed for a while. None on a machine of few cores.
+let rehearsers = null;
+const rehearsersOf = () => {
+  if (rehearsers === null) {
+    const size = rehearserCount(self.navigator?.hardwareConcurrency);
+    rehearsers = size > 0 && typeof Worker !== "undefined"
+      ? createRehearsers({ size, spawn: () => new Worker(new URL("./rehearserWorker.js", import.meta.url), { type: "module", name: "openhistoria-rehearser" }) })
+      : false;
+  }
+  return rehearsers || null;
+};
 
 const ask = (run, name, value) => new Promise((resolve, reject) => {
   asked += 1;
@@ -45,7 +60,7 @@ self.onmessage = async (event) => {
     if (run.aborted) throw new DOMException("The land war's run was called off.", "AbortError");
   };
   try {
-    const result = await fightAway(message.data, { ask: (name, value) => ask(message.id, name, value), pause });
+    const result = await fightAway(message.data, { ask: (name, value) => ask(message.id, name, value), pause, rehearsers: rehearsersOf() });
     self.postMessage({ kind: "done", id: message.id, result });
   } catch (error) {
     self.postMessage({ kind: "failed", id: message.id, error: String(error?.message ?? error), aborted: error?.name === "AbortError" });

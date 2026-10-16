@@ -194,6 +194,25 @@ test("the engine is run with what it has, and again with the map when it asks fo
   assert.equal(await runFrontTurn({ input: { map: {} } }), null);
 });
 
+test("a step that is something to wait for is waited for, and what it came to is handed back to the run", async () => {
+  // "do the multi-core rehearsals too" (the owner, 2026-10-16): a staff's plans fought on other cores
+  // (runtime/fronts/mind/rehearsers.js) are waited for as a step of the run's own; a wait that fails hands back nothing.
+  const heard = [];
+  const createFrontRun = () => {
+    let done = false;
+    function* steps() {
+      heard.push(yield { wait: async () => 42 });
+      heard.push(yield);
+      heard.push(yield { wait: async () => { throw new Error("the cores are gone"); } });
+      done = true;
+    }
+    return { steps, advance: () => true, finished: () => done, finish: () => ({ battlefields: [], flips: [], unitChanges: [], notes: [] }) };
+  };
+  const result = await runFrontTurn({ createFrontRun, input: { map: {} }, pause: async () => {} });
+  assert.deepEqual(heard, [42, undefined, undefined]);
+  assert.deepEqual(result.battlefields, []);
+});
+
 test("a run that gives its days as steps is taken in slices, the page let draw between them", async () => {
   // "its SOO LAGGY while in war" (the owner, 2026-10-15): a staff that thinks for seconds no longer holds the page.
   const busy = (ms) => {

@@ -377,7 +377,8 @@ test("the game uses the lab's own staff only in the lab, on unless its switch is
   assert.ok(apply.includes("...(strategyNetOn() && trainedStaffPolicy() ? { staffPolicy: labStaffPolicy({ outcomes: warSettingsOf(world).outcomes, difficulty: normalizeDifficulty(game?.difficulty), players: humanCountriesOf(game) }) } : {}),"));
   assert.equal(apply.split("...turnRunInput({").length - 1, 2, "the run before the story and the run that applies it");
   const turn = read("Game/AI/frontTurn.js");
-  assert.ok(turn.includes("...(typeof staffPolicy === \"function\" ? { staffPolicy } : {}),"));
+  // (With the cores its plans may be fought on together, where the run worker has them: rehearsers.js.)
+  assert.ok(turn.includes("...(typeof staffPolicy === \"function\" ? { staffPolicy, ...(rehearsers ? { rehearsers } : {}) } : {}),"));
   // No scenario and no setting can ask for it.
   assert.equal(read("../server/gameFeatures.js").includes("strategyNet"), false);
   // What is shipped is read through the same door a file of weights is: none, or a staff.

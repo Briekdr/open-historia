@@ -76,7 +76,7 @@ import { contactAt, findContacts, frameForContact, middleOf } from "./contact.js
 import { REGIONS_NEEDED, growToHold, prepare, recordDay, settleRegions, simulateDay, startRecorder } from "./day.js";
 import { redistance, takeCapsule, traceContour } from "./field.js";
 import { downhill } from "./ground.js";
-import { pointInFrame } from "./frame.js";
+import { pointInFrame, projectorOf } from "./frame.js";
 import { landWithin, othersOnWay } from "./invade.js";
 import { draw, formationsLeft, manpowerReport, menOf, menPerFormation, partLeft, sendHome } from "./manpower.js";
 import { applyOrder, assignOrder, landCarried, putAshore, readSieges, setStandingOrder, standingOf } from "./orders.js";
@@ -195,6 +195,9 @@ const createRun = (input) => {
     }
     return curves.get(key);
   };
+  // (What the run has itself been told or worked out of the world, kept where a copy of it fought on another core
+  // can be given it: rehearsalPacket below. Not among its own keys.)
+  Object.defineProperty(run, "lookups", { value: { controller, group, figures, curves } });
   // A region changed hands: every battlefield it lies on reads its side again.
   run.regionChanged = (id) => {
     for (const battle of run.battles) {
@@ -2354,6 +2357,100 @@ export const rehearseDay = (rehearsed, day, { morning = true } = {}) => {
   run.steps += simulateDay(battle, run, day);
   battle.daysRun += 1;
   return !battle.closing;
+};
+
+// ---- rehearsals on other cores (mind/planner.js, mind/rehearsers.js) ------------
+// "do the multi-core rehearsals too" (the owner, 2026-10-16). A staff's plans,
+// each fought out on a copy of the battle one after another, are most of what a
+// war's turn takes. Other cores fight them as well, together: each is sent the
+// battle and the run as they stand, as data (rehearsalPacket), rebuilds the
+// same two (rehearsalBase) and makes its copies of those exactly as here. The
+// same orders on the same battle come out the same to the last digit wherever
+// they are fought. What a copy is asked and was not told (a region or a
+// country its tables lack) it says it missed, and that plan is fought here.
+//
+// What is not data is said by name: the battle's projector (its place, and
+// what was worked out for it) and the run itself (what its walls were worn
+// on). The run's readers of the world become tables: whose each of the
+// battle's regions is, and each country's figures, for every country the
+// battle could ask about.
+const PLACE_MARK = "\u0000place";
+const RUN_MARK = "\u0000run";
+// (Never sent: what every copy is given afresh (rehearsal above), the arenas kept, the map's shapes.)
+const RUN_LEFT_OUT = new Set(["input", "battles", "cache", "landRegions", "airOver", "flips", "notes", "joins", "starts", "unitChanges"]);
+const INPUT_LEFT_OUT = new Set(["arenas", "battlefields", "staffPolicy", "watch", "rehearsers"]);
+const BATTLE_LEFT_OUT = new Set(["recorder", "watch", "mendOf"]);
+// The readers asked of a region (by its id); every other is asked of a country (by its name).
+const REGION_READERS = Object.freeze(["controllerOf", "sovereignOf"]);
+
+export const rehearsalPacket = (run, battle) => {
+  const books = {};
+  for (const key of Object.keys(run)) if (!RUN_LEFT_OUT.has(key) && typeof run[key] !== "function") books[key] = run[key];
+  const input = {};
+  const readers = [];
+  for (const [key, value] of Object.entries(run.input ?? {})) {
+    if (INPUT_LEFT_OUT.has(key)) continue;
+    if (typeof value === "function") readers.push([key, value]);
+    else input[key] = key === "map" && value && typeof value === "object" ? { ...value, regions: null } : value;
+  }
+  // Every region of the battle's, and every country it could ask about.
+  const ids = battle.arena.ids.filter((id) => typeof id === "string" && id);
+  const names = new Set();
+  const add = (name) => {
+    const text = clean(name);
+    if (text) names.add(text);
+  };
+  for (const list of battle.sides) list.forEach(add);
+  for (const war of run.wars.values()) for (const list of war.sides) list.forEach(add);
+  for (const id of ids) {
+    add(run.controllerOf(id));
+    add(run.sovereignOf(id));
+    add(run.groupOf(id));
+  }
+  for (const unit of Array.isArray(run.input?.units) ? run.input.units : []) {
+    add(unit?.ownerCode);
+    add(unit?.owner);
+  }
+  for (const list of [run.transports, run.lines, run.wings ? [...run.wings.values()] : []]) for (const item of Array.isArray(list) ? list : []) add(item?.owner);
+  const tables = {};
+  for (const [key, reader] of readers) {
+    const table = new Map();
+    for (const asked of REGION_READERS.includes(key) ? ids : names) table.set(asked, reader(asked));
+    tables[key] = table;
+  }
+  const lookups = {};
+  for (const [key, kept] of Object.entries(run.lookups ?? {})) lookups[key] = [...kept];
+  const bare = {};
+  for (const key of Object.keys(battle)) {
+    const value = battle[key];
+    bare[key] = value === battle.place ? PLACE_MARK : value === run ? RUN_MARK : BATTLE_LEFT_OUT.has(key) ? null : value;
+  }
+  return { books, input, tables, lookups, battle: bare };
+};
+
+// The battle and the run a packet was made of, rebuilt (from a copy of it: it is made over): { run, battle, missed },
+// missed.count the times a copy was asked what its tables did not have.
+export const rehearsalBase = (packet) => {
+  const missed = { count: 0 };
+  const input = { ...packet.input };
+  for (const [key, table] of Object.entries(packet.tables ?? {})) {
+    input[key] = (asked) => {
+      if (table.has(asked)) return table.get(asked);
+      missed.count += 1;
+      return undefined;
+    };
+  }
+  const run = createRun(input);
+  for (const [key, entries] of Object.entries(packet.lookups ?? {})) for (const [asked, value] of entries) run.lookups[key]?.set(asked, value);
+  Object.assign(run, packet.books);
+  const battle = packet.battle;
+  const place = projectorOf(battle.frame);
+  for (const key of Object.keys(battle)) {
+    if (battle[key] === PLACE_MARK) battle[key] = place;
+    else if (battle[key] === RUN_MARK) battle[key] = run;
+  }
+  run.battles = [battle];
+  return { run, battle, missed };
 };
 
 export const createFrontRun = (input) => {

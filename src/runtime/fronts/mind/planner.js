@@ -33,7 +33,7 @@
 // Only + - * / and comparisons (sqrt for a distance), as everywhere in the
 // engine: the same weights decide the same on every machine.
 
-import { rehearsal, rehearseDay, rehearseOrders } from "../engine.js";
+import { rehearsal, rehearsalPacket, rehearseDay, rehearseOrders } from "../engine.js";
 import { AIR_MISSIONS, airMissionOf } from "../air.js";
 import { isLive } from "../troops.js";
 import { BREACH, DIG_IN, HOLD, PUSH, REST, TAKE_CAPITAL, TAKE_CITY, TROOP_ACTIONS, TROOP_FEATURE_COUNT, troopView } from "./troops.js";
@@ -363,6 +363,25 @@ const valueOf = (params, battle, side) => {
   return value;
 };
 
+// How a battle stands `ahead` days after a side's orders (none: carrying on), its wings sent on `air` (as they are:
+// null), against each of the other side's `answers` (null: carrying on): the worst. A step a day rehearsed.
+export function* weighSteps(run, battle, side, day, ahead, params, answers, bodies, air) {
+  let worst = Infinity;
+  for (const answer of answers) {
+    const rehearsed = rehearsal(run, battle);
+    if (bodies || air) rehearseOrders(rehearsed, side, bodies ?? [], day, { air });
+    if (answer) rehearseOrders(rehearsed, 1 - side, answer, day);
+    // (It looks after the day's morning: the copy's first day begins from it.)
+    for (let days = 0; days < ahead; days += 1) {
+      if (!rehearseDay(rehearsed, day + days, { morning: days > 0 })) break;
+      yield;
+    }
+    const value = valueOf(params, rehearsed.battle, side);
+    if (value < worst) worst = value;
+  }
+  return worst;
+}
+
 // ---- what it decided before -----------------------------------------------------------------
 // A time skip fights its period twice, before its story is written and again as it is applied
 // (Game/AI/frontApply.js), and the second time is the first again: "cant you make it do both on the same run?" (the
@@ -406,6 +425,15 @@ export const drain = (steps) => {
   let step = steps.next();
   while (!step.done) step = steps.next();
   return step.value;
+};
+
+// One of a look's plans fought on the battle and run another core rebuilt (engine.js rehearsalBase; rehearsers.js):
+// its value as the staff's own weighing has it, or null where a copy was asked what it was not told.
+//   look   { side, day, ahead, params, answers } of the look; job { bodies, air } of the plan
+export const weighRebuilt = (base, look, job) => {
+  const before = base.missed.count;
+  const value = drain(weighSteps(base.run, base.battle, look.side, look.day, look.ahead, look.params, look.answers, job?.bodies ?? null, job?.air ?? null));
+  return base.missed.count === before ? value : null;
 };
 
 // ---- the staff ----------------------------------------------------------------------------
@@ -468,33 +496,57 @@ export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS
     // same orders, a body turned back to what another plan had it doing) are not fought out again: a rehearsal
     // touches nothing another sees (engine.js rehearsal), and the same orders on the same battle come out the same.
     const weighed = new Map();
+    const saidOf = (bodies, air) => `${air ?? ""}|${bodies ? JSON.stringify(bodies) : "carry on"}`;
     function* weigh(bodies, air = null) {
-      const said = `${air ?? ""}|${bodies ? JSON.stringify(bodies) : "carry on"}`;
+      const said = saidOf(bodies, air);
       if (weighed.has(said)) return weighed.get(said);
-      let worst = Infinity;
-      for (const answer of answers) {
-        const rehearsed = rehearsal(run, battle);
-        if (bodies || air) rehearseOrders(rehearsed, side, bodies ?? [], day, { air });
-        if (answer) rehearseOrders(rehearsed, 1 - side, answer, day);
-        // (It looks after the day's morning: the copy's first day begins from it. A step a day rehearsed.)
-        for (let days = 0; days < ahead; days += 1) {
-          if (!rehearseDay(rehearsed, day + days, { morning: days > 0 })) break;
-          yield;
-        }
-        const value = valueOf(params, rehearsed.battle, side);
-        if (value < worst) worst = value;
-      }
+      const worst = yield* weighSteps(run, battle, side, day, ahead, params, answers, bodies, air);
       weighed.set(said, worst);
       return worst;
+    }
+    // Plans weighed together on other cores, where the run has them (rehearsers.js: "do the multi-core rehearsals
+    // too", the owner, 2026-10-16): [bodies, air] each. The look waits for them as a step of its own ({ wait }),
+    // and whatever they did not have is weighed here as it comes (weigh above), as it all is where nobody waits
+    // (engine.js advance): the same values either way, so the same orders.
+    const rehearsers = typeof run.input?.rehearsers?.weigh === "function" ? run.input.rehearsers : null;
+    let look = null;
+    function* weighTogether(list) {
+      if (!rehearsers || look === false) return;
+      const jobs = [];
+      const saids = [];
+      for (const [bodies, air] of list) {
+        const said = saidOf(bodies, air);
+        if (weighed.has(said) || saids.includes(said)) continue;
+        saids.push(said);
+        jobs.push({ bodies, air });
+      }
+      if (jobs.length < 2) return;
+      if (look === null) {
+        try {
+          look = { packet: rehearsalPacket(run, battle), side, day, ahead, params, answers };
+        } catch {
+          look = false;
+          return;
+        }
+      }
+      const values = yield { wait: () => rehearsers.weigh(look, jobs) };
+      if (!Array.isArray(values)) return;
+      saids.forEach((said, at) => {
+        if (typeof values[at] === "number") weighed.set(said, values[at]);
+      });
     }
     let chosen = -1;
     let best = -Infinity;
     let orders = null;
+    const drawnPlans = [];
     for (let plan = 0; plan < PLAN_NAMES.length; plan += 1) {
       if (allowed && !allowed.has(PLAN_NAMES[plan])) continue;
       const keys = plan === 0 ? null : drawn[plan - 1];
       if (plan > 0 && !keys) continue;
-      const bodies = keys ? bodiesOf(battle, view, keys) : null;
+      drawnPlans.push({ plan, bodies: keys ? bodiesOf(battle, view, keys) : null });
+    }
+    yield* weighTogether(drawnPlans.map(({ bodies }) => [bodies, null]));
+    for (const { plan, bodies } of drawnPlans) {
       const value = yield* weigh(bodies);
       if (value > best) {
         best = value;
@@ -505,9 +557,12 @@ export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS
     // The plan chosen, bettered a body at a time: the largest first.
     if (orders && refine > 0) {
       const largest = orders.map((body, at) => ({ at, size: body.picked.length })).sort((a, b) => b.size - a.size || a.at - b.at).slice(0, refine);
-      for (const { at } of largest) {
-        const other = turned(orders, at);
+      for (let index = 0; index < largest.length; index += 1) {
+        const other = turned(orders, largest[index].at);
         if (!other) continue;
+        // (This and those after it, each turned from the plan as it stands, weighed together: one that betters the
+        // plan changes it, and those after it are weighed again.)
+        if (!weighed.has(saidOf(other, null))) yield* weighTogether(largest.slice(index).map(({ at }) => [turned(orders, at), null]).filter(([bodies]) => bodies));
         const value = yield* weigh(other);
         if (value > best) {
           best = value;
@@ -518,8 +573,9 @@ export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS
     // Its wings over the battle (air.js): sent on whichever mission leaves the battle best, with the orders chosen.
     let air = null;
     if (airControl && (run.airOver?.get(battle)?.[side]?.length ?? 0) > 0) {
-      for (const mission of AIR_MISSIONS) {
-        if (mission === airMissionOf(battle, side)) continue;
+      const missions = AIR_MISSIONS.filter((mission) => mission !== airMissionOf(battle, side));
+      yield* weighTogether(missions.map((mission) => [orders, mission]));
+      for (const mission of missions) {
         const value = yield* weigh(orders, mission);
         if (value > best) {
           best = value;
