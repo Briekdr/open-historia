@@ -131,7 +131,7 @@ import { appendLog, clearLog, readLogSince } from "./logStore.js";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 import { DATA_DIR } from "./dataDir.js";
-import { AGENT_REQUESTS_DIR, writeAgentFolder } from "./agentFolder.js";
+import { AGENT_REQUESTS_DIR, writeAgentFolder, writeAgentSubagents } from "./agentFolder.js";
 import { handleMcpMessage, tokenMatches } from "./agentMcp.js";
 import { AGENT_WAIT_MS, createAgentQueue } from "./agentQueue.js";
 import { appKindOf } from "./appKind.js";
@@ -1586,6 +1586,12 @@ app.post("/api/agent/mcp", agentLocalOnly, jsonParser, async (req, res) => {
       id: req.body?.id ?? null,
       error: { code: -32001, message: "Refused: this is not the token the game wrote for this run. Start the Agent again in the Agent folder." },
     });
+  }
+  // Models the player picked since the last call reach the sub-agents now.
+  try {
+    writeAgentSubagents(AGENT_FOLDER);
+  } catch (error) {
+    console.warn(`[agent] could not update the sub-agents: ${error.message}`);
   }
   const messages = Array.isArray(req.body) ? req.body : [req.body];
   const replies = (await Promise.all(messages.map((message) => handleMcpMessage(agentQueue, message)))).filter(Boolean);

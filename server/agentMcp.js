@@ -9,7 +9,7 @@
 // tool returns the prompt file's path, never the prompt: a skip prompt is far
 // larger than an Agent's limit on one tool result.
 import crypto from "crypto";
-import { AGENT_MCP_SERVER_NAME } from "./agentFolder.js";
+import { AGENT_MCP_SERVER_NAME, AGENT_ROLES, roleForTask } from "./agentFolder.js";
 import { NOT_WAITING } from "./agentQueue.js";
 
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -63,7 +63,16 @@ const toolText = (value) => ({ content: [{ type: "text", text: JSON.stringify(va
 const toolRefusal = (message) => ({ content: [{ type: "text", text: message }], isError: true });
 
 const callTool = async (queue, name, args = {}) => {
-  if (name === "list_requests") return toolText(await queue.list());
+  if (name === "list_requests") {
+    const listed = await queue.list();
+    if (!Array.isArray(listed.requests)) return toolText(listed);
+    // Which sub-agent answers each: the writer or quick jobs (agentFolder.js).
+    const requests = listed.requests.map((request) => {
+      const role = roleForTask(request.task);
+      return { ...request, role, subagent: AGENT_ROLES[role].subagent };
+    });
+    return toolText({ ...listed, requests });
+  }
   if (name === "read_request") {
     const request = queue.read(args.id);
     if (!request) return toolRefusal(NOT_WAITING);

@@ -137,10 +137,13 @@ describe("Agent folder", () => {
     assert.ok(existsSync(path.join(folder, "AGENTS.md")), "AGENTS.md");
     assert.match(readFileSync(path.join(folder, "CLAUDE.md"), "utf8"), /@AGENTS\.md/);
     assert.ok(existsSync(path.join(folder, ".claude", "skills", "skip", "SKILL.md")), "the /skip skill");
-    const subAgent = readFileSync(path.join(folder, ".claude", "agents", "skip-answerer.md"), "utf8");
-    // The player's own model and effort are inherited: the definition sets neither.
-    assert.doesNotMatch(subAgent, /^model:/m);
-    assert.doesNotMatch(subAgent, /^effort:/m);
+    // Until the player picks models for Open Historia, both sub-agents inherit
+    // the player's own model and effort: the definitions set neither.
+    for (const name of ["skip-writer", "skip-quick"]) {
+      const subAgent = readFileSync(path.join(folder, ".claude", "agents", `${name}.md`), "utf8");
+      assert.doesNotMatch(subAgent, /^model:/m, name);
+      assert.doesNotMatch(subAgent, /^effort:/m, name);
+    }
 
     const firstServer = mcpSettings(dataDir);
     assert.equal(firstServer.url, `http://127.0.0.1:${first.port}/api/agent/mcp`);
@@ -155,6 +158,41 @@ describe("Agent folder", () => {
     const secondServer = mcpSettings(dataDir);
     assert.equal(secondServer.url, `http://127.0.0.1:${second.port}/api/agent/mcp`);
     assert.notEqual(secondServer.headers.Authorization, firstToken);
+  });
+
+  test("the models the player picked for Open Historia go into the sub-agents, and the game never overwrites the choice", async () => {
+    const dataDir = newDataDir();
+    const folder = path.join(dataDir, "agent");
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(path.join(folder, "models.json"), JSON.stringify({ writer: "sonnet", quick: "haiku" }));
+
+    await startServer(dataDir);
+    assert.match(readFileSync(path.join(folder, ".claude", "agents", "skip-writer.md"), "utf8"), /^model: sonnet$/m);
+    assert.match(readFileSync(path.join(folder, ".claude", "agents", "skip-quick.md"), "utf8"), /^model: haiku$/m);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(folder, "models.json"), "utf8")), { writer: "sonnet", quick: "haiku" });
+  });
+
+  test("models picked while the game runs reach the sub-agents on the Agent's next call", async () => {
+    const dataDir = newDataDir();
+    await startServer(dataDir);
+    const folder = path.join(dataDir, "agent");
+    writeFileSync(path.join(folder, "models.json"), JSON.stringify({ writer: "opus", quick: "haiku" }));
+    await agent(mcpSettings(dataDir)).tool("list_requests");
+    assert.match(readFileSync(path.join(folder, ".claude", "agents", "skip-writer.md"), "utf8"), /^model: opus$/m);
+    assert.match(readFileSync(path.join(folder, ".claude", "agents", "skip-quick.md"), "utf8"), /^model: haiku$/m);
+  });
+
+  test("a model name that is not a plain name is ignored", async () => {
+    const dataDir = newDataDir();
+    const folder = path.join(dataDir, "agent");
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(path.join(folder, "models.json"), JSON.stringify({ writer: "sonnet\ntools: Bash", quick: 7 }));
+    await startServer(dataDir);
+    for (const name of ["skip-writer", "skip-quick"]) {
+      const subAgent = readFileSync(path.join(folder, ".claude", "agents", `${name}.md`), "utf8");
+      assert.doesNotMatch(subAgent, /^model:/m, name);
+      assert.doesNotMatch(subAgent, /Bash/, name);
+    }
   });
 
   test("leftover prompt files are deleted at start", async () => {
@@ -219,7 +257,7 @@ describe("Agent MCP server", () => {
 
     const listed = await client.tool("list_requests");
     assert.equal(listed.status, "waiting");
-    assert.deepEqual(listed.requests.map((entry) => [entry.id, entry.task]), [[asked.id, "jump"]]);
+    assert.deepEqual(listed.requests.map((entry) => [entry.id, entry.task, entry.role, entry.subagent]), [[asked.id, "jump", "writer", "skip-writer"]]);
 
     const read = await client.tool("read_request", { id: asked.id });
     assert.ok(path.resolve(read.promptFile).startsWith(path.resolve(dataDir, "agent")));
@@ -306,7 +344,7 @@ describe("Agent MCP server", () => {
     const review = await side.ask("skip-1", "review", "Review.");
     const listed = await asking;
     assert.equal(listed.status, "waiting");
-    assert.deepEqual(listed.requests.map((entry) => entry.id), [review.id]);
+    assert.deepEqual(listed.requests.map((entry) => [entry.id, entry.role, entry.subagent]), [[review.id, "quick", "skip-quick"]]);
     await client.tool("answer_request", { id: review.id, text: "reviewed" });
 
     await side.finishSkip("skip-1");

@@ -21,7 +21,23 @@ import path from "path";
 export const AGENT_MCP_SERVER_NAME = "open-historia";
 export const AGENT_REQUESTS_DIR = "requests";
 
+export const AGENT_MODELS_FILE = "models.json";
+
 const TOOL = (name) => `mcp__${AGENT_MCP_SERVER_NAME}__${name}`;
+
+// Which of the two sub-agents answers a request, by its task: the writer for
+// the skip's long writing (the jump, retries included, and the history), quick
+// jobs for the short checks after it. The player may give each its own model,
+// for Open Historia only (models.json); until then both inherit theirs.
+export const AGENT_ROLES = Object.freeze({
+  writer: Object.freeze({ subagent: "skip-writer", tasks: Object.freeze(["jump", "history"]) }),
+  quick: Object.freeze({ subagent: "skip-quick", tasks: Object.freeze(["review", "stats", "institutionBallots"]) }),
+});
+
+export const roleForTask = (task) => {
+  const base = String(task || "").replace(/(?:Retry|Lookup)$/, "");
+  return AGENT_ROLES.quick.tasks.includes(base) ? "quick" : "writer";
+};
 
 const AGENTS_MD = `# Open Historia: answering time skips
 
@@ -54,14 +70,32 @@ The game is reached through its MCP server, \`${AGENT_MCP_SERVER_NAME}\`, which 
   restarted since this session began. Tell the player to start the Agent again
   in this folder.
 
+## Models for Open Historia
+
+The player chooses the models that answer Open Historia's requests, in
+\`${AGENT_MODELS_FILE}\` in this folder: \`{ "writer": "<model>", "quick": "<model>" }\`.
+The writer answers the jump and the history; quick answers the turn review,
+stat sheets and institution ballots. The file is the player's: the game never
+writes it. Their choice here is for Open Historia only and comes before any
+general rule they keep about which models sub-agents use. In Claude Code the
+game writes it into the \`skip-writer\` and \`skip-quick\` sub-agents. In another
+Agent, start each sub-agent on the model the file names for its role if your
+Agent lets you choose; otherwise use your own.
+
 ## What \`/skip\` does
 
+0. If \`${AGENT_MODELS_FILE}\` is missing, or the player typed \`/skip models\`, ask the
+   player which model should write (the bigger job) and which should do the
+   quick checks, offering the models your Agent has (in Claude Code: opus,
+   sonnet or haiku; or "my own" to keep the session's), and write their answer
+   to \`${AGENT_MODELS_FILE}\`. Ask once; then go on.
 1. Call \`list_requests\`. If the status is \`idle\`, tell the player
    "No time skip is pending" and stop.
-2. For each request listed, hand it to a fresh sub-agent (in Claude Code, the
-   \`skip-answerer\` agent) with just its id. The sub-agent reads the prompt file,
-   writes the answer and calls \`answer_request\`. If your Agent has no
-   sub-agents, do this yourself, one request at a time.
+2. For each request listed, hand it to a fresh sub-agent with just its id: the
+   one its \`subagent\` names (in Claude Code, \`skip-writer\` for the long
+   writing, \`skip-quick\` for the short checks after it). The sub-agent reads
+   the prompt file, writes the answer and calls \`answer_request\`. If your
+   Agent has no sub-agents, do this yourself, one request at a time.
 3. Call \`list_requests\` again. Repeat step 2 while it says \`waiting\`, and keep
    asking while it says \`running\`. A time skip asks its requests one after
    another (the turn review, history and stat sheets are written from the
@@ -72,8 +106,9 @@ The game is reached through its MCP server, \`${AGENT_MCP_SERVER_NAME}\`, which 
 
 const SKIP_STEPS = `Answer the time skip Open Historia is waiting on. Follow "What \`/skip\` does" in AGENTS.md:
 
+0. If \`${AGENT_MODELS_FILE}\` is missing from this folder, or the player typed \`/skip models\`: ask the player which model should write the skip (the bigger job) and which should do the quick checks after it, offering the models you can run (in Claude Code: opus, sonnet or haiku, or "my own" to keep this session's). Write \`{ "writer": "<model>", "quick": "<model>" }\` to \`${AGENT_MODELS_FILE}\`, leaving out a role the player keeps on their own model. This choice is for Open Historia only, and comes before any general rule about which models sub-agents use. Then go on.
 1. Call \`list_requests\`. If its status is \`idle\`, say "No time skip is pending" and stop.
-2. For each listed request, start a fresh \`skip-answerer\` sub-agent with only the request id, in the foreground, and wait for it to finish. Do not read the prompt file yourself: it is large, and the sub-agent keeps it out of this session. If you cannot start sub-agents, answer each request yourself as the skip-answerer agent would.
+2. For each listed request, start a fresh sub-agent of the kind its \`subagent\` names, with only the request id, in the foreground, and wait for it to finish. If \`${AGENT_MODELS_FILE}\` names a model for the request's \`role\`, start the sub-agent on that model. Do not read the prompt file yourself: it is large, and the sub-agent keeps it out of this session. If you cannot start sub-agents, answer each request yourself as that sub-agent would.
 3. Call \`list_requests\` again. Answer whatever is \`waiting\`; while it says \`running\`, ask again.
 4. When it says \`idle\`, tell the player the skip is finished, in one line, and stop.
 
@@ -95,13 +130,14 @@ description: Answer the time skip the Open Historia game is waiting on. Only whe
 
 ${SKIP_STEPS}`;
 
-// No model and no effort: the sub-agent inherits both from the player's own
-// session, which is the one place the player chooses them (ADR 0008).
-const SKIP_ANSWERER = `---
-name: skip-answerer
-description: Answers one Open Historia time-skip request, given its id. Used by /skip.
+// One sub-agent per role. Its model is the one the player picked for that role
+// in models.json, for Open Historia only; with none picked it names no model
+// and no effort, and inherits both from the player's own session (ADR 0008).
+const subagentDefinition = ({ name, description, model }) => `---
+name: ${name}
+description: ${description}
 tools: ${TOOL("read_request")}, ${TOOL("lookup")}, ${TOOL("answer_request")}, Read, Write
----
+${model ? `model: ${model}\n` : ""}---
 
 You answer one request from the Open Historia game. You are given its id.
 
@@ -120,6 +156,38 @@ You answer one request from the Open Historia game. You are given its id.
 
 Never edit any other file.
 `;
+
+const SUBAGENT_DESCRIPTIONS = {
+  writer: "Writes one Open Historia time-skip request (the jump, or the history), given its id. Used by /skip.",
+  quick: "Answers one of Open Historia's quick checks after a time skip (review, stat sheets, ballots), given its id. Used by /skip.",
+};
+
+// A plain model name or id ("sonnet", "claude-haiku-4-5", "gpt-5-mini"): it is
+// written into a definition's header, so nothing else gets in.
+const plainModel = (value) => (typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value.trim()) ? value.trim() : "");
+
+export const readAgentModels = (folder) => {
+  try {
+    const chosen = JSON.parse(fs.readFileSync(path.join(folder, AGENT_MODELS_FILE), "utf8"));
+    return { writer: plainModel(chosen?.writer), quick: plainModel(chosen?.quick) };
+  } catch {
+    return { writer: "", quick: "" };
+  }
+};
+
+// The two sub-agents, with the player's models as they stand. Run at start and
+// again on every call from the Agent, so models picked mid-session are used.
+export const writeAgentSubagents = (folder) => {
+  const models = readAgentModels(folder);
+  for (const [role, { subagent }] of Object.entries(AGENT_ROLES)) {
+    writeIfChanged(
+      path.join(folder, ".claude", "agents", `${subagent}.md`),
+      subagentDefinition({ name: subagent, description: SUBAGENT_DESCRIPTIONS[role], model: models[role] }),
+    );
+  }
+  // The single sub-agent of earlier builds.
+  fs.rmSync(path.join(folder, ".claude", "agents", "skip-answerer.md"), { force: true });
+};
 
 const writeIfChanged = (file, text) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -146,7 +214,7 @@ export const writeAgentFolder = (folder, { url, token }) => {
     `${JSON.stringify({ mcpServers: { [AGENT_MCP_SERVER_NAME]: { type: "http", url, headers: { Authorization: authorization } } } }, null, 2)}\n`,
   );
   writeIfChanged(path.join(folder, ".claude", "skills", "skip", "SKILL.md"), CLAUDE_SKILL);
-  writeIfChanged(path.join(folder, ".claude", "agents", "skip-answerer.md"), SKIP_ANSWERER);
+  writeAgentSubagents(folder);
 
   // Codex (and other Agents that read AGENTS.md and .agents/skills)
   writeIfChanged(
