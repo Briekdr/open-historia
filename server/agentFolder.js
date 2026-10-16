@@ -73,7 +73,7 @@ The game is reached through its MCP server, \`${AGENT_MCP_SERVER_NAME}\`, which 
 const SKIP_STEPS = `Answer the time skip Open Historia is waiting on. Follow "What \`/skip\` does" in AGENTS.md:
 
 1. Call \`list_requests\`. If its status is \`idle\`, say "No time skip is pending" and stop.
-2. For each listed request, start a fresh \`skip-answerer\` sub-agent with only the request id. Do not read the prompt file yourself: it is large, and the sub-agent keeps it out of this session. If you cannot start sub-agents, answer each request yourself as the skip-answerer agent would.
+2. For each listed request, start a fresh \`skip-answerer\` sub-agent with only the request id, in the foreground, and wait for it to finish. Do not read the prompt file yourself: it is large, and the sub-agent keeps it out of this session. If you cannot start sub-agents, answer each request yourself as the skip-answerer agent would.
 3. Call \`list_requests\` again. Answer whatever is \`waiting\`; while it says \`running\`, ask again.
 4. When it says \`idle\`, tell the player the skip is finished, in one line, and stop.
 
