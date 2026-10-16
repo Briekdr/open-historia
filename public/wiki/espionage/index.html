@@ -2,15 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <!-- Google tag (gtag.js) -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-H9EQ4JFZXZ"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-
-    gtag('config', 'G-H9EQ4JFZXZ');
-  </script>
+  <!-- Visit counters: asked for first, loaded only after a yes (consent.js). -->
+  <script defer src="/consent.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111113" />
   <link rel="icon" type="image/jpeg" href="/logo.png" />
@@ -33,9 +26,7 @@
   <meta name="twitter:description" content="Intelligence ratings, sending agents, being spied on, double agents and sealed intercepts." />
   <meta name="twitter:image" content="https://raw.githubusercontent.com/Open-Historia/open-historia/main/public/loading_screen.jpg" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" />
+  <link rel="stylesheet" href="/fonts/fonts.css" />
   <link rel="stylesheet" href="/wiki.css" />
 
   <script type="application/ld+json">
@@ -308,8 +299,8 @@ can read theirs. A turned agent brings nothing real. The country you stole it fr
 either party to a covert <a href="/wiki/war/#puppets-and-overlords">puppet arrangement</a> reveals
 it at the end of the turn, and keeps what you know of it current for as long as it stays in
 place.</p><h2 id="agents-report-in-real-time">Agents report in real time</h2>
-<p>Agents report after time skips — with <strong>Save AI requests</strong> on, collecting their reports is one of
-the after-skip checks, and each agent files at least every third skip. They also report between
+<p>Agents report after time skips — their reports come back in the skip&#39;s own answer, at no extra
+request, and each agent files at least every third skip. They also report between
 skips: while the game is open and on screen, each deployed agent is rolled roughly once a minute,
 working out to about <strong>one report every twenty minutes per agent</strong>. Those in-between reports are
 background AI, so they only happen while <strong>Background AI</strong> is on, and stop at its daily cap.</p>
@@ -350,7 +341,10 @@ and you are caught reasonably often. Intelligence capability is worth ordering a
     <a href="/wiki/">Wiki</a> ·
     <a href="https://github.com/Open-Historia/open-historia" target="_blank" rel="noopener">GitHub</a> ·
     <a href="https://discord.gg/QaqAK7fQAg" target="_blank" rel="noopener">Discord</a> ·
+    <a href="/privacy/">Privacy</a> ·
+    <a href="/privacy/#choices" data-consent-open>Privacy choices</a> ·
     <a href="/sitemap.xml">Sitemap</a>
+    <p class="foot-legal">Open Historia is an independent, open-source project and is not affiliated with, endorsed, sponsored, approved, or authorized by Pax Historia. Pax Historia has no involvement in the development, operation, or distribution of Open Historia. Pax Historia™ and all associated trademarks, trade names, and logos are the exclusive property of Pax Historia.</p>
   </div>
 </footer>
 

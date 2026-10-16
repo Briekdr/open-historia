@@ -2,15 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <!-- Google tag (gtag.js) -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-H9EQ4JFZXZ"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-
-    gtag('config', 'G-H9EQ4JFZXZ');
-  </script>
+  <!-- Visit counters: asked for first, loaded only after a yes (consent.js). -->
+  <script defer src="/consent.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111113" />
   <link rel="icon" type="image/jpeg" href="/logo.png" />
@@ -33,9 +26,7 @@
   <meta name="twitter:description" content="Which providers work, which models to pick, what it costs, and the expert controls." />
   <meta name="twitter:image" content="https://raw.githubusercontent.com/Open-Historia/open-historia/main/public/loading_screen.jpg" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" />
+  <link rel="stylesheet" href="/fonts/fonts.css" />
   <link rel="stylesheet" href="/wiki.css" />
 
   <script type="application/ld+json">
@@ -218,10 +209,10 @@ start, not placeholders.</p>
 important is happening. <strong>Per-task models</strong> does this for you: the time skip on a strong
 model, small jobs on a cheap one.</p>
 <h2 id="costs">Costs</h2>
-<p>A time skip is <strong>one request</strong> where it can be, two when there is something to check afterwards,
-and never more than three — that is what <strong>Save AI requests</strong> (on by default) guarantees. Turn it
-off and every check after a skip makes its own request, the model may look things up, and a busy
-skip can use twenty or more. Diplomacy, the advisor and <strong>Background AI</strong> (countries writing to
+<p>A time skip is <strong>one request</strong>, with <strong>Save AI requests</strong> on or off: its events carry their own
+changes, and nothing is asked after it. Turn Save AI requests off and, with AI lookup functions
+on, the model may look things up before it answers — two rounds at most, so a skip never uses
+more than three. Diplomacy, the advisor and <strong>Background AI</strong> (countries writing to
 you unprompted, forces repositioning, extra agent reports — capped at 30 a day by default) cost
 extra on top. Settings → AI → <strong>AI requests</strong> shows today&#39;s count and what your last skip used.</p>
 <p>Rough guidance rather than a price list:</p>
@@ -300,7 +291,10 @@ where to look.</p>
     <a href="/wiki/">Wiki</a> ·
     <a href="https://github.com/Open-Historia/open-historia" target="_blank" rel="noopener">GitHub</a> ·
     <a href="https://discord.gg/QaqAK7fQAg" target="_blank" rel="noopener">Discord</a> ·
+    <a href="/privacy/">Privacy</a> ·
+    <a href="/privacy/#choices" data-consent-open>Privacy choices</a> ·
     <a href="/sitemap.xml">Sitemap</a>
+    <p class="foot-legal">Open Historia is an independent, open-source project and is not affiliated with, endorsed, sponsored, approved, or authorized by Pax Historia. Pax Historia has no involvement in the development, operation, or distribution of Open Historia. Pax Historia™ and all associated trademarks, trade names, and logos are the exclusive property of Pax Historia.</p>
   </div>
 </footer>
 

@@ -2,15 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <!-- Google tag (gtag.js) -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-H9EQ4JFZXZ"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-
-    gtag('config', 'G-H9EQ4JFZXZ');
-  </script>
+  <!-- Visit counters: asked for first, loaded only after a yes (consent.js). -->
+  <script defer src="/consent.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111113" />
   <link rel="icon" type="image/jpeg" href="/logo.png" />
@@ -33,9 +26,7 @@
   <meta name="twitter:description" content="Blank maps, greyed-out AI, slow turns, CORS errors and the other things that go wrong." />
   <meta name="twitter:image" content="https://raw.githubusercontent.com/Open-Historia/open-historia/main/public/loading_screen.jpg" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" />
+  <link rel="stylesheet" href="/fonts/fonts.css" />
   <link rel="stylesheet" href="/wiki.css" />
 
   <script type="application/ld+json">
@@ -212,8 +203,8 @@ failing. See <a href="/wiki/time/">time and turns</a>.</p>
 <h3 id="a-held-projects-board">A held Projects board</h3>
 <p>The turn&#39;s events can succeed while the <strong>Projects &amp; Operations</strong> update fails. When that happens
 the turn is held the same way: <em>&quot;Your events are ready, but the Projects &amp; Operations board did
-not update, so nothing has been saved yet.&quot;</em> (With <strong>Save AI requests</strong> on, the board is one of
-the checks that share the after-skip request.)</p>
+not update, so nothing has been saved yet.&quot;</em> (A skip&#39;s events now carry the board&#39;s changes themselves,
+so this is rare.)</p>
 <p><strong>Retry the board</strong> and it finishes the turn, keeping the events that already came back. You do
 not re-run the whole simulation to fix a board that was the only thing to fail. Discard it and
 the turn runs again from the start.</p>
@@ -238,7 +229,7 @@ AI shows which entries are Spent and when each comes back.</p>
 <h2 id="rate-limits">Rate limits</h2>
 <p>Symptoms: turns fail intermittently, or stall on long jumps while short ones work.</p>
 <p>Free tiers have per-minute limits that a long jump can exceed, and a daily allowance that a busy
-session can. Options: leave <strong>Save AI requests</strong> on (a skip then costs one to three requests),
+session can. Options: leave <strong>Save AI requests</strong> on (a skip is then one request),
 use the smaller/faster model in the family (limits are usually more generous), add a
 <a href="/wiki/ai-setup/#backup-models">backup model</a>, or move to a paid tier.</p>
 <p>A rate limit is not the same as a Spent allowance. By default the game hands the call straight to
@@ -270,8 +261,8 @@ CORS setting to enable.</li>
 <li>On the desktop app, close and reopen it — a long session accumulates map tiles.</li>
 </ul>
 <h2 id="i-lost-my-games">I lost my games</h2>
-<p><strong>In the browser</strong> — clearing site data clears your campaigns. There is no server-side copy
-unless you signed in, which syncs them. Grant persistent storage permission when asked.</p>
+<p><strong>In the browser</strong> — clearing site data clears your campaigns. There is no server-side
+copy. Grant persistent storage permission when asked.</p>
 <p><strong>On desktop</strong> — saves are files in the app&#39;s data directory and are still there. If the library
 looks empty, the app may be pointed at a different data directory.</p>
 <p><strong>After installing the beta</strong> — the beta build keeps a <strong>separate library</strong> by design. Your
@@ -333,7 +324,10 @@ doing.</p>
     <a href="/wiki/">Wiki</a> ·
     <a href="https://github.com/Open-Historia/open-historia" target="_blank" rel="noopener">GitHub</a> ·
     <a href="https://discord.gg/QaqAK7fQAg" target="_blank" rel="noopener">Discord</a> ·
+    <a href="/privacy/">Privacy</a> ·
+    <a href="/privacy/#choices" data-consent-open>Privacy choices</a> ·
     <a href="/sitemap.xml">Sitemap</a>
+    <p class="foot-legal">Open Historia is an independent, open-source project and is not affiliated with, endorsed, sponsored, approved, or authorized by Pax Historia. Pax Historia has no involvement in the development, operation, or distribution of Open Historia. Pax Historia™ and all associated trademarks, trade names, and logos are the exclusive property of Pax Historia.</p>
   </div>
 </footer>
 
