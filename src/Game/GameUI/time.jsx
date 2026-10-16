@@ -84,6 +84,7 @@ import {
 } from "./turnReveal.js";
 import { prehistoryHasContent } from "../../runtime/scenarioPrehistory.js";
 import { SHARED_ROUND_LANDED, inSharedGame, requestFromHost } from "../../multiplayer/client/sharedGameBridge.js";
+import { rememberSkipLength, scheduleFrontsPrethink, stopFrontsPrethink } from "../AI/frontPrethink.js";
 
 dayjs.extend(advancedFormat);
 
@@ -2438,6 +2439,15 @@ const DateWidget = ({
     const sceneInProgress = isSceneInProgress(worldState?.activeInteractive);
     const offeredInteractive = offeredEvent({ offer: worldState?.interactiveOffer, events, sceneInProgress });
     const shownOffer = offeredInteractive && !unseenEventIds.has(offeredInteractive.id) ? offeredInteractive : null;
+    // A game opened, or standing at a new date: while the player reads, the next period's land war is thought
+    // through ahead of time (AI/frontPrethink.js: on a computer, in the land war's own worker, at a war only).
+    const preDate = gameData?.gameDate || "";
+    const preWar = Array.isArray(worldState?.battlefields) && worldState.battlefields.some((record) => record?.status === "active");
+    useEffect(() => {
+        if (!preDate || !preWar) return undefined;
+        scheduleFrontsPrethink({ delay: 6000 });
+        return () => stopFrontsPrethink();
+    }, [preDate, preWar]);
     const [countryBounds, setCountryBounds] = useState(new Map());
     const [countryCatalog, setCountryCatalog] = useState([]);
     const [regionBounds, setRegionBounds] = useState(new Map());
@@ -2724,6 +2734,11 @@ const DateWidget = ({
             return;
         }
 
+        // What was being thought through ahead of time stops: the skip fights its own period now, and has whatever of
+        // it was already thought through (AI/frontPrethink.js). Its length is the next one's to think through.
+        stopFrontsPrethink();
+        if (mode !== "auto") rememberSkipLength(days);
+
         // Nothing in the Fallback list can answer — every model Spent or
         // Unusable: say when the first comes back, or what to fix, rather than
         // spend the turn finding out and falling back to canned events. An
@@ -2813,6 +2828,8 @@ const DateWidget = ({
             setGameData(result.game);
             setEvents(result.events);
             setWorldState(result.world);
+            // While the player reads what came of it, the next period's land war is thought through (AI/frontPrethink.js).
+            scheduleFrontsPrethink();
             const elapsed = `${Math.round((Date.now() - startedAt) / 1000)}s`;
             // This turn's events, not the campaign's. result.events is every event
             // the game holds: a player's report of round 6 listed the death of

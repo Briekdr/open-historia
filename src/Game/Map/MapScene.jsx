@@ -10,6 +10,7 @@ import WarRoomLayers from "./WarRoomLayers.jsx";
 import WarRoomMarks from "./WarRoomMarks.jsx";
 import WarRoomTools from "./WarRoomTools.jsx";
 import TransportLayers from "./TransportLayers.jsx";
+import AirLayers from "./AirLayers.jsx";
 import StrikeLayers from "./StrikeLayers.jsx";
 import SeaBattleLayers from "./SeaBattleLayers.jsx";
 import SeasonLayers from "./SeasonLayers.jsx";
@@ -171,6 +172,7 @@ const MapScene = ({ isGlobe = false }) => {
       <StrikeLayers />
       <SeaBattleLayers />
       <FrontWeatherLayers />
+      <AirLayers />
       <Units />
       <GlobeEffects active={isGlobe} />
       <RegionPopup />

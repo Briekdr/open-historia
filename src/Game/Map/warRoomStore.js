@@ -63,6 +63,12 @@ const CLOSED = Object.freeze({
   rail: 0,
   // Raised whenever the panel wants the battlefield fitted on the map again.
   fit: 0,
+  // The ground shaded on the map (warRoomCells.js): whether its supply is shown (the rail's Supply key) and what of
+  // it is shaded, and what a rehearsal of the days ahead would gain and lose (GameUI/warRoomRehearsal.jsx).
+  // GeoJSON, or null.
+  supply: false,
+  supplyShade: null,
+  rehearsalShade: null,
 });
 
 let state = CLOSED;
@@ -105,7 +111,7 @@ export const closeWarRoom = () => {
 // Which battlefield is shown: what was picked out on the last one is put down.
 export const showBattlefield = (battlefield, side) => {
   if (state.battlefield === battlefield && state.side === side) return;
-  setWarRoom({ battlefield, side, tool: "pan", selected: [], highlight: -1, replan: "", pointed: "", plans: [], known: [], fit: state.fit + 1 });
+  setWarRoom({ battlefield, side, tool: "pan", selected: [], highlight: -1, replan: "", pointed: "", plans: [], known: [], rehearsalShade: null, fit: state.fit + 1 });
 };
 
 // The tool in hand. Taking up the one already in hand puts it down.

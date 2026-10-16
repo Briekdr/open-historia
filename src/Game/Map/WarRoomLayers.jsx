@@ -24,13 +24,32 @@ const WIDTH = ["interpolate", ["linear"], ["zoom"], 3, ["case", ["get", "pointed
 // the model's text, in the language of the game: it is not translated.)
 const labelOf = (plan) => (plan.kind === "project" || plan.project ? plan.name : "");
 
+// The ground the room shades (warRoomCells.js): the player's own ground stretched past where supplies come in full
+// (amber) or cut off (red), the other side's cut off (pale); and what a rehearsal of the days ahead would gain
+// (green) and lose (red). Flat and faint: the battlefield's own paint shows through.
+const SHADE_SOURCE = "warroom-shade-source";
+const SHADE_COLOURS = ["match", ["get", "kind"],
+  "stretched", "rgba(233, 185, 73, 0.34)",
+  "cut", "rgba(210, 53, 61, 0.44)",
+  "theirs-cut", "rgba(236, 231, 218, 0.34)",
+  "gained", "rgba(96, 186, 112, 0.42)",
+  "lost", "rgba(210, 53, 61, 0.4)",
+  "rgba(0, 0, 0, 0)"];
+
 const WarRoomLayers = () => {
   const { current: mapRef } = useMap();
   const open = useWarRoom((state) => state.open);
   const plans = useWarRoom((state) => state.plans);
   const known = useWarRoom((state) => state.known);
   const pointed = useWarRoom((state) => state.pointed);
+  const supplyOn = useWarRoom((state) => state.supply);
+  const supplyShade = useWarRoom((state) => state.supplyShade);
+  const rehearsalShade = useWarRoom((state) => state.rehearsalShade);
   const data = useMemo(() => planFeatures({ plans, known, pointed, labelOf }), [plans, known, pointed]);
+  const shade = useMemo(() => ({
+    type: "FeatureCollection",
+    features: [...(supplyOn && supplyShade ? supplyShade.features : []), ...(rehearsalShade ? rehearsalShade.features : [])],
+  }), [supplyOn, supplyShade, rehearsalShade]);
 
   // The layers come and go with the war room; the map's own order is put back
   // each time they come.
@@ -40,10 +59,14 @@ const WarRoomLayers = () => {
     try {
       enforceMapLayerOrder(map);
     } catch { /* the map is between styles */ }
-  }, [open, mapRef, data]);
+  }, [open, mapRef, data, shade]);
 
   if (!open) return null;
   return (
+    <>
+    <Source id={SHADE_SOURCE} type="geojson" data={shade}>
+      <Layer id="warroom-shade-fill" type="fill" paint={{ "fill-color": SHADE_COLOURS, "fill-antialias": false }} />
+    </Source>
     <Source id={SOURCE} type="geojson" data={data}>
       <Layer
         id="warroom-plans-casing"
@@ -98,6 +121,7 @@ const WarRoomLayers = () => {
         paint={{ "text-color": ["get", "colour"], "text-halo-color": "rgba(5, 8, 13, 0.92)", "text-halo-width": 1.6 }}
       />
     </Source>
+    </>
   );
 };
 

@@ -112,6 +112,10 @@ const LazyCountryPanel = lazy(() =>
 );
 // The war room (warRoom.jsx): nothing of it loads until there is a war and the
 // player opens it.
+// A war's after-action report, put before the player once a battlefield of theirs closes (afterAction.jsx).
+const LazyAfterActionReports = lazy(() =>
+  import("./afterAction.jsx").then((module) => ({ default: module.AfterActionReports })),
+);
 const LazyWarRoomPanel = lazy(() =>
   import("./warRoom.jsx").then((module) => ({ default: module.WarRoomPanel })),
 );
@@ -826,6 +830,9 @@ const Main = ({
       {(atWar || isWarRoomOpen) && (
         <WarRoomButton open={warRoomShown} isMobile={isMobile} onToggle={toggleWarRoom} />
       )}
+      <Suspense fallback={null}>
+        <LazyAfterActionReports />
+      </Suspense>
       <Suspense fallback={null}>
         {shouldLoadWarRoom && (
           <LazyWarRoomPanel

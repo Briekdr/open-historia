@@ -73,6 +73,9 @@ export const MAP_LAYER_ORDER = [
   "ice-cracks-b-repair",
   "ice-edge",
   "ice-edge-repair",
+  // What the war room shades of a battlefield's ground (WarRoomLayers.jsx: its
+  // supply, and a rehearsal's gains and losses): over its paint, under the borders.
+  "warroom-shade-fill",
 
   // Sovereign frontiers are presentation, but must remain above every
   // political fill and below every semantic object/label layer.
@@ -162,6 +165,10 @@ export const MAP_LAYER_ORDER = [
   "transports-way",
   "transports-icons",
   "transports-lost",
+  // The aircraft each side flies over a battlefield (AirLayers.jsx), with their
+  // shadows: over its troops and the transporters crossing to it.
+  "fronts-air-shadow",
+  "fronts-air",
 
   // Where the last turns' fleets fought, and the water each blockading fleet
   // closes (SeaBattleLayers.jsx): under the fleets themselves, which have counters.

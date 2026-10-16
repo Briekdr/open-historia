@@ -30,6 +30,7 @@ import { RESOURCES_SHORT_FROM } from "../../runtime/warResources.js";
 import { attritionOf } from "../../runtime/attrition.js";
 import { warSettingsOf } from "../../runtime/warSettings.js";
 import { PeaceControls, ReparationsNote } from "./warAndPeace.jsx";
+import { WarReportsList } from "./afterAction.jsx";
 import { institutionPortfolioForPolity } from "../../runtime/institutionLifecycleCore.js";
 import { TURN_RUNNING_NOTE, isSimulationBusy } from "../AI/simulationStatus.js";
 import { useTurnRunning } from "./useTurnRunning.js";
@@ -948,6 +949,8 @@ const DiplomacySection = ({ world, identity, targetCountry, viewerPolity }) => {
             </div>
         )}
         </div>
+        {/* The reports of the wars it fought on battlefields that have closed, to read again (afterAction.jsx). */}
+        <WarReportsList world={world} country={viewerPolity} style={{ ...cardStyle, marginTop: "0.55rem", padding: 0, overflow: "hidden" }} />
         <ReparationsNote world={world} target={targetCountry} />
         </>
     );

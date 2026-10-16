@@ -132,8 +132,10 @@ test("the war room's layers have their place on the map: plans under the troops,
   assert.ok(index("fronts-troops-lit") < index("fronts-troops"));
   assert.ok(index("fronts-troops-picked") > index("fronts-troops"), "the ring round a troop picked out is over its counter");
   assert.ok(index("fronts-troops-picked") < index("units-fill"));
+  // What the room shades of the ground (supply, a rehearsal's gains and losses): over the battlefield's paint, under the borders.
+  assert.ok(index("warroom-shade-fill") > index("fronts-paint-11") && index("warroom-shade-fill") < index("polity-boundaries"));
   const drawn = [...read("../Map/WarRoomLayers.jsx").matchAll(/id="([a-z-]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(drawn.sort(), [...plans].sort(), "every layer the room declares is in the order, and no other");
+  assert.deepEqual(drawn.sort(), [...plans, "warroom-shade-fill"].sort(), "every layer the room declares is in the order, and no other");
 });
 
 test("the war room writes through its own seam and asks one request a message", () => {
