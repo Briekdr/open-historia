@@ -13,6 +13,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { MAX_UNITS_PER_POLITY, applyEventImpactsToWorld, enforceUnitVolume, normalizeEvents } from "../../runtime/gameState.js";
+import { WEIGHT_UNKNOWN } from "../../runtime/countryWeight.js";
 import { createFrontRun } from "../../runtime/fronts/engine.js";
 import { holderAt } from "../../runtime/fronts/record.js";
 import { enlarge, syntheticMap } from "../../runtime/fronts/syntheticMap.js";
@@ -517,15 +518,21 @@ test("the map's regions are handed to the engine as it takes them, and the world
     groupAreas: { r2: "The Free Company", r3: "The Free Company" },
     countryStats: { Aland: { population: { total: 25e6 } } },
   };
-  const readers = frontWorldReaders(world, { baseOwners: new Map([["r3", "Aland"], ["r4", "Borduria"], ["r5", "Aland"]]), regionIds: ["r1", "r2", "r3", "r4", "r5"] });
+  const readers = frontWorldReaders(world, { baseOwners: new Map([["r3", "Aland"], ["r4", "Borduria"], ["r5", "Aland"]]) });
   assert.deepEqual(["r1", "r2", "r3", "r4", "r5", "r9"].map(readers.controllerOf), ["Borduria", "Aland", "Aland", "Borduria", "", ""], "what an event moved, else the map as drawn");
   assert.deepEqual(["r1", "r3"].map(readers.sovereignOf), ["Aland", "Aland"]);
   assert.equal(readers.isGroup("the free company"), true);
   assert.equal(readers.isGroup("Aland"), false);
   assert.equal(readers.strengthOf("Aland"), 10, "its people, where its sheet counts them");
-  assert.equal(readers.strengthOf("Borduria"), countryWeight({ regions: 2 }), "else the land it holds");
-  assert.equal(readers.strengthOf("The Free Company"), countryWeight({ regions: 2 }), "a group by its area");
-  assert.equal(readers.strengthOf("Syldavia"), 1, "and somebody with neither still counts for one");
+  // Never the land it holds ("remove region count power entirely", the owner, 2026-10-16): one whose people nobody
+  // knows yet weighs what the middle of those known weighs, until the AI rates it (militaryRating.js).
+  assert.equal(readers.strengthOf("Borduria"), 10);
+  assert.equal(readers.strengthOf("The Free Company"), 10, "a group too");
+  assert.equal(readers.strengthOf("Syldavia"), 10);
+  assert.equal(frontWorldReaders({}).strengthOf("Syldavia"), WEIGHT_UNKNOWN, "nobody's people known: an ordinary state");
+  // Its rated spending, where the scenario counts countries' figures, over what its economy pays for.
+  const rated = { ...world, polityOverrides: { Aland: { name: "Aland", military: { spending: 100 } } } };
+  assert.equal(frontWorldReaders(rated).strengthOf("Aland"), countryWeight({ population: 25e6, funding: 1.5 }));
   // Groups switched off for the game: the world is read without them.
   const without = frontWorldReaders(world, { groups: false });
   assert.deepEqual(without.groupAreas, {});

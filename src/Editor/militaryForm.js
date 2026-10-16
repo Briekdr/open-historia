@@ -19,7 +19,7 @@
 import { ARMOUR_SHARE_BY_ERA, ARTILLERY_SHARE_BY_ERA, MANPOWER_SHARE, MEN_PER_FORMATION_BY_ERA } from "../runtime/fronts/constants.js";
 import { normalizeMilitaryStats } from "../runtime/militaryStats.js";
 import { DEFAULT_MUSTER } from "../runtime/mustering.js";
-import { formatPopulationFigure, readPopulationFigure } from "../runtime/populationFigure.js";
+import { formatPopulationFigure, populationFigureOf, readPopulationFigure } from "../runtime/populationFigure.js";
 import { eraOf } from "../runtime/unitMotion.js";
 import { normalizeWarSettings } from "../runtime/warSettings.js";
 
@@ -32,6 +32,7 @@ export const MILITARY_FIELD_KINDS = Object.freeze({
   land: "figure",
   sea: "figure",
   air: "figure",
+  spending: "figure",
   weariness: "figure",
   manpowerShare: "percent",
   cavalryShare: "share",
@@ -117,6 +118,18 @@ export const militaryDefaultsFor = (warSettings, gameDate, { rules = "" } = {}) 
     muster: settings.muster ?? DEFAULT_MUSTER,
     scenarioMuster: Boolean(settings.muster),
   };
+};
+
+// The figures of every country and group of the scenario that has any, as the AI that fills one in is shown them,
+// to rate it against the others (Game/AI/militaryRating.js: "when this stuff is generated, it should be relative to
+// other countries", the owner, 2026-10-16): [{ name, military, population }].
+export const militaryScaleOf = (polities = {}, groups = {}) => {
+  const out = [];
+  for (const [key, record] of [...Object.entries(polities ?? {}), ...Object.entries(groups ?? {})]) {
+    const military = normalizeMilitaryStats(record?.military);
+    if (military) out.push({ name: String(record?.name || key), military, population: populationFigureOf(record) || 0 });
+  }
+  return out;
 };
 
 // Whether a scenario's troops on horseback are horse or armour: armour from the

@@ -64,6 +64,7 @@ const NEW_UPDATES = [
         items: [
           "Switch the map between Political and Diplomatic at the bottom right, under the advisor's button, or in Settings, Map: every country, and the ground taken on a battlefield, takes the colour of where it stands with you.",
           "A legend beside the switch says what each colour means.",
+          "Each time the game opens, the map starts on Political.",
           "Settings has a Sound page for the music, its volume and the sound effects.",
           "Dragging the map glides more smoothly, and the map no longer stays stuck on loading when a tile server stalls.",
           "Your AI key can be shown or hidden as you type it.",
@@ -91,6 +92,8 @@ const NEW_UPDATES = [
               "Troops tire as they march and fight, and recover at rest.",
               "Armies muster over weeks, along a curve the scenario sets.",
               "Each country fights with its own quality, technology, arms and mix of units.",
+              "Every country is rated against every other: how well it fights, its army, navy and air force, what its forces have to spend, and its people. Its strength comes from these, never from how much land it holds.",
+              "Scenario designers rate every country at once, twenty to a request, and the ratings ship with the scenario. A country left out is rated when the game first needs it.",
               "Ground on a battlefield changes hands only where troops take it.",
             ],
           },
@@ -173,6 +176,7 @@ const NEW_UPDATES = [
               "Trained in thousands of fair duels on random battlefields, it beats every simple habit, from always attacking to always digging in.",
               "A deep thrust into its land is answered with a counter-offensive.",
               "It thinks away from the page, so the map stays smooth while it does, and on a computer it thinks the next turn through while you read.",
+              "On a computer with several cores it weighs its plans on all of them at once, so a war turn takes about half the time.",
             ],
           },
           {

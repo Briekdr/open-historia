@@ -6,16 +6,20 @@
 //
 // A country's MILITARY POWER, the figure the Stats pane shows on its Military
 // card and ranks countries by (Game/GameUI/countryRanking.js), is its weight in
-// a land war (countryWeight.js: its people, or the land it holds where nobody
-// knows its people, and what its economy pays for), taken through its own
-// military figures (militaryStats.js; what each does in a war:
-// fronts/military.js):
+// a land war (countryWeight.js: its people, and what its forces have to spend),
+// taken through its own military figures (militaryStats.js; what each does in a
+// war: fronts/military.js). Never the land it holds: "remove region count power
+// entirely" (the owner, 2026-10-16). A country whose people nobody knows has no
+// power yet: the AI rates its people and figures against every other country's
+// when the game first needs them (Game/AI/militaryRating.js), if its scenario's
+// designer did not.
 //
 //   manpower share  its people are counted at the share of them who can fight
 //                   against the twelve in a hundred every country had, so a
-//                   country of the usual share weighs what it always did. Where
-//                   the land it holds stands in for its people, by the root of
-//                   the same ratio, the way its people are counted.
+//                   country of the usual share weighs what it always did.
+//   spending        what its forces have to spend, against the others (50 the
+//                   middle), where it was rated; else what its economy pays for
+//                   (militaryFunding.js forcesFunding)
 //   quality         0.5 to 1.5, and technology 0.7 to 1.3, as its troops fight
 //                   (statFactor: 1 at 50)
 //   weariness       nothing up to 50; past it, less and less, to 0.6 at 100: a
@@ -37,10 +41,10 @@
 
 import { RESOURCES_FULL, RESOURCES_SHORTAGE_MOST, economyRate, refillAMonth, resourceShortage, resourcesOf } from "./warResources.js";
 import { normalizeBlockades } from "./naval/blockade.js";
-import { countryWeight } from "./countryWeight.js";
+import { countryWeight, middleWeight } from "./countryWeight.js";
 import { MANPOWER_SHARE } from "./fronts/constants.js";
 import { ARM_FACTORS, QUALITY_FACTORS, TECHNOLOGY_FACTORS, readMilitary, statFactor } from "./fronts/military.js";
-import { fundingFactor, middleFundingPerHead } from "./militaryFunding.js";
+import { forcesFunding, middleFundingPerHead } from "./militaryFunding.js";
 import { militaryLookup } from "./militaryStats.js";
 import { populationFigureOf } from "./populationFigure.js";
 import { warSettingsOf } from "./warSettings.js";
@@ -96,20 +100,18 @@ const wearinessFor = (world, name, given) => {
 const armFactor = (value) => (value <= 0 ? 0 : statFactor(value, ARM_FACTORS[0], ARM_FACTORS[1]));
 
 // Everything a country's military power is read from, and the power.
-//   regions   how many regions it holds (countryRanking.js regionCountsOf): its
-//             size where nobody knows its people
 //   middle    middleFundingPerHead of the world's sheets; worked out here when not given
 //   lookup    militaryLookup(world), to read many countries of one world
 // Returns {
-//   power     the figure, or null where neither its people nor any land of it is known
-//   base      its weight at its share of people, before its figures
-//   figures   { quality, technology, land, sea, air, manpowerShare, weariness } as they count
+//   power     the figure, or null where its people are not known
+//   base      its weight at its share of people and its spending, before its figures
+//   figures   { quality, technology, land, sea, air, spending, manpowerShare, weariness } as they count
 //   own       for each figure, whether it is the country's own (its author's, its
 //             sheet's, or for weariness the game's) rather than every country's
 //   factors   { quality, technology, weariness, arms }
 //   counted   whether the scenario counts countries' own figures at all
 // }
-export const militaryProfile = (world, name, { regions = 0, middle = null, lookup = null } = {}) => {
+export const militaryProfile = (world, name, { middle = null, lookup = null } = {}) => {
   const settings = warSettingsOf(world);
   const counted = settings.mechanics.military;
   const given = counted ? (typeof lookup === "function" ? lookup : militaryLookup(world))(name) : null;
@@ -122,6 +124,7 @@ export const militaryProfile = (world, name, { regions = 0, middle = null, looku
     land: read.land,
     sea: read.sea,
     air: read.air,
+    spending: Number.isFinite(Number(given?.spending)) && given?.spending !== null && given?.spending !== undefined ? Number(given.spending) : 50,
     manpowerShare: share,
     weariness: weary.value,
   };
@@ -132,21 +135,16 @@ export const militaryProfile = (world, name, { regions = 0, middle = null, looku
     land: has("land"),
     sea: has("sea"),
     air: has("air"),
+    spending: has("spending"),
     manpowerShare: read.manpowerShare !== null,
     weariness: weary.from !== "none",
   };
 
-  // (A ratio of exactly 1 at the usual share: the people are the people, and the root of 1 is 1.)
+  // (A ratio of exactly 1 at the usual share: the people are the people.)
   const ratio = share / MANPOWER_PERCENT;
   const people = peopleFor(world, name);
-  const land = Math.max(0, Number(regions) || 0);
-  let base = null;
-  if (people > 0) {
-    const paid = fundingFactor(recordIn(world?.countryStats, name), middle ?? middleFundingPerHead(world?.countryStats));
-    base = countryWeight({ population: people * ratio, regions: land, funding: paid });
-  } else if (land > 0) {
-    base = countryWeight({ regions: land }) * Math.sqrt(ratio);
-  }
+  const paid = forcesFunding({ sheet: recordIn(world?.countryStats, name), middle: middle ?? middleFundingPerHead(world?.countryStats), military: given });
+  const base = people > 0 ? countryWeight({ population: people * ratio, funding: paid }) : null;
 
   const landArm = armFactor(figures.land);
   const seaArm = armFactor(figures.sea);
@@ -173,5 +171,30 @@ export const militaryProfile = (world, name, { regions = 0, middle = null, looku
   return { power, base, figures, own, factors, counted, supplied, refill };
 };
 
-// A country's military power: null where neither its people nor any land of it is known.
+// A country's military power: null where its people are not known.
 export const militaryPower = (world, name, options = {}) => militaryProfile(world, name, options).power;
+
+// What each country of a world weighs in a land war, as the engine sizes its troops (countryWeight.js; the turn's
+// own reader: Game/AI/frontTurn.js frontWorldReaders): its people and what its forces have to spend; one whose
+// people nobody knows yet, the middle of those whose people are known. Never the land it holds: "remove region
+// count power entirely" (the owner, 2026-10-16). (name) => weight.
+export const landWeightsOf = (world) => {
+  const counted = warSettingsOf(world).mechanics.military;
+  const lookup = counted ? militaryLookup(world) : null;
+  const middle = middleFundingPerHead(world?.countryStats);
+  const weightOf = (name) => countryWeight({
+    population: peopleFor(world, name),
+    funding: forcesFunding({ sheet: recordIn(world?.countryStats, name), middle, military: lookup ? lookup(name) : null }),
+  });
+  let unknown = null;
+  return (name) => {
+    const weight = weightOf(name);
+    if (weight !== null) return weight;
+    if (unknown === null) {
+      const names = new Set();
+      for (const source of [world?.countryStats, world?.polityOverrides, world?.groups]) for (const key of Object.keys(isRecord(source) ? source : {})) names.add(key);
+      unknown = middleWeight([...names].map(weightOf).filter((weight) => weight !== null));
+    }
+    return unknown;
+  };
+};

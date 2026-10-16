@@ -14,6 +14,8 @@
 // neither gives is the country's neutral (50, or the scenario's own).
 //
 //   quality, technology, land, sea, air   0 to 100, 50 neutral; an arm at 0 it cannot use at all
+//   spending                              0 to 100: what its forces have to spend, against the other
+//                                         countries' (50 the middle; militaryFunding.js forcesFunding)
 //   weariness                             0 to 100: how weary of war it is when it first goes to one
 //   manpowerShare                         % of its people who can fight (1 to 100)
 //   cavalryShare, siegeShare              0 to 1: its unit mix
@@ -22,13 +24,14 @@
 
 import { normalizeMusterPoints, warSettingsOf } from "./warSettings.js";
 
-export const MILITARY_STAT_FIELDS = Object.freeze(["quality", "technology", "land", "sea", "air", "weariness", "manpowerShare", "cavalryShare", "siegeShare", "menPerCounter", "muster"]);
+export const MILITARY_STAT_FIELDS = Object.freeze(["quality", "technology", "land", "sea", "air", "spending", "weariness", "manpowerShare", "cavalryShare", "siegeShare", "menPerCounter", "muster"]);
 const RANGES = Object.freeze({
   quality: [0, 100, 1],
   technology: [0, 100, 1],
   land: [0, 100, 1],
   sea: [0, 100, 1],
   air: [0, 100, 1],
+  spending: [0, 100, 1],
   weariness: [0, 100, 1],
   manpowerShare: [0.1, 100, 10],
   cavalryShare: [0, 1, 1000],

@@ -29,6 +29,7 @@ import { commonClaimants, claimantDelta, applyClaimantDelta } from "./claimantEd
 import { bundledFlagUrl } from "../runtime/countryFlags.js";
 import MilitaryFields from "./MilitaryFields.jsx";
 import { rateMilitaryFigures } from "../Game/AI/militaryRating.js";
+import { militaryScaleOf } from "./militaryForm.js";
 
 const commonOr = (arr, blank = "") => {
   if (!arr.length) return blank;
@@ -348,6 +349,7 @@ const SelectionInspector = ({ api, selection, types, colors, colorOverrides, set
               name: polities?.[form.owner]?.name || form.owner,
               note: polities?.[form.owner]?.note,
               population: polities?.[form.owner]?.population,
+              rated: militaryScaleOf(polities, groups),
               date: militaryDefaults?.gameDate,
               era: Number.isInteger(militaryDefaults?.era) ? militaryDefaults.era : null,
               rules: militaryDefaults?.rules,

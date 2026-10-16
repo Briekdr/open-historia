@@ -28,6 +28,7 @@ import {
 import { groupEraseSteps, groupRenameSteps } from "./documentUndo.js";
 import MilitaryFields from "./MilitaryFields.jsx";
 import { rateMilitaryFigures } from "../Game/AI/militaryRating.js";
+import { militaryScaleOf } from "./militaryForm.js";
 
 const Swatch = ({ color, size = 14 }) => (
   <span
@@ -227,6 +228,7 @@ const GroupsPanel = ({ api, groups = {}, setGroups, selection = [], regionEpoch 
               name: current,
               note: record.description,
               population: record.population,
+              rated: militaryScaleOf({}, groups),
               date: militaryDefaults?.gameDate,
               era: Number.isInteger(militaryDefaults?.era) ? militaryDefaults.era : null,
               rules: militaryDefaults?.rules,

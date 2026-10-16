@@ -54,6 +54,7 @@ import InstitutionAuthoringPanel from "./InstitutionAuthoringPanel.jsx";
 import PrehistoryPanel from "./PrehistoryPanel.jsx";
 import ScenarioFrontsPanel from "./ScenarioFrontsPanel.jsx";
 import ScenarioWarSettings from "./ScenarioWarSettings.jsx";
+import ScenarioMilitaryPanel from "./ScenarioMilitaryPanel.jsx";
 import { compactWarSettings } from "./scenarioWarSettings.js";
 import { militaryDefaultsFor } from "../../Editor/militaryForm.js";
 import ScenarioMusicPanel, { ScenarioMusicCredits } from "./ScenarioMusicPanel.jsx";
@@ -2009,6 +2010,17 @@ const EditorDrawer = ({
           value={formState.warSettings ?? null}
           gameDate={formState.gameDate}
           onChange={(next) => onChange("warSettings", next)}
+        />
+      )}
+
+      {/* Every country's military figures, rated by the AI against the others twenty to a request
+          (ScenarioMilitaryPanel.jsx): saved into the scenario batch by batch, as the Politics tab's are. */}
+      {editorSection === "fronts" && kind === "scenario" && (
+        <ScenarioMilitaryPanel
+          details={details}
+          onDetailsChange={onDetailsChange}
+          gameDate={formState.gameDate}
+          warSettings={formState.warSettings ?? null}
         />
       )}
 

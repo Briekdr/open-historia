@@ -117,6 +117,7 @@ const MilitaryFields = ({ recordKey = "", value, defaults = null, onChange, onRa
         <div style={{ display: "grid", gap: "5px 12px", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
           {figure("quality", "Troop quality", "How well its soldiers fight, 0 to 100: a levy low, elites high. Empty is 50.", "50")}
           {figure("technology", "Technology", "What its soldiers fight with, 0 to 100. Empty is 50.", "50")}
+          {figure("spending", "Spending", "What its forces have to spend, against the other countries', 0 to 100. Empty is 50.", "50")}
           {figure("weariness", "War weariness", "How weary of war it is when it first goes to one, 0 to 100. Empty is 0.", "0")}
         </div>
 

@@ -73,7 +73,7 @@ test("what is kept is the backend alone: the war can read it, and the rest of th
 test("it is one request, asked as a first reading is, and it overwrites nobody", () => {
   const turn = read("gameplay.js");
   const start = turn.indexOf("export const ensureConflictBackends = (targets, { reason = \"\" } = {}) => {");
-  const body = turn.slice(start, turn.indexOf("// `rateIntelligence`: a polity whose service is not rated either", start));
+  const body = turn.slice(start, turn.indexOf("// The figures of the countries the game needs and has none for, rated against", start));
   assert.ok(start > 0 && body.length > 500);
   assert.equal(body.split("callAIWithTaskLimit(").length - 1, 1, "one request, whatever the number of countries");
   assert.ok(body.includes('return firstReading("backends", "the countries in conflict", reason, async () => {'), "background AI, one at a time a campaign");

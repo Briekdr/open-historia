@@ -32,7 +32,6 @@
 // but what it is handed, so the same turn applied twice is the same world.
 
 import { TREATY_BROKEN_REPUTATION, agreementsWithout, callsForTurn, defendersOf, honoursCall, normalizeCallsToArms, reputationAfterBreaking } from "../../runtime/alliances.js";
-import { countryWeight } from "../../runtime/countryWeight.js";
 import { diffGameDays } from "../../runtime/gameDates.js";
 import { applyCountryStatPatchToWorld, applyEventImpactsToWorld } from "../../runtime/gameState.js";
 import {
@@ -50,6 +49,7 @@ import {
   wouldAccept,
 } from "../../runtime/peaceTerms.js";
 import { startingWearinessOf } from "../../runtime/militaryStats.js";
+import { landWeightsOf } from "../../runtime/militaryPower.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
 import { normalizeWarWeariness, wearinessGoingIn, wearinessOf, withTurnWeariness } from "../../runtime/warWeariness.js";
 import { economyRate, withTurnResources } from "../../runtime/warResources.js";
@@ -297,7 +297,8 @@ export const turnWarAndPeace = ({ world = {}, baseWorld = {}, days = 0, date = "
   const fought = new Set(list(baseWorld?.wars).filter(active).map((war) => clean(war.id)));
   const began = list(next.wars).filter((war) => active(war) && !fought.has(clean(war.id))).map((war) => clean(war.id));
   const before = normalizeWarWeariness(baseWorld?.warWeariness);
-  const strengthOf = (name) => countryWeight({ population: peopleOf(next, name), regions: holdings.get(fold(name)) ?? 0 });
+  // (What each weighs in a land war: its people and what its forces have to spend, never the land it holds.)
+  const strengthOf = landWeightsOf(next);
   const due = callsForTurn({
     world: next,
     wars: next.wars,

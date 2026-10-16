@@ -15,6 +15,7 @@ import { formatPopulationFigure, readPopulationFigure } from "../runtime/populat
 import PuppetFields from "./PuppetFields.jsx";
 import MilitaryFields from "./MilitaryFields.jsx";
 import { rateMilitaryFigures } from "../Game/AI/militaryRating.js";
+import { militaryScaleOf } from "./militaryForm.js";
 import { rosterRowKey } from "./polityRoster.js";
 
 const clean = (value) => String(value ?? "").trim();
@@ -649,6 +650,7 @@ const PolitiesPanel = ({
                     name: current.record?.name || current.key,
                     note: current.record?.note,
                     population: current.record?.population,
+                    rated: militaryScaleOf(polities),
                     date: militaryDefaults?.gameDate,
                     era: Number.isInteger(militaryDefaults?.era) ? militaryDefaults.era : null,
                     rules: militaryDefaults?.rules,

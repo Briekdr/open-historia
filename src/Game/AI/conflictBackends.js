@@ -26,6 +26,7 @@
 
 import { normalizeMilitaryStats } from "../../runtime/militaryStats.js";
 import { readStatsBackend } from "../../runtime/statsBackend.js";
+import { MILITARY_EXAMPLE, MILITARY_FIGURE_LINES, MILITARY_RELATIVE_LINE, describeMilitary } from "./militaryRating.js";
 
 // The most countries one such request asks of.
 export const CONFLICT_BACKENDS_MOST = 8;
@@ -50,7 +51,11 @@ const isRecord = (value) => Boolean(value) && typeof value === "object" && !Arra
 //   military    whether to rate each polity's military figures too, where it has
 //               none (runtime/militaryStats.js: Wars and Fronts Pt.2); a polity
 //               marked `rated` in `countries` has its own already
-export const conflictBackendsRequest = ({ date = "", rules = "", player = "", countries = [], known = [], sheet = null, military = false } = {}) => {
+//   rated       [{ name, military, population? }]: the polities rated already, the
+//               scale the figures keep to (militaryRating.js ratedScaleOf): "when
+//               this stuff is generated, it should be relative to other
+//               countries" (the owner, 2026-10-16)
+export const conflictBackendsRequest = ({ date = "", rules = "", player = "", countries = [], known = [], sheet = null, military = false, rated = [] } = {}) => {
   const custom = isRecord(sheet) && list(sheet.keys).length > 0;
   const asked = list(countries)
     .map((entry) => ({ name: clean(entry?.name), population: Number(entry?.population), values: custom && isRecord(entry?.values) && Object.keys(entry.values).length > 0 ? entry.values : null, rated: entry?.rated === true }))
@@ -58,7 +63,7 @@ export const conflictBackendsRequest = ({ date = "", rules = "", player = "", co
     .slice(0, CONFLICT_BACKENDS_MOST);
   const both = custom ? asked.filter((entry) => !entry.values) : [];
   const rating = military && asked.some((entry) => !entry.rated);
-  const militaryExample = rating ? ',"military":{"quality":50,"technology":50,"land":50,"sea":50,"air":50,"manpowerShare":12,"cavalryShare":0.15,"siegeShare":0.1}' : "";
+  const militaryExample = rating ? `,"military":${MILITARY_EXAMPLE}` : "";
   const example = both.length > 0
     ? `{"countries":[{"country":"the exact name you were given","population":0,"gdp":0,"budgetBalance":0,"publicDebt":0,"customStats":{"${clean(sheet.keys[0])}":0}${militaryExample}}]}`
     : `{"countries":[{"country":"the exact name you were given","population":0,"gdp":0,"budgetBalance":0,"publicDebt":0${militaryExample}}]}`;
@@ -81,11 +86,9 @@ export const conflictBackendsRequest = ({ date = "", rules = "", player = "", co
     ].filter((line, index) => line || index === 0) : []),
     ...(rating ? [
       "",
-      "For a polity marked `and its military`, also rate how it makes war, in `military`, each a whole number from 0 to 100 where 50 is an ordinary army of its era:",
-      "quality: how well its soldiers fight (a peasant levy or raw conscripts about 20, professional regulars 60 to 70, a renowned elite such as knights, legions or guards 80 and up).",
-      "technology: what they fight with, against the best of the era (backward 20, ordinary 50, the most advanced 80 and up).",
-      "land, sea, air: what it can do on land, at sea and in the air. 0 means it cannot fight there at all: a people that never goes to sea has sea 0; before aircraft every polity has air 0.",
-      "And: manpowerShare, the percent of its people who can be put under arms (12 is ordinary; a warrior people or an order of fighting men far more); cavalryShare and siegeShare, the shares of its army that are horse (armour in modern times) and siege engines (artillery), each from 0 to 1.",
+      "For a polity marked `and its military`, also rate how it makes war, in `military`, each a whole number from 0 to 100 where 50 is an ordinary army of its era.",
+      MILITARY_RELATIVE_LINE,
+      ...MILITARY_FIGURE_LINES,
     ] : []),
     "",
     "Return exactly one JSON object and no markdown:",
@@ -93,6 +96,7 @@ export const conflictBackendsRequest = ({ date = "", rules = "", player = "", co
     "One entry for every polity asked of, in the order given, each under the exact name given.",
   ].join("\n");
   const shown = list(known).filter((entry) => clean(entry?.name) && entry?.backend).slice(0, CONFLICT_BACKENDS_KNOWN_MOST);
+  const scale = rating ? list(rated).map((entry) => ({ name: clean(entry?.name), line: describeMilitary(entry?.military, entry?.population) })).filter((entry) => entry.name && entry.line) : [];
   const line = (entry) => {
     const said = entry.population >= 1 ? ` (its scenario gives its people as ${Math.round(entry.population)})` : "";
     const armed = rating && !entry.rated ? "; and its military" : "";
@@ -107,6 +111,7 @@ export const conflictBackendsRequest = ({ date = "", rules = "", player = "", co
     shown.length
       ? `ALREADY KNOWN (for the unit and the scale; do not return these):\n${shown.map((entry) => `- ${clean(entry.name)}: ${JSON.stringify(entry.backend)}`).join("\n")}`
       : "No polity's figures are known yet: choose one unit for gdp and use it for all of these.",
+    scale.length ? `MILITARIES ALREADY RATED (the scale every military you rate keeps to; do not return these):\n${scale.map((entry) => `- ${entry.name}: ${entry.line}`).join("\n")}` : "",
     `ESTIMATE THESE:\n${asked.map(line).join("\n")}`,
   ].filter(Boolean).join("\n\n");
   return { systemPrompt, userMessage, asked: asked.map((entry) => entry.name), sheets: both.map((entry) => entry.name), rated: rating ? asked.filter((entry) => !entry.rated).map((entry) => entry.name) : [] };

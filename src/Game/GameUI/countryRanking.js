@@ -118,8 +118,9 @@ export const rankingValue = (metric, world, key, context = {}) => {
     case "regions":
       return held > 0 ? held : null;
     case "military": {
-      // Its weight in a land war through its own figures; at the figures every country has, the weight itself.
-      const power = militaryPower(world, key, { regions: held, middle: context.middle ?? 0, lookup: context.military ?? null });
+      // Its weight in a land war through its own figures; at the figures every country has, the weight itself. (Its
+      // people's and its figures', never the land it holds: none where its people are not known yet.)
+      const power = militaryPower(world, key, { middle: context.middle ?? 0, lookup: context.military ?? null });
       return power === null ? null : Math.round(power * 10) / 10;
     }
     case "reputation": {

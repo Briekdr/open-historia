@@ -166,7 +166,7 @@ export const regionHoldingsOf = async (world, game, campaignId) => {
   };
   try {
     const front = await readFrontMap(world, game, campaignId);
-    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, regionIds: front.regionIds, groups: false });
+    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, groups: false });
     for (const id of front.regionIds) add(readers.controllerOf(id));
     if (held.size > 0) return held;
   } catch (error) {
@@ -463,7 +463,7 @@ export const citiesFollowCountries = async ({ world = {}, baseWorld = null, game
       if (grid) kept.set(sheet, grid);
     }
     if (!grid) return world;
-    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, regionIds: front.regionIds, groups: false });
+    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, groups: false });
     const date = clean(game?.gameDate || game?.startDate);
     const renames = isRecord(world?.cityRenames) ? world.cityRenames : {};
     const set = cityPopulationOverridesByTileName(world?.cityPopulations, renames);
@@ -627,7 +627,7 @@ export const routesIntoOthers = async ({ world = {}, game = {}, campaignId = "",
       arena = arenaFor(arenas, { ...front.map, regions }, record.frame, regionTypes);
     }
     if (!arena) return found;
-    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, regionIds: front.regionIds, groups: isActiveFeatureEnabled("groups") });
+    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, groups: isActiveFeatureEnabled("groups") });
     const members = new Set(asArray(record.sides).flat().map(fold));
     const inWar = (name) => members.has(fold(name));
     const holderOf = (id) => {
@@ -690,7 +690,7 @@ export const transportWaysFor = async ({ world = {}, game = {}, campaignId = "",
       if (grid) kept.set(sheet, grid);
     }
     if (!grid) return found;
-    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, regionIds: front.regionIds, groups: isActiveFeatureEnabled("groups") });
+    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, groups: isActiveFeatureEnabled("groups") });
     const records = normalizeBattlefields(world?.battlefields);
     const year = yearInEra(gameDateYear(clean(game?.gameDate)), eraSettingOf(world));
     for (const transport of ordered) {
@@ -765,7 +765,7 @@ export const warRoomChartFor = async ({ world = {}, game = {}, campaignId = "", 
       locate = regionLocatorOf(regions, { water, flat: front.map.flat === true });
       locators.set(grid, locate);
     }
-    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, regionIds: front.regionIds, groups: isActiveFeatureEnabled("groups") });
+    const readers = frontWorldReaders(world, { baseOwners: front.baseOwners, groups: isActiveFeatureEnabled("groups") });
     return chartOf({ grid, controllerOf: readers.controllerOf, groupOf: (id) => clean(readers.groupAreas?.[id]), locate });
   } catch (error) {
     console.warn("[fronts] the war room could not read the map for its fortified lines and fleets; they wait until it can.", error);

@@ -141,20 +141,16 @@ test("a change of control the model wrote itself is told on its event's day; the
   ]);
 });
 
-test("a country's weight: its people by the square root, else the land it holds", () => {
+test("a country's weight: its people by the square root and what its forces have to spend, never the land it holds", () => {
   assert.equal(countryWeight({ population: 100e6 }), 20);
   assert.equal(countryWeight({ population: 1e6 }), 2);
   assert.ok(countryWeight({ population: 1.4e9 }) / countryWeight({ population: 14e6 }) < 11, "a hundred times the people is ten times the weight");
   assert.equal(countryWeight({ population: 1000 }), 1, "never less than one");
-  // The land it holds, on the scale the engine sizes troops by: a great power
-  // about 24 points, a small state one or two.
-  assert.equal(countryWeight({ regions: 25 }), 6.5);
-  assert.ok(Math.abs(countryWeight({ regions: 341 }) - 24) < 0.1, "the largest country of the built-in map");
-  assert.ok(countryWeight({ regions: 3 }) > 2 && countryWeight({ regions: 3 }) < 3);
-  assert.equal(countryWeight({ regions: 1 }), 1.3);
-  assert.equal(countryWeight({}), 1, "a country with no land and no sheet still counts for one");
-  // And the two measures are of one size: a country of 128 regions and one of forty million people.
-  assert.ok(Math.abs(countryWeight({ regions: 128 }) - countryWeight({ population: 40e6 })) < 3);
+  assert.equal(countryWeight({ population: 100e6, funding: 1.5 }), 30);
+  // "remove region count power entirely" (the owner, 2026-10-16): nobody knows its people, it has no weight of its
+  // own (the engine counts it as the middle of those it knows until the AI rates it: militaryRating.js).
+  assert.equal(countryWeight({ regions: 341 }), null, "the land it holds is no weight");
+  assert.equal(countryWeight({}), null);
 });
 
 test("the engine may move what a scenario's ceiling leaves after the model's own changes", () => {

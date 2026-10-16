@@ -22,9 +22,11 @@ import { intelligenceOf } from "../../runtime/spycraft.js";
 import { bundledFlagUrl, flagImageUrlFromGid } from "../../runtime/countryFlags.js";
 import COUNTRY_NAMES from "../../runtime/generated/countryNames.js";
 import { REGION_SELECTED_EVENT } from "../Selection/Regions.jsx";
-import { ensureCountryAssessed, ensureIntelligenceRated, generateCountryStatSheet, pendingCountryStatSheet, readOpenedIntercepts } from "../AI/gameplayLazy.js";
+import { ensureCountryAssessed, ensureIntelligenceRated, ensureMilitaryFigures, generateCountryStatSheet, pendingCountryStatSheet, readOpenedIntercepts } from "../AI/gameplayLazy.js";
+import { wantsRating } from "../AI/militaryRating.js";
+import { militaryLookup } from "../../runtime/militaryStats.js";
 import PoliticalOverview from "./PoliticalOverview.jsx";
-import { buildRanking, openingMetric, rankingMetricsFor, regionCountsOf } from "./countryRanking.js";
+import { buildRanking, openingMetric, rankingMetricsFor } from "./countryRanking.js";
 import { MANPOWER_PERCENT, militaryProfile } from "../../runtime/militaryPower.js";
 import { RESOURCES_SHORT_FROM } from "../../runtime/warResources.js";
 import { attritionOf } from "../../runtime/attrition.js";
@@ -416,8 +418,9 @@ const MILITARY_FIGURE_LABELS = Object.freeze({
     land: "Land",
     sea: "Naval",
     air: "Air",
+    spending: "Spending",
 });
-const MILITARY_FIGURE_ORDER = Object.freeze(["quality", "technology", "manpowerShare", "weariness", "resources", "land", "sea", "air"]);
+const MILITARY_FIGURE_ORDER = Object.freeze(["quality", "technology", "spending", "manpowerShare", "weariness", "resources", "land", "sea", "air"]);
 const MILITARY_OWN_COLOR = "#2bc1f3";
 const MILITARY_SHARED_COLOR = "rgba(255,255,255,0.32)";
 const MILITARY_WEARY_COLOR = "#f59e0b";
@@ -425,7 +428,7 @@ const MILITARY_WEARY_COLOR = "#f59e0b";
 // Where every country stands on each figure, for the hairline on its bar (none
 // for weariness: every country begins a war at none).
 // For war resources, where running low begins to tell (runtime/warResources.js).
-const MILITARY_FIGURE_MARKS = Object.freeze({ quality: 50, technology: 50, manpowerShare: MANPOWER_PERCENT, resources: RESOURCES_SHORT_FROM, land: 50, sea: 50, air: 50 });
+const MILITARY_FIGURE_MARKS = Object.freeze({ quality: 50, technology: 50, spending: 50, manpowerShare: MANPOWER_PERCENT, resources: RESOURCES_SHORT_FROM, land: 50, sea: 50, air: 50 });
 
 // A figure's bar, 0 to 100, and a hairline where every country stands.
 const MilitaryBar = ({ value, mark, color }) => (
@@ -438,9 +441,15 @@ const MilitaryBar = ({ value, mark, color }) => (
 const MilitaryCard = ({ world, country, style }) => {
     const profile = useMemo(() => {
         if (!world || !country) return null;
-        const regions = regionCountsOf(getPrimedScenarioRegionCatalog() ?? [], world).get(cleanText(country).toLowerCase()) ?? 0;
-        return militaryProfile(world, country, { regions });
+        return militaryProfile(world, country);
     }, [world, country]);
+    // A country with no people known, or figures never rated, is rated against the others now that it is looked at
+    // (militaryRating.js): "if it is not pregenerated, it should just generate it whenever it is needed for the game
+    // for a country" (the owner, 2026-10-16). Background AI, once a sitting.
+    const unrated = Boolean(profile) && (profile.power === null || (profile.counted && wantsRating(militaryLookup(world)(country))));
+    useEffect(() => {
+        if (unrated) void ensureMilitaryFigures([country], { reason: "its Military card" });
+    }, [unrated, country]);
     if (!profile) return null;
     const { figures, own } = profile;
     // What attrition has cost it in its war (runtime/attrition.js), where the scenario counts it.
@@ -455,7 +464,7 @@ const MilitaryCard = ({ world, country, style }) => {
                 <span data-no-translate style={{ fontSize: "1.05rem", fontWeight: 800 }}>{power}</span>
             </div>
             <div style={{ color: "rgba(255,255,255,0.42)", fontSize: "0.64rem", lineHeight: 1.4, marginBottom: "0.55rem" }}>
-                What it weighs in a land war, by its people or its land and what it pays for its forces, through the figures below.
+                What it weighs in a land war, by its people and what its forces have to spend, through the figures below.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                 {MILITARY_FIGURE_ORDER.filter((key) => key !== "resources" || profile.supplied).map((key) => {
@@ -1825,6 +1834,22 @@ const RankingSection = ({ world, definition, index, playerCode, targetCountry, o
         () => (metric ? buildRanking({ world: world ?? {}, countries, metric, catalog: getPrimedScenarioRegionCatalog() ?? [] }) : null),
         [world, countries, metric],
     );
+    // Ranked by military power: the countries it has no figure for (nobody knows their people) or whose figures were
+    // never rated are rated against the others, twenty to a request, as background AI (militaryRating.js): "if it is
+    // not pregenerated, it should just generate it whenever it is needed for the game for a country" (the owner,
+    // 2026-10-16). Nobody's sheet is assessed.
+    const unrated = useMemo(() => {
+        if (metric?.key !== "military" || !ranking) return [];
+        const ranked = new Set(ranking.rows.map((row) => row.key));
+        const lookup = warSettingsOf(world ?? {}).mechanics.military ? militaryLookup(world ?? {}) : null;
+        return countries.map((country) => country.key).filter((key) => !ranked.has(key) || (lookup !== null && wantsRating(lookup(key))));
+    }, [metric?.key, ranking, countries, world]);
+    const unratedKey = unrated.join("|");
+    useEffect(() => {
+        if (unrated.length > 0) void ensureMilitaryFigures(unrated, { reason: "the military ranking" });
+        // (Asked again only when the list changes.)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [unratedKey]);
     if (!metric || !ranking) return null;
     const shown = showAll ? ranking.rows : ranking.rows.slice(0, RANKING_ROWS_FIRST);
     return (
@@ -1877,7 +1902,11 @@ const RankingSection = ({ world, definition, index, playerCode, targetCountry, o
             )}
             {ranking.unranked > 0 && (
                 <p style={{ color: "rgba(255,255,255,0.42)", fontSize: "0.7rem", lineHeight: 1.45, marginTop: "0.7rem" }}>
-                    {metric.sheet ? "Countries that have not been assessed are left out. Open a country's sheet, or track it, to add it here." : "Countries the game has no figure for are left out."}
+                    {metric.sheet
+                        ? "Countries that have not been assessed are left out. Open a country's sheet, or track it, to add it here."
+                        : metric.key === "military"
+                            ? "Countries whose military has not been rated yet are left out until the AI rates them against the others."
+                            : "Countries the game has no figure for are left out."}
                     {" "}<span data-no-translate>({ranking.rows.length}/{ranking.total})</span>
                 </p>
             )}

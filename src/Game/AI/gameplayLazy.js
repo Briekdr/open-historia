@@ -122,6 +122,8 @@ export const consolidateHistoryNow = hostOnly(async (...args) => (await gameplay
 
 // --- Stats and intelligence -------------------------------------------------
 export const ensureIntelligenceRated = hostQuietly(async (...args) => (await gameplay()).ensureIntelligenceRated(...args));
+// The figures of the countries the game needs and has none for, rated against the others (militaryRating.js).
+export const ensureMilitaryFigures = hostQuietly(async (...args) => (await gameplay()).ensureMilitaryFigures(...args));
 export const readOpenedIntercepts = async (...args) => (await gameplay()).readOpenedIntercepts(...args);
 // A stat sheet is the game's own record, so in a shared game the host writes
 // it, on the host's AI key: the page asks (the host answers once it is

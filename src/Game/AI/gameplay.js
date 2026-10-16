@@ -28,6 +28,8 @@ import { militaryLookup } from "../../runtime/militaryStats.js";
 import { warSettingsOf } from "../../runtime/warSettings.js";
 import { STATS_BACKEND_FIELD, conflictSheetTargets, hasStatsBackend, statsBackendInstruction, statsBackendOf, statsBackendPatch, statsBackendTurnRule } from "../../runtime/statsBackend.js";
 import { CONFLICT_BACKENDS_MOST, conflictBackendsRequest, readConflictBackends } from "./conflictBackends.js";
+import { MILITARY_BATCH_MOST, militaryRatingRequest, militaryTargets, ratedScaleOf, readMilitaryRatings, wantsRating } from "./militaryRating.js";
+import { peopleFor } from "../../runtime/militaryPower.js";
 import {
   createApplicationReceipt,
   firstComplaintLine,
@@ -222,7 +224,7 @@ import { areaRegionsFor, buildAreaIndex, findArea, readAreaName } from "./namedA
 import { CAPTURE_REACH_KM, findNarratedCaptures, mayNarrateCapture } from "./narratedCapture.js";
 import { EVENT_PLACES_RULE, findEventPlace, findEventPlaces, readEventPlace } from "./eventPlaces.js";
 import { normalizeEventPlaces } from "../../runtime/eventPlaces.js";
-import { describeTravelPace, seaShareOf } from "../../runtime/unitMotion.js";
+import { describeTravelPace, eraOf, seaShareOf } from "../../runtime/unitMotion.js";
 import { eraSettingOf } from "../../runtime/warSettings.js";
 import { PLACEMENT_DIRECTIVE, describeApproximatePlacement, describeOtherKind, distanceKm as placementDistanceKm, hashText as placementHash, homeWaters, nearestInteriorPoint, nearestSea, pointInGeometry, regionWithinContainer, resolvePlacement, resolveRegionPlacement, seasForMap } from "./placement.js";
 import { loadWorldCities } from "./worldCities.js";
@@ -12280,8 +12282,13 @@ const requestTrackedBaseline = (pending, game) => {
 const requestConflictSheets = (world, game, extra = []) => {
   if (!frontsOn()) return;
   const players = humanCountriesOf(game);
-  const names = conflictSheetTargets(world, players, { extra });
-  if (names.length > 0) void ensureConflictBackends(names.slice(0, CONFLICT_BACKENDS_MOST), { reason: "in conflict with the player" });
+  const names = conflictSheetTargets(world, players, { extra }).slice(0, CONFLICT_BACKENDS_MOST);
+  if (names.length > 0) void ensureConflictBackends(names, { reason: "in conflict with the player" });
+  // And every other country at war whose people or military figures nobody knows: rated against the others as the
+  // war first needs them, never weighed by the land it holds ("remove region count power entirely", the owner,
+  // 2026-10-16). Those in conflict with the player have theirs from the request above.
+  const others = militaryTargets(world, { skip: names });
+  if (others.length > 0) void ensureMilitaryFigures(others, { reason: "at war" });
 };
 
 const refreshTrackedCustomStatsIfDue = async ({ bundle, signal, definition, requests = null, replay = null } = {}) => {
@@ -13770,11 +13777,16 @@ export const ensureConflictBackends = (targets, { reason = "" } = {}) => {
     // country that has none, from its author or its sheet (runtime/militaryStats.js).
     const rateMilitary = warSettingsOf(world).mechanics.military;
     const figuresOf = militaryLookup(world);
+    // (Rated against every country rated already: militaryRating.js.)
+    const scaleNames = new Map();
+    for (const source of [world.countryStats, world.polityOverrides, world.groups]) for (const key of Object.keys(source || {})) scaleNames.set(key.toLowerCase(), key);
+    const rated = rateMilitary ? ratedScaleOf([...scaleNames.values()].map((name) => ({ name, military: figuresOf(name), population: peopleFor(world, name) })), wanted) : [];
     const { systemPrompt, userMessage, asked } = conflictBackendsRequest({
       date: currentDate,
       rules: normalizeString(world.simulationRules),
       player: normalizeString(bundle.game?.country),
       military: rateMilitary,
+      rated,
       countries: wanted.map((name) => ({ name, population: Number(world.polityOverrides?.[name]?.population), values: ownSheet(world, name), rated: Boolean(figuresOf(name)) })),
       known: Object.entries(world.countryStats || {}).map(([name, sheet]) => ({ name, backend: statsBackendOf(sheet) })).filter((entry) => entry.backend),
       sheet: definition.custom ? { description: describeStatSheetDefinition(definition), keys } : null,
@@ -13811,6 +13823,103 @@ export const ensureConflictBackends = (targets, { reason = "" } = {}) => {
     } finally {
       endSimulation();
     }
+  });
+};
+
+// The figures of the countries the game needs and has none for, rated against
+// every other country's (militaryRating.js): "if it is not pregenerated, it
+// should just generate it whenever it is needed for the game for a country"
+// (the owner, 2026-10-16). A war's countries (requestConflictSheets), the
+// Military power ranking's and a country's own Military card (the Stats pane).
+// A first reading like the others (background AI, after whatever is running,
+// one at a time a campaign, silent when it fails): MILITARY_BATCH_MOST countries
+// to a request, every country asked for asked of once, what it is told kept on
+// each one's sheet: the figures it had none of, field by field, and its people
+// where nobody knew them. A scenario whose designer had every country rated
+// (GameUI/ScenarioMilitaryPanel.jsx) asks nothing here.
+// (A country is asked of once a sitting: one the AI left out is not asked of again every time the pane is drawn.)
+const militaryWanted = new Map();
+const militaryTried = new Set();
+const triedKey = (name) => `${activeCampaignId()}|${name.toLowerCase()}`;
+export const ensureMilitaryFigures = (targets, { reason = "" } = {}) => {
+  for (const target of normalizeArray(targets)) {
+    const name = normalizeString(target);
+    if (name && !militaryWanted.has(name.toLowerCase()) && !militaryTried.has(triedKey(name))) militaryWanted.set(name.toLowerCase(), name);
+  }
+  if (militaryWanted.size === 0) return Promise.resolve(null);
+  return firstReading("military figures", "the countries' military figures", reason, async () => {
+    const campaign = activeCampaignId();
+    const kept = [];
+    const asked = { has: (key) => militaryTried.has(`${campaign}|${key}`), add: (key) => militaryTried.add(`${campaign}|${key}`) };
+    while (militaryWanted.size > 0 && backgroundAiAllowance().allowed && activeCampaignId() === campaign) {
+      await waitForSimulationIdle();
+      const bundle = await readGameStateBundle({ force: true });
+      const world = normalizeWorldState(bundle.world);
+      const lookup = militaryLookup(world);
+      // (A group's are its scenario designer's: a group is no country with a sheet.)
+      const groupNames = new Set(Object.keys(world.groups || {}).map((key) => key.toLowerCase()));
+      const needs = (name) => !groupNames.has(name.toLowerCase()) && (wantsRating(lookup(name)) || !(peopleFor(world, name) > 0));
+      const wanted = [...militaryWanted.values()].filter((name) => !asked.has(name.toLowerCase()) && needs(name));
+      if (wanted.length === 0) {
+        militaryWanted.clear();
+        break;
+      }
+      // Every country with figures already: the scale. Where there is none, the strongest of those wanted first.
+      const everyone = new Map();
+      for (const source of [world.countryStats, world.polityOverrides, world.groups]) for (const key of Object.keys(source || {})) everyone.set(key.toLowerCase(), key);
+      const rated = ratedScaleOf([...everyone.values()].map((name) => ({ name, military: lookup(name), population: peopleFor(world, name) })), wanted);
+      const picking = rated.length === 0 && wanted.length > MILITARY_BATCH_MOST;
+      const batch = (picking ? wanted : wanted.slice(0, MILITARY_BATCH_MOST)).map((name) => ({ name, population: peopleFor(world, name) }));
+      const date = normalizeString(bundle.game?.gameDate || bundle.game?.startDate);
+      const { systemPrompt, userMessage, asked: names } = militaryRatingRequest({
+        ...(picking ? { pickFrom: batch } : { polities: batch }),
+        rated,
+        date,
+        era: eraOf(date, warSettingsOf(world).era),
+        rules: normalizeString(world.simulationRules),
+      });
+      if (!picking) for (const { name } of batch) {
+        asked.add(name.toLowerCase());
+        militaryWanted.delete(name.toLowerCase());
+      }
+      const response = await callAIWithTaskLimit(systemPrompt, [{ role: "user", parts: [{ text: userMessage }] }], {
+        reasoningEnabled: false,
+        taskKey: "countryStatSheet",
+        requestKind: BACKGROUND_REQUEST,
+      });
+      const rawText = typeof response === "string" ? response : normalizeString(response?.rawText);
+      const read = readMilitaryRatings(response?.toolInput ?? extractJsonPayload(rawText), names);
+      if (picking) {
+        for (const { name } of read) {
+          asked.add(name.toLowerCase());
+          militaryWanted.delete(name.toLowerCase());
+        }
+        if (read.length === 0) break;
+      }
+      if (read.length === 0) continue;
+      await beginStatsWrite(campaign);
+      try {
+        await mutateWorldState((latest) => {
+          const own = militaryLookup(latest);
+          let changed = false;
+          for (const { name, military, population } of read) {
+            const had = own(name) ?? {};
+            const missing = Object.fromEntries(Object.entries(military ?? {}).filter(([field]) => had[field] === undefined || had[field] === null));
+            const people = population > 0 && !(peopleFor(latest, name) > 0) ? { population: { total: population } } : {};
+            if (Object.keys(missing).length === 0 && !people.population) continue;
+            const key = canonicalStatsPolity(name, latest) || name;
+            applyCountryStatPatchToWorld(latest, key, { ...(Object.keys(missing).length > 0 ? { military: missing } : {}), ...people });
+            kept.push(key);
+            changed = true;
+          }
+          return changed ? latest : null;
+        }, { emitEvents: false });
+      } finally {
+        endSimulation();
+      }
+    }
+    if (kept.length > 0) logDebugEvent("turn", `Military figures for ${kept.length} countr${kept.length === 1 ? "y were" : "ies were"} rated against the others.`, { countries: kept });
+    return kept;
   });
 };
 

@@ -33,8 +33,8 @@ import { normalizeClimateZones, normalizeFortifications, normalizeFreezingRegion
 import { climateZonesOf, terrainAreasOf } from "../../runtime/worldGeographyDefaults.js";
 import { freezesAt } from "../../runtime/fronts/climate.js";
 import { hashKey } from "../../runtime/fronts/codec.js";
-import { fundingFactor, middleFundingPerHead } from "../../runtime/militaryFunding.js";
-import { countryWeight } from "../../runtime/countryWeight.js";
+import { forcesFunding, middleFundingPerHead } from "../../runtime/militaryFunding.js";
+import { countryWeight, middleWeight } from "../../runtime/countryWeight.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
 import { arenaFor } from "../../runtime/fronts/arena.js";
 import { REINFORCE_ORDER, SCENARIO_MARK } from "../../runtime/fronts/constants.js";
@@ -301,9 +301,8 @@ export const engineRegionsOf = (geojson, { nameOf = null } = {}) => {
 // engine day by day (planFrontMoments), never read from here.
 //   baseOwners   Map, region id -> who holds it on the map as drawn, for a
 //                region no event has moved yet
-//   regionIds    the regions of the map, to count what each country holds
 //   groups       false when groups are switched off for the game
-export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], groups = true } = {}) => {
+export const frontWorldReaders = (world, { baseOwners = null, groups = true } = {}) => {
   const control = isRecord(world?.regionOwnershipOverrides) ? world.regionOwnershipOverrides : {};
   const sovereignty = isRecord(world?.regionSovereigntyOverrides) ? world.regionSovereigntyOverrides : {};
   const groupAreas = groups && isRecord(world?.groupAreas) ? world.groupAreas : {};
@@ -312,21 +311,6 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
   const controllerOf = (id) => clean(Object.hasOwn(control, id) ? control[id] : base.get(id));
   const sovereignOf = (id) => clean(Object.hasOwn(sovereignty, id) ? sovereignty[id] : "") || controllerOf(id);
 
-  // The land each name holds: a country the regions it controls, a group the
-  // regions of its area. Counted once, the first time a weight is asked for.
-  let held = null;
-  const heldBy = (name) => {
-    if (!held) {
-      held = new Map();
-      const count = (owner) => {
-        const key = fold(owner);
-        if (key) held.set(key, (held.get(key) ?? 0) + 1);
-      };
-      for (const id of asArray(regionIds).length ? regionIds : Object.keys(control)) count(controllerOf(id));
-      for (const group of Object.values(groupAreas)) count(group);
-    }
-    return held.get(fold(name)) ?? 0;
-  };
   const sheets = isRecord(world?.countryStats) ? world.countryStats : {};
   let people = null;
   const peopleOf = (name) => {
@@ -354,15 +338,33 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
   const military = militaryLookup(world);
   const scenarioMuster = warSettingsOf(world).muster;
   const curves = new Map();
-  // What a country's economy does to its weight (runtime/militaryFunding.js):
-  // how its treasury stands, and how well funded it is against the others known.
-  let funded = null;
+  // What a country's forces have to spend, as its weight takes it (runtime/militaryFunding.js forcesFunding): what
+  // it was rated at against the others where the scenario counts countries' figures, else what its economy pays for.
+  const counted = warSettingsOf(world).mechanics.military;
+  let middleFunding = null;
+  const sheetOf = (name) => {
+    const key = fold(name);
+    for (const [other, sheet] of Object.entries(sheets)) if (fold(other) === key) return sheet;
+    return null;
+  };
   const fundingOf = (name) => {
-    if (!funded) {
-      const middle = middleFundingPerHead(sheets);
-      funded = new Map(Object.entries(sheets).map(([key, sheet]) => [fold(key), fundingFactor(sheet, middle)]));
+    if (middleFunding === null) middleFunding = middleFundingPerHead(sheets);
+    return forcesFunding({ sheet: sheetOf(name), middle: middleFunding, military: counted ? military(name) : null });
+  };
+  // What a country weighs in a land war: its people and what its forces have to spend (runtime/countryWeight.js).
+  // One whose people nobody knows yet is counted as the middle of those known: never by the land it holds ("remove
+  // region count power entirely", the owner, 2026-10-16). The AI rates its people and figures against every other
+  // country's as the game first needs them (militaryRating.js), where its scenario's designer did not.
+  const weightOf = (name) => countryWeight({ population: peopleOf(name), funding: fundingOf(name) });
+  let unknownWeight = null;
+  const strengthOf = (name) => {
+    const weight = weightOf(name);
+    if (weight !== null) return weight;
+    if (unknownWeight === null) {
+      peopleOf("");
+      unknownWeight = middleWeight([...people.keys()].map(weightOf).filter((known) => known !== null));
     }
-    return funded.get(fold(name)) ?? 1;
+    return unknownWeight;
   };
 
   return {
@@ -370,7 +372,7 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
     sovereignOf,
     groupAreas,
     isGroup: (name) => groupNames.has(fold(name)),
-    strengthOf: (name) => countryWeight({ population: peopleOf(name), regions: heldBy(name), funding: fundingOf(name) }),
+    strengthOf,
     // A country's own military figures, where its author or its sheet gives them (runtime/militaryStats.js;
     // what they do: runtime/fronts/military.js).
     militaryOf: military,
@@ -853,7 +855,7 @@ const listed = (names, most = 3) => `${names.slice(0, most).join("; ")}${names.l
 //   map              { key, cities, flat, scale, structures }: all of the map
 //                    the engine is told but its shapes
 //   regionTypes      world.regionTypes
-//   baseOwners, regionIds, groups   frontWorldReaders
+//   baseOwners, groups   frontWorldReaders
 //   arenas           the Map the caller keeps the engine's arenas in
 //   readMap          async () => { map, baseOwners, regionIds, arenas }, for a
 //                    caller that has to read them: asked only once it is known
@@ -912,7 +914,6 @@ export const runTurnFronts = async ({
   map: givenMap = {},
   regionTypes = [],
   baseOwners: givenOwners = null,
-  regionIds: givenIds = [],
   groups = true,
   arenas: givenArenas = null,
   readMap = null,
@@ -993,10 +994,9 @@ export const runTurnFronts = async ({
   const read = typeof readMap === "function" ? await readMap() : null;
   const map = read?.map ?? givenMap;
   const baseOwners = read?.baseOwners ?? givenOwners;
-  const regionIds = read?.regionIds ?? givenIds;
   const arenas = read?.arenas ?? givenArenas;
   const { days, dayOf } = frontRunSpan({ fromDate, toDate, requestedDays, events: list });
-  const readers = frontWorldReaders(world, { baseOwners, regionIds, groups });
+  const readers = frontWorldReaders(world, { baseOwners, groups });
   // The strikes the answer wrote, each with its places where they can be
   // found: among the places of the event that tells of it, the map's cities,
   // the world's structures and its formations, and then as the game finds any
