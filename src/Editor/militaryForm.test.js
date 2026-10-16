@@ -147,7 +147,13 @@ test("the Countries and Groups panels carry the Military block, and the scenario
   const groups = read("GroupsPanel.jsx");
   assert.ok(groups.includes("onChange={(military) => patchRecord(current, { military: military ?? undefined })}"));
   const editor = read("MapEditor.jsx");
-  assert.equal(editor.split("militaryDefaults={initialMap?.militaryDefaults ?? null}").length - 1, 2);
+  assert.equal(editor.split("militaryDefaults={initialMap?.militaryDefaults ?? null}").length - 1, 3, "the Countries and Groups panels, and the selection's");
+  // And the selection's own panel, for the country whose land is selected: no need to open the Countries panel
+  // ("make it so the military settings per country are availible just by selecting the country", the owner).
+  const inspector = read("SelectionInspector.jsx");
+  assert.ok(inspector.includes("onChange={(military) => upsertPolity(form.owner, { military: military ?? undefined })}"));
+  assert.ok(inspector.includes("value={polities?.[form.owner]?.military}"));
+  assert.ok(inspector.indexOf("<MilitaryFields") > inspector.indexOf("<TagField"), "under the country's tags");
   const library = read("../Game/GameUI/libraryBar.jsx");
   assert.ok(library.includes("militaryDefaults: militaryDefaultsFor(warSettings === undefined ? world.warSettings : warSettings, gameDate, { rules: world.simulationRules }),"));
   const fields = read("MilitaryFields.jsx");

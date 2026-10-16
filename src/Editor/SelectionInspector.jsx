@@ -27,6 +27,8 @@ import { rgbToHex } from "./fields.jsx";
 import { normalizeGroups } from "../runtime/groups.js";
 import { commonClaimants, claimantDelta, applyClaimantDelta } from "./claimantEdits.js";
 import { bundledFlagUrl } from "../runtime/countryFlags.js";
+import MilitaryFields from "./MilitaryFields.jsx";
+import { rateMilitaryFigures } from "../Game/AI/militaryRating.js";
 
 const commonOr = (arr, blank = "") => {
   if (!arr.length) return blank;
@@ -38,7 +40,9 @@ const foldPolityName = (value) => String(value ?? "").trim().toLowerCase();
 
 // freezingRegions / onSetFreezing(ids, on): the water regions that can freeze
 // (warGeographyDoc.js), offered for a selection that is all water.
-const SelectionInspector = ({ api, selection, types, colors, colorOverrides, setColorOverride, flags, setFlag, onOpenFlagPicker, tags, setTags, setSelection, polities = {}, upsertPolity, regionEpoch = 0, onOpenPolities, groups = {}, onOpenGroups, onCopyToClipboard = null, freezingRegions = [], onSetFreezing = null }) => {
+// militaryDefaults: what an empty military field stands for in this scenario
+// (militaryForm.js militaryDefaultsFor), or null for a map opened on its own.
+const SelectionInspector = ({ api, selection, types, colors, colorOverrides, setColorOverride, flags, setFlag, onOpenFlagPicker, tags, setTags, setSelection, polities = {}, upsertPolity, regionEpoch = 0, onOpenPolities, groups = {}, onOpenGroups, onCopyToClipboard = null, freezingRegions = [], onSetFreezing = null, militaryDefaults = null }) => {
   const summaries = useMemo(
     () => (api ? selection.map((id) => api.getRegionSummary(id)).filter(Boolean) : []),
     [api, selection, regionEpoch],
@@ -329,6 +333,27 @@ const SelectionInspector = ({ api, selection, types, colors, colorOverrides, set
             onChange={(next) => setTags(form.owner, next)}
           />
         </Row>
+      )}
+      {/* The country's military figures, here as in the Countries panel (MilitaryFields.jsx), kept with its record as
+          `military`: "make it so the military settings per country are availible just by selecting the country so
+          you dont need to go into the country menu" (the owner, 2026-10-16). For a selection of one country's land. */}
+      {form.owner && upsertPolity && (
+        <div data-oh-selection-military="" style={{ marginTop: 6 }}>
+          <MilitaryFields
+            recordKey={form.owner}
+            value={polities?.[form.owner]?.military}
+            defaults={militaryDefaults}
+            onChange={(military) => upsertPolity(form.owner, { military: military ?? undefined })}
+            onRate={() => rateMilitaryFigures({
+              name: polities?.[form.owner]?.name || form.owner,
+              note: polities?.[form.owner]?.note,
+              population: polities?.[form.owner]?.population,
+              date: militaryDefaults?.gameDate,
+              era: Number.isInteger(militaryDefaults?.era) ? militaryDefaults.era : null,
+              rules: militaryDefaults?.rules,
+            })}
+          />
+        </div>
       )}
 
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>

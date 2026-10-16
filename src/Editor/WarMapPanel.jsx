@@ -63,7 +63,7 @@ const TERRAIN_LEVEL_LABELS = ["Flat", "Easy", "Uneven", "Rough", "Hard going", "
 // Level 3 to 10: how hard the wall is to break.
 const WALL_LEVEL_LABELS = { 3: "Weak", 4: "Light", 5: "Solid", 6: "Strong", 7: "Very strong", 8: "Formidable", 9: "Nearly unbreakable", 10: "Unbreakable" };
 
-const WEATHER_LABELS = { clear: "Clear", rain: "Rain", storm: "Storm", mud: "Mud", snow: "Snow", blizzard: "Blizzard", frost: "Frost", heat: "Heat", fog: "Fog" };
+const WEATHER_LABELS = { clear: "Clear skies", rain: "Rain", storm: "Storm", mud: "Mud", snow: "Snow", blizzard: "Blizzard", frost: "Frost", heat: "Heat", fog: "Fog" };
 const CLIMATE_LABELS = { polar: "Polar", continental: "Continental", arid: "Arid", tropical: "Tropical" };
 // The months by name, January first, in the page's own language: the browser knows them all.
 const monthNames = () => {

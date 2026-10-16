@@ -1877,6 +1877,7 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
         onCopyToClipboard={(ids) => copySelectionToClipboard(ids)}
         freezingRegions={d.freezingRegions}
         onSetFreezing={setRegionsFreezing}
+        militaryDefaults={initialMap?.militaryDefaults ?? null}
       />
 
       {cityPopup && isMapFeature(d.features.find((f) => f.id === cityPopup.id)) && (
