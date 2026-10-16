@@ -45,8 +45,29 @@ const abortReason = (signal) => signal?.reason ?? new DOMException("Aborted", "A
 
 const newSkipId = () => (globalThis.crypto?.randomUUID?.() ?? `skip-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
+// The player sent a waiting request on to the next entry (Use API key). The
+// runner moves on without a mark (fallbackRunner.js, "passedOn").
+export const PASSED_ON_MESSAGE = "You sent this request to your next entry instead of your Agent.";
+const passedOnError = () => Object.assign(new Error(PASSED_ON_MESSAGE), {
+    providerFailure: { kind: "passedOn", reason: "the player chose their next entry" },
+});
+
 export const createAgentClient = ({ fetch: send = (...args) => globalThis.fetch(...args), pollMs = ANSWER_WAIT_MS } = {}) => {
     let skip = null; // { id, opened: Promise }
+    // The game's own follow-ups to a skip (agentClient.holdSkip): the skip is
+    // finished only once they are done, so /answer answers them in it.
+    const held = new Set();
+    // Use API key on a skip sends the rest of that skip on too.
+    let skipPassedOn = false;
+    // What is waiting on the Agent right now, for the page to show: one
+    // record per call, with the kind it is and how to pass it on.
+    const waiting = new Set();
+    const listeners = new Set();
+    const tell = () => {
+        for (const listener of [...listeners]) {
+            try { listener(); } catch { /* a listener must never cost a request */ }
+        }
+    };
 
     const call = async (method, route, body, signal) => {
         const response = await send(route, {
@@ -68,49 +89,103 @@ export const createAgentClient = ({ fetch: send = (...args) => globalThis.fetch(
     };
 
     return {
-        // A page that loads afresh: no skip of an earlier page is running.
+        // A page that loads afresh: nothing an earlier page started is running.
         async dropStaleSkips() {
             await call("DELETE", "/api/agent/skips").catch(() => {});
         },
 
         // The game has stopped simulating: the skip is finished, and the
-        // Agent's `/skip` stops.
+        // Agent's `/answer` stops waiting for it. The next skip starts on the
+        // Agent again.
+        holdSkip(work) {
+            const promise = Promise.resolve(work).catch(() => {});
+            held.add(promise);
+            void promise.finally(() => held.delete(promise));
+            return work;
+        },
+
         async finishSkip() {
+            while (held.size) await Promise.all([...held]);
             const finished = skip;
             skip = null;
+            skipPassedOn = false;
             if (!finished) return;
             await finished.opened.catch(() => {});
             await call("DELETE", `/api/agent/skips/${encodeURIComponent(finished.id)}`).catch(() => {});
         },
 
-        // `spender` names the task (requestBudget.js); the Agent sees it with
-        // the request. `onAgentWait` says the call is now waiting on the player.
-        // `agentLookups`: the task's lookup functions ({ tools, execute }). The
-        // Agent may call them while it answers; the game answers each from here,
-        // as it does a provider's lookup round, but none is a request of the skip.
+        // How many calls of each kind wait on the Agent: { skip: 1, advisor: 2 }.
+        waits() {
+            const counts = {};
+            for (const entry of waiting) counts[entry.kind] = (counts[entry.kind] ?? 0) + 1;
+            return counts;
+        },
+        subscribeWaits(listener) {
+            listeners.add(listener);
+            return () => { listeners.delete(listener); };
+        },
+
+        // Use API key: the waiting calls of these kinds go on to the next entry.
+        passOn(kinds) {
+            const chosen = new Set(kinds);
+            if (chosen.has("skip") && skip) skipPassedOn = true;
+            for (const entry of waiting) if (chosen.has(entry.kind)) entry.passOn();
+        },
+        // Cancel: the waiting calls of these kinds end as cancelled.
+        cancel(kinds) {
+            const chosen = new Set(kinds);
+            for (const entry of waiting) if (chosen.has(entry.kind)) entry.cancel();
+        },
+        // Whether the rest of the running skip goes past the Agent (main.jsx).
+        skipPassedOn() {
+            return skipPassedOn;
+        },
+
+        // `agentKind` says what the player started (providerConfig.js
+        // AGENT_KINDS); a time skip's calls say it with their `spender`, which
+        // also names the task for the Agent. A skip's calls queue under the
+        // skip; a chat's under none. `onAgentWait` says the call now waits on
+        // the player. `agentLookups`: the task's lookup functions ({ tools,
+        // execute }); the Agent may call them while it answers, the game
+        // answers each from here, and none is a request of the skip.
         async call(systemPrompt, history, opts = {}) {
-            const { signal, tool, spender, taskKey, onSend, onActivity, onAgentWait, onToolStream, onReceived, agentLookups = null } = opts;
+            const { signal, tool, spender, taskKey, agentKind, onSend, onActivity, onAgentWait, onToolStream, onReceived, agentLookups = null } = opts;
+            const kind = agentKind || "skip";
             const lookupTools = Array.isArray(agentLookups?.tools) && typeof agentLookups?.execute === "function"
                 ? agentLookups.tools.filter((entry) => entry?.name && entry?.schema)
                     .map(({ name, description = "", schema }) => ({ name, description, schema }))
                 : [];
             if (signal?.aborted) throw abortReason(signal);
             const { system, prompt } = buildAgentPrompt(systemPrompt, history, { tool });
-            const open = currentSkip();
-            await open.opened;
+            let skipId;
+            if (kind === "skip") {
+                const open = currentSkip();
+                await open.opened;
+                skipId = open.id;
+            }
             const queued = await call("POST", "/api/agent/requests", {
-                skipId: open.id, task: String(spender || taskKey || ""), system, prompt,
+                ...(skipId ? { skipId } : {}), task: String(agentKind || spender || taskKey || ""), system, prompt,
                 ...(lookupTools.length ? { lookupTools } : {}),
             }, signal);
             if (!queued.ok || !queued.json?.id) throw new Error(queued.json?.error || "The Agent queue did not take the request.");
             const id = queued.json.id;
             onSend?.();
             onAgentWait?.();
+            // The player's Cancel arrives on `signal`; their Use API key on this one.
+            const passed = new AbortController();
+            const stop = signal ? AbortSignal.any([signal, passed.signal]) : passed.signal;
+            const record = {
+                kind,
+                passOn: () => passed.abort(passedOnError()),
+                cancel: () => passed.abort(new DOMException("You cancelled the request waiting on your Agent.", "AbortError")),
+            };
+            waiting.add(record);
+            tell();
             const cancel = () => { void call("DELETE", `/api/agent/requests/${encodeURIComponent(id)}`).catch(() => {}); };
             try {
                 for (;;) {
-                    if (signal?.aborted) throw abortReason(signal);
-                    const polled = await call("GET", `/api/agent/requests/${encodeURIComponent(id)}?waitMs=${pollMs}`, undefined, signal);
+                    if (stop.aborted) throw stop.reason;
+                    const polled = await call("GET", `/api/agent/requests/${encodeURIComponent(id)}?waitMs=${pollMs}`, undefined, stop);
                     if (polled.status === 404) throw new Error(AGENT_GONE_MESSAGE);
                     const { state, answer, lookups: asked } = polled.json ?? {};
                     for (const question of Array.isArray(asked) ? asked : []) {
@@ -125,24 +200,32 @@ export const createAgentClient = ({ fetch: send = (...args) => globalThis.fetch(
                         }
                         if (result == null || typeof result !== "object" || Array.isArray(result)) result = { result: result ?? null };
                         logDebugEvent("ai-call", `Agent lookup: ${question.name}.`, { args: question.args, response: result }, { verbose: true });
-                        await call("POST", `/api/agent/requests/${encodeURIComponent(id)}/lookups/${encodeURIComponent(question.callId)}`, { result: result ?? null }, signal);
+                        await call("POST", `/api/agent/requests/${encodeURIComponent(id)}/lookups/${encodeURIComponent(question.callId)}`, { result: result ?? null }, stop);
                     }
                     if (state === "answered") {
                         const rawText = String(answer ?? "");
                         onReceived?.({ answerChars: rawText.length });
                         if (tool?.name && typeof onToolStream === "function") onToolStream({ name: tool.name, json: rawText });
-                        return { rawText, toolInput: null };
+                        // A task's answer, or a chat's reply as the text it is.
+                        return tool ? { rawText, toolInput: null } : rawText;
                     }
                     if (state === "cancelled") throw signal?.aborted ? abortReason(signal) : new DOMException("The request was cancelled in the Agent queue.", "AbortError");
                     // Still waiting on the player: life, not silence.
                     onActivity?.();
                 }
             } catch (error) {
+                if (passed.signal.aborted && !signal?.aborted) {
+                    cancel();
+                    throw passed.signal.reason;
+                }
                 if (signal?.aborted || error?.name === "AbortError") {
                     cancel();
                     throw signal?.aborted ? abortReason(signal) : error;
                 }
                 throw error;
+            } finally {
+                waiting.delete(record);
+                tell();
             }
         },
     };

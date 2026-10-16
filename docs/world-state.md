@@ -161,7 +161,7 @@ The requests an Agent Connection is waiting on, held by the local server until a
 _Avoid_: Inbox, jobs
 
 **Agent folder**:
-The folder the install ships for the player to open their own Agent in: its instructions, the `/skip` skill, the MCP server's settings, the player's choice of models for Open Historia, and the prompt files of the Agent queue.
+The folder the install ships for the player to open their own Agent in: its instructions, the `/answer` skill (and `/skip`, the same command), the MCP server's settings, the player's choice of models for Open Historia, and the prompt files of the Agent queue.
 _Avoid_: Workspace, agent files
 
 ### Subordination

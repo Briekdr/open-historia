@@ -4,6 +4,7 @@ import { APP_HEIGHT, SAFE_BOTTOM, SAFE_LEFT, SAFE_RIGHT, SAFE_TOP, useTouchPrima
 import { useBackToClose } from "../../runtime/backToClose.js";
 import { createPortal } from "react-dom";
 import {
+    AGENT_KINDS,
     AGENT_PROVIDER,
     AI_TASK_ROUTING,
     CONNECTION_TEMPLATES,
@@ -945,7 +946,16 @@ const AGENT_COMMANDS = [
 
 // An Agent Connection has no key, endpoint or model: what the player needs is
 // where to open their Agent, and how.
-const AgentConnectionHelp = () => {
+// What the player may send to their Agent, one tick each (providerConfig.js AGENT_KINDS).
+const AGENT_KIND_LABELS = [
+    { kind: "skip", label: "Time skips" },
+    { kind: "advisor", label: "Advisor" },
+    { kind: "diplomacy", label: "Diplomacy" },
+    { kind: "gameMaster", label: "Game Master" },
+    { kind: "interactive", label: "Interactive events" },
+];
+
+const AgentConnectionHelp = ({ connection = null }) => {
     const [folder, setFolder] = useState("");
     const [copied, setCopied] = useState("");
     useEffect(() => {
@@ -960,12 +970,29 @@ const AgentConnectionHelp = () => {
     return (
         <div style={fieldGroupStyle}>
         <div style={helperStyle}>
-        <p style={{ margin: "0 0 0.5rem" }}>Time skips that reach this entry wait for your own Agent, on your own subscription. No API key is used.</p>
-        <p style={{ margin: "0 0 0.5rem" }}>Open a terminal in the Agent folder, start Claude Code, Codex or Antigravity CLI there, signed in with your own account, and type /skip whenever a time skip is waiting. One /skip answers the whole skip.</p>
-        <p style={{ margin: "0 0 0.5rem" }}>Your Agent's own model and effort settings are the ones used. The game never starts your Agent and never reads its sign-in.</p>
-        <p style={{ margin: "0 0 0.5rem" }}>Only time skips use this entry. The advisor, diplomacy, background AI and stat sheets read outside a skip go to the entry below it.</p>
+        <p style={{ margin: "0 0 0.5rem" }}>What you start (the kinds ticked below) waits for your own Agent, on your own subscription. No API key is used.</p>
+        <p style={{ margin: "0 0 0.5rem" }}>Open a terminal in the Agent folder, start Claude Code, Codex or Antigravity CLI there, signed in with your own account, and type /answer whenever something is waiting. One /answer answers all of it, a whole time skip included.</p>
+        <p style={{ margin: "0 0 0.5rem" }}>The first /answer asks which models to use for Open Historia. The game never starts your Agent and never reads its sign-in.</p>
+        <p style={{ margin: "0 0 0.5rem" }}>Anything unticked, and what the game starts by itself (background diplomacy, idle chats, automatic stat tracking), goes to the entry below it.</p>
         <p style={{ margin: 0 }}>With nothing below it, those don't run. Add an entry below it, such as a free Gemini key, to keep them.</p>
         </div>
+        {connection && (
+            <div style={{ marginTop: "0.6rem" }}>
+            {AGENT_KIND_LABELS.map(({ kind, label }) => (
+                <Toggle
+                key={kind}
+                label={label}
+                enabled={connection.kinds?.includes(kind) ?? true}
+                onToggle={() => {
+                    const kinds = connection.kinds ?? AGENT_KINDS;
+                    updateConnection(connection.id, { kinds: kinds.includes(kind) ? kinds.filter((value) => value !== kind) : [...kinds, kind] });
+                }}
+                />
+            ))}
+            <Toggle label="Pause my Agent" enabled={connection.paused === true} onToggle={() => updateConnection(connection.id, { paused: connection.paused !== true })} />
+            <div style={{ ...helperStyle, marginTop: "-0.4rem" }}>While paused, everything goes to the entry below, for when you are away from your terminal.</div>
+            </div>
+        )}
         {folder && (
             <div data-no-translate style={{ ...helperStyle, marginTop: "0.5rem", overflowWrap: "anywhere", fontFamily: "monospace" }}>{folder}</div>
         )}
@@ -992,7 +1019,7 @@ const ConnectionFields = ({ connection, sharedBy = 1 }) => {
             <>
             <ApiProviderSelector provider={connection.provider} onProviderChange={set("provider")} />
             <SettingsInput label="Connection name" value={connection.name} onChange={set("name")} placeholder={meta.label} />
-            <AgentConnectionHelp />
+            <AgentConnectionHelp connection={connection} />
             </>
         );
     }
@@ -1276,7 +1303,7 @@ const ConnectionsSection = () => {
                 <div style={{ fontSize: "0.82rem", fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{connectionDisplayName(connection)}</div>
                 <div style={{ ...helperStyle, marginTop: "0.1rem" }}>
                 {getProviderMeta(connection.provider).label}
-                {connection.provider === AGENT_PROVIDER ? " · answers time skips through /skip" : selfHosted ? ` · ${connection.endpoint || "no endpoint"}` : ` · key ${connection.apiKey.trim() ? "set" : "not set"}`}
+                {connection.provider === AGENT_PROVIDER ? (connection.paused ? " · paused" : " · answers through /answer") : selfHosted ? ` · ${connection.endpoint || "no endpoint"}` : ` · key ${connection.apiKey.trim() ? "set" : "not set"}`}
                 {` · used by ${using} entr${using === 1 ? "y" : "ies"}`}
                 </div>
                 </div>

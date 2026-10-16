@@ -428,6 +428,7 @@ import { AI_FIRST_BYTE_TIMEOUT_MS, AI_IDLE_TIMEOUT_MS, createIdleDeadline, runWi
 import { REPAIR_STOP_TIME_BUDGET, runBoundedRepairCall } from "./repairCall.js";
 import { isDebugLogVerbose, logDebugEvent } from "../../runtime/debugLog.js";
 import { isFallbackListConfigured } from "./providerConfig.js";
+import { agentClient } from "./agentConnection.js";
 import { assertCampaignUnchanged, campaignChanged } from "../../runtime/campaignGuard.js";
 import { HELD_TURN_STALE_NOTE, heldTurnOutdated, mergeActionsAtCommit, restorePointProblem, restorePointsFor, storedActionsForMerge } from "../../runtime/turnCommit.js";
 import { getLibraryState, readGameParkedTurn, removeGameParkedTurn, writeGameParkedTurn } from "../../runtime/library.js";
@@ -3495,6 +3496,11 @@ const runJsonTask = async (taskKey, {
   spender = "",
   requestKind,
   onRequest,
+  // What the player started, for their own Agent (providerConfig.js
+  // AGENT_KINDS): an advisor or diplomatic reply, a Game Master command, an
+  // interactive event, a skip's follow-up. A task that names none never waits
+  // on the player's Agent.
+  agentKind = "",
   // A task whose answer is worth a second request even while requests are being
   // saved: it keeps strict-then-retry. For something asked once per campaign and
   // built on for the rest of it, not for anything asked every turn.
@@ -3787,8 +3793,10 @@ const runJsonTask = async (taskKey, {
           __debugSink: attemptSink,
           ...(requestKind ? { requestKind } : {}),
           ...(typeof onRequest === "function" ? { onRequest } : {}),
-          // What the skip spends on, which is what an Agent entry answers.
+          // What the skip spends on, and what else the player started: what an
+          // Agent entry answers.
           ...(budget || spender ? { spender: outputAttempt === 1 ? (spender || taskKey) : `${spender || taskKey}Retry` } : {}),
+          ...(agentKind ? { agentKind } : {}),
           // The arguments as they assemble (streamAssembly.js). A lookup round's
           // call is ignored by name, so only the answer itself is read.
           ...(eventReader ? {
@@ -12235,7 +12243,9 @@ const askTrackedStats = (replay, requests, due, ask) => replayAnswer(replay, "tr
 const requestTrackedBaseline = (pending, game) => {
   const player = normalizeString(game?.country).toLowerCase();
   const waiting = player ? normalizeArray(pending).find((polity) => normalizeString(polity).toLowerCase() === player) : "";
-  if (waiting) void ensureCountryStatSheet(waiting, { reason: "historical tracking", needBackend: true });
+  // Asked as the skip lands, so it is the skip's follow-up: the player's Agent
+  // answers it in the same /answer, which waits for it (ADR 0008).
+  if (waiting) agentClient.holdSkip(ensureCountryStatSheet(waiting, { reason: "historical tracking", needBackend: true, agentKind: "skip" }));
 };
 
 // "Stats should be generated for countries you're going into conflict with,
@@ -12876,7 +12886,7 @@ export const generateCountryStats = async ({ code, name } = {}) => {
   // per-task model picks, and no stat-sheet temperature on prose.
   const raw = await callAIWithTaskLimit(system, [
     { role: "user", parts: [{ text: `Give me the intelligence briefing on ${target}.` }] },
-  ], { taskKey: "countryBriefing" });
+  ], { taskKey: "countryBriefing", agentKind: "advisor" });
   return String(raw || "").trim();
 };
 
@@ -13730,7 +13740,7 @@ export const ensureConflictBackends = (targets, { reason = "" } = {}) => {
 //   needBackend   the sheet is wanted for what the war reads (runtime/statsBackend.js): a
 //                 scenario's own sheet that is complete but was written before it kept a
 //                 backend is written again, once, with one
-export const ensureCountryStatSheet = (target, { reason = "", rateIntelligence = false, needBackend = false } = {}) =>
+export const ensureCountryStatSheet = (target, { reason = "", rateIntelligence = false, needBackend = false, agentKind = "" } = {}) =>
   firstReading("stat sheet", target, reason, async (name) => {
     const [world, definition] = await Promise.all([
       readWorldState({ force: false }).then(normalizeWorldState),
@@ -13751,6 +13761,7 @@ export const ensureCountryStatSheet = (target, { reason = "", rateIntelligence =
       code: name,
       name,
       requestKind: BACKGROUND_REQUEST,
+      ...(agentKind ? { agentKind } : {}),
       ...(rate ? { rateIntelligence: true, onIntelligenceRating: (value) => { assessment = value; } } : {}),
     });
     // After the sheet is written, so the two writes never race. A missing or
@@ -13832,6 +13843,7 @@ const generateScenarioCustomStatSheet = async ({
   // As generateCountryStatSheet's: a first reading nobody asked for is
   // BACKGROUND_REQUEST, and a skip's refresh asks its budget.
   requestKind,
+  agentKind = "",
   budget = null,
   onRequest,
   rateIntelligence = false,
@@ -13852,6 +13864,7 @@ const generateScenarioCustomStatSheet = async ({
     lookups: buildTaskLookups(bundle),
     signal,
     ...(requestKind ? { requestKind } : {}),
+    ...(agentKind ? { agentKind } : {}),
     ...(budget ? { budget, spender: "stats" } : {}),
     ...(typeof onRequest === "function" ? { onRequest } : {}),
     userMessage: [
@@ -13947,7 +13960,7 @@ ${JSON.stringify(previousValues)}`
 // campaign context as the intelligence briefing.
 // `rateIntelligence` asks for the polity's intelligence rating in the same
 // request, handed to `onIntelligenceRating` (ensureCountryStatSheet writes it).
-export const generateCountryStatSheet = async ({ code, name, forceReassess = false, signal, requestKind, budget = null, onRequest, rateIntelligence = false, onIntelligenceRating = null } = {}) => {
+export const generateCountryStatSheet = async ({ code, name, forceReassess = false, signal, requestKind, agentKind = "", budget = null, onRequest, rateIntelligence = false, onIntelligenceRating = null } = {}) => {
   // Issue #724: wait out any running simulation before reading the world.
   // The Stats pane calls this directly, not through ensureCountryStatSheet, so
   // it skipped the idle wait every other out-of-turn writer takes — on a fresh
@@ -13983,6 +13996,7 @@ export const generateCountryStatSheet = async ({ code, name, forceReassess = fal
       signal,
       campaign,
       requestKind,
+      agentKind,
       budget,
       onRequest,
       rateIntelligence,
@@ -14362,6 +14376,7 @@ export const generateCountryStatSheet = async ({ code, name, forceReassess = fal
     lookups: buildTaskLookups(bundle),
     signal,
     ...(requestKind ? { requestKind } : {}),
+    ...(agentKind ? { agentKind } : {}),
     ...(budget ? { budget, spender: "stats" } : {}),
     ...(typeof onRequest === "function" ? { onRequest } : {}),
     userMessage: [
@@ -14714,6 +14729,7 @@ const institutionGovernancePrompt = (world, institutionId, playerCountry = "") =
 };
 
 export const runChatActionBatch = async ({
+  agentKind = "",
   chat,
   playerMessage = "",
   playerCountry = "",
@@ -14968,6 +14984,7 @@ export const runChatActionBatch = async ({
   const { payload, generation } = await runJsonTask("chatActions", {
     fallback: () => ({ actions: [] }),
     signal,
+    ...(agentKind ? { agentKind } : {}),
     userMessage: [
       normalizeString(catchUp),
       playerMessage
@@ -15283,6 +15300,8 @@ export const checkDemandReply = async ({ chat, speaker, reply, answering = "", m
   const { payload } = await runJsonTask("demandCheck", {
     fallback: () => ({ outcome: "none", summary: "" }),
     signal,
+    // Checks the reply to the player's own message.
+    agentKind: "diplomacy",
     userMessage: demandCheckPrompt({ context, reply, openDemand, answering, demands: stored.demands }),
     variables: {},
     // A player request, not background: it is the direct result of a message
@@ -15395,6 +15414,7 @@ export const createInteractive = async ({ eventId = "", angle = "", force = true
     const asked = normalizeString(angle).slice(0, 1200);
     const variables = await buildTemplateVariables(bundle, { taskKey: "interactiveCreation", lookups: true });
     const { generation, payload } = await runJsonTask("interactiveCreation", {
+      agentKind: "interactive",
       lookups: buildTaskLookups(bundle),
       fallback: () => ({ choices: [], opening: "", premise: "", title: "" }),
       userMessage: [offeredSceneDirective(event, asked), "Design the scene as JSON only."].join("\n\n"),
@@ -15523,6 +15543,7 @@ const resolveInteractiveScene = async ({ bundle, baseColors, campaignId, interac
       interactivePremise: interactive.premise || interactive.title || "",
     });
     ({ generation: summaryGeneration, payload: summaryPayload } = await runJsonTask("interactiveSummary", {
+      agentKind: "interactive",
       fallback: () => ({ description: "", importance: "major", title: "" }),
       userMessage: "Summarize the finished interactive event into one campaign event as JSON only.",
       variables: summaryVariables,
@@ -15721,6 +15742,7 @@ export const advanceActiveInteractive = async (choiceText) => {
   });
 
   const { generation, payload } = await runJsonTask("interactiveExecutor", {
+    agentKind: "interactive",
     lookups: buildTaskLookups(bundle),
     fallback: () => ({ nextChoices: [], resolved: false, summary: "" }),
     // A move that ends the scene also writes its record, so the scene does not
@@ -18854,6 +18876,7 @@ export const previewGameMasterCommand = async (requestText, { mode = "world-inte
     };
 
     const { generation, payload } = await runJsonTask("gameMaster", {
+      agentKind: "gameMaster",
       lookups: buildTaskLookups(bundle),
       userMessage: `Generate a ${selectedMode} GM transaction preview for the administrator request. Do not apply anything.`,
       validatePayload: (candidate) => validateGameMasterPreviewPayload(candidate, {

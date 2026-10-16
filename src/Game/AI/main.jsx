@@ -2923,10 +2923,13 @@ export async function callAI(systemPrompt, history, opts = {}) {
     // it in the background, and `onRequest` lets the caller count along (a time
     // skip reports what it cost): both are for the request budget below.
     // `spender` is the time-skip task the call spends on (requestBudget.js), set
-    // only inside a skip: it decides whether an Agent entry answers the call.
+    // only inside a skip, and `agentKind` what else the player started (an
+    // advisor message, a diplomatic reply, a Game Master command, an
+    // interactive event): together they decide whether an Agent entry answers
+    // the call (providerConfig.js entryServesCall).
     const {
         languageMode = "ui", logLabel = "", __debug: debugMeta = null, __debugSink: debugSink = null, lookups = null,
-        requestKind = PLAYER_REQUEST, onRequest: observeRequest = null, spender = "",
+        requestKind = PLAYER_REQUEST, onRequest: observeRequest = null, spender = "", agentKind = "",
         ...providerOpts
     } = opts;
     // The difficulty's priority line opens every system prompt the game sends
@@ -3098,7 +3101,10 @@ export async function callAI(systemPrompt, history, opts = {}) {
             onChunk: providerOpts.onChunk,
             // An Agent entry answers only a player's time-skip calls of the tasks
             // it names; every other call goes past it without a word (ADR 0008).
-            serves: (entry) => entryServesCall(entry, { spender, requestKind, sharedGame: hostingSharedGame() }),
+            // What the player started, of a kind the entry ticks, and not part of
+            // a skip the player sent on to their key (Use API key).
+            serves: (entry) => entryServesCall(entry, { spender, agentKind, requestKind, sharedGame: hostingSharedGame() })
+                && !(entry.provider === AGENT_PROVIDER && (agentKind === "skip" || (!agentKind && spender)) && agentClient.skipPassedOn()),
             canAttempt: (entry) => entry.provider === AGENT_PROVIDER ? "" : contextWindows.refusal(contextWindowKey(entry), requestTokens, { reserveTokens: answerReserve, trustLearned: windowIsLearned(entry) }),
             tooBigError: (refused) => providerFailureError(
                 nothingFitsMessage(refused.map(({ entry, reason }) => ({ label: entry.label, reason })), requestTokens),
@@ -3141,6 +3147,7 @@ export async function callAI(systemPrompt, history, opts = {}) {
                         onReceived: live?.received,
                         onAgentWait: live?.agentWaiting,
                         spender,
+                        agentKind,
                         ...(agentEntry && lookups ? { agentLookups: lookups } : {}),
                         onUnmarkedEnd: () => { endedUnmarked = true; },
                         onRequest: noteRequest,
@@ -3968,7 +3975,7 @@ export async function sendMessage(userMessage, options) {
         // maxTokens 8192 caps the reply; onChunk (passed by the advisor UI) streams
         // it token-by-token. Providers that can't stream still return the full reply
         // here, so the advisor works either way.
-        const reply = await callAI(systemPrompt, [...(memoryContext ? [memoryContext] : []), ...history], { maxTokens: 8192, ...opts, languageMode: "chat", logLabel: "advisor", taskKey: "advisor", ...(lookups ? { lookups } : {}) });
+        const reply = await callAI(systemPrompt, [...(memoryContext ? [memoryContext] : []), ...history], { maxTokens: 8192, ...opts, languageMode: "chat", logLabel: "advisor", taskKey: "advisor", agentKind: "advisor", ...(lookups ? { lookups } : {}) });
         // The memory line comes off before the reply joins the history: the
         // model is given it once, ahead of the turns. A reply that dropped it
         // keeps the last one. The raw reply goes back to the panel, which
@@ -4118,7 +4125,7 @@ export async function sendDiplomaticMessage(playerMessage, speakingAs, countries
         conversationShape(freshPrompt, historyWithInstruction), { verbose: true });
 
     try {
-        const raw = await callAI(freshPrompt, historyWithInstruction, { ...opts, languageMode: "chat", logLabel: `diplomacy → ${speakingAs}`, taskKey: "diplomacy" });
+        const raw = await callAI(freshPrompt, historyWithInstruction, { ...opts, languageMode: "chat", logLabel: `diplomacy → ${speakingAs}`, taskKey: "diplomacy", agentKind: "diplomacy" });
         const { reply, reaction, memorySummary: generatedMemorySummary } = parseDiplomaticEnvelope(raw);
         // A reply that dropped the memory line keeps the last one; the
         // thread never forgets what it knew because one answer was terse.
@@ -4211,7 +4218,7 @@ export async function sendDiplomaticMessageOnceOff({ playerMessage, speakingAs, 
         playerMessage, { verbose: true });
 
     try {
-        const raw = await callAI(freshPrompt, historyWithInstruction, { ...opts, languageMode: "chat", logLabel: `diplomacy (advisor draft) → ${speakingAs}`, taskKey: "diplomacy" });
+        const raw = await callAI(freshPrompt, historyWithInstruction, { ...opts, languageMode: "chat", logLabel: `diplomacy (advisor draft) → ${speakingAs}`, taskKey: "diplomacy", agentKind: "diplomacy" });
         const parsed = parseDiplomaticEnvelope(raw);
         if (!parsed.memorySummary && priorMemory?.summary) parsed.memorySummary = priorMemory.summary;
         logDebugEvent("diplomacy",

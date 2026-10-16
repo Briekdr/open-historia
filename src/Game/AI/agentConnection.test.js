@@ -195,3 +195,74 @@ test("a lookup that throws answers the Agent with the error, and the wait goes o
   server.answer("r1", "{}");
   await call;
 });
+
+test("a chat the player started is queued without opening a skip", async () => {
+  const server = fakeServer();
+  const client = createAgentClient({ fetch: server.fetch, pollMs: 0 });
+  const call = client.call("s", history, { agentKind: "advisor" });
+  await until(() => server.requests.size === 1);
+  assert.equal(server.skips.opened.length, 0);
+  assert.equal(server.requests.get("r1").task, "advisor");
+  assert.equal(server.requests.get("r1").skipId, undefined);
+  server.answer("r1", "Steady as she goes.");
+  assert.equal(await call, "Steady as she goes.", "a chat's reply comes back as its text");
+});
+
+test("what is waiting on the Agent is told to the page, by kind", async () => {
+  const server = fakeServer();
+  const client = createAgentClient({ fetch: server.fetch, pollMs: 0 });
+  const seen = [];
+  const stop = client.subscribeWaits(() => seen.push(client.waits()));
+  const chat = client.call("s", history, { agentKind: "diplomacy" });
+  await until(() => client.waits().diplomacy === 1);
+  server.answer("r1", "Agreed.");
+  await chat;
+  assert.equal(client.waits().diplomacy ?? 0, 0);
+  assert.ok(seen.length >= 2);
+  stop();
+});
+
+test("Use API key ends the wait as passed on, not cancelled, and takes the request out of the queue", async () => {
+  const server = fakeServer();
+  const client = createAgentClient({ fetch: server.fetch, pollMs: 0 });
+  const call = client.call("s", history, { agentKind: "advisor" });
+  await until(() => client.waits().advisor === 1);
+  client.passOn(["advisor"]);
+  await assert.rejects(call, (error) => error.providerFailure?.kind === "passedOn" && error.name !== "AbortError");
+  await until(() => server.requests.get("r1").state === "cancelled");
+});
+
+test("Use API key on a time skip sends the rest of that skip on, until the skip is finished", async () => {
+  const server = fakeServer();
+  const client = createAgentClient({ fetch: server.fetch, pollMs: 0 });
+  const jump = client.call("s", history, { spender: "jump" });
+  await until(() => client.waits().skip === 1);
+  assert.equal(client.skipPassedOn(), false);
+  client.passOn(["skip"]);
+  await assert.rejects(jump, (error) => error.providerFailure?.kind === "passedOn");
+  assert.equal(client.skipPassedOn(), true, "the review and stats after it go to the key too");
+  await client.finishSkip();
+  assert.equal(client.skipPassedOn(), false, "the next skip starts on the Agent again");
+});
+
+test("a skip is finished only once the follow-ups held for it are done, so /answer answers them too", async () => {
+  const server = fakeServer();
+  const client = createAgentClient({ fetch: server.fetch, pollMs: 0 });
+  const jump = client.call("s", history, { spender: "jump" });
+  await until(() => server.requests.size === 1);
+  server.answer("r1", "{}");
+  await jump;
+  let release;
+  client.holdSkip(new Promise((resolve) => { release = resolve; }));
+  const finishing = client.finishSkip();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(server.skips.finished, [], "held open while its follow-up runs");
+  const followUp = client.call("s", history, { agentKind: "skip", spender: "stats" });
+  await until(() => server.requests.size === 2);
+  assert.equal(server.requests.get("r2").skipId, server.skips.opened[0], "the follow-up joins the same skip");
+  server.answer("r2", "{}");
+  await followUp;
+  release();
+  await finishing;
+  assert.deepEqual(server.skips.finished, server.skips.opened);
+});

@@ -102,7 +102,11 @@ export const providerOptionsFor = ({ localServer }) =>
 // shared game's round. Every other entry answers every call.
 export function entryServesCall(entry, { agentKind = "", spender = "", requestKind = "", sharedGame = false } = {}) {
     if (entry?.provider !== AGENT_PROVIDER) return true;
-    if (entry.paused === true || requestKind === BACKGROUND_REQUEST || sharedGame) return false;
+    if (entry.paused === true || sharedGame) return false;
+    // The game's own follow-up to a skip (a first stat-sheet reading as it
+    // lands) is still the skip the player started; anything else in the
+    // background has nobody at the terminal.
+    if (requestKind === BACKGROUND_REQUEST && agentKind !== "skip") return false;
     const kind = agentKind || (spender && SKIP_SPENDERS.includes(spenderBase(spender)) ? "skip" : "");
     if (!kind) return false;
     const kinds = Array.isArray(entry.kinds) ? entry.kinds : AGENT_KINDS;
@@ -671,6 +675,14 @@ const entryIsConfigured = (entry) => {
     const requirement = providerSetupRequirement(entry.provider);
     return requirement === "none" || String(entry[requirement] ?? "").trim().length > 0;
 };
+
+// Whether something below the player's own Agent can take a request it was
+// waiting on (Use API key).
+export function agentHasEntryBelow() {
+    const list = getResolvedFallbackList();
+    const first = list.findIndex((entry) => entry.provider === AGENT_PROVIDER);
+    return first >= 0 && list.slice(first + 1).some((entry) => entry.provider !== AGENT_PROVIDER && entryIsConfigured(entry));
+}
 
 export function isFallbackListConfigured() {
     return getResolvedFallbackList().some(entryIsConfigured);

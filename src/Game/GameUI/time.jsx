@@ -21,11 +21,11 @@ import { describePlayerTurnFailures } from "../AI/playerTurnFailures.js";
 import { EVENT_IMPACT_KEYS } from "../../runtime/eventImpactKeys.js";
 import { AI_REQUEST_CONTROL_EVENT } from "../AI/aiRequestControl.js";
 import { acceptStructuredModeSuggestion, declineStructuredModeSuggestion, getStructuredModeSuggestion } from "../AI/main.jsx";
-import { fallbackStateStore, getResolvedFallbackList } from "../AI/providerConfig.js";
+import { agentHasEntryBelow, fallbackStateStore, getResolvedFallbackList } from "../AI/providerConfig.js";
 import { describeUnavailable, fallbackAvailability } from "../AI/fallbackRunner.js";
 import { describeJumpCost, requestDay, savingRequests } from "../AI/requestBudget.js";
 import { REQUEST_AGENT, describeRequestActivity, formatElapsedClock, requestActivity } from "../AI/requestActivity.js";
-import { openAgentFolder } from "../AI/agentConnection.js";
+import { agentClient, openAgentFolder } from "../AI/agentConnection.js";
 import { getActivePlayerFocus, useActiveFeatures } from "../../runtime/gameFeatures.js";
 import { logDebugEvent, setDebugLogContext } from "../../runtime/debugLog.js";
 import { useFailureReportButton } from "../../runtime/saveDebugLog.js";
@@ -1184,7 +1184,7 @@ const REQUEST_ACTIVITY_TEXTS = {
     thinking: "The model is thinking…",
     writing: "The model is writing its answer…",
     // In the Agent queue (ADR 0008): nothing happens until the player answers.
-    agent: "Waiting for your Agent. Type /skip in your Claude Code, Codex or Antigravity CLI, opened in the Agent folder.",
+    agent: "Waiting for your Agent. Type /answer in your Claude Code, Codex or Antigravity CLI, opened in the Agent folder.",
 };
 // Added once the request has been open a minute: by then a player who does not
 // know a thinking model can take ten is reaching for Cancel.
@@ -1295,6 +1295,26 @@ const SkipProgressRow = ({ label, onCancel, startedAt = 0 }) => {
                 >
                 Open the Agent folder
                 </button>
+                {/* The rest of this skip goes to the next entry: the player's click, never a time-out. */}
+                {agentHasEntryBelow() && (
+                    <button
+                    type="button"
+                    className="oh-tap-row"
+                    onClick={() => agentClient.passOn(["skip"])}
+                    style={{
+                        background: "rgba(255,255,255,0.08)",
+                        border: "1px solid rgba(255,255,255,0.18)",
+                        borderRadius: "8px",
+                        color: "white",
+                        cursor: "pointer",
+                        fontSize: "0.72rem",
+                        marginLeft: "0.4rem",
+                        padding: "0.26rem 0.7rem",
+                    }}
+                    >
+                    Use API key
+                    </button>
+                )}
                 </div>
             )}
             </div>
