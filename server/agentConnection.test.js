@@ -182,6 +182,18 @@ describe("Agent folder", () => {
     assert.match(readFileSync(path.join(folder, ".claude", "agents", "skip-quick.md"), "utf8"), /^model: haiku$/m);
   });
 
+  test("a models file caught half written leaves the sub-agents as they were", async () => {
+    const dataDir = newDataDir();
+    const folder = path.join(dataDir, "agent");
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(path.join(folder, "models.json"), JSON.stringify({ writer: "opus[1m]", quick: "haiku" }));
+    await startServer(dataDir);
+    assert.match(readFileSync(path.join(folder, ".claude", "agents", "skip-writer.md"), "utf8"), /^model: opus\[1m\]$/m);
+    writeFileSync(path.join(folder, "models.json"), '{ "writer": "son');
+    await agent(mcpSettings(dataDir)).tool("list_requests");
+    assert.match(readFileSync(path.join(folder, ".claude", "agents", "skip-writer.md"), "utf8"), /^model: opus\[1m\]$/m);
+  });
+
   test("a model name that is not a plain name is ignored", async () => {
     const dataDir = newDataDir();
     const folder = path.join(dataDir, "agent");

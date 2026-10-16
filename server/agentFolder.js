@@ -78,9 +78,11 @@ The writer answers the jump and the history; quick answers the turn review,
 stat sheets and institution ballots. The file is the player's: the game never
 writes it. Their choice here is for Open Historia only and comes before any
 general rule they keep about which models sub-agents use. In Claude Code the
-game writes it into the \`skip-writer\` and \`skip-quick\` sub-agents. In another
-Agent, start each sub-agent on the model the file names for its role if your
-Agent lets you choose; otherwise use your own.
+game writes it into the \`skip-writer\` and \`skip-quick\` sub-agents, and
+\`/skip\` also starts each sub-agent on it. In another Agent, start each
+sub-agent on the model the file names for its role; only where your Agent
+cannot choose a sub-agent's model does it run on the session's. A role the
+player keeps on their own model is left out of the file.
 
 ## What \`/skip\` does
 
@@ -88,7 +90,8 @@ Agent lets you choose; otherwise use your own.
    player which model should write (the bigger job) and which should do the
    quick checks, offering the models your Agent has (in Claude Code: opus,
    sonnet or haiku; or "my own" to keep the session's), and write their answer
-   to \`${AGENT_MODELS_FILE}\`. Ask once; then go on.
+   to \`${AGENT_MODELS_FILE}\`, leaving out a role they keep on their own model.
+   Ask once; then go on.
 1. Call \`list_requests\`. If the status is \`idle\`, tell the player
    "No time skip is pending" and stop.
 2. For each request listed, hand it to a fresh sub-agent with just its id: the
@@ -164,14 +167,23 @@ const SUBAGENT_DESCRIPTIONS = {
 
 // A plain model name or id ("sonnet", "claude-haiku-4-5", "gpt-5-mini"): it is
 // written into a definition's header, so nothing else gets in.
-const plainModel = (value) => (typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value.trim()) ? value.trim() : "");
+// Brackets are allowed for a context suffix ("opus[1m]").
+const plainModel = (value) => (typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,63}$/.test(value.trim()) ? value.trim() : "");
 
+// The player's models, or null when the file is there but cannot be read as
+// JSON (half written, or broken): then what the sub-agents carry is kept.
 export const readAgentModels = (folder) => {
+  let text;
   try {
-    const chosen = JSON.parse(fs.readFileSync(path.join(folder, AGENT_MODELS_FILE), "utf8"));
-    return { writer: plainModel(chosen?.writer), quick: plainModel(chosen?.quick) };
+    text = fs.readFileSync(path.join(folder, AGENT_MODELS_FILE), "utf8");
   } catch {
     return { writer: "", quick: "" };
+  }
+  try {
+    const chosen = JSON.parse(text);
+    return { writer: plainModel(chosen?.writer), quick: plainModel(chosen?.quick) };
+  } catch {
+    return null;
   }
 };
 
@@ -179,14 +191,13 @@ export const readAgentModels = (folder) => {
 // again on every call from the Agent, so models picked mid-session are used.
 export const writeAgentSubagents = (folder) => {
   const models = readAgentModels(folder);
+  if (!models) return;
   for (const [role, { subagent }] of Object.entries(AGENT_ROLES)) {
     writeIfChanged(
       path.join(folder, ".claude", "agents", `${subagent}.md`),
       subagentDefinition({ name: subagent, description: SUBAGENT_DESCRIPTIONS[role], model: models[role] }),
     );
   }
-  // The single sub-agent of earlier builds.
-  fs.rmSync(path.join(folder, ".claude", "agents", "skip-answerer.md"), { force: true });
 };
 
 const writeIfChanged = (file, text) => {
@@ -196,7 +207,10 @@ const writeIfChanged = (file, text) => {
   } catch {
     /* not written yet */
   }
-  fs.writeFileSync(file, text, "utf8");
+  // Whole or not at all: two calls of the Agent can arrive together.
+  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporary, text, "utf8");
+  fs.renameSync(temporary, file);
 };
 
 const tomlString = (value) => JSON.stringify(String(value));
@@ -215,6 +229,8 @@ export const writeAgentFolder = (folder, { url, token }) => {
   );
   writeIfChanged(path.join(folder, ".claude", "skills", "skip", "SKILL.md"), CLAUDE_SKILL);
   writeAgentSubagents(folder);
+  // The single sub-agent of earlier builds.
+  fs.rmSync(path.join(folder, ".claude", "agents", "skip-answerer.md"), { force: true });
 
   // Codex (and other Agents that read AGENTS.md and .agents/skills)
   writeIfChanged(
