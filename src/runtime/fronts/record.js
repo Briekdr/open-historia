@@ -56,6 +56,7 @@ import {
 import { cellIndexAt, normalizeFrame, projectorOf } from "./frame.js";
 import { readAttacks } from "./invade.js";
 import { normalizeReplay, replayBetween, replayDayOn, replayOf, replayWindowOf } from "./replay.js";
+import { readChronicle } from "./chronicle.js";
 
 const NAME_MAX = 120;
 const DATE_MAX = 40;
@@ -224,6 +225,8 @@ export const normalizeBattlefield = (raw) => {
     contested: normalizeContested(raw.contested),
     brief: isRecord(raw.brief) ? raw.brief : {},
     log: normalizeLog(raw.log),
+    // What its war has come to, run by run (chronicle.js), for its report once it is over.
+    ...(readChronicle(raw.chronicle) ? { chronicle: readChronicle(raw.chronicle) } : {}),
   };
   if (status === "closed") record.closedDate = clean(raw.closedDate, DATE_MAX);
   else if (isRecord(raw.field)) record.field = { mask: packed(raw.field.mask), band: packed(raw.field.band), key: clean(raw.field.key, 40) };

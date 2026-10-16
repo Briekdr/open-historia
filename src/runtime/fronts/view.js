@@ -38,7 +38,8 @@ const carryFor = (carry, orders, side) => {
   // nothing a map does not; who they are and what they were told is a side's own.
   // (And what its members are still owed of their levies, muster.js: a side's own, as its reserves are; and
   // where its new troops come in, deploy.js.)
-  for (const key of ["generals", "talk", "plans", "levy", "deploy"]) {
+  // (And what its own staff means to do, mind/planner.js: the other side's agents may find that out, not its map.)
+  for (const key of ["generals", "talk", "plans", "levy", "deploy", "staff"]) {
     if (Array.isArray(carry[key])) seen[key] = [0, 1].map((index) => (index === side ? pair(carry[key][index]) : []));
   }
   // Where a side waits in a halt, and for how long, is its own too.

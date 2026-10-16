@@ -146,21 +146,19 @@ const zoneSkyOn = (run, zone, date, seed) => {
   return found ? { state: found.state, season: found.season, climate: found.climate } : zoneWeatherOn({ seed, zone, date });
 };
 
-// A battlefield's weather for a day of a run: where its ground's middle lies,
-// read once a frame (battle.climateFor). Sets battle.sky = { state, season,
-// climate, effects } and counts the day (battle.skies) for the story.
-export const skyOver = (run, battle, day) => {
+// What a battlefield's weather is on a date: where its ground's middle lies, read
+// once a frame (battle.climateFor). { sky, today, middle }: the weather, what the
+// scenario's climate zones do that day (climate.js), and the middle's cell.
+const skyAt = (run, battle, date) => {
   if (battle.climateFor !== battle.place) {
     const [, lat] = battle.place.toLngLat(battle.field.cols / 2, battle.field.rows / 2);
     battle.climateLat = Math.round(lat * 100) / 100;
     battle.climateFor = battle.place;
   }
   const seed = String(run.input?.climateSeed ?? run.seed ?? "");
-  const date = run.dateOf(day);
   // Where a scenario's own climate zones reach the battlefield (climate.js), they bring its weather and set
   // what each troop's own ground does today; at its middle, the odds of the day's weather and the season's name.
   const today = zonesToday(run, battle, date, battle.climateLat);
-  battle.climateToday = today;
   const parsed = parseGameDate(date);
   const worldOdds = parsed ? WEATHER_ODDS[climateOf(battle.climateLat)][seasonOf(parsed.month, battle.climateLat)] : null;
   const middle = cellAt(battle.field, battle.field.cols / 2, battle.field.rows / 2);
@@ -172,7 +170,27 @@ export const skyOver = (run, battle, day) => {
     : weatherOn({ seed, place: battle.name, lat: battle.climateLat, date, odds: there ? there.odds : null });
   if (there?.zone) sky.season = `${there.zone.zone.name ? `${there.zone.zone.name}, ` : ""}${sky.season}`;
   const forced = run.steer?.weather;
-  const state = typeof forced === "string" && WEATHER[forced] ? forced : sky.state;
+  return { sky, today, middle, state: typeof forced === "string" && WEATHER[forced] ? forced : sky.state };
+};
+
+// The weather ahead: each of the `days` after `day` of a run, as skyOver will find it then (the weather is drawn
+// from the campaign's seed, so it is known in advance): [{ d, w }], for the War Room's forecast (battle.js).
+export const FORECAST_DAYS = 14;
+export const skiesAhead = (run, battle, day, days = FORECAST_DAYS) => {
+  const ahead = [];
+  for (let step = 1; step <= days; step += 1) {
+    const date = run.dateOf(day + step);
+    if (!parseGameDate(date)) break;
+    ahead.push({ d: date, w: skyAt(run, battle, date).state });
+  }
+  return ahead;
+};
+
+// A battlefield's weather for a day of a run (skyAt). Sets battle.sky = { state,
+// season, climate, effects } and counts the day (battle.skies) for the story.
+export const skyOver = (run, battle, day) => {
+  const { sky, today, middle, state } = skyAt(run, battle, run.dateOf(day));
+  battle.climateToday = today;
   // (The zones' own say over whether aircraft fly, at its middle.)
   const local = today ? climateAt(today, middle) : null;
   battle.sky = { ...sky, state, effects: local && local.air !== 1 ? { ...WEATHER[state], air: WEATHER[state].air * local.air } : WEATHER[state] };

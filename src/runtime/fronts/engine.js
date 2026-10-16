@@ -2114,6 +2114,8 @@ function* reviewStaff(run, battle, day, regular = true) {
     const own = asks ? (yield* askOwnStaff(policy, battle, side, { ...context, regular }, run)) : undefined;
     // What its wings are sent to do over the battle (air.js AIR_MISSIONS), whatever it says of its troops.
     if (own && typeof own.air === "string") setAirMission(battle, side, own.air);
+    // What its plan is and where it aims (mind/planner.js), for the record: the other side may come to know it.
+    if (own && typeof own.plan === "string") noteStaffPlan(run, battle, side, own, day);
     if (asks) {
       battle.ledByOwn ??= [false, false];
       battle.ledByOwn[side] = own !== undefined;
@@ -2314,6 +2316,18 @@ const setAirMission = (battle, side, mission) => {
   if (!AIR_MISSIONS.includes(mission)) return;
   battle.airMission = Array.isArray(battle.airMission) ? battle.airMission : ["support", "support"];
   battle.airMission[side] = mission;
+};
+
+// What a staff of the run's own said its plan is, and where most of those it sent forward are going (mind/planner.js),
+// kept on the battle as its record keeps it (battle.js, brief.carry.staff): its side's own, which the other side's
+// agents and aircraft may find out (GameUI/warRoom.jsx).
+const noteStaffPlan = (run, battle, side, said, day) => {
+  const aim = Array.isArray(said.aim) && said.aim.length === 2 ? battle.place.toCell(Number(said.aim[0]), Number(said.aim[1])) : null;
+  const at = aim && Number.isFinite(aim[0]) && Number.isFinite(aim[1]) ? describePoint(battle.arena, aim[0], aim[1]) : "";
+  let sent = 0;
+  for (const body of Array.isArray(said.troops) ? said.troops : []) if (body.order === "advance" && Array.isArray(body.picked)) sent += body.picked.length;
+  battle.staffPlans = Array.isArray(battle.staffPlans) ? battle.staffPlans : [null, null];
+  battle.staffPlans[side] = { plan: said.plan, ...(at ? { at } : {}), since: run.dateOf(day), n: sent };
 };
 
 // Gives a rehearsal's side orders, troop by troop, as a staff of the run's own does ({ order, picked, way } bodies),

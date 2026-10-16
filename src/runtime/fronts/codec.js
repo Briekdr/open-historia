@@ -119,6 +119,23 @@ export const decodeMask = (text, length) => {
   return holders;
 };
 
+// The same runs, of any of four values a cell (a mask's own holders read past HOLDER_WALL as a wall): how well
+// supplied each cell is (battle.js supplyLevels: 0 none, 1 supplied, 2 stretched, 3 cut off).
+export const decodeFourMask = (text, length) => {
+  const values = new Uint8Array(Math.max(0, Math.floor(Number(length) || 0)));
+  const source = String(text ?? "");
+  const reader = createBitReader(source);
+  const runs = Math.floor(source.length / 2);
+  let index = 0;
+  for (let run = 0; run < runs && index < values.length; run += 1) {
+    const value = reader.read(2);
+    const end = Math.min(values.length, index + reader.read(RUN_BITS) + 1);
+    values.fill(value, index, end);
+    index = end;
+  }
+  return values;
+};
+
 // The cells whose distance to the line is kept: held by one side, with a cell
 // of the other within `reach` cells of it in each direction. In scan order,
 // which is the order the band's values are stored in, so no index is saved.

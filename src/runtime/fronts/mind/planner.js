@@ -187,6 +187,15 @@ const bodiesOf = (battle, view, keys) => {
   return out;
 };
 
+// Where a plan's largest body sent forward along a way is going: the way's last point ([lng, lat]), or null.
+const aimOf = (bodies) => {
+  let best = null;
+  for (const body of Array.isArray(bodies) ? bodies : []) {
+    if (body.order === "advance" && Array.isArray(body.way) && body.way.length > 0 && (!best || body.picked.length > best.picked.length)) best = body;
+  }
+  return best ? best.way[best.way.length - 1] : null;
+};
+
 // The nearest `share` of a side's troops that may go to a point, sent to `key`; the rest dig in.
 const nearestHalf = (battle, view, key, target, share, may) => {
   const rows = view.rows;
@@ -520,7 +529,11 @@ export const createPlanner = ({ params: given = plainPlanner(), look = LOOK_DAYS
     }
     if (typeof tally === "function" && chosen >= 0) tally(PLAN_NAMES[chosen]);
     if (chosen <= 0 || !orders) return air ? { keep: true, air } : { keep: true };
-    return air ? { troops: orders, air } : { troops: orders };
+    // What the plan is, and where most of those it sends forward are going: for the record (engine.js
+    // noteStaffPlan), which the other side's agents and aircraft may find out (GameUI/warRoom.jsx).
+    const aim = aimOf(orders);
+    const told = { troops: orders, plan: PLAN_NAMES[chosen], ...(aim ? { aim } : {}) };
+    return air ? { ...told, air } : told;
   }
   const policy = (battle, side, context = {}, run = null) => drain(think(battle, side, context, run));
   policy.steps = think;

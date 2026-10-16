@@ -13,10 +13,14 @@
 
 import { readWeights } from "./net.js";
 import { LATE_AT, PLAN_PARAMS, createPlainerPlanner, createPlanner, plainPlanner, withLateEval } from "./planner.js";
-import { meantLoserOf, normalizeWarOutcomes } from "../../warOutcomes.js";
+import { normalizeWarOutcomes } from "../../warOutcomes.js";
+import { COMMANDER_OF_DIFFICULTY, commanderOf } from "./commanders.js";
 import { SHIPPED_PLANNER } from "./plannerWeights.js";
 import { createStaffPolicy, createTroopPolicy } from "./policy.js";
 import { TRAINED_STAFF } from "./weights.js";
+
+// (Who leads a side: commanders.js, where the War Room reads it.)
+export { COMMANDER_OF_DIFFICULTY, commanderOf };
 
 let made = false;
 let policy = null;
@@ -25,11 +29,19 @@ let policy = null;
 // first time at hand rather than thinking it all again.
 const TRAINED_MEMO = new Map();
 const PLAINER_MEMO = new Map();
+const THOROUGH_MEMO = new Map();
 let plainer = null;
 const plainerPolicy = () => {
   plainer ??= createPlainerPlanner({ memo: PLAINER_MEMO });
   return plainer;
 };
+// The best there is, weighing each plan against the other side's likely replies as well (planner.js REPLIES).
+let thorough = null;
+const thoroughPolicy = () => {
+  thorough ??= createPlanner({ params: shippedPlannerParams(), replies: true, memo: THOROUGH_MEMO });
+  return thorough;
+};
+const fold = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 
 // The weights the staff that looks ahead is shipped with: a champion's that fit, or its plain ones.
 // (Weights made before the later weighing, LATE_AT long, are read with it at its defaults: planner.js withLateEval.)
@@ -47,16 +59,27 @@ export const trainedStaffPolicy = () => {
 };
 
 // The lab's staff for a run: the best there is (the trained one) for every side, but the plainer commander for a
-// side a scenario's designer meant its war to lose (planner.js PLAINER_PLANNER; runtime/warOutcomes.js).
-//   outcomes   the scenario's (warSettings.outcomes)
-export const labStaffPolicy = ({ outcomes = [] } = {}) => {
+// side a scenario's designer meant its war to lose (planner.js PLAINER_PLANNER; runtime/warOutcomes.js), and for a
+// side that fights a person, the commander the game's difficulty gives it (COMMANDER_OF_DIFFICULTY).
+//   outcomes    the scenario's (warSettings.outcomes)
+//   difficulty  the game's; players, the countries people play
+export const labStaffPolicy = ({ outcomes = [], difficulty = "medium", players = [] } = {}) => {
   const trained = trainedStaffPolicy();
   if (!trained) return null;
   const rules = normalizeWarOutcomes(outcomes);
-  if (rules.length === 0) return trained;
-  // Who leads a side of a battle: "plainer" or "trained".
-  const commanderFor = (battle, side) => (meantLoserOf({ sides: battle?.sides, outcomes: rules }) === side ? "plainer" : "trained");
-  const leadOf = (battle, side) => (commanderFor(battle, side) === "plainer" ? plainerPolicy() : trained);
+  const people = (Array.isArray(players) ? players : []).map(fold).filter(Boolean);
+  const byDifficulty = COMMANDER_OF_DIFFICULTY[fold(difficulty)] ?? "trained";
+  if (rules.length === 0 && (people.length === 0 || byDifficulty === "trained")) return trained;
+  // Who leads a side of a battle: "plainer", "trained" or "thorough". (Only a staff that looks ahead has replies
+  // to weigh: a trained network leads as it is.)
+  const commanderFor = (battle, side) => {
+    const who = commanderOf({ sides: battle?.sides, side, outcomes: rules, difficulty, players: people });
+    return who === "thorough" && typeof trained.steps !== "function" ? "trained" : who;
+  };
+  const leadOf = (battle, side) => {
+    const who = commanderFor(battle, side);
+    return who === "plainer" ? plainerPolicy() : who === "thorough" ? thoroughPolicy() : trained;
+  };
   const policy = (battle, side, context, run) => leadOf(battle, side)(battle, side, context, run);
   // (A look in steps, as the engine takes it where a run is played out in slices: planner.js.)
   policy.steps = function* steps(battle, side, context, run) {

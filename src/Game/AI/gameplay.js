@@ -205,6 +205,7 @@ import {
 import { frontsOn, strategyNetOn } from "./frontsGate.js";
 import { engineerLines } from "../../runtime/fronts/engineer.js";
 import { foreseeFronts } from "./foreseenFronts.js";
+import { offPageAvailable } from "./frontWorkerClient.js";
 import { applyTurnFronts, citiesFollowCountries, withFrontManpower, withBlockadeEconomy, turnBlockades, regionHoldingsOf, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomChartFor, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { withTurnStrikes } from "../../runtime/strikes.js";
 import { playerDiplomacy, turnDays, turnWarAndPeace } from "./warAndPeace.js";
@@ -13075,6 +13076,51 @@ export const warRoomRouteAttacks = ({ world, game, record } = {}) =>
     if (attacked.length > 0) requestConflictSheets(world, game, attacked);
     return found;
   });
+
+// The land war of the days ahead from where the game stands, fought ahead of
+// time with the orders as they stand: the period a skip of `days` would fight
+// before its story (frontApply.js forecastTurnFronts), in the land war's own
+// worker where the browser has one. Nothing is written and no model is asked.
+// It is kept: forecastTurnFronts keeps the last period it fought for a skip
+// that asks for the same, and the staff that looks ahead keeps each look it
+// made (runtime/fronts/mind/trained.js), so a skip that fights these days has
+// them again rather than thinking them through.
+const foreseeFrom = async ({ days, signal }) => {
+  const bundle = withDiplomaticLedgerMigration(await readGameStateBundle({ force: true }));
+  const fromDate = normalizeString(bundle.game.gameDate);
+  const span = Math.max(0, Number(days) || 0);
+  if (!(span >= 1)) return null;
+  const found = await forecastTurnFronts({
+    world: bundle.world,
+    game: bundle.game,
+    campaignId: activeCampaignId(),
+    toDate: jumpTargetDate(fromDate, span),
+    requestedDays: span,
+    loadRegions: createRenderedRegionsReader(),
+    signal,
+  });
+  return found ? { fromDate, toDate: found.toDate, days: found.days, battlefields: found.battlefields, news: found.news } : null;
+};
+
+// "Rehearse my plan" (GameUI/warRoomRehearsal.jsx): "It would run your drawn
+// orders a few days ahead on a copy of the battle, using the commander's own
+// machinery, and show the projected front as a faint overlay" (the owner's
+// list, 2026-10-16). { fromDate, toDate, days, battlefields, news } as the days
+// would leave them, or null where there is no war to fight.
+export const warRoomRehearse = ({ days = 7, signal = null } = {}) => {
+  if (isSimulationBusy()) throw new Error("A turn is being resolved: rehearse once it has landed.");
+  return foreseeFrom({ days, signal });
+};
+
+// The next period's land war, thought through while the player reads
+// (frontPrethink.js): "Near-instant skips: on desktop, the commander could
+// think ahead while you're reading" (the owner's list, 2026-10-16). Only in the
+// land war's own worker, where it costs the page nothing, and never while a
+// turn is being worked out.
+export const prethinkFronts = ({ days = 30, signal = null } = {}) => {
+  if (isSimulationBusy() || !offPageAvailable()) return null;
+  return foreseeFrom({ days, signal });
+};
 
 // The way each transporter deployed in the war room would take, before it has
 // set out (frontApply.js transportWaysFor): found from the map, with no request.

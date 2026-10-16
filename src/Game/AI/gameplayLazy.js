@@ -55,6 +55,10 @@ export const prefetchGameplay = () => {
 
 // --- Timeline ---------------------------------------------------------------
 export const simulateTimelineJump = hostOnly(async (...args) => (await gameplay()).simulateTimelineJump(...args));
+// The War Room's rehearsal of the days ahead, and the next period thought through while the player reads (both fight
+// a period ahead of time and write nothing): the host's to do in a shared game, and nobody's on a guest's screen.
+export const warRoomRehearse = hostOnly(async (...args) => (await gameplay()).warRoomRehearse(...args));
+export const prethinkFronts = async (...args) => (inSharedGame() ? null : (await gameplay()).prethinkFronts(...args));
 export const simulateAutoJump = hostOnly(async (...args) => (await gameplay()).simulateAutoJump(...args));
 export const retryPendingJumpSegment = hostOnly(async (...args) => (await gameplay()).retryPendingJumpSegment(...args));
 export const retryPendingProjectsJump = hostOnly(async (...args) => (await gameplay()).retryPendingProjectsJump(...args));

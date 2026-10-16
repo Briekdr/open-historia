@@ -58,6 +58,7 @@ import { applyFrontUnitChanges, battlefieldRegionTest, engineRegionsOf, frontWor
 import { applyWarUpdates, eventNarratesHardCombat } from "./nativeWarLedger.js";
 import { filterToRenderedRegions } from "./promptContext.js";
 import { territoryTempoAllowance } from "./worldDirection.js";
+import { fightOffPage, offPageAvailable } from "./frontWorkerClient.js";
 
 const asArray = (value) => (Array.isArray(value) ? value : []);
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -218,13 +219,18 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
     pause: pauseFor(signal),
     pace: frontsPace(),
     tempoAllowance: (days) => (direction?.territoryTempo > 0 ? territoryTempoAllowance(direction.territoryTempo, Math.max(1, days)) : null),
+    // (The same, as data, for a run fought away from the page: frontWorkerCore.js.)
+    tempo: direction?.territoryTempo > 0 ? direction.territoryTempo : 0,
     // The same turn of the same campaign is the same run, whoever applies it and how often.
     seed: `${clean(campaignId)}|${round}|${fromDate}`,
     // What a fleet the war at sea commissions is held to (runtime/naval/engine.js).
     unitCaps: { perCountry: MAX_UNITS_PER_POLITY, world: MAX_UNITS_GLOBAL },
     // EXPERIMENT, in the lab: the trained staff, when its switch is on and one is shipped (runtime/fronts/mind/trained.js).
     // (A side the scenario's designer meant its war to lose is led by a plainer commander: runtime/warOutcomes.js.)
-    ...(strategyNetOn() && trainedStaffPolicy() ? { staffPolicy: labStaffPolicy({ outcomes: warSettingsOf(world).outcomes }) } : {}),
+    // (And the commander a side fighting a person is given by the game's difficulty: trained.js COMMANDER_OF_DIFFICULTY.)
+    ...(strategyNetOn() && trainedStaffPolicy() ? { staffPolicy: labStaffPolicy({ outcomes: warSettingsOf(world).outcomes, difficulty: normalizeDifficulty(game?.difficulty), players: humanCountriesOf(game) }) } : {}),
+    // (The same, as data, for a run fought away from the page, where the staff is made again: frontWorkerCore.js.)
+    ...(strategyNetOn() && trainedStaffPolicy() ? { staffConfig: { outcomes: warSettingsOf(world).outcomes, difficulty: normalizeDifficulty(game?.difficulty), players: humanCountriesOf(game) } } : {}),
     // The era the scenario set, if it set one (runtime/warSettings.js).
     era: eraSettingOf(world),
     // Which of the engine's newer mechanics it has on: all of them unless it turned one off.
@@ -240,6 +246,21 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
     // The difficulty weighs the land war for whoever fights a person's country (runtime/fronts/handicap.js).
     difficulty: normalizeDifficulty(game?.difficulty),
   };
+};
+
+// A turn's land war is fought away from the page where the browser can (frontWorkerCore.js): the same run, and the
+// page draws on through it, however long the staff that looks ahead thinks. Where it cannot (no workers, as in the
+// tests; something in it that is not data; a worker that failed) it is fought here, as ever.
+const runFrontsWhere = async (args, signal = null) => {
+  if (offPageAvailable()) {
+    try {
+      return await fightOffPage(args, { signal });
+    } catch (error) {
+      if (signal?.aborted || error?.name === "AbortError") throw error;
+      console.warn("[fronts] the land war could not be fought away from the page; it is fought here.", error);
+    }
+  }
+  return runTurnFronts(args);
 };
 
 // ---- the period, fought before its story is written -------------------------------------
@@ -302,7 +323,7 @@ export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "
     ].join("|");
     if (foreseen.key === key) return foreseen.value;
     const startedAt = Date.now();
-    const run = await runTurnFronts({
+    const run = await runFrontsWhere({
       ...turnRunInput({ world, game, campaignId, loadRegions, signal, round, fromDate }),
       world: planned,
       events: [],
@@ -311,7 +332,7 @@ export const forecastTurnFronts = async ({ world = {}, game = {}, campaignId = "
       fromDate,
       toDate: target,
       requestedDays,
-    });
+    }, signal);
     const days = Number(run?.stats?.days) || 0;
     const value = run?.battlefields && days > 0
       ? { fromDate, toDate: target, days, battlefields: run.battlefields, news: asArray(run.news), flips: asArray(run.flips), transports: asArray(run.transports), voyages: asArray(run.voyages), sea: run.sea ?? null, ...(asArray(given).length ? { given: asArray(given) } : {}) }
@@ -371,7 +392,7 @@ export const applyTurnFronts = async ({
   try {
     // The map is read only once there is a war, a battlefield or an order to
     // run on: a turn of peace costs nothing here.
-    const run = await runTurnFronts({
+    const run = await runFrontsWhere({
       ...turnRunInput({ world: baseWorld, game: baseGame, campaignId, loadRegions, signal, round, fromDate }),
       // With the turn's plans on its battlefields (frontPlans.js): the Board's
       // operations sent, and a side warned by its agents dug in.
@@ -385,7 +406,7 @@ export const applyTurnFronts = async ({
       narratesCombat: eventNarratesHardCombat,
       foretold: foretold === true,
       strikePlaces,
-    });
+    }, signal);
     for (const note of run.notes) noteReceipt(receipt, note.kind, note.text);
     if (run.stats) {
       const open = asArray(run.battlefields).filter((record) => record.status !== "closed");

@@ -239,6 +239,8 @@ const NEWS_WORDS = {
   overrun: (who, at, enemy) => `${enemy} overran troops of ${who} near ${at}: ${who} lost them`,
   pocket: (who, at, enemy) => `${enemy} surrounded troops of ${who} near ${at}, and those troops of ${who} surrendered to ${enemy}`,
   siege: (who, at, enemy) => `${enemy} shut troops of ${who} in at ${at} and is besieging them`,
+  // A fortified line broken through (runtime/fronts/walls.js): `at` is the line.
+  breached: (who, at) => `${who} broke through ${at}`,
 };
 // Which of many is told: a capital, then a large town, then troops cut off or
 // shut in, then what an assault took, then any other town, the larger first,
@@ -253,6 +255,7 @@ const newsWeight = (entry) => {
   if (entry.k === "reinforced" || entry.k === "drafted") return 2.2e9;
   const size = Math.min(9e8, Math.max(0, Number(entry.size) || 0));
   if (entry.k === "city") return entry.capital ? 6e9 : size >= LARGE_TOWN ? 4e9 + size : 2e9 + size;
+  if (entry.k === "breached") return 3.5e9;
   if (entry.k === "pocket" || entry.k === "siege") return 3e9;
   if (entry.k === "taken" || entry.k === "destroyed") return 2.5e9;
   if (entry.k === "overrun") return 1.5e9;

@@ -19,7 +19,9 @@
 // taker's ground painted over it, until the last of it has changed hands.
 
 import { addGameDays, diffGameDays } from "../gameDates.js";
-import { decodeLevels, decodeTroops, encodeLevels, encodeLines, encodeTroops } from "./codec.js";
+import { decodeLevels, decodeTroops, encodeLevels, encodeLines, encodeMask, encodeTroops } from "./codec.js";
+import { readChronicle, chronicleAfter } from "./chronicle.js";
+import { skiesAhead } from "./weather.js";
 import {
   BATTLEFIELD_VERSION,
   CONTROL_RADIUS_MAX_KM,
@@ -689,6 +691,10 @@ export const loadBattle = (run, record, arena) => {
   battle.plans = Array.isArray(carry.plans) ? carry.plans : null;
   // Where a side's countries' new troops come in (deploy.js): drawn in the war room, handed on.
   battle.deploy = Array.isArray(carry.deploy) ? readDeploy(carry.deploy) : null;
+  // What each side's own staff last said its plan was (engine.js noteStaffPlan), handed on.
+  battle.staffPlans = readStaffPlans(carry.staff);
+  // What this battlefield's war has come to so far (chronicle.js), for its report once it is over.
+  battle.chronicle = readChronicle(record.chronicle);
   // What the members are still owed of their levies (muster.js).
   battle.levy = readLevy(carry.levy);
   // Troops left on ice that has thawed since (climate.js) get off it as they can: to the nearest ground of
@@ -839,6 +845,41 @@ const plansKept = (battle) => {
 
 // The record of a battle as it stands. `day` is the day of the run it is
 // written on; `changes` takes the named formations that fell.
+// What a side's own staff last said its plan was, as a record keeps it (engine.js noteStaffPlan): [plan | null, plan | null].
+const readStaffPlans = (value) => {
+  if (!Array.isArray(value)) return null;
+  const read = [0, 1].map((side) => {
+    const plan = value[side];
+    if (!plan || typeof plan !== "object" || typeof plan.plan !== "string" || !plan.plan) return null;
+    return {
+      plan: plan.plan.slice(0, 80),
+      ...(typeof plan.at === "string" && plan.at ? { at: plan.at.slice(0, 120) } : {}),
+      since: String(plan.since ?? "").slice(0, 40),
+      n: Number(plan.n) > 0 ? Math.floor(Number(plan.n)) : 0,
+    };
+  });
+  return read.some(Boolean) ? read : null;
+};
+
+// How well supplied each cell a side holds is, for the War Room's map (GameUI/warRoom.jsx): 1 supplied, 2 stretched
+// (past where supplies come in full: supply.js), 3 cut off; 0 where neither side holds it. Packed as the mask is.
+const SUPPLY_STRETCHED = 0.9;
+const supplyLevels = (battle) => {
+  const { field } = battle;
+  const levels = new Uint8Array(field.size);
+  for (let cell = 0; cell < field.size; cell += 1) {
+    const holder = field.holders[cell];
+    if (holder !== HOLDER_SIDE_A && holder !== HOLDER_SIDE_B) continue;
+    if (battle.fed?.[holder] && battle.fed[holder][cell] !== 1) {
+      levels[cell] = 3;
+      continue;
+    }
+    const supply = battle.supply?.[holder]?.[cell] ?? 0;
+    levels[cell] = supply > 0 && supply < SUPPLY_STRETCHED ? 2 : 1;
+  }
+  return levels;
+};
+
 export const saveBattle = (battle, run, day, changes, brief) => {
   const { arena, field } = battle;
   // Members that left are struck off, and every troop's owner follows.
@@ -930,6 +971,9 @@ export const saveBattle = (battle, run, day, changes, brief) => {
     contested,
     brief: {
       ...brief,
+      // How well supplied its ground is, and the weather of the days ahead (weather.js): the War Room's.
+      ...(closed ? {} : { supply: encodeMask(supplyLevels(battle)) }),
+      ...(!closed && run.mech?.weather ? { forecast: skiesAhead(run, battle, day) } : {}),
       carry: {
         // Which of the standing orders each troop is serving, so that the next
         // run finds the same group under each.
@@ -950,6 +994,7 @@ export const saveBattle = (battle, run, day, changes, brief) => {
         ...(battle.talk.some((lines) => lines.length > 0) ? { talk: battle.talk } : {}),
         ...(plans ? { plans } : {}),
         ...(hasDeploy(battle.deploy) ? { deploy: battle.deploy } : {}),
+        ...(Array.isArray(battle.staffPlans) && battle.staffPlans.some(Boolean) ? { staff: battle.staffPlans } : {}),
         ...(battle.status === "standing" ? { quiet: battle.quiet } : {}),
         ...(battle.away[0] || battle.away[1] ? { away: battle.away.slice() } : {}),
         ...(battle.sentHome.size > 0 ? { sentHome: [...battle.sentHome] } : {}),
@@ -959,6 +1004,8 @@ export const saveBattle = (battle, run, day, changes, brief) => {
       },
     },
     log: battle.log.slice(-MAX_LOG_ENTRIES),
+    // What its war has come to, run by run (chronicle.js): for its report once it is over.
+    chronicle: chronicleAfter(battle, closed ? battle.closedDate : run.dateOf(day)),
   };
   if (closed) record.closedDate = battle.closedDate;
   else {

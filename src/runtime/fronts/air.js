@@ -195,4 +195,5 @@ export const wingChanges = (run) => (run.wings ? [...run.wings.values()].filter(
   : { unitId: wing.id, committedTo: "", remove: true })) : []);
 
 // For the story: who held the sky over a battle, and with how many wings a side.
-export const skyHeld = (battle) => (battle.wings ? { holds: battle.wings.holds, wings: battle.wings.flying.map((list) => list.length), superiority: Math.round(battle.wings.superiority * 100) / 100, ...(battle.wings.strike > 0 ? { strike: true } : {}) } : null);
+// (With what each side's wings were sent to do, for the map that draws them: Game/Map/AirLayers.jsx.)
+export const skyHeld = (battle) => (battle.wings ? { holds: battle.wings.holds, wings: battle.wings.flying.map((list) => list.length), superiority: Math.round(battle.wings.superiority * 100) / 100, missions: [airMissionOf(battle, 0), airMissionOf(battle, 1)], ...(battle.wings.strike > 0 ? { strike: true } : {}) } : null);

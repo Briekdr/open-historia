@@ -57,6 +57,8 @@ export const readLines = (run) => {
     for (let index = 1; index < points.length; index += 1) at.push(at[index - 1] + kmBetween(points[index - 1][0], points[index - 1][1], points[index][0], points[index][1], { flat, scale }));
     return {
       id: String(line?.id ?? ""),
+      // (Its name, for what is told of it: a breach.)
+      name: String(line?.name ?? "").replace(/s+/g, " ").trim().slice(0, 80),
       owner: String(line?.owner ?? ""),
       level: Math.max(0, Math.min(10, Math.round(Number(line?.level) || 0))),
       points,
@@ -210,6 +212,14 @@ export const wearWall = (battle, { line: index, piece }, odds, siege, share) => 
     else merged.push(stretch.slice());
   }
   line.breaches = merged;
+  // (Something to tell: who broke through, and which line; once a line a day, however many stretches of it gave
+  // way. The report of the war keeps it too: chronicle.js.)
+  const owner = battle.walls?.sides?.[index];
+  const at = line.name ? `wall: ${line.name}` : "a fortified line";
+  const date = String(battle.wallDate ?? "");
+  if ((owner === 0 || owner === 1) && !battle.log.some((entry) => entry.k === "breached" && entry.d === date && entry.at === at)) {
+    battle.log.push({ d: date, k: "breached", s: 1 - owner, at });
+  }
   return true;
 };
 
