@@ -49,7 +49,9 @@ export const MapModeSelector = memo(function MapModeSelector({ dockStyle = DEFAU
       style={{
         ...dockStyle,
         position: "fixed",
-        bottom: `calc(9.25rem + ${SAFE_BOTTOM})`,
+        // At the foot of the right-hand stack, under the advisor's button and the country's (main.jsx AdvisorButton,
+        // other.jsx), which stand above it: "have the map switch be under the advisor button" (the owner).
+        bottom: `calc(0.5rem + ${SAFE_BOTTOM})`,
         zIndex: 9997,
         display: "flex",
         flexDirection: "column",
@@ -75,6 +77,8 @@ export const MapModeSelector = memo(function MapModeSelector({ dockStyle = DEFAU
             flexDirection: "column",
             gap: "0.3rem",
             minWidth: "125px",
+            // Beside the advisor's and the country's buttons, not over them: past their width and a gap.
+            marginRight: "4.5rem",
           }}
         >
           <div
@@ -172,7 +176,7 @@ export const MapModeSelector = memo(function MapModeSelector({ dockStyle = DEFAU
           }}
         >
           <MapIcon />
-          <span>Political</span>
+          {!isMobile && <span>Political</span>}
         </button>
 
         <button
@@ -201,7 +205,7 @@ export const MapModeSelector = memo(function MapModeSelector({ dockStyle = DEFAU
           }}
         >
           <DiplomaticIcon />
-          <span>Diplomatic</span>
+          {!isMobile && <span>Diplomatic</span>}
         </button>
       </div>
     </div>

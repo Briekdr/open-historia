@@ -224,7 +224,8 @@ const AdvisorButton = ({ isAdvisorOpen, dockStyle, onToggle }) => (
     style={{
       ...baseStyle,
       ...dockStyle,
-      bottom: `calc(0.5rem + ${SAFE_BOTTOM})`,
+      // Above the map switch at the foot of the stack (MapModeSelector.jsx).
+      bottom: `calc(3rem + ${SAFE_BOTTOM})`,
       // Rides beside the advisor drawer, so a wide drawer carries it over the
       // Actions/Projects/chat panels (9998); an open panel stays on top.
       zIndex: 9997,
