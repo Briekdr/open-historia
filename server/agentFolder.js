@@ -129,10 +129,11 @@ const ANSWER_STEPS = `Answer what Open Historia is waiting on: everything the pl
 Never answer anything the player did not start, and never keep watching once nothing is waiting.
 `;
 
-const skillFile = (name, invocation) => `---
+// `playerOnly`: Claude Code's skills are started by the player alone.
+const skillFile = ({ name, playerOnly, firstName = false }) => `---
 name: ${name}
-description: Answer what the Open Historia game is waiting on (time skips, chats, Game Master, events). Only when the player ${invocation}.${name === "skip" ? " The same command as /answer, under its first name." : ""}
-${invocation.startsWith("types") ? "disable-model-invocation: true\n" : ""}---
+description: Answer what the Open Historia game is waiting on (time skips, chats, Game Master, events). Only when the player ${playerOnly ? "types" : "asks for"} /${name}.${firstName ? " The same command as /answer, under its first name." : ""}
+${playerOnly ? "disable-model-invocation: true\n" : ""}---
 
 ${ANSWER_STEPS}`;
 
@@ -233,8 +234,8 @@ export const writeAgentFolder = (folder, { url, token }) => {
     path.join(folder, ".mcp.json"),
     `${JSON.stringify({ mcpServers: { [AGENT_MCP_SERVER_NAME]: { type: "http", url, headers: { Authorization: authorization } } } }, null, 2)}\n`,
   );
-  writeIfChanged(path.join(folder, ".claude", "skills", "answer", "SKILL.md"), skillFile("answer", "types /answer"));
-  writeIfChanged(path.join(folder, ".claude", "skills", "skip", "SKILL.md"), skillFile("skip", "types /skip"));
+  writeIfChanged(path.join(folder, ".claude", "skills", "answer", "SKILL.md"), skillFile({ name: "answer", playerOnly: true }));
+  writeIfChanged(path.join(folder, ".claude", "skills", "skip", "SKILL.md"), skillFile({ name: "skip", playerOnly: true, firstName: true }));
   writeAgentSubagents(folder);
   // The single sub-agent of earlier builds.
   fs.rmSync(path.join(folder, ".claude", "agents", "skip-answerer.md"), { force: true });
@@ -244,8 +245,8 @@ export const writeAgentFolder = (folder, { url, token }) => {
     path.join(folder, ".codex", "config.toml"),
     `[mcp_servers.${AGENT_MCP_SERVER_NAME}]\nurl = ${tomlString(url)}\nhttp_headers = { Authorization = ${tomlString(authorization)} }\n`,
   );
-  writeIfChanged(path.join(folder, ".agents", "skills", "answer", "SKILL.md"), skillFile("answer", "asks for /answer"));
-  writeIfChanged(path.join(folder, ".agents", "skills", "skip", "SKILL.md"), skillFile("skip", "asks for /skip"));
+  writeIfChanged(path.join(folder, ".agents", "skills", "answer", "SKILL.md"), skillFile({ name: "answer", playerOnly: false }));
+  writeIfChanged(path.join(folder, ".agents", "skills", "skip", "SKILL.md"), skillFile({ name: "skip", playerOnly: false, firstName: true }));
 
   // Prompt files of an earlier run: its queue is gone, and so are they.
   const requests = path.join(folder, AGENT_REQUESTS_DIR);

@@ -10,15 +10,15 @@
 import React, { useSyncExternalStore } from "react";
 import { useIsMobile } from "../../runtime/useIsMobile.js";
 import { agentClient, openAgentFolder } from "../AI/agentConnection.js";
-import { agentHasEntryBelow } from "../AI/providerConfig.js";
-
-const CHAT_KINDS = ["advisor", "diplomacy", "gameMaster", "interactive"];
+import { AGENT_KINDS, agentHasEntryBelow } from "../AI/providerConfig.js";
+import { REQUEST_AGENT, requestActivity } from "../AI/requestActivity.js";
 
 const WAITING_TEXTS = {
   advisor: "Your advisor is waiting for your Agent. Type /answer in your Claude Code, Codex or Antigravity CLI.",
   diplomacy: "A reply to your message is waiting for your Agent. Type /answer in your Claude Code, Codex or Antigravity CLI.",
   gameMaster: "Your Game Master command is waiting for your Agent. Type /answer in your Claude Code, Codex or Antigravity CLI.",
   interactive: "Your interactive event is waiting for your Agent. Type /answer in your Claude Code, Codex or Antigravity CLI.",
+  skip: "Your time skip's follow-up is waiting for your Agent. Type /answer in your Claude Code, Codex or Antigravity CLI.",
 };
 
 const noticeStyle = {
@@ -43,7 +43,7 @@ const noticeStyle = {
   pointerEvents: "auto",
 };
 
-const buttonStyle = {
+export const AGENT_BUTTON_STYLE = {
   background: "rgba(255,255,255,0.08)",
   border: "1px solid rgba(255,255,255,0.18)",
   borderRadius: "8px",
@@ -59,19 +59,22 @@ const readWaits = () => JSON.stringify(agentClient.waits());
 export const AgentWaitingNotice = () => {
   const isMobile = useIsMobile();
   const waits = JSON.parse(useSyncExternalStore((listener) => agentClient.subscribeWaits(listener), readWaits, readWaits));
-  const kinds = CHAT_KINDS.filter((kind) => waits[kind] > 0);
+  // A skip waiting on the Agent says so in its own progress row; its follow-up
+  // after the row has gone (the first stat-sheet reading) says so here.
+  const skipShownInRow = requestActivity.current()?.state === REQUEST_AGENT;
+  const kinds = AGENT_KINDS.filter((kind) => waits[kind] > 0 && !(kind === "skip" && skipShownInRow));
   if (!kinds.length) return null;
   const canPassOn = agentHasEntryBelow();
   return (
     <div role="status" aria-live="polite" style={{ ...noticeStyle, ...(isMobile ? { width: "max-content" } : null) }}>
       {kinds.map((kind) => <span key={kind}>{WAITING_TEXTS[kind]}</span>)}
-      <span style={{ color: "rgba(254,243,199,0.7)" }}>Your agent is writing once you do.</span>
+      <span style={{ color: "rgba(254,243,199,0.7)" }}>Your Agent writes the reply once you do.</span>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
-        <button type="button" className="oh-tap-row" style={buttonStyle} onClick={() => { void openAgentFolder(); }}>Open the Agent folder</button>
+        <button type="button" className="oh-tap-row" style={AGENT_BUTTON_STYLE} onClick={() => { void openAgentFolder(); }}>Open the Agent folder</button>
         {canPassOn && (
-          <button type="button" className="oh-tap-row" style={buttonStyle} onClick={() => agentClient.passOn(kinds)}>Use API key</button>
+          <button type="button" className="oh-tap-row" style={AGENT_BUTTON_STYLE} onClick={() => agentClient.passOn(kinds)}>Use API key</button>
         )}
-        <button type="button" className="oh-tap-row" style={buttonStyle} onClick={() => agentClient.cancel(kinds)}>Cancel</button>
+        <button type="button" className="oh-tap-row" style={AGENT_BUTTON_STYLE} onClick={() => agentClient.cancel(kinds)}>Cancel</button>
       </div>
     </div>
   );

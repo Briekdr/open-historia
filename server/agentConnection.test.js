@@ -55,7 +55,7 @@ const newDataDir = () => {
 const startServer = async (dataDir) => {
   const port = await freePort();
   const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, OH_DATA_DIR: dataDir, PORT: String(port), OH_AGENT_WAIT_MS: "400" },
+    env: { ...process.env, OH_DATA_DIR: dataDir, PORT: String(port), OH_AGENT_WAIT_MS: "400", OH_AGENT_FOLLOW_UP_MS: "300" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stdout.resume();
@@ -466,6 +466,41 @@ describe("Agent MCP server", () => {
     ]);
     await client.tool("answer_request", { id: first.id, text: "Mon ami." });
     assert.equal((await side.poll(first.id)).answer, "Mon ami.");
+  });
+
+  test("after an answer, /answer waits briefly for its follow-up, then stops", async () => {
+    const dataDir = newDataDir();
+    const { port } = await startServer(dataDir);
+    const side = game(port);
+    const client = agent(mcpSettings(dataDir));
+
+    const reply = await side.ask(null, "diplomacy", "France writes back.");
+    await client.tool("answer_request", { id: reply.id, text: "Non." });
+    // The demand check on that reply is asked once it has landed.
+    const asking = client.tool("list_requests");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const check = await side.ask(null, "diplomacy", "Did France give way?");
+    const listed = await asking;
+    assert.deepEqual(listed.requests.map((entry) => entry.id), [check.id]);
+    await client.tool("answer_request", { id: check.id, text: "{}" });
+
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    assert.equal((await client.tool("list_requests")).status, "idle");
+  });
+
+  test("a skip's follow-up arriving after its jump is answered in the same skip, on the quick sub-agent", async () => {
+    const dataDir = newDataDir();
+    const { port } = await startServer(dataDir);
+    const side = game(port);
+    const client = agent(mcpSettings(dataDir));
+    await side.openSkip("skip-1");
+    const jump = await side.ask("skip-1", "jump", "Go.");
+    await client.tool("answer_request", { id: jump.id, text: "{}" });
+    const asking = client.tool("list_requests");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const stats = await side.ask("skip-1", "stats", "A first stat sheet.");
+    const listed = await asking;
+    assert.deepEqual(listed.requests.map((entry) => [entry.id, entry.role]), [[stats.id, "quick"]]);
   });
 
   test("a skip that finishes leaves the player's waiting chats alone", async () => {

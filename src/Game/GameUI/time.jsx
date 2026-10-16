@@ -26,6 +26,7 @@ import { describeUnavailable, fallbackAvailability } from "../AI/fallbackRunner.
 import { describeJumpCost, requestDay, savingRequests } from "../AI/requestBudget.js";
 import { REQUEST_AGENT, describeRequestActivity, formatElapsedClock, requestActivity } from "../AI/requestActivity.js";
 import { agentClient, openAgentFolder } from "../AI/agentConnection.js";
+import { AGENT_BUTTON_STYLE } from "./agentWaitingNotice.jsx";
 import { getActivePlayerFocus, useActiveFeatures } from "../../runtime/gameFeatures.js";
 import { logDebugEvent, setDebugLogContext } from "../../runtime/debugLog.js";
 import { useFailureReportButton } from "../../runtime/saveDebugLog.js";
@@ -1301,16 +1302,7 @@ const SkipProgressRow = ({ label, onCancel, startedAt = 0 }) => {
                     type="button"
                     className="oh-tap-row"
                     onClick={() => agentClient.passOn(["skip"])}
-                    style={{
-                        background: "rgba(255,255,255,0.08)",
-                        border: "1px solid rgba(255,255,255,0.18)",
-                        borderRadius: "8px",
-                        color: "white",
-                        cursor: "pointer",
-                        fontSize: "0.72rem",
-                        marginLeft: "0.4rem",
-                        padding: "0.26rem 0.7rem",
-                    }}
+                    style={{ ...AGENT_BUTTON_STYLE, marginLeft: "0.4rem" }}
                     >
                     Use API key
                     </button>

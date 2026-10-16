@@ -1503,6 +1503,7 @@ const AGENT_TOKEN = crypto.randomBytes(32).toString("base64url");
 const agentQueue = createAgentQueue({
   folder: path.join(AGENT_FOLDER, AGENT_REQUESTS_DIR),
   waitMs: Number(process.env.OH_AGENT_WAIT_MS) || AGENT_WAIT_MS,
+  ...(process.env.OH_AGENT_FOLLOW_UP_MS ? { followUpMs: Number(process.env.OH_AGENT_FOLLOW_UP_MS) } : {}),
   log: (event, data) => appendLog({ level: "info", source: "server", event, message: event, data }),
 });
 try {

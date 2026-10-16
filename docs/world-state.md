@@ -149,7 +149,7 @@ A Fallback entry that failed in a way waiting cannot fix, such as a rejected key
 _Avoid_: Broken, Spent (for this case)
 
 **Agent Connection**:
-A Connection answered by an Agent on the player's own subscription rather than by a provider's API. It names the tasks it may answer, and waits until it is answered or the player cancels. Desktop only. See `docs/adr/0008-subscription-agents-answer-through-the-game.md`.
+A Connection answered by an Agent on the player's own subscription rather than by a provider's API. It answers only what the player starts, of the kinds it ticks (time skips, the advisor, diplomacy, the Game Master, interactive events), and can be paused. It waits until it is answered, the player cancels, or the player sends the request to the next entry. Desktop only. See `docs/adr/0008-subscription-agents-answer-through-the-game.md`.
 _Avoid_: Subscription mode, bridge (for the Connection itself)
 
 **Agent**:

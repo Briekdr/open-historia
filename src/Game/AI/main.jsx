@@ -3103,8 +3103,7 @@ export async function callAI(systemPrompt, history, opts = {}) {
             // it names; every other call goes past it without a word (ADR 0008).
             // What the player started, of a kind the entry ticks, and not part of
             // a skip the player sent on to their key (Use API key).
-            serves: (entry) => entryServesCall(entry, { spender, agentKind, requestKind, sharedGame: hostingSharedGame() })
-                && !(entry.provider === AGENT_PROVIDER && (agentKind === "skip" || (!agentKind && spender)) && agentClient.skipPassedOn()),
+            serves: (entry) => entryServesCall(entry, { spender, agentKind, requestKind, sharedGame: hostingSharedGame(), skipPassedOn: agentClient.skipPassedOn() }),
             canAttempt: (entry) => entry.provider === AGENT_PROVIDER ? "" : contextWindows.refusal(contextWindowKey(entry), requestTokens, { reserveTokens: answerReserve, trustLearned: windowIsLearned(entry) }),
             tooBigError: (refused) => providerFailureError(
                 nothingFitsMessage(refused.map(({ entry, reason }) => ({ label: entry.label, reason })), requestTokens),

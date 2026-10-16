@@ -100,7 +100,9 @@ export const providerOptionsFor = ({ localServer }) =>
 // time skip's `spender`; one that says neither (the game's own work, and every
 // background call) never waits on a terminal nobody may be at. Nor does a
 // shared game's round. Every other entry answers every call.
-export function entryServesCall(entry, { agentKind = "", spender = "", requestKind = "", sharedGame = false } = {}) {
+// `skipPassedOn`: the player sent the rest of the running skip to their key
+// (Use API key).
+export function entryServesCall(entry, { agentKind = "", spender = "", requestKind = "", sharedGame = false, skipPassedOn = false } = {}) {
     if (entry?.provider !== AGENT_PROVIDER) return true;
     if (entry.paused === true || sharedGame) return false;
     // The game's own follow-up to a skip (a first stat-sheet reading as it
@@ -108,7 +110,7 @@ export function entryServesCall(entry, { agentKind = "", spender = "", requestKi
     // background has nobody at the terminal.
     if (requestKind === BACKGROUND_REQUEST && agentKind !== "skip") return false;
     const kind = agentKind || (spender && SKIP_SPENDERS.includes(spenderBase(spender)) ? "skip" : "");
-    if (!kind) return false;
+    if (!kind || (kind === "skip" && skipPassedOn)) return false;
     const kinds = Array.isArray(entry.kinds) ? entry.kinds : AGENT_KINDS;
     return kinds.includes(kind);
 }
@@ -678,10 +680,12 @@ const entryIsConfigured = (entry) => {
 
 // Whether something below the player's own Agent can take a request it was
 // waiting on (Use API key).
-export function agentHasEntryBelow() {
+export function agentHasEntryBelow(at = Date.now()) {
     const list = getResolvedFallbackList();
     const first = list.findIndex((entry) => entry.provider === AGENT_PROVIDER);
-    return first >= 0 && list.slice(first + 1).some((entry) => entry.provider !== AGENT_PROVIDER && entryIsConfigured(entry));
+    return first >= 0 && list.slice(first + 1).some((entry) => entry.provider !== AGENT_PROVIDER
+        && entryIsConfigured(entry)
+        && !["spent", "unusable"].includes(entryStatus(fallbackStateStore.get(entry.id), at).status));
 }
 
 export function isFallbackListConfigured() {

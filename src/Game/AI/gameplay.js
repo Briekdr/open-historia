@@ -3649,6 +3649,7 @@ const runJsonTask = async (taskKey, {
   // scope and leaves the `signal` this task was handed untouched, so without
   // this it is one more failed call and takes the fallback below.
   let cancelledAll = null;
+  let agentCancelled = null;
   // While requests are being saved (requestBudget.js) the FIRST answer is judged
   // the way the last one always was: the task validator repairs it in place
   // instead of sending it back, and a fault the schema names is cut out
@@ -4336,6 +4337,9 @@ const runJsonTask = async (taskKey, {
     connectionClosed = actualError?.connectionClosed === true;
     transportFailure = connectionClosed || isUnreachableError(actualError);
     if (isCancelAllAbort(actualError)) cancelledAll = actualError;
+    // The player cancelled a request waiting on their own Agent: a cancel,
+    // not a failure to cover with the task's canned answer (ADR 0008).
+    if (actualError?.agentCancelled === true) agentCancelled = actualError;
     const transportReason = normalizeString(actualError?.message || actualError);
     // The retry dying in transport used to ERASE why the first answer was
     // rejected, so the debug report the player copies out read "Internal server
@@ -4374,6 +4378,7 @@ const runJsonTask = async (taskKey, {
   // salvage below, too: an earlier answer is not a turn the player still wants.
   // Every other task keeps its harmless fallback, as with the two cases after
   // this one.
+  if (agentCancelled) throw agentCancelled;
   if (cancelledAll && ["jumpForward", "autoJumpForward"].includes(taskKey)) {
     throw cancelledAll;
   }
@@ -15647,6 +15652,8 @@ const sceneMapConsequences = async ({ bundle, outcome, generation }) => {
       signal: null,
       state: { requests: null, generation, hiddenEvents: [] },
       sections: SCENE_REVIEW_SECTIONS,
+      // The scene's own map check: part of the interactive event the player plays.
+      agentKind: "interactive",
     });
   } catch (error) {
     logDebugEvent("turn", "Scene outcome: the map check failed; the Scene stands as written.", error, { problem: true });
@@ -17183,7 +17190,7 @@ const BOARD_HIDDEN_NOTE = "\n\nEvents marked (kept off the timeline) happened, b
 // structures and the board; never the timeline, agents or order attribution).
 // A Scene has no time skip's request budget (`state.requests` is null) and is
 // simply one request when anything qualifies.
-const runTurnReview = async ({ context, merged, signal, state, sections = null }) => {
+const runTurnReview = async ({ context, merged, signal, state, sections = null, agentKind = "" }) => {
   const { bundle, mode } = context;
   const requests = state.requests;
   // `failure` is the error when the request itself failed; `missing` names the
@@ -17417,6 +17424,7 @@ const runTurnReview = async ({ context, merged, signal, state, sections = null }
       __debug: { taskKey: TURN_REVIEW_TASK, attempt: 1, maxAttempts: 1, simulatedDays: null },
       onRequest: jumpTaskOptions(requests, "review").onRequest,
       ...(requests ? { spender: "review" } : {}),
+      ...(agentKind ? { agentKind } : {}),
     });
     const rawText = typeof response === "string" ? response : normalizeString(response?.rawText);
     answer = response?.toolInput ?? unwrapMimickedToolCall(extractJsonPayload(rawText), tool.name);

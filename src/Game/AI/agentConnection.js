@@ -48,6 +48,10 @@ const newSkipId = () => (globalThis.crypto?.randomUUID?.() ?? `skip-${Date.now()
 // The player sent a waiting request on to the next entry (Use API key). The
 // runner moves on without a mark (fallbackRunner.js, "passedOn").
 export const PASSED_ON_MESSAGE = "You sent this request to your next entry instead of your Agent.";
+export const AGENT_CANCELLED_MESSAGE = "You cancelled the request waiting on your Agent.";
+// A Cancel is the player's, so a task does not answer it with its canned
+// fallback (gameplay.js runJsonTask).
+const cancelledError = () => Object.assign(new DOMException(AGENT_CANCELLED_MESSAGE, "AbortError"), { agentCancelled: true });
 const passedOnError = () => Object.assign(new Error(PASSED_ON_MESSAGE), {
     providerFailure: { kind: "passedOn", reason: "the player chose their next entry" },
 });
@@ -94,9 +98,8 @@ export const createAgentClient = ({ fetch: send = (...args) => globalThis.fetch(
             await call("DELETE", "/api/agent/skips").catch(() => {});
         },
 
-        // The game has stopped simulating: the skip is finished, and the
-        // Agent's `/answer` stops waiting for it. The next skip starts on the
-        // Agent again.
+        // A follow-up the game asks as a skip lands (the first stat-sheet
+        // reading): the skip stays open until it is done.
         holdSkip(work) {
             const promise = Promise.resolve(work).catch(() => {});
             held.add(promise);
@@ -104,6 +107,9 @@ export const createAgentClient = ({ fetch: send = (...args) => globalThis.fetch(
             return work;
         },
 
+        // The game has stopped simulating and the skip's follow-ups are done:
+        // the skip is finished, and the Agent's `/answer` stops waiting for it.
+        // The next skip starts on the Agent again.
         async finishSkip() {
             while (held.size) await Promise.all([...held]);
             const finished = skip;
@@ -164,7 +170,8 @@ export const createAgentClient = ({ fetch: send = (...args) => globalThis.fetch(
                 skipId = open.id;
             }
             const queued = await call("POST", "/api/agent/requests", {
-                ...(skipId ? { skipId } : {}), task: String(agentKind || spender || taskKey || ""), system, prompt,
+                // The Agent sees the task (a skip's, its follow-up's) or what the player started.
+                ...(skipId ? { skipId } : {}), task: String(kind === "skip" ? (spender || taskKey || "") : agentKind), system, prompt,
                 ...(lookupTools.length ? { lookupTools } : {}),
             }, signal);
             if (!queued.ok || !queued.json?.id) throw new Error(queued.json?.error || "The Agent queue did not take the request.");
@@ -177,7 +184,7 @@ export const createAgentClient = ({ fetch: send = (...args) => globalThis.fetch(
             const record = {
                 kind,
                 passOn: () => passed.abort(passedOnError()),
-                cancel: () => passed.abort(new DOMException("You cancelled the request waiting on your Agent.", "AbortError")),
+                cancel: () => passed.abort(cancelledError()),
             };
             waiting.add(record);
             tell();

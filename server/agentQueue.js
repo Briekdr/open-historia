@@ -49,9 +49,15 @@ const sleepUntilWoken = (waiters, ms) =>
 // The longest any wait on the queue is held open, by the Agent or the game.
 export const AGENT_WAIT_MS = 30000;
 
-export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, log = () => {} }) => {
+// How long after an answer `/answer` still waits for the game's follow-up to it
+// (the demand check after a diplomatic reply, an interactive scene's summary),
+// which the game can only ask once the answer has landed.
+export const AGENT_FOLLOW_UP_MS = 5000;
+
+export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, followUpMs = AGENT_FOLLOW_UP_MS, log = () => {} }) => {
   const requests = new Map();
   let openSkip = null;
+  let lastAnsweredAt = 0;
   // Woken whenever anything changes: a request queued, answered or cancelled,
   // a skip opened or finished.
   const waiters = [];
@@ -63,6 +69,7 @@ export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, log = () => {
   const close = (request, state, answer) => {
     if (request.state !== "waiting") return false;
     request.state = state;
+    if (state === "answered") lastAnsweredAt = Date.now();
     if (answer !== undefined) request.answer = answer;
     removeFiles(request);
     log(`agent.${state}`, { id: request.id, task: request.task, skipId: request.skipId });
@@ -188,13 +195,19 @@ export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, log = () => {
     // The Agent's "what next?". Waiting requests it has not read yet, oldest
     // first; while a skip is open with nothing to answer, waits for its next
     // one up to `waitMs` and then says "still running". With no skip open it
-    // answers at once: it never waits for anything the player has not started.
+    // waits only for the follow-up to an answer it just gave (`followUpMs`),
+    // then answers: it never waits for anything the player has not started.
     async list() {
       const deadline = Date.now() + waitMs;
       for (;;) {
         const fresh = unread();
         if (fresh.length) return { status: "waiting", requests: fresh.map(({ id, task }) => ({ id, task })) };
-        if (!openSkip) return { status: "idle", message: NOTHING_WAITING };
+        if (!openSkip) {
+          const followUpEnds = lastAnsweredAt + followUpMs;
+          if (Date.now() >= followUpEnds) return { status: "idle", message: NOTHING_WAITING };
+          await sleepUntilWoken(waiters, Math.min(deadline, followUpEnds) - Date.now());
+          continue;
+        }
         if (Date.now() >= deadline) return { status: "running", message: SKIP_STILL_RUNNING };
         await sleepUntilWoken(waiters, deadline - Date.now());
       }

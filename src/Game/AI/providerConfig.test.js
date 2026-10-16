@@ -745,6 +745,9 @@ test("an Agent entry serves what the player started, of the kinds it ticks, and 
   assert.equal(serves({ spender: "jump", sharedGame: true }), false, "a shared game never waits on one player's terminal");
   assert.equal(serves({ agentKind: "diplomacy" }, { ...agent, kinds: ["skip"] }), false, "an unticked kind goes to the entry below");
   assert.equal(serves({ spender: "jump" }, { ...agent, paused: true }), false, "paused, it serves nothing");
+  assert.equal(serves({ spender: "review", skipPassedOn: true }), false, "the rest of a skip the player sent to their key");
+  assert.equal(serves({ agentKind: "skip", spender: "stats", skipPassedOn: true }), false);
+  assert.equal(serves({ agentKind: "advisor", skipPassedOn: true }), true, "a chat is not the skip");
   assert.equal(config.entryServesCall({ provider: "gemini" }, {}), true, "every other Connection serves every call");
 });
 
