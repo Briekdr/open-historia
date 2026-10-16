@@ -4,8 +4,11 @@ import assert from "node:assert/strict";
 
 import {
     MAP_SETTING_KEYS,
+    SITTING_ONLY_SETTINGS,
     SYSTEM_REDUCED_MOTION_QUERY,
+    getMapSettingValue,
     reduceMotionEnabled,
+    setMapSettingValue,
     systemPrefersReducedMotion,
 } from "./mapSettings.js";
 
@@ -44,6 +47,40 @@ const BOTH_ON = {
     [MAP_SETTING_KEYS.disableIdleRotation]: "1",
     [MAP_SETTING_KEYS.disableEventCamera]: "1",
 };
+
+test("the map's mode lasts the sitting only: every opening is on the political map", () => {
+    // "its opening onto the diplomatic map by default, it should be on political be default" (the owner, 2026-10-16).
+    assert.deepEqual(SITTING_ONLY_SETTINGS, [MAP_SETTING_KEYS.mapMode]);
+    const stored = { [MAP_SETTING_KEYS.mapMode]: "diplomatic" };
+    const written = [];
+    const priorWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const priorStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "window", { value: { dispatchEvent: () => true }, configurable: true, writable: true });
+    Object.defineProperty(globalThis, "localStorage", {
+        value: {
+            getItem: (key) => (Object.hasOwn(stored, key) ? stored[key] : null),
+            setItem: (key, value) => written.push([key, value]),
+            removeItem: (key) => delete stored[key],
+        },
+        configurable: true,
+        writable: true,
+    });
+    try {
+        // What an earlier build kept on the device is not read: the political map.
+        assert.equal(getMapSettingValue(MAP_SETTING_KEYS.mapMode, "political"), "political");
+        // Switched in the sitting, it holds for the sitting, and nothing is written to the device.
+        setMapSettingValue(MAP_SETTING_KEYS.mapMode, "diplomatic");
+        assert.equal(getMapSettingValue(MAP_SETTING_KEYS.mapMode, "political"), "diplomatic");
+        assert.deepEqual(written, []);
+        assert.equal(Object.hasOwn(stored, MAP_SETTING_KEYS.mapMode), false, "and the old one is let go");
+    } finally {
+        setMapSettingValue(MAP_SETTING_KEYS.mapMode, "");
+        if (priorWindow) Object.defineProperty(globalThis, "window", priorWindow);
+        else delete globalThis.window;
+        if (priorStorage) Object.defineProperty(globalThis, "localStorage", priorStorage);
+        else delete globalThis.localStorage;
+    }
+});
 
 test("the system's reduced-motion setting is read from its media query", () => {
     withBrowser({ systemReduced: true }, (asked) => {

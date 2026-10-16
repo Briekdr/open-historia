@@ -122,6 +122,15 @@ export const MAP_SETTING_KEYS = {
     weatherEffects: "map_weather_effects",
 };
 
+// Kept for the sitting only, never on the device: whichever map was last shown,
+// the game opens on the political map. "its opening onto the diplomatic map by
+// default, it should be on political be default" (the owner, 2026-10-16).
+export const SITTING_ONLY_SETTINGS = Object.freeze([MAP_SETTING_KEYS.mapMode]);
+// (What an earlier build kept of them on the device is let go.)
+try {
+    for (const key of SITTING_ONLY_SETTINGS) globalThis.localStorage?.removeItem?.(key);
+} catch { /* nothing kept, or nothing to keep it in */ }
+
 // Families the label-font pickers suggest — Settings → Map and the game and
 // scenario editors, one list. Suggestions only: labels rasterize from the
 // player's own fonts, so any installed family works.
@@ -210,6 +219,7 @@ export function setMapSetting(key, value) {
 
 export function getMapSettingValue(key, fallback = "") {
     if (valueSettingMemory.has(key)) return valueSettingMemory.get(key);
+    if (SITTING_ONLY_SETTINGS.includes(key)) return fallback;
     try {
         const value = localStorage.getItem(key);
         return value === null ? fallback : value;
@@ -235,7 +245,7 @@ export function setMapSettingValue(key, value) {
     }
     valueSettingMemory.set(key, normalized);
     try {
-        if (normalized) localStorage.setItem(key, normalized);
+        if (normalized && !SITTING_ONLY_SETTINGS.includes(key)) localStorage.setItem(key, normalized);
         else localStorage.removeItem(key);
     } catch {
         // The live in-memory setting still applies for this session.
