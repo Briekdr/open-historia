@@ -120,12 +120,7 @@ function GameApp() {
     return asked ? { updates: asked, preview: true } : { updates: pendingUpdates(), preview: false };
   });
   const [parting, setParting] = useState(false);
-  const closeNotice = useCallback(() => {
-    setNotice((now) => {
-      if (!now.preview && now.updates.length > 0) rememberUpdate(now.updates[0].id);
-      return { updates: [], preview: now.preview };
-    });
-  }, []);
+  const closeNotice = useCallback(() => setNotice((now) => ({ updates: [], preview: now.preview })), []);
   const letMusicIn = useCallback(() => {
     setParting(true);
     holdMusicBehindDoor(false);
@@ -225,6 +220,12 @@ function GameApp() {
   // no time on the website and in the Android app, and one request to this
   // computer's own server in the desktop app (at most a second and a half).
   const menuReady = isReady && door !== "deciding";
+  // What the update brings is shown once the menu is ready and the door is open or opening; it is kept as shown the
+  // moment it is shown, not when it is closed, so a page closed on it does not show it again.
+  const noticeShown = menuReady && notice.updates.length > 0 && (door === "open" || parting);
+  useEffect(() => {
+    if (noticeShown && !notice.preview) rememberUpdate(notice.updates[0].id);
+  }, [noticeShown, notice]);
 
   const handleFirstWorldIdle = () => {
     if (worldIdleRef.current) return;
@@ -260,7 +261,7 @@ function GameApp() {
       setIsTerrainEnabled={setIsTerrainEnabled}
       />
     )}
-    {menuReady && notice.updates.length > 0 && (door === "open" || parting) && (
+    {noticeShown && (
       <Suspense fallback={null}>
       <UpdateNotice updates={notice.updates} onClose={closeNotice} />
       </Suspense>

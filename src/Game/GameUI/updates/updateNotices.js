@@ -1,7 +1,16 @@
 /*! Open Historia — which update notices to show © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 // The notice behind the vault door (UpdateNotice.jsx, notes.js) shows each
-// update once a device: the id of the newest update shown is kept in
-// localStorage, and the updates above it in the list are new. One that missed
+// update once a device, and only an update that has a notice: "the popup
+// showing the update should only happen if there is a new popup for a new
+// update, not every time it opens or if someone forgot to add the log of the
+// update (or if it was a quick hotfix so it doesnt have a popup made for it)"
+// (the owner). A build is not an update here: a new build with no new entry in
+// notes.js (a hotfix, a notice forgotten) shows nothing. The id of the newest
+// update shown is kept in localStorage the moment it is shown (App.jsx), not
+// when it is closed, so a page closed or reloaded on it does not show it
+// again; and where nothing can be kept (storage refused) nothing is shown,
+// since it would come back at every opening. The updates above the kept id in
+// the list are new. One that missed
 // several is shown all of them, newest first (at most UPDATES_SHOWN_MOST); one
 // whose kept id is not in the list at all, or that has none (a first opening),
 // is shown the newest and the MAJOR ones released within FIRST_LOOK_DAYS of it
@@ -43,7 +52,21 @@ export const seenUpdate = (storage = browserStorage()) => {
   }
 };
 
-// Kept once its notice is closed: it is not shown again.
+// Whether this device can keep what it was shown: a value written can be read back.
+export const canRememberUpdates = (storage = browserStorage()) => {
+  try {
+    if (!storage) return false;
+    const probe = "oh-update-note-probe";
+    storage.setItem(probe, "1");
+    const kept = storage.getItem(probe) === "1";
+    storage.removeItem?.(probe);
+    return kept;
+  } catch {
+    return false;
+  }
+};
+
+// Kept as soon as its notice is shown: it is not shown again.
 export const rememberUpdate = (id, storage = browserStorage()) => {
   try {
     if (id) storage?.setItem(UPDATE_NOTE_KEY, String(id));
@@ -52,9 +75,9 @@ export const rememberUpdate = (id, storage = browserStorage()) => {
   }
 };
 
-// The updates to show at this opening, newest first ([] for none).
-export const pendingUpdates = ({ updates = UPDATES, seen = seenUpdate() } = {}) => {
-  if (updates.length === 0) return [];
+// The updates to show at this opening, newest first ([] for none; none where nothing can be kept).
+export const pendingUpdates = ({ updates = UPDATES, seen = seenUpdate(), keeps = canRememberUpdates() } = {}) => {
+  if (updates.length === 0 || !keeps) return [];
   const at = seen ? updates.findIndex((update) => update.id === seen) : -1;
   if (at === 0) return [];
   if (at < 0) return updates.filter((update, index) => index === 0 || (update.kind === "major" && daysBetween(update.date, updates[0].date) <= FIRST_LOOK_DAYS)).slice(0, UPDATES_SHOWN_MOST);

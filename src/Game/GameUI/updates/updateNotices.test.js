@@ -6,11 +6,11 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 
 import { UPDATES } from "./notes.js";
-import { UPDATES_SHOWN_MOST, UPDATE_NOTE_KEY, noticePages, pendingUpdates, previewedUpdates, rememberUpdate, seenUpdate } from "./updateNotices.js";
+import { UPDATES_SHOWN_MOST, UPDATE_NOTE_KEY, canRememberUpdates, noticePages, pendingUpdates, previewedUpdates, rememberUpdate, seenUpdate } from "./updateNotices.js";
 
 const memory = () => {
   const kept = new Map();
-  return { getItem: (key) => kept.get(key) ?? null, setItem: (key, value) => kept.set(key, String(value)) };
+  return { getItem: (key) => kept.get(key) ?? null, setItem: (key, value) => kept.set(key, String(value)), removeItem: (key) => kept.delete(key) };
 };
 const list = [
   { id: "c", kind: "major", date: "2026-10-15", banners: [{ title: "C1" }, { title: "C2" }] },
@@ -18,20 +18,35 @@ const list = [
   { id: "a", kind: "major", date: "2026-07-01", banners: [{ title: "A" }] },
 ];
 
+test("only an update with a notice is shown, once, and nothing where it could not be kept", () => {
+  // A build with no new entry (a hotfix, a notice forgotten): the newest entry was seen, so nothing.
+  assert.deepEqual(pendingUpdates({ updates: list, seen: "c", keeps: true }), []);
+  // Storage refused: shown nowhere, rather than at every opening.
+  assert.deepEqual(pendingUpdates({ updates: list, seen: null, keeps: false }), []);
+  const refusing = { getItem: () => null, setItem: () => { throw new Error("refused"); }, removeItem: () => {} };
+  assert.equal(canRememberUpdates(refusing), false);
+  assert.equal(canRememberUpdates(memory()), true);
+  assert.equal(canRememberUpdates(null), false);
+  // Kept the moment it is shown, not on closing.
+  const app = readFileSync(new URL("../../../App.jsx", import.meta.url), "utf8");
+  assert.match(app, /if \(noticeShown && !notice\.preview\) rememberUpdate\(notice\.updates\[0\]\.id\);/);
+  assert.doesNotMatch(app, /closeNotice = useCallback\([^\n]*rememberUpdate/);
+});
+
 test("each update is shown once a device; one that missed several is shown all of them, newest first", () => {
-  assert.deepEqual(pendingUpdates({ updates: list, seen: null }).map((update) => update.id), ["c"], "a first opening: the newest");
+  assert.deepEqual(pendingUpdates({ updates: list, seen: null, keeps: true }).map((update) => update.id), ["c"], "a first opening: the newest");
   // ... and the major ones of the month before it (the music, released before there was a notice); a minor one waits in the history.
   const recent = [list[0], { ...list[1], date: "2026-10-13" }, { ...list[2], date: "2026-10-12" }];
-  assert.deepEqual(pendingUpdates({ updates: recent, seen: null }).map((update) => update.id), ["c", "a"]);
-  const firstLook = pendingUpdates({ updates: UPDATES, seen: null }).map((update) => update.id);
+  assert.deepEqual(pendingUpdates({ updates: recent, seen: null, keeps: true }).map((update) => update.id), ["c", "a"]);
+  const firstLook = pendingUpdates({ updates: UPDATES, seen: null, keeps: true }).map((update) => update.id);
   assert.equal(firstLook[0], UPDATES[0].id);
   assert.ok(firstLook.includes("2026-10-music"), "the music, told with the update after it");
   assert.ok(firstLook.length <= UPDATES_SHOWN_MOST);
-  assert.deepEqual(pendingUpdates({ updates: list, seen: "c" }), [], "seen: nothing");
-  assert.deepEqual(pendingUpdates({ updates: list, seen: "a" }).map((update) => update.id), ["c", "b"]);
-  assert.deepEqual(pendingUpdates({ updates: list, seen: "gone" }).map((update) => update.id), ["c"], "a kept id no longer listed: the newest (and its month's)");
+  assert.deepEqual(pendingUpdates({ updates: list, seen: "c", keeps: true }), [], "seen: nothing");
+  assert.deepEqual(pendingUpdates({ updates: list, seen: "a", keeps: true }).map((update) => update.id), ["c", "b"]);
+  assert.deepEqual(pendingUpdates({ updates: list, seen: "gone", keeps: true }).map((update) => update.id), ["c"], "a kept id no longer listed: the newest (and its month's)");
   const many = Array.from({ length: 9 }, (_, at) => ({ id: `u${at}`, kind: "minor", banners: [{ title: "x" }] }));
-  assert.equal(pendingUpdates({ updates: many, seen: "u8" }).length, UPDATES_SHOWN_MOST);
+  assert.equal(pendingUpdates({ updates: many, seen: "u8", keeps: true }).length, UPDATES_SHOWN_MOST);
   // Kept by the newest shown.
   const storage = memory();
   rememberUpdate("c", storage);
@@ -88,7 +103,7 @@ test("every coding agent is told to write the notice unprompted, and where the g
 
 test("the door opens onto the notice, which is over the menu and under the door", () => {
   const app = readFileSync(new URL("../../../App.jsx", import.meta.url), "utf8");
-  assert.match(app, /notice\.updates\.length > 0 && \(door === "open" \|\| parting\)/);
+  assert.match(app, /const noticeShown = menuReady && notice\.updates\.length > 0 && \(door === "open" \|\| parting\);/);
   const kit = readFileSync(new URL("./updateKit.jsx", import.meta.url), "utf8");
   const door = readFileSync(new URL("../VaultDoor.jsx", import.meta.url), "utf8");
   const notice = Number(kit.match(/NOTICE_Z = (\d+)/)[1]);

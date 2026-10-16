@@ -157,7 +157,9 @@ Then run the full suite, `npm test`.
 - A device that has seen the newest update is shown nothing.
 - One that missed several updates is shown all it missed, newest first, at most `UPDATES_SHOWN_MOST`.
 - A device that has never been shown a notice is shown the newest update and the major ones released within `FIRST_LOOK_DAYS` of it.
-- When the notice is closed, the newest update shown is remembered.
+- A build with no new entry (a hotfix, or a notice someone forgot) shows nothing: only a new entry is an update here.
+- The newest update shown is remembered the moment it is shown, so closing the game on it does not bring it back.
+- Where the browser refuses storage, nothing is shown, since it could not be remembered and would come back at every opening.
 
 The history shows every entry, whatever the device has seen.
 
