@@ -30,7 +30,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Layer, Source, useMap } from "react-map-gl/maplibre";
 import { getNationColors } from "../../runtime/assets.js";
-import { reduceMotionEnabled } from "../../runtime/mapSettings.js";
+import { MAP_SETTING_KEYS, reduceMotionEnabled, useMapSettingValue } from "../../runtime/mapSettings.js";
+import { buildDiplomaticStanceMap, getDiplomaticOwnerColor } from "../../runtime/diplomaticStance.js";
+import { useActiveGameCountry } from "../../runtime/library.js";
 import { isTouchPrimary } from "../../runtime/mobileUi.js";
 import { TROOP_STATES } from "../../runtime/fronts/constants.js";
 import { latToY, projectorOf, yToLat } from "../../runtime/fronts/frame.js";
@@ -244,7 +246,16 @@ const FrontLayers = () => {
   const [seenThrough, setSeenThrough] = useState(false);
   const picturesRef = useRef(pictures);
   picturesRef.current = pictures;
-  const { polityOverrides, groups, regionOwnershipOverrides } = useWorldState();
+  const { polityOverrides, groups, regionOwnershipOverrides, wars, relations, agreements, puppets } = useWorldState();
+  // On the diplomatic map the ground a side has taken is painted as the regions are (Nations.jsx): in the colour of
+  // where that side stands with the player, not in its own. "the drawn territory remains the same color on the
+  // diplomatic map making it not be the same color as your country" (the owner, 2026-10-15).
+  const playerCountry = useActiveGameCountry();
+  const mapMode = useMapSettingValue(MAP_SETTING_KEYS.mapMode, "political");
+  const stances = useMemo(
+    () => (mapMode === "diplomatic" ? buildDiplomaticStanceMap({ playerCountry, wars, agreements, relations, puppets }) : null),
+    [mapMode, playerCountry, wars, agreements, relations, puppets],
+  );
   // The war room's marks on the troops: the general whose troops are lit, and
   // the troops picked out (warRoomStore.js).
   const warRoomOpen = useWarRoom((state) => state.open);
@@ -259,6 +270,8 @@ const FrontLayers = () => {
     // A side is a country or a group; a group has a colour of its own.
     const colorOf = (name) => groups?.[name]?.color || ownerDisplayCss(resolveOwnerRgb, name, UNOWNED_COLOR);
     const rgbOf = (name) => parseColorToRgb(colorOf(name)) ?? UNOWNED_RGB;
+    // The colour its ground is painted in: its own, or on the diplomatic map its stance's.
+    const groundRgbOf = (name) => (stances ? parseColorToRgb(getDiplomaticOwnerColor(name, stances)) ?? UNOWNED_RGB : rgbOf(name));
     const arrows = new Map();
     const arrowColorsOf = (name) => {
       let made = arrows.get(name);
@@ -272,8 +285,8 @@ const FrontLayers = () => {
       }
       return made;
     };
-    return { colorOf, rgbOf, arrowColorsOf };
-  }, [colorMap, polityOverrides, groups]);
+    return { colorOf, rgbOf, groundRgbOf, arrowColorsOf };
+  }, [colorMap, polityOverrides, groups, stances]);
 
   // Everything the playing needs, kept out of React state so a frame costs
   // pixels and two setData calls and nothing else.
@@ -379,7 +392,7 @@ const FrontLayers = () => {
     const dress = (entry) => {
       const { palette, player } = entry.picture;
       player.names.forEach((name, index) => {
-        const [red, green, blue] = colorRef.current.rgbOf(name);
+        const [red, green, blue] = colorRef.current.groundRgbOf(name);
         palette.set([red, green, blue, 255], (index + 1) * 4);
       });
       entry.picture.stale = false;

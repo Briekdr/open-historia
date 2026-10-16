@@ -62,7 +62,7 @@ const NEW_UPDATES = [
       {
         title: "The Diplomatic Map",
         items: [
-          "Switch the map between Political and Diplomatic above your country's flag, or in Settings, Map: every country takes the colour of where it stands with you.",
+          "Switch the map between Political and Diplomatic at the bottom right, under the advisor's button, or in Settings, Map: every country, and the ground taken on a battlefield, takes the colour of where it stands with you.",
           "A legend beside the switch says what each colour means.",
           "Settings has a Sound page for the music, its volume and the sound effects.",
           "Dragging the map glides more smoothly, and the map no longer stays stuck on loading when a tile server stalls.",
