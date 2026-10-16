@@ -1,0 +1,37 @@
+# Subscription agents answer through the game, and only the player starts them
+
+Players want to play on the subscription they already pay for (Claude Pro/Max, ChatGPT Plus/Pro, Google AI Pro) instead of an API key, and free Gemini keys are running out sooner and are busier than they were. API keys stay the primary way to play; this adds a second way on desktop.
+
+An **Agent Connection** is a new kind of Connection. It sits in the Fallback list like any other, but nothing is sent to a provider from the browser: the game puts the request it built into the **Agent queue** on the local server and waits for an **Agent** to answer it. The game then checks and applies the answer exactly as it applies one from an API, so validation, salvage, the application receipt, rollback snapshots and the staged reveal all still run. **The agent never writes the save.** `world.json` and its siblings are written by the game alone.
+
+There is one way an Agent Connection is answered, the same for every subscription: the player opens their own Claude Code, Codex or Antigravity CLI in the **Agent folder** the install ships, and types `/skip`. The folder carries the instructions (`AGENTS.md`, with `CLAUDE.md` importing it), a `/skip` skill and an MCP server that lists, reads and answers the queue. The agent hands each request to a fresh sub-agent, which reads the prompt from a file and writes the answer back. Claude Code does this today; whether Codex and Antigravity CLI do it the same way is checked when the folder is built, and an Agent without sub-agents answers in its own session.
+
+This is recorded because it draws a line other features will be tempted to cross: **the game never starts an Agent (`claude`, `codex`, `agy`), never reads its credentials, never turns a subscription into an endpoint the game calls, and never documents a way for an Agent to pick requests up by itself.** Crossing it is what gets players' accounts suspended.
+
+## The terms this follows (as of September 2026)
+
+- **Anthropic** does not permit third-party developers "to route requests through Free, Pro, or Max plan credentials on behalf of their users", and has enforced this since April 2026. It does not prevent "an end user from signing in to the unmodified Claude Code binary with their own Claude subscription". (`code.claude.com/docs/en/legal-and-compliance`)
+- **Google** stopped serving Gemini CLI for consumer tiers on 2026-06-18 and moved them to Antigravity. It permanently suspended AI Pro and Ultra accounts whose sign-in was used by third-party tools, without refunds, and treats accessing the service through third-party software as a violation.
+- **OpenAI** has publicly welcomed players using their ChatGPT account in open-source tools they sign in to themselves (Tibo Sottiaux on X; the Codex for Open Source page). It also said in August 2026 that "converting a subscription into api traffic" is unsupported and flagged by its fraud checks, and its Terms of Use forbid any "automated or programmatic method to extract data or Output" outside the API. None of the welcome is contractual.
+
+These change. Check all three before each release that touches this.
+
+## Considered Options
+
+- **The agent edits the save files directly.** Rejected. The turn's rules live in the browser (`gameplay.js`); an agent would have to reimplement them, `saveGame` writes `world` whole and would overwrite the agent's edit or be overwritten by it, the running game sees an outside edit only on the 60-second backstop (`runtimeStore.js`), and the web and Android builds have no files at all.
+- **A headless bridge: the local server runs `claude -p`, `codex exec` or `agy -p` for each request and offers it to the game as an "OpenAI Compatible" endpoint, so the time-skip button works as with a key.** Rejected for every provider. For Claude and Gemini it is the game routing requests through the player's subscription on their behalf, which Anthropic's terms forbid and Google suspended accounts for. For Codex it was first chosen, as OpenAI is the most open of the three, then dropped: it turns a subscription into API traffic, the pattern OpenAI says its fraud checks flag, and it extracts Output programmatically outside the API. One player pressing the button does not change what the traffic looks like.
+- **Automatic pickup through a Claude Code channel, `/loop`, or any Agent's scheduler.** Rejected for now. It turns the player's Agent into the game's inference backend, which is a grey area under all three providers' terms. Custom channels are also a research preview that needs `--dangerously-load-development-channels`.
+- **Time out and fall through to the next entry.** Rejected. The player put the agent there to avoid spending their API allowance; a skip that quietly moves to Gemini after a few minutes spends it anyway. An Agent Connection waits until it is answered or the player cancels, and cancelling cancels the call, not the entry.
+- **A separate "agent mode" switch outside the Fallback list.** Rejected, per ADR 0002: the list is the only place that decides who answers a call.
+- **Hand the prompt over in the MCP tool's result.** Rejected. A time skip is about 47,000 tokens and Claude Code caps an MCP result at 25,000 by default, so the prompt is a file in the Agent folder and the tool returns its path.
+
+## Consequences
+
+- An Agent Connection names the tasks it may answer. It starts with the tasks a time skip spends requests on (`SKIP_SPENDERS` in `requestBudget.js`: the jump with its retries and lookups, the turn review, history consolidation, stat sheets and institution ballots); every other task is passed over through the runner's existing `canAttempt(entry)` without a request, so the advisor and diplomacy chats keep using the key below it. Adding the advisor or background diplomacy later is adding task keys, not a new mechanism.
+- Background AI does not use an Agent Connection. Nobody is at the terminal to answer it.
+- Waiting on an agent is not a failure: it leaves no Busy, Rate limited or Spent mark, and it never ends by itself.
+- Desktop only. The queue lives on the local server, so the web build and the Android app do not offer the Connection kind.
+- The queue is in memory. A reload drops what is waiting, as it drops a skip waiting on an API.
+- Each request is answered by a fresh sub-agent, so the player's own session grows by a few lines per skip rather than by the prompt. The player does not need a new session per skip, and `/clear` loses nothing, since the game holds the state.
+- `/skip` with nothing in the Agent queue tells the player "No time skip is pending" and stops. It never waits for one: waiting is the first step of an Agent that picks requests up by itself.
+- The sub-agent's model and effort are the player's, chosen where they already choose them (`/model` and `/effort` in Claude Code, the model picker in the desktop app, the model setting in Codex and Antigravity CLI). The sub-agent definition in the Agent folder sets neither, so both are inherited from the player's session. The game offers no second place to set them.
