@@ -4,7 +4,7 @@
 // (notes.js). Everything a banner says comes
 // from the banner, so the words stay in one place; what is here is how it
 // looks. A theme may draw several kinds of page, told apart by `banner.scene`
-// (WarsAndFronts2.jsx draws three). The notice around it (UpdateNotice.jsx)
+// (WarsAndFronts2.jsx draws two). The notice around it (UpdateNotice.jsx)
 // draws the arrows between pages and the button: a theme draws only its page.
 //
 // The kit (updateKit.jsx) has the Plate, Brackets, the Emblem, Rules,

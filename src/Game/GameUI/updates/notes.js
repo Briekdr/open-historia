@@ -131,31 +131,6 @@ const NEW_UPDATES = [
       },
       {
         theme: "warsAndFronts2",
-        scene: "weather",
-        title: "Seasons and Weather",
-        subtitle: "The ground fights back",
-        lead: "The world has climates now. Every front lives through its seasons, and the weather decides as much as the generals do.",
-        sections: [
-          {
-            heading: "Climate zones",
-            icon: "map",
-            items: [
-              "Seasons and weather follow climate zones drawn across the world, and clear skies are the commonest of all.",
-              "Mud, snow, storms and heat slow, blunt and wear armies down.",
-            ],
-          },
-          {
-            heading: "Ice and ground",
-            icon: "snow",
-            items: [
-              "Lakes and seas can freeze hard enough to cross, and thaw under those still on them.",
-              "Rough ground slows an advance.",
-            ],
-          },
-        ],
-      },
-      {
-        theme: "warsAndFronts2",
         scene: "commander",
         title: "A Commander Worth Fearing",
         subtitle: "It thinks days ahead",
@@ -197,6 +172,49 @@ const NEW_UPDATES = [
           },
         ],
         button: "To the front",
+      },
+    ],
+  },
+  {
+    // An update of its own, with its own look: "have the weather update have its own custom major update post rather
+    // than being on the main wars and fronts post" (the owner, 2026-10-16).
+    id: "2026-10-seasons-and-weather",
+    kind: "major",
+    date: "2026-10-16",
+    banners: [
+      {
+        theme: "seasonsAndWeather",
+        title: "Seasons and Weather",
+        subtitle: "The ground fights back",
+        lead: "The world has climates now. Every front lives through its seasons, and the weather decides as much as the generals do.",
+        sections: [
+          {
+            heading: "Climate zones",
+            icon: "map",
+            items: [
+              "Seasons and weather follow climate zones drawn across the world: the real world's on the built-in maps, or a scenario's own.",
+              "Clear skies are the commonest weather of all.",
+            ],
+          },
+          {
+            heading: "Weather that fights",
+            icon: "rain",
+            items: [
+              "Rain, storms, mud, snow, blizzards, frost, heat and fog slow armies, blunt attacks and wear troops down.",
+              "The weather is drawn on the map in each zone's own shape, at every zoom; Settings has a switch for it.",
+              "Your advisor knows the season and the weather.",
+            ],
+          },
+          {
+            heading: "Ice and ground",
+            icon: "snow",
+            items: [
+              "Lakes and seas can freeze hard enough to cross, and thaw under those still on them.",
+              "Rough ground slows an advance.",
+            ],
+          },
+        ],
+        button: "Into the weather",
       },
     ],
   },

@@ -18,10 +18,12 @@ import { lazy } from "react";
 
 import { CHRONICLE_CHROME } from "./chronicleChrome.js";
 import { MUSIC_CHROME } from "./musicChrome.js";
+import { SEASONS_CHROME } from "./seasonsChrome.js";
 import { WARS_AND_FRONTS_2_CHROME } from "./warsAndFronts2Chrome.js";
 
 export const THEMES = Object.freeze({
   warsAndFronts2: { Page: lazy(() => import("./WarsAndFronts2.jsx")), chrome: WARS_AND_FRONTS_2_CHROME },
+  seasonsAndWeather: { Page: lazy(() => import("./SeasonsAndWeather.jsx")), chrome: SEASONS_CHROME },
   music: { Page: lazy(() => import("./Music.jsx")), chrome: MUSIC_CHROME },
   chronicle: { Page: lazy(() => import("./Chronicle.jsx")), chrome: CHRONICLE_CHROME },
 });

@@ -1,15 +1,12 @@
 /*! Open Historia — Wars and Fronts Part Two: its banners behind the vault door © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 // The update's own look: the war room's, plate steel held by rivets, brass and
 // stencilled capitals, a red stamp; and on each page a small battlefield that
-// moves, drawn in flat shapes (nothing is a gradient, nothing purple). Three
+// moves, drawn in flat shapes (nothing is a gradient, nothing purple). Two
 // scenes, one a banner (notes.js `scene`):
 //
 //   front       the line: a front drawn in red, an arrow of advance, counters
 //               moving up, aircraft crossing, a ship at sea, guns firing, a
 //               fortified line, frost in a corner
-//   weather     the seasons: snow falling on a frozen lake under mountains,
-//               rain across the middle, the sun and its heat on the right, a
-//               zone's border drawn between them
 //   commander   the staff that looks ahead: from its headquarters a dozen plans
 //               drawn faint one after another, then the one it chose in brass
 //
@@ -91,41 +88,6 @@ const Front = ({ still }) => (
   </svg>
 );
 
-const Weather = ({ still }) => (
-  <svg className="oh-upd-svg" preserveAspectRatio="xMidYMid slice" style={{ display: "block", height: "100%", width: "100%" }} viewBox="0 0 800 180">
-    <rect fill="#1d2329" height="180" width="800" />
-    {/* Winter on the left: mountains, a frozen lake, snow. */}
-    <path d="M0 130 L60 70 L100 100 L150 40 L210 110 L270 80 L320 130 Z" fill="#39414a" />
-    <path d="M150 40 L168 62 L156 58 L146 66 L136 58 Z M60 70 L72 84 L58 80 Z" fill={BONE} opacity="0.85" />
-    <rect fill="#2a3138" height="50" width="800" y="130" />
-    <ellipse cx="170" cy="152" fill="#cfe3ef" opacity="0.32" rx="120" ry="16" />
-    <path d="M90 152 l30 -6 18 8 26 -10 M180 150 l22 5 30 -8 M130 160 l20 -4" fill="none" stroke={BONE} strokeWidth="0.9" opacity="0.55" />
-    {Array.from({ length: 34 }, (_, at) => (
-      <circle cx={8 + ((at * 53) % 320)} cy={-6} fill={BONE} key={at} r={at % 4 === 0 ? 2 : 1.3} style={still ? { transform: `translateY(${20 + ((at * 41) % 120)}px)` } : { "--oh-upd-fall": "190px", ...forever(still, "ohUpdFall", 3200 + (at % 6) * 450, (at * 230) % 3600) }} />
-    ))}
-    {/* Rain across the middle. */}
-    {Array.from({ length: 26 }, (_, at) => (
-      <line key={at} stroke="#9fb3c4" strokeWidth="1.2" style={still ? { transform: `translateY(${20 + ((at * 37) % 120)}px)` } : { "--oh-upd-fall": "200px", ...forever(still, "ohUpdFall", 900 + (at % 5) * 120, (at * 97) % 1000) }} x1={350 + ((at * 29) % 170)} x2={344 + ((at * 29) % 170)} y1={-10} y2={4} />
-    ))}
-    <g style={carried(still, -40, 40, 14000, 0, true)}>
-      <rect fill="#4b5560" height="22" rx="11" width="120" x="360" y="14" />
-      <rect fill="#4b5560" height="18" rx="9" width="80" x="400" y="2" />
-    </g>
-    {/* Summer on the right: the sun and the heat off the ground. */}
-    <circle cx="690" cy="52" fill={AMBER} r="26" style={forever(still, "ohUpdPulse", 3000, 0, "cubic-bezier(0.4, 0, 0.6, 1)")} />
-    {Array.from({ length: 12 }, (_, at) => {
-      const turn = (at * Math.PI) / 6;
-      return <line key={at} stroke={AMBER} strokeWidth="2" x1={690 + Math.cos(turn) * 34} x2={690 + Math.cos(turn) * 44} y1={52 + Math.sin(turn) * 34} y2={52 + Math.sin(turn) * 44} />;
-    })}
-    {[0, 1, 2].map((at) => (
-      <path d={`M${590 + at * 50} 150 q8 -8 0 -16 q-8 -8 0 -16`} fill="none" key={at} stroke={AMBER} strokeWidth="1.6" opacity="0.7" style={forever(still, "ohUpdSway", 1800, at * 300, "cubic-bezier(0.4, 0, 0.6, 1)")} />
-    ))}
-    {/* The borders of climate zones, drawn as they curve. */}
-    <path d="M330 0 C350 40 310 90 340 130 S330 170 335 180" fill="none" stroke={BONE} strokeDasharray="6 6" strokeWidth="1.5" opacity="0.5" />
-    <path d="M540 0 C520 50 560 100 530 140 S545 170 540 180" fill="none" stroke={BONE} strokeDasharray="6 6" strokeWidth="1.5" opacity="0.5" />
-  </svg>
-);
-
 // From the headquarters: the plans it weighs, faint, one after another; then the one it chose.
 const PLANS = [[420, 26], [470, 70], [455, 118], [380, 160], [300, 20], [520, 150], [360, 96]];
 const Commander = ({ still }) => (
@@ -151,7 +113,8 @@ const Commander = ({ still }) => (
   </svg>
 );
 
-const SCENES = { front: Front, weather: Weather, commander: Commander };
+// (The seasons and the weather have an update and a look of their own: SeasonsAndWeather.jsx.)
+const SCENES = { front: Front, commander: Commander };
 
 const WarsAndFronts2 = ({ banner, update }) => {
   const still = useStill();
