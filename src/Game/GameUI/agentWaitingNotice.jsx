@@ -32,17 +32,18 @@ const noticeStyle = {
   display: "flex",
   alignItems: "center",
   flexWrap: "wrap",
-  gap: "0.4rem 0.6rem",
-  maxWidth: "min(40rem, calc(100vw - 2rem))",
-  padding: "0.45rem 0.7rem",
+  gap: "0.5rem 0.7rem",
+  maxWidth: "min(42rem, calc(100vw - 2rem))",
+  padding: "0.6rem 0.85rem",
   borderRadius: "12px",
-  border: "1px solid rgba(251,191,36,0.32)",
+  // The colours of the game's other notices (fallbackSwitchNotice.jsx).
+  border: "1px solid rgba(96,165,250,0.32)",
   backgroundColor: "rgba(16,21,24,0.96)",
   boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
-  color: "#fef3c7",
+  color: "#dbeafe",
   fontFamily: "sans-serif",
-  fontSize: "0.74rem",
-  lineHeight: 1.4,
+  fontSize: "0.8rem",
+  lineHeight: 1.45,
   pointerEvents: "auto",
 };
 
@@ -55,8 +56,8 @@ export const AGENT_BUTTON_STYLE = {
   borderRadius: "8px",
   color: "white",
   cursor: "pointer",
-  fontSize: "0.7rem",
-  padding: "0.2rem 0.6rem",
+  fontSize: "0.74rem",
+  padding: "0.28rem 0.7rem",
   whiteSpace: "nowrap",
 };
 
@@ -74,7 +75,7 @@ export const AgentWaitingNotice = () => {
   const canPassOn = agentHasEntryBelow();
   return (
     <div role="status" aria-live="polite" style={{ ...noticeStyle, ...(isMobile ? phoneNoticeStyle : null) }}>
-      <span aria-hidden="true" style={{ color: "#fbbf24", fontWeight: 800 }}>⏳</span>
+      <span aria-hidden="true" style={{ color: "#93c5fd", fontWeight: 800 }}>⏳</span>
       <span style={{ display: "flex", flexDirection: "column", flex: "1 1 14rem", minWidth: 0 }}>
         {kinds.map((kind) => <span key={kind}>{WAITING_TEXTS[kind]}</span>)}
       </span>
