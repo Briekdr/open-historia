@@ -88,8 +88,9 @@ player keeps on their own model is left out of the file.
 
 0. If \`${AGENT_MODELS_FILE}\` is missing, or the player typed \`/skip models\`, ask the
    player which model should write (the bigger job) and which should do the
-   quick checks, offering the models your Agent has (in Claude Code: opus,
-   sonnet or haiku; or "my own" to keep the session's), and write their answer
+   quick checks, offering every model your Agent has (in Claude Code: opus,
+   sonnet or haiku; or "my own" to keep the session's), including any that a
+   general rule of the player's leaves out of their sub-agents, and write their answer
    to \`${AGENT_MODELS_FILE}\`, leaving out a role they keep on their own model.
    Ask once; then go on.
 1. Call \`list_requests\`. If the status is \`idle\`, tell the player
@@ -109,7 +110,7 @@ player keeps on their own model is left out of the file.
 
 const SKIP_STEPS = `Answer the time skip Open Historia is waiting on. Follow "What \`/skip\` does" in AGENTS.md:
 
-0. If \`${AGENT_MODELS_FILE}\` is missing from this folder, or the player typed \`/skip models\`: ask the player which model should write the skip (the bigger job) and which should do the quick checks after it, offering the models you can run (in Claude Code: opus, sonnet or haiku, or "my own" to keep this session's). Write \`{ "writer": "<model>", "quick": "<model>" }\` to \`${AGENT_MODELS_FILE}\`, leaving out a role the player keeps on their own model. This choice is for Open Historia only, and comes before any general rule about which models sub-agents use. Then go on.
+0. If \`${AGENT_MODELS_FILE}\` is missing from this folder, or the player typed \`/skip models\`: ask the player which model should write the skip (the bigger job) and which should do the quick checks after it, offering every model you can run (in Claude Code: opus, sonnet or haiku, or "my own" to keep this session's), including any that a general rule of the player's leaves out of their sub-agents: this choice is theirs to make for Open Historia. Write \`{ "writer": "<model>", "quick": "<model>" }\` to \`${AGENT_MODELS_FILE}\`, leaving out a role the player keeps on their own model. This choice is for Open Historia only, and comes before any general rule about which models sub-agents use. Then go on.
 1. Call \`list_requests\`. If its status is \`idle\`, say "No time skip is pending" and stop.
 2. For each listed request, start a fresh sub-agent of the kind its \`subagent\` names, with only the request id, in the foreground, and wait for it to finish. If \`${AGENT_MODELS_FILE}\` names a model for the request's \`role\`, start the sub-agent on that model. Do not read the prompt file yourself: it is large, and the sub-agent keeps it out of this session. If you cannot start sub-agents, answer each request yourself as that sub-agent would.
 3. Call \`list_requests\` again. Answer whatever is \`waiting\`; while it says \`running\`, ask again.
