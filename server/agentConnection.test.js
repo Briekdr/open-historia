@@ -94,7 +94,7 @@ const game = (port) => {
   return {
     openSkip: (skipId) => call("POST", "/api/agent/skips", { skipId }),
     finishSkip: (skipId) => call("DELETE", `/api/agent/skips/${encodeURIComponent(skipId)}`),
-    ask: (skipId, task, prompt, lookupTools) => call("POST", "/api/agent/requests", { skipId, task, system: "You write history.", prompt, ...(lookupTools ? { lookupTools } : {}) }),
+    ask: (skipId, task, prompt, lookupTools) => call("POST", "/api/agent/requests", { ...(skipId ? { skipId } : {}), task, system: "You write history.", prompt, ...(lookupTools ? { lookupTools } : {}) }),
     answerLookup: (id, callId, result) => call("POST", `/api/agent/requests/${encodeURIComponent(id)}/lookups/${encodeURIComponent(callId)}`, { result }),
     poll: (id, waitMs = 0) => call("GET", `/api/agent/requests/${encodeURIComponent(id)}?waitMs=${waitMs}`),
     cancel: (id) => call("DELETE", `/api/agent/requests/${encodeURIComponent(id)}`),
@@ -139,7 +139,7 @@ describe("Agent folder", () => {
     assert.ok(existsSync(path.join(folder, ".claude", "skills", "skip", "SKILL.md")), "the /skip skill");
     // Until the player picks models for Open Historia, both sub-agents inherit
     // the player's own model and effort: the definitions set neither.
-    for (const name of ["skip-writer", "skip-quick"]) {
+    for (const name of ["skip-writer", "skip-quick", "chat-writer"]) {
       const subAgent = readFileSync(path.join(folder, ".claude", "agents", `${name}.md`), "utf8");
       assert.doesNotMatch(subAgent, /^model:/m, name);
       assert.doesNotMatch(subAgent, /^effort:/m, name);
@@ -169,6 +169,7 @@ describe("Agent folder", () => {
     await startServer(dataDir);
     assert.match(readFileSync(path.join(folder, ".claude", "agents", "skip-writer.md"), "utf8"), /^model: sonnet$/m);
     assert.match(readFileSync(path.join(folder, ".claude", "agents", "skip-quick.md"), "utf8"), /^model: haiku$/m);
+    assert.match(readFileSync(path.join(folder, ".claude", "agents", "chat-writer.md"), "utf8"), /^model: haiku$/m, "chat replies use the quick model unless named");
     assert.deepEqual(JSON.parse(readFileSync(path.join(folder, "models.json"), "utf8")), { writer: "sonnet", quick: "haiku" });
   });
 
@@ -252,7 +253,7 @@ describe("Agent MCP server", () => {
     const startedAt = Date.now();
     const listed = await agent(mcpSettings(dataDir)).tool("list_requests");
     assert.equal(listed.status, "idle");
-    assert.equal(listed.message, "No time skip is pending.");
+    assert.equal(listed.message, "Nothing is waiting.");
     assert.ok(Date.now() - startedAt < 300, "an idle list must answer at once");
   });
 
@@ -362,7 +363,7 @@ describe("Agent MCP server", () => {
     await side.finishSkip("skip-1");
     const done = await client.tool("list_requests");
     assert.equal(done.status, "idle");
-    assert.equal(done.message, "No time skip is pending.");
+    assert.equal(done.message, "Nothing is waiting.");
   });
 
   test("opening a new skip drops what an earlier one left waiting, as a reload does", async () => {
@@ -447,15 +448,48 @@ describe("Agent MCP server", () => {
     assert.match(looked.refused, /again/);
   });
 
+  test("a chat the player started is queued without a skip, listed oldest first, and listing does not wait", async () => {
+    const dataDir = newDataDir();
+    const { port } = await startServer(dataDir);
+    const side = game(port);
+    const client = agent(mcpSettings(dataDir));
+
+    const first = await side.ask(null, "diplomacy", "France writes back.");
+    const second = await side.ask(null, "advisor", "The advisor answers.");
+    const startedAt = Date.now();
+    const listed = await client.tool("list_requests");
+    assert.ok(Date.now() - startedAt < 300, "nothing open to wait for: answer at once");
+    assert.equal(listed.status, "waiting");
+    assert.deepEqual(listed.requests.map((entry) => [entry.id, entry.task, entry.role, entry.subagent]), [
+      [first.id, "diplomacy", "chat", "chat-writer"],
+      [second.id, "advisor", "chat", "chat-writer"],
+    ]);
+    await client.tool("answer_request", { id: first.id, text: "Mon ami." });
+    assert.equal((await side.poll(first.id)).answer, "Mon ami.");
+  });
+
+  test("a skip that finishes leaves the player's waiting chats alone", async () => {
+    const dataDir = newDataDir();
+    const { port } = await startServer(dataDir);
+    const side = game(port);
+    await side.openSkip("skip-1");
+    const chat = await side.ask(null, "advisor", "Advise me.");
+    await side.finishSkip("skip-1");
+    await side.openSkip("skip-2");
+    assert.equal((await side.poll(chat.id)).state, "waiting");
+  });
+
   test("a page that loads afresh drops the skip an earlier page left open", async () => {
     const dataDir = newDataDir();
     const { port } = await startServer(dataDir);
     const side = game(port);
     await side.openSkip("skip-1");
     const old = await side.ask("skip-1", "jump", "Go.");
+    const oldChat = await side.ask(null, "advisor", "Advise me.");
     const dropped = await fetch(`http://127.0.0.1:${port}/api/agent/skips`, { method: "DELETE", headers: { Origin: `http://127.0.0.1:${port}` } });
     assert.equal(dropped.status, 200);
     assert.equal((await side.poll(old.id)).state, "cancelled");
+    assert.equal((await side.poll(oldChat.id)).state, "cancelled", "its chats too");
     assert.equal((await agent(mcpSettings(dataDir)).tool("list_requests")).status, "idle");
   });
 

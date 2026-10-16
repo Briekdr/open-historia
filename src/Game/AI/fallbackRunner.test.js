@@ -610,3 +610,19 @@ test("an answer from an Agent entry comes back as from any other entry", async (
     assert.equal(outcome.entry.id, "agent");
     assert.deepEqual(outcome.result, { rawText: "{\"events\":[]}", toolInput: null });
 });
+
+test("an Agent call the player passes on (Use API key) goes to the next entry, with no mark and no notice", async () => {
+    const store = createMemoryStateStore();
+    const marks = [];
+    const switches = [];
+    const { attempt, tried } = scripted({ agent: fail("passedOn", { reason: "the player chose their API key" }) });
+    const outcome = await runWithFallback({
+        entries: [agentEntry(), entry("key")], store, now: () => 0, attempt, serves: () => true,
+        onMark: (mark) => marks.push(mark), onSwitch: (detail) => switches.push(detail),
+    });
+    assert.equal(outcome.entry.id, "key");
+    assert.deepEqual(tried, ["agent", "key"]);
+    assert.equal(entryStatus(store.get("agent"), 1).status, "ready");
+    assert.deepEqual(marks, []);
+    assert.deepEqual(switches, []);
+});

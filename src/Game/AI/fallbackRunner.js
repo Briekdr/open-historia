@@ -278,6 +278,13 @@ export async function runWithFallback({
             return { result, entry: candidate };
         } catch (error) {
             const failure = error?.providerFailure;
+            // The player sent a request waiting on their own Agent on to the
+            // next entry (Use API key, ADR 0008). Nothing failed: no mark, no
+            // notice, just the next entry.
+            if (failure?.kind === "passedOn") {
+                lastError = error;
+                continue;
+            }
             // The model refused the request as too big for its window. Not a
             // mark on the entry (the next request may fit), but a reason to try
             // the next entry, whose window may be larger.

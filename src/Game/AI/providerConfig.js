@@ -77,13 +77,17 @@ export const PROVIDER_OPTIONS = [
         value: AGENT_PROVIDER,
         label: "Your own Agent",
         group: "Your subscription",
-        description: "Claude Code, Codex or Antigravity CLI answers time skips when you type /skip",
-        searchTerms: ["claude code", "codex", "antigravity", "subscription", "pro", "max", "plus", "/skip", "agent"],
+        description: "Claude Code, Codex or Antigravity CLI answers what you start when you type /answer",
+        searchTerms: ["claude code", "codex", "antigravity", "subscription", "pro", "max", "plus", "/answer", "/skip", "agent"],
     },
 ];
 
-// The tasks an Agent Connection answers: what a time skip spends requests on.
-export const AGENT_DEFAULT_TASKS = Object.freeze([...SKIP_SPENDERS]);
+// What an Agent Connection may answer: the kinds of request the player starts
+// (ADR 0008). A time skip, with what the game does right after it; the
+// advisor; replies to the player's diplomatic messages; Game Master commands;
+// interactive events. The player ticks which on the entry; all are ticked
+// when it is added.
+export const AGENT_KINDS = Object.freeze(["skip", "advisor", "diplomacy", "gameMaster", "interactive"]);
 
 // The provider choices a build can offer. Without a local server (the web
 // build, the Android app) an Agent Connection could never be answered.
@@ -91,16 +95,18 @@ export const providerOptionsFor = ({ localServer }) =>
     PROVIDER_OPTIONS.filter((option) => localServer || option.value !== AGENT_PROVIDER);
 
 // Whether an entry answers this call at all (fallbackRunner `serves`). An Agent
-// entry answers a player's time-skip calls of the tasks it names, retries and
-// lookups counted as their task; a call with no spender is outside a time skip
-// (an advisor or diplomacy chat), background AI has nobody at the terminal,
-// and a shared game's round must not wait on one player's terminal (not in
-// this first version). Every other entry answers every call.
-export function entryServesCall(entry, { spender = "", requestKind = "", sharedGame = false } = {}) {
+// entry answers only what the player started, of a kind it ticks, while it is
+// not paused. A call says the player started it with `agentKind`, or with the
+// time skip's `spender`; one that says neither (the game's own work, and every
+// background call) never waits on a terminal nobody may be at. Nor does a
+// shared game's round. Every other entry answers every call.
+export function entryServesCall(entry, { agentKind = "", spender = "", requestKind = "", sharedGame = false } = {}) {
     if (entry?.provider !== AGENT_PROVIDER) return true;
-    if (!spender || requestKind === BACKGROUND_REQUEST || sharedGame) return false;
-    const tasks = Array.isArray(entry.tasks) ? entry.tasks : AGENT_DEFAULT_TASKS;
-    return tasks.includes(spenderBase(spender));
+    if (entry.paused === true || requestKind === BACKGROUND_REQUEST || sharedGame) return false;
+    const kind = agentKind || (spender && SKIP_SPENDERS.includes(spenderBase(spender)) ? "skip" : "");
+    if (!kind) return false;
+    const kinds = Array.isArray(entry.kinds) ? entry.kinds : AGENT_KINDS;
+    return kinds.includes(kind);
 }
 
 const PROVIDER_SETTINGS = {
@@ -396,12 +402,9 @@ const writeJsonSetting = (key, value) => {
     localStorage.setItem(key, JSON.stringify(value));
 };
 
-// The tasks an Agent Connection names: only time-skip tasks, and all of them
-// when it names none.
-const agentTasks = (tasks) => {
-    const named = Array.isArray(tasks) ? tasks.map(String).filter((task) => AGENT_DEFAULT_TASKS.includes(task)) : [];
-    return named.length ? [...new Set(named)] : [...AGENT_DEFAULT_TASKS];
-};
+// The kinds an Agent Connection ticks, in AGENT_KINDS order. One saved before
+// there were kinds (it named time-skip tasks) answers every kind, as a new one does.
+const agentKinds = (kinds) => (Array.isArray(kinds) ? AGENT_KINDS.filter((kind) => kinds.includes(kind)) : [...AGENT_KINDS]);
 
 // Names and models are stored as typed — the Settings fields save on every
 // keystroke — and trimmed where they are used.
@@ -414,7 +417,7 @@ const normalizeConnection = (connection) => ({
     customParams: String(connection?.customParams ?? ""),
     toolStrict: connection?.toolStrict === true,
     suggestedModel: String(connection?.suggestedModel ?? ""),
-    ...(normalizeProvider(connection?.provider) === AGENT_PROVIDER ? { tasks: agentTasks(connection?.tasks) } : {}),
+    ...(normalizeProvider(connection?.provider) === AGENT_PROVIDER ? { kinds: agentKinds(connection?.kinds), paused: connection?.paused === true } : {}),
 });
 
 const normalizeEntry = (entry) => ({
@@ -651,7 +654,7 @@ const resolveEntry = (entry, connectionsById) => {
         structuredMode: entry.structuredMode,
         toolStrict: connection.toolStrict,
         label: describeEntry(model, connectionDisplayName(connection)),
-        ...(connection.provider === AGENT_PROVIDER ? { tasks: connection.tasks } : {}),
+        ...(connection.provider === AGENT_PROVIDER ? { kinds: connection.kinds, paused: connection.paused } : {}),
     };
 };
 

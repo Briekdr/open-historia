@@ -1536,9 +1536,9 @@ app.post("/api/agent/skips", agentLocalOnly, jsonParser, (req, res) => {
   res.json({ skipId: agentQueue.openSkip(req.body?.skipId) });
 });
 
-// A page that loads afresh: the skip an earlier page left open is over.
+// A page that loads afresh: whatever an earlier page left waiting is over.
 app.delete("/api/agent/skips", agentLocalOnly, (_req, res) => {
-  agentQueue.finishOpenSkip();
+  agentQueue.dropAll();
   res.json({ ok: true });
 });
 

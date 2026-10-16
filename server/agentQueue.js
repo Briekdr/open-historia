@@ -5,8 +5,11 @@
 // (docs/adr/0008-subscription-agents-answer-through-the-game.md).
 //
 // In memory only: a restart drops it, as a reload drops a skip waiting on an
-// API. One time skip is open at a time; opening the next one cancels whatever
-// the last left waiting, which is how a reloaded page's requests go away.
+// API. It holds what the player started: a time skip's requests, under the
+// skip, and the chats they sent (the advisor, diplomacy, the Game Master,
+// interactive events), under none. One time skip is open at a time; opening
+// the next cancels what the last left waiting. A page that loads afresh drops
+// everything (dropAll).
 //
 // A request's prompt is a file in the Agent folder, not a tool result: a skip
 // prompt is far larger than an Agent's limit on one MCP result. The file is
@@ -15,7 +18,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
-export const NO_SKIP_PENDING = "No time skip is pending.";
+export const NOTHING_WAITING = "Nothing is waiting.";
 export const SKIP_STILL_RUNNING = "The time skip is still running. Call list_requests again.";
 export const LOOKUP_NOT_ANSWERED = "The game did not answer that lookup in time. Ask it again.";
 export const NOT_WAITING = "That request is not waiting for an answer.";
@@ -93,7 +96,9 @@ export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, log = () => {
       settle(waiters);
     },
 
-    finishOpenSkip() {
+    // A page that loads afresh: nothing an earlier page started is running.
+    dropAll() {
+      for (const request of requests.values()) close(request, "cancelled");
       if (openSkip) this.finishSkip(openSkip);
     },
 
@@ -113,7 +118,7 @@ export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, log = () => {
         .filter((tool) => tool && typeof tool.name === "string" && tool.name)
         .map(({ name, description = "", schema = { type: "object" } }) => ({ name, description: String(description), schema }));
       const request = {
-        id, skipId: String(skipId || openSkip || ""), task: String(task || ""), dir, promptFile, answerFile,
+        id, skipId: String(skipId || ""), task: String(task || ""), dir, promptFile, answerFile,
         state: "waiting", read: false, lookupTools: offered, lookups: new Map(),
       };
       requests.set(id, request);
@@ -180,16 +185,16 @@ export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, log = () => {
       return request ? close(request, "cancelled") : false;
     },
 
-    // The Agent's "what next?". Waiting requests it has not read yet; while a
-    // skip is open with nothing to answer, waits for one up to `waitMs` and
-    // then says "still running". With no skip open it answers at once: it
-    // never waits for a skip the player has not started.
+    // The Agent's "what next?". Waiting requests it has not read yet, oldest
+    // first; while a skip is open with nothing to answer, waits for its next
+    // one up to `waitMs` and then says "still running". With no skip open it
+    // answers at once: it never waits for anything the player has not started.
     async list() {
       const deadline = Date.now() + waitMs;
       for (;;) {
         const fresh = unread();
         if (fresh.length) return { status: "waiting", requests: fresh.map(({ id, task }) => ({ id, task })) };
-        if (!openSkip) return { status: "idle", message: NO_SKIP_PENDING };
+        if (!openSkip) return { status: "idle", message: NOTHING_WAITING };
         if (Date.now() >= deadline) return { status: "running", message: SKIP_STILL_RUNNING };
         await sleepUntilWoken(waiters, deadline - Date.now());
       }
