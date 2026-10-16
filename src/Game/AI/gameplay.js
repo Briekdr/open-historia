@@ -427,7 +427,7 @@ import { MAP_SETTING_KEYS, getMapSetting, getMapSettingDefaultOn } from "../../r
 import { AI_FIRST_BYTE_TIMEOUT_MS, AI_IDLE_TIMEOUT_MS, createIdleDeadline, runWithIdleDeadline } from "./idleDeadline.js";
 import { REPAIR_STOP_TIME_BUDGET, runBoundedRepairCall } from "./repairCall.js";
 import { isDebugLogVerbose, logDebugEvent } from "../../runtime/debugLog.js";
-import { isFallbackListConfigured } from "./providerConfig.js";
+import { agentInFallbackList, isFallbackListConfigured } from "./providerConfig.js";
 import { assertCampaignUnchanged, campaignChanged } from "../../runtime/campaignGuard.js";
 import { HELD_TURN_STALE_NOTE, heldTurnOutdated, mergeActionsAtCommit, restorePointProblem, restorePointsFor, storedActionsForMerge } from "../../runtime/turnCommit.js";
 import { getLibraryState, readGameParkedTurn, removeGameParkedTurn, writeGameParkedTurn } from "../../runtime/library.js";
@@ -1666,7 +1666,12 @@ const abortableWait = (ms, signal) => new Promise((resolve, reject) => {
 // (requestBudget.js, runJsonTask below): two for an ordinary skip, so the skip
 // is three requests at most, and that function calling is the only thing that
 // makes it more than one.
-const lookupFunctionsEnabled = () => !savingRequests() && getMapSettingDefaultOn(MAP_SETTING_KEYS.lookupFunctions);
+//
+// With the player's own Agent in the Fallback list there are none: an Agent
+// skip is answered from one prompt file that carries everything, as with Save
+// AI requests on (ADR 0008), and the prompt is built before the list picks who
+// answers it.
+const lookupFunctionsEnabled = () => !savingRequests() && getMapSettingDefaultOn(MAP_SETTING_KEYS.lookupFunctions) && !agentInFallbackList();
 
 // audience: who is asking (audience.js). Every task that carries lookups today is
 // the narrator - the jump, the directors, the game master - so that is the
@@ -3783,6 +3788,8 @@ const runJsonTask = async (taskKey, {
           __debugSink: attemptSink,
           ...(requestKind ? { requestKind } : {}),
           ...(typeof onRequest === "function" ? { onRequest } : {}),
+          // What the skip spends on, which is what an Agent entry answers.
+          ...(budget ? { spender: outputAttempt === 1 ? (spender || taskKey) : `${spender || taskKey}Retry` } : {}),
           // The arguments as they assemble (streamAssembly.js). A lookup round's
           // call is ignored by name, so only the answer itself is read.
           ...(eventReader ? {
@@ -17385,6 +17392,7 @@ const runTurnReview = async ({ context, merged, signal, state, sections = null }
       taskKey: TURN_REVIEW_TASK,
       __debug: { taskKey: TURN_REVIEW_TASK, attempt: 1, maxAttempts: 1, simulatedDays: null },
       onRequest: jumpTaskOptions(requests, "review").onRequest,
+      ...(requests ? { spender: "review" } : {}),
     });
     const rawText = typeof response === "string" ? response : normalizeString(response?.rawText);
     answer = response?.toolInput ?? unwrapMimickedToolCall(extractJsonPayload(rawText), tool.name);

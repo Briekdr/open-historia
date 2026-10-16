@@ -24,7 +24,8 @@ import { acceptStructuredModeSuggestion, declineStructuredModeSuggestion, getStr
 import { fallbackStateStore, getResolvedFallbackList } from "../AI/providerConfig.js";
 import { describeUnavailable, fallbackAvailability } from "../AI/fallbackRunner.js";
 import { describeJumpCost, requestDay, savingRequests } from "../AI/requestBudget.js";
-import { describeRequestActivity, formatElapsedClock, requestActivity } from "../AI/requestActivity.js";
+import { REQUEST_AGENT, describeRequestActivity, formatElapsedClock, requestActivity } from "../AI/requestActivity.js";
+import { openAgentFolder } from "../AI/agentConnection.js";
 import { getActivePlayerFocus, useActiveFeatures } from "../../runtime/gameFeatures.js";
 import { logDebugEvent, setDebugLogContext } from "../../runtime/debugLog.js";
 import { useFailureReportButton } from "../../runtime/saveDebugLog.js";
@@ -1182,6 +1183,8 @@ const REQUEST_ACTIVITY_TEXTS = {
     waiting: "Waiting for the model to answer…",
     thinking: "The model is thinking…",
     writing: "The model is writing its answer…",
+    // In the Agent queue (ADR 0008): nothing happens until the player answers.
+    agent: "Waiting for your Agent. Type /skip in your Claude Code, Codex or Antigravity CLI, opened in the Agent folder.",
 };
 // Added once the request has been open a minute: by then a player who does not
 // know a thinking model can take ten is reaching for Cancel.
@@ -1274,6 +1277,26 @@ const SkipProgressRow = ({ label, onCancel, startedAt = 0 }) => {
             <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.72rem", lineHeight: 1.45, textAlign: "center" }}>
             <span>{activity}</span>
             {progress.request.stillWorking && <> <span>{REQUEST_STILL_OPEN_TEXT}</span></>}
+            {progress.request.state === REQUEST_AGENT && (
+                <div style={{ marginTop: "0.35rem" }}>
+                <button
+                type="button"
+                className="oh-tap-row"
+                onClick={() => { void openAgentFolder(); }}
+                style={{
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(255,255,255,0.18)",
+                    borderRadius: "8px",
+                    color: "white",
+                    cursor: "pointer",
+                    fontSize: "0.72rem",
+                    padding: "0.26rem 0.7rem",
+                }}
+                >
+                Open the Agent folder
+                </button>
+                </div>
+            )}
             </div>
         )}
         </div>

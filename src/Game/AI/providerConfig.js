@@ -2,6 +2,7 @@
 import { logDebugEvent, logSettingMessage, setDebugLogContext } from "../../runtime/debugLog.js";
 import { entryStatus } from "./fallbackRunner.js";
 import { FORMER_TASK_KEYS, readUnderTaskKey } from "./formerTaskKeys.js";
+import { BACKGROUND_REQUEST, SKIP_SPENDERS, spenderBase } from "./requestBudget.js";
 
 export const DEFAULT_PROVIDER = "gemini";
 
@@ -66,7 +67,40 @@ export const PROVIDER_OPTIONS = [
         description: "Self-hosted proxy that speaks the Anthropic Messages API",
         searchTerms: ["claude", "anthropic", "messages api", "proxy", "gateway", "self-hosted"],
     },
+    {
+        value: "agent",
+        label: "Your own Agent",
+        group: "Your subscription",
+        description: "Claude Code, Codex or Antigravity CLI answers time skips when you type /skip",
+        searchTerms: ["claude code", "codex", "antigravity", "subscription", "pro", "max", "plus", "/skip", "agent"],
+    },
 ];
+
+// An Agent Connection (docs/adr/0008-subscription-agents-answer-through-the-game.md):
+// answered by the player's own Claude Code, Codex or Antigravity CLI through
+// the local server's Agent queue, never by a provider's API. Desktop only,
+// since the queue lives on the local server.
+export const AGENT_PROVIDER = "agent";
+
+// The tasks an Agent Connection answers: what a time skip spends requests on.
+export const AGENT_DEFAULT_TASKS = Object.freeze([...SKIP_SPENDERS]);
+
+// The provider choices a build can offer. Without a local server (the web
+// build, the Android app) an Agent Connection could never be answered.
+export const providerOptionsFor = ({ localServer }) =>
+    PROVIDER_OPTIONS.filter((option) => localServer || option.value !== AGENT_PROVIDER);
+
+// Whether an entry answers this call at all (fallbackRunner `serves`). An Agent
+// entry answers a player's time-skip calls of the tasks it names, retries and
+// lookups counted as their task; a call with no spender is outside a time skip
+// (an advisor or diplomacy chat), and background AI has nobody at the terminal.
+// Every other entry answers every call.
+export function entryServesCall(entry, { spender = "", requestKind = "" } = {}) {
+    if (entry?.provider !== AGENT_PROVIDER) return true;
+    if (!spender || requestKind === BACKGROUND_REQUEST) return false;
+    const tasks = Array.isArray(entry.tasks) ? entry.tasks : AGENT_DEFAULT_TASKS;
+    return tasks.includes(spenderBase(spender));
+}
 
 const PROVIDER_SETTINGS = {
     gemini: {
@@ -281,6 +315,7 @@ export function syncAiDebugContext() {
 // start prompt asks for it up front instead of letting the first turn fail.
 export function providerSetupRequirement(provider) {
     const normalized = normalizeProvider(provider);
+    if (normalized === AGENT_PROVIDER) return "none";
     return normalized === "openai-compatible" || normalized === "anthropic-compatible" ? "endpoint" : "apiKey";
 }
 
@@ -362,6 +397,11 @@ const writeJsonSetting = (key, value) => {
 
 // Names and models are stored as typed — the Settings fields save on every
 // keystroke — and trimmed where they are used.
+const agentTasks = (tasks) => {
+    const named = Array.isArray(tasks) ? tasks.map(String).filter((task) => AGENT_DEFAULT_TASKS.includes(task)) : [];
+    return named.length ? [...new Set(named)] : [...AGENT_DEFAULT_TASKS];
+};
+
 const normalizeConnection = (connection) => ({
     id: String(connection?.id || newId("conn")),
     provider: normalizeProvider(connection?.provider),
@@ -371,6 +411,7 @@ const normalizeConnection = (connection) => ({
     customParams: String(connection?.customParams ?? ""),
     toolStrict: connection?.toolStrict === true,
     suggestedModel: String(connection?.suggestedModel ?? ""),
+    ...(normalizeProvider(connection?.provider) === AGENT_PROVIDER ? { tasks: agentTasks(connection?.tasks) } : {}),
 });
 
 const normalizeEntry = (entry) => ({
@@ -607,6 +648,7 @@ const resolveEntry = (entry, connectionsById) => {
         structuredMode: entry.structuredMode,
         toolStrict: connection.toolStrict,
         label: describeEntry(model, connectionDisplayName(connection)),
+        ...(connection.provider === AGENT_PROVIDER ? { tasks: connection.tasks } : {}),
     };
 };
 
@@ -619,7 +661,15 @@ export function getResolvedFallbackList() {
 
 // Whether an entry has what its provider needs before a call can go out: a
 // hosted provider its key, a self-hosted one its endpoint.
-const entryIsConfigured = (entry) => String(entry[providerSetupRequirement(entry.provider)] ?? "").trim().length > 0;
+const entryIsConfigured = (entry) => {
+    const requirement = providerSetupRequirement(entry.provider);
+    return requirement === "none" || String(entry[requirement] ?? "").trim().length > 0;
+};
+
+// Whether the player's own Agent is in the list, to answer time skips.
+export function agentInFallbackList() {
+    return getResolvedFallbackList().some((entry) => entry.provider === AGENT_PROVIDER);
+}
 
 export function isFallbackListConfigured() {
     return getResolvedFallbackList().some(entryIsConfigured);

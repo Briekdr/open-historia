@@ -698,3 +698,35 @@ test("the Advisor Report has its own routing row and starts on the stat-sheet pi
   assert.equal(plan.implicit, false);
   assert.equal(config.resolveTaskFallbackEntries("countryStatSheet").preferredEntryId, statSheet, "the stat sheet never inherits back");
 });
+
+// --- an Agent Connection (docs/adr/0008-subscription-agents-answer-through-the-game.md) ---
+
+test("an Agent Connection needs no key, endpoint or model, and answers the time-skip tasks", () => {
+  const connectionId = config.addConnection({ provider: "agent", name: "My Claude" });
+  config.clearFallbackList();
+  config.addEntry({ connectionId });
+  const [row] = resolved();
+  assert.equal(row.provider, "agent");
+  assert.equal(row.connectionName, "My Claude");
+  assert.deepEqual(row.tasks, ["jump", "review", "history", "stats", "institutionBallots"]);
+  assert.equal(config.isFallbackListConfigured(), true, "the start-of-game prompt must not ask for a key");
+  assert.equal(config.providerSetupRequirement("agent"), "none");
+});
+
+test("an Agent entry serves a player's time-skip calls, retries included, and nothing else", () => {
+  const agent = { provider: "agent", tasks: ["jump", "review", "history", "stats", "institutionBallots"] };
+  const serves = (call) => config.entryServesCall(agent, call);
+  assert.equal(serves({ spender: "jump" }), true);
+  assert.equal(serves({ spender: "jumpRetry" }), true);
+  assert.equal(serves({ spender: "institutionBallots" }), true);
+  assert.equal(serves({ spender: "review", requestKind: "player" }), true);
+  assert.equal(serves({}), false, "a call outside a time skip (an advisor or diplomacy chat) has no spender");
+  assert.equal(serves({ spender: "geography" }), false);
+  assert.equal(serves({ spender: "jump", requestKind: "background" }), false, "nobody is at the terminal for background AI");
+  assert.equal(config.entryServesCall({ provider: "gemini" }, {}), true, "every other Connection serves every call");
+});
+
+test("the Agent Connection kind is offered only where a local server runs", () => {
+  assert.equal(config.providerOptionsFor({ localServer: true }).some((option) => option.value === "agent"), true);
+  assert.equal(config.providerOptionsFor({ localServer: false }).some((option) => option.value === "agent"), false);
+});

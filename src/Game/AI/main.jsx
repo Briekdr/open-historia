@@ -1,7 +1,9 @@
 /*! Open Historia — portions (server relay for OpenAI-style APIs + reasoning toggle) © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 import {
+    AGENT_PROVIDER,
     GEMINI_DEFAULT_CHAIN,
     OPENAI_DEFAULT_MODEL,
+    entryServesCall,
     fallbackStateStore,
     getConnections,
     getEntryStatus,
@@ -16,6 +18,12 @@ import {
 import { formatResetTime, runWithFallback } from "./fallbackRunner.js";
 import { BACKGROUND_REQUEST, PLAYER_REQUEST, requestLedger, savingRequests } from "./requestBudget.js";
 import { requestActivity } from "./requestActivity.js";
+import { agentClient } from "./agentConnection.js";
+import { onSimulationsIdle } from "./simulationStatus.js";
+
+// A time skip the player's Agent was answering is over once the game stops
+// simulating, so the Agent's `/skip` stops too (ADR 0008).
+onSimulationsIdle(() => { void agentClient.finishSkip(); });
 import {
     DEFAULT_ANSWER_RESERVE_TOKENS,
     LOCAL_OUTPUT_LIMIT_TOKENS,
@@ -2671,6 +2679,9 @@ async function callAnthropicCompatible(systemPrompt, history, {
 
 function dispatchToProvider(provider, systemPrompt, history, providerOpts) {
     switch (provider) {
+    // The player's own Agent, through the local server's Agent queue (ADR 0008).
+    case AGENT_PROVIDER:
+        return agentClient.call(systemPrompt, history, providerOpts);
     case "openai":
         return callOpenAI(systemPrompt, history, providerOpts);
     case "anthropic":
@@ -2906,9 +2917,11 @@ export async function callAI(systemPrompt, history, opts = {}) {
     // `requestKind` says whether the player asked for this call or the game made
     // it in the background, and `onRequest` lets the caller count along (a time
     // skip reports what it cost): both are for the request budget below.
+    // `spender` is the time-skip task the call spends on (requestBudget.js), set
+    // only inside a skip: it decides whether an Agent entry answers the call.
     const {
         languageMode = "ui", logLabel = "", __debug: debugMeta = null, __debugSink: debugSink = null, lookups = null,
-        requestKind = PLAYER_REQUEST, onRequest: observeRequest = null,
+        requestKind = PLAYER_REQUEST, onRequest: observeRequest = null, spender = "",
         ...providerOpts
     } = opts;
     // The difficulty's priority line opens every system prompt the game sends
@@ -3078,7 +3091,10 @@ export async function callAI(systemPrompt, history, opts = {}) {
             store: fallbackStateStore,
             rateLimitPolicy: getRateLimitPolicy(),
             onChunk: providerOpts.onChunk,
-            canAttempt: (entry) => contextWindows.refusal(contextWindowKey(entry), requestTokens, { reserveTokens: answerReserve, trustLearned: windowIsLearned(entry) }),
+            // An Agent entry answers only a player's time-skip calls of the tasks
+            // it names; every other call goes past it without a word (ADR 0008).
+            serves: (entry) => entryServesCall(entry, { spender, requestKind }),
+            canAttempt: (entry) => entry.provider === AGENT_PROVIDER ? "" : contextWindows.refusal(contextWindowKey(entry), requestTokens, { reserveTokens: answerReserve, trustLearned: windowIsLearned(entry) }),
             tooBigError: (refused) => providerFailureError(
                 nothingFitsMessage(refused.map(({ entry, reason }) => ({ label: entry.label, reason })), requestTokens),
                 { kind: "tooBig", reason: "no entry in the Fallback list can fit this request" },
@@ -3098,7 +3114,8 @@ export async function callAI(systemPrompt, history, opts = {}) {
                         : limit.source === "custom" ? `${limit.tokens} (the entry's custom parameters)`
                         : callShape.maxTokens,
                 }, { verbose: true });
-                return runWithLookups(lookups, history, (roundHistory, roundOpts) => {
+                // An Agent skip has no lookup rounds: its prompt carries everything.
+                return runWithLookups(entry.provider === AGENT_PROVIDER ? null : lookups, history, (roundHistory, roundOpts) => {
                     // Open from here until this round's answer is in or has
                     // failed: one request, or several when the provider path
                     // asks again (it says so with onSend).
@@ -3115,6 +3132,8 @@ export async function callAI(systemPrompt, history, opts = {}) {
                         onActivity: timer.note,
                         onSend: live?.sent,
                         onReceived: live?.received,
+                        onAgentWait: live?.agentWaiting,
+                        spender,
                         onUnmarkedEnd: () => { endedUnmarked = true; },
                         onRequest: noteRequest,
                         onUsage: (data) => {

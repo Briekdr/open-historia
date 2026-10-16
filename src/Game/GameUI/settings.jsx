@@ -4,12 +4,12 @@ import { APP_HEIGHT, SAFE_BOTTOM, SAFE_LEFT, SAFE_RIGHT, SAFE_TOP, useTouchPrima
 import { useBackToClose } from "../../runtime/backToClose.js";
 import { createPortal } from "react-dom";
 import {
+    AGENT_PROVIDER,
     AI_TASK_ROUTING,
     CONNECTION_TEMPLATES,
     DEFAULT_PROVIDER,
     GEMINI_DEFAULT_CHAIN,
     OPENAI_DEFAULT_MODEL,
-    PROVIDER_OPTIONS,
     addConnection,
     addEntry,
     clearFallbackList,
@@ -26,6 +26,7 @@ import {
     getResolvedFallbackList,
     getTaskPick,
     moveEntry,
+    providerOptionsFor,
     providerSetupRequirement,
     removeConnection,
     removeEntry,
@@ -82,6 +83,7 @@ import { getLibraryState, saveGame, useLibraryState } from "../../runtime/librar
 import { DISCORD_URL, REDDIT_URL } from "../../runtime/communityLinks.js";
 import { CommunityTile, DISCORD_BLURPLE, DiscordMark, REDDIT_ORANGERED, RedditMark } from "./communityLogos.jsx";
 import { copyToClipboard } from "../../runtime/clipboard.js";
+import { openAgentFolder, readAgentFolder } from "../AI/agentConnection.js";
 import {
     buildLoggingFile,
     clearDebugLog,
@@ -590,7 +592,9 @@ const ApiProviderSelector = ({ provider, onProviderChange }) => {
     const [query, setQuery] = useState("");
     const selectedProvider = getProviderMeta(provider);
     const normalizedQuery = query.trim().toLowerCase();
-    const filteredProviders = PROVIDER_OPTIONS.filter((option) => providerMatchesQuery(option, normalizedQuery));
+    // The player's own Agent only where the local server runs (ADR 0008).
+    const filteredProviders = providerOptionsFor({ localServer: !import.meta.env.VITE_OH_WEB })
+        .filter((option) => providerMatchesQuery(option, normalizedQuery));
     const groupedProviders = groupProviders(filteredProviders);
 
     useEffect(() => {
@@ -933,10 +937,63 @@ const ensureConnectionId = (connections) => connections[0]?.id ?? addConnection(
 
 // A Connection's own fields: where it is and what reaches it. Shared by every
 // entry that uses it, which the editor says when it is more than one.
+// The commands that open each Agent in the Agent folder. The game never runs
+// them: the player does, in their own terminal (ADR 0008).
+const AGENT_COMMANDS = [
+    { name: "Claude Code", command: "claude" },
+    { name: "Codex", command: "codex" },
+    { name: "Antigravity CLI", command: "agy" },
+];
+
+// An Agent Connection has no key, endpoint or model: what the player needs is
+// where to open their Agent, and how.
+const AgentConnectionHelp = () => {
+    const [folder, setFolder] = useState("");
+    const [copied, setCopied] = useState("");
+    useEffect(() => {
+        let live = true;
+        readAgentFolder().then((path) => { if (live) setFolder(path); }).catch(() => {});
+        return () => { live = false; };
+    }, []);
+    const copy = async (command) => {
+        if (await copyToClipboard(`cd "${folder}"; ${command}`)) setCopied(command);
+    };
+    return (
+        <div style={fieldGroupStyle}>
+        <div style={helperStyle}>
+        <p style={{ margin: "0 0 0.5rem" }}>Time skips that reach this entry wait for your own Agent, on your own subscription. No API key is used.</p>
+        <p style={{ margin: "0 0 0.5rem" }}>Open a terminal in the Agent folder, start Claude Code, Codex or Antigravity CLI there, signed in with your own account, and type /skip whenever a time skip is waiting. One /skip answers the whole skip.</p>
+        <p style={{ margin: "0 0 0.5rem" }}>Your Agent's own model and effort settings are the ones used. The game never starts your Agent and never reads its sign-in.</p>
+        <p style={{ margin: 0 }}>Only time skips use this entry. The advisor, diplomacy and background AI go to the entry below it.</p>
+        </div>
+        {folder && (
+            <div data-no-translate style={{ ...helperStyle, marginTop: "0.5rem", overflowWrap: "anywhere", fontFamily: "monospace" }}>{folder}</div>
+        )}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.6rem" }}>
+        <button type="button" style={smallButtonStyle} onClick={() => { void openAgentFolder(); }}>Open the Agent folder</button>
+        {folder && AGENT_COMMANDS.map(({ name, command }) => (
+            <button key={command} type="button" style={smallButtonStyle} onClick={() => { void copy(command); }}>
+            {copied === command ? "Copied" : `Copy the command for ${name}`}
+            </button>
+        ))}
+        </div>
+        </div>
+    );
+};
+
 const ConnectionFields = ({ connection, sharedBy = 1 }) => {
     const set = (field) => (value) => updateConnection(connection.id, { [field]: value });
     const selfHosted = providerSetupRequirement(connection.provider) === "endpoint";
     const meta = getProviderMeta(connection.provider);
+    if (connection.provider === AGENT_PROVIDER) {
+        return (
+            <>
+            <ApiProviderSelector provider={connection.provider} onProviderChange={set("provider")} />
+            <SettingsInput label="Connection name" value={connection.name} onChange={set("name")} placeholder={meta.label} />
+            <AgentConnectionHelp />
+            </>
+        );
+    }
     return (
         <>
         <ApiProviderSelector provider={connection.provider} onProviderChange={set("provider")} />
@@ -1016,6 +1073,8 @@ const EntryEditor = ({ entry, connections, entries }) => {
             </div>
         )}
         {connection && <ConnectionFields connection={connection} sharedBy={sharedBy} />}
+        {provider !== AGENT_PROVIDER && (
+        <>
         <SettingsInput
         label="Model"
         value={entry.model}
@@ -1039,6 +1098,8 @@ const EntryEditor = ({ entry, connections, entries }) => {
         <StructuredModeSelect value={entry.structuredMode} onChange={set("structuredMode")} />
         <ContextWindowField entry={entry.resolved} />
         </details>
+        </>
+        )}
         </div>
     );
 };
@@ -1213,7 +1274,7 @@ const ConnectionsSection = () => {
                 <div style={{ fontSize: "0.82rem", fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{connectionDisplayName(connection)}</div>
                 <div style={{ ...helperStyle, marginTop: "0.1rem" }}>
                 {getProviderMeta(connection.provider).label}
-                {selfHosted ? ` · ${connection.endpoint || "no endpoint"}` : ` · key ${connection.apiKey.trim() ? "set" : "not set"}`}
+                {connection.provider === AGENT_PROVIDER ? " · answers time skips through /skip" : selfHosted ? ` · ${connection.endpoint || "no endpoint"}` : ` · key ${connection.apiKey.trim() ? "set" : "not set"}`}
                 {` · used by ${using} entr${using === 1 ? "y" : "ies"}`}
                 </div>
                 </div>
