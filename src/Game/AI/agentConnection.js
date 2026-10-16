@@ -12,6 +12,7 @@
 // finished when the game has stopped simulating (simulationStatus), so the
 // Agent's `/skip` knows to stop.
 import { buildAnswerFormatBlock } from "./schemaOutline.js";
+import { logDebugEvent } from "../../runtime/debugLog.js";
 
 // How long one wait for the answer is held open before it is asked again.
 const ANSWER_WAIT_MS = 25000;
@@ -113,12 +114,17 @@ export const createAgentClient = ({ fetch: send = (...args) => globalThis.fetch(
                     if (polled.status === 404) throw new Error(AGENT_GONE_MESSAGE);
                     const { state, answer, lookups: asked } = polled.json ?? {};
                     for (const question of Array.isArray(asked) ? asked : []) {
+                        // As a provider's lookup round answers it (toolTurns.js
+                        // answerLookupCalls): an error is the answer, and a bare
+                        // value is wrapped.
                         let result;
                         try {
                             result = await agentLookups.execute(question.name, question.args ?? {});
                         } catch (error) {
                             result = { error: String(error?.message || error) };
                         }
+                        if (result == null || typeof result !== "object" || Array.isArray(result)) result = { result: result ?? null };
+                        logDebugEvent("ai-call", `Agent lookup: ${question.name}.`, { args: question.args, response: result }, { verbose: true });
                         await call("POST", `/api/agent/requests/${encodeURIComponent(id)}/lookups/${encodeURIComponent(question.callId)}`, { result: result ?? null }, signal);
                     }
                     if (state === "answered") {

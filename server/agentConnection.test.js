@@ -355,6 +355,22 @@ describe("Agent MCP server", () => {
     assert.deepEqual((await side.poll(asked.id)).lookups ?? [], []);
   });
 
+  test("a lookup the game has taken is held until it answers, however long that is", async () => {
+    const dataDir = newDataDir();
+    const { port } = await startServer(dataDir);
+    const side = game(port);
+    const client = agent(mcpSettings(dataDir));
+
+    await side.openSkip("skip-1");
+    const asked = await side.ask("skip-1", "jump", "Go.", [{ name: "order_troops", description: "", schema: { type: "object" } }]);
+    const looking = client.tool("lookup", { id: asked.id, name: "order_troops", arguments: {} });
+    const [question] = (await side.poll(asked.id, 5000)).lookups;
+    // Longer than the server's wait (OH_AGENT_WAIT_MS is 400 here).
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    await side.answerLookup(asked.id, question.callId, { account: "the war, fought again" });
+    assert.deepEqual(await looking, { account: "the war, fought again" });
+  });
+
   test("a lookup the request did not offer, or on a request that is not waiting, is refused", async () => {
     const dataDir = newDataDir();
     const { port } = await startServer(dataDir);

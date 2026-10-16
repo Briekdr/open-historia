@@ -18,6 +18,7 @@ import path from "path";
 export const NO_SKIP_PENDING = "No time skip is pending.";
 export const SKIP_STILL_RUNNING = "The time skip is still running. Call list_requests again.";
 export const LOOKUP_NOT_ANSWERED = "The game did not answer that lookup in time. Ask it again.";
+export const NOT_WAITING = "That request is not waiting for an answer.";
 
 const settle = (waiters) => {
   for (const wake of waiters.splice(0)) wake();
@@ -142,23 +143,26 @@ export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, log = () => {
     },
 
     // The Agent asks one of the request's lookups. The game answers it on its
-    // next wait (answerLookup); held up to `waitMs`, then the Agent is told to
-    // ask again.
+    // next wait (answerLookup). Until the game has taken it, held up to
+    // `waitMs`, then the Agent is told to ask again. Once taken it is held
+    // until answered, however long that is: a lookup can be work (the troop
+    // orders fight the period again) and answers once per skip, so one cut off
+    // and asked again would never reach the Agent.
     async lookup(id, name, args = {}) {
       const request = requests.get(String(id));
-      if (!request || request.state !== "waiting") return { ok: false, reason: "That request is not waiting for an answer." };
+      if (!request || request.state !== "waiting") return { ok: false, reason: NOT_WAITING };
       if (!request.lookupTools.some((tool) => tool.name === name)) return { ok: false, reason: `This request offers no lookup called ${name}.` };
-      const call = { callId: crypto.randomUUID(), name, args: args && typeof args === "object" ? args : {}, handed: false, answered: false, result: null };
+      const call = { callId: crypto.randomUUID(), name, args: args && typeof args === "object" && !Array.isArray(args) ? args : {}, handed: false, answered: false, result: null };
       request.lookups.set(call.callId, call);
       log("agent.lookup", { id: request.id, name });
       settle(waiters);
       const deadline = Date.now() + waitMs;
-      while (!call.answered && request.state === "waiting" && Date.now() < deadline) {
-        await sleepUntilWoken(waiters, deadline - Date.now());
+      while (!call.answered && request.state === "waiting" && (call.handed || Date.now() < deadline)) {
+        await sleepUntilWoken(waiters, call.handed ? waitMs : deadline - Date.now());
       }
       request.lookups.delete(call.callId);
       if (call.answered) return { ok: true, result: call.result };
-      if (request.state !== "waiting") return { ok: false, reason: "That request is not waiting for an answer." };
+      if (request.state !== "waiting") return { ok: false, reason: NOT_WAITING };
       return { ok: false, reason: LOOKUP_NOT_ANSWERED };
     },
 
@@ -206,7 +210,7 @@ export const createAgentQueue = ({ folder, waitMs = AGENT_WAIT_MS, log = () => {
     // or never held) or the answer is missing or empty.
     answer(id, text) {
       const request = requests.get(String(id));
-      if (!request || request.state !== "waiting") return { ok: false, reason: "That request is not waiting for an answer." };
+      if (!request || request.state !== "waiting") return { ok: false, reason: NOT_WAITING };
       let answer = typeof text === "string" ? text : null;
       if (answer === null) {
         try {

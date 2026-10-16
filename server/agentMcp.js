@@ -10,6 +10,7 @@
 // larger than an Agent's limit on one tool result.
 import crypto from "crypto";
 import { AGENT_MCP_SERVER_NAME } from "./agentFolder.js";
+import { NOT_WAITING } from "./agentQueue.js";
 
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -65,7 +66,7 @@ const callTool = async (queue, name, args = {}) => {
   if (name === "list_requests") return toolText(await queue.list());
   if (name === "read_request") {
     const request = queue.read(args.id);
-    if (!request) return toolRefusal("That request is not waiting for an answer.");
+    if (!request) return toolRefusal(NOT_WAITING);
     return toolText({
       id: request.id,
       task: request.task,
