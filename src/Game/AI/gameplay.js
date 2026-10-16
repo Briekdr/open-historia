@@ -1667,11 +1667,13 @@ const abortableWait = (ms, signal) => new Promise((resolve, reject) => {
 // is three requests at most, and that function calling is the only thing that
 // makes it more than one.
 //
-// With the player's own Agent in the Fallback list there are none: an Agent
-// skip is answered from one prompt file that carries everything, as with Save
-// AI requests on (ADR 0008), and the prompt is built before the list picks who
-// answers it.
-const lookupFunctionsEnabled = () => !savingRequests() && getMapSettingDefaultOn(MAP_SETTING_KEYS.lookupFunctions) && !agentInFallbackList();
+// Not inside a time skip with the player's own Agent in the Fallback list: an
+// Agent skip is answered from one prompt file that carries everything, as with
+// Save AI requests on (ADR 0008), and a skip's prompts are built before the
+// list picks who answers them. Everything outside a skip (the advisor,
+// diplomacy, the Game Master) never goes to the Agent, so it keeps them.
+const lookupFunctionsEnabled = () => !savingRequests() && getMapSettingDefaultOn(MAP_SETTING_KEYS.lookupFunctions)
+  && !(isSimulationBusy() && agentInFallbackList());
 
 // audience: who is asking (audience.js). Every task that carries lookups today is
 // the narrator - the jump, the directors, the game master - so that is the
