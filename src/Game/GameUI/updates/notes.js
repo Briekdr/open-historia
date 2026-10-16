@@ -57,7 +57,7 @@ const NEW_UPDATES = [
     // ("diplomatic map should be marked a minor update", the owner).
     id: "2026-10-diplomatic-map",
     kind: "minor",
-    date: "2026-10-15",
+    date: "2026-10-16",
     banners: [
       {
         title: "The Diplomatic Map",
@@ -75,7 +75,7 @@ const NEW_UPDATES = [
   {
     id: "2026-10-wars-and-fronts-2",
     kind: "major",
-    date: "2026-10-15",
+    date: "2026-10-16",
     banners: [
       {
         theme: "warsAndFronts2",
@@ -108,6 +108,7 @@ const NEW_UPDATES = [
             icon: "plane",
             items: [
               "Every country at war flies its air arm over its battlefields, to support its troops, strike the enemy's, or stay grounded.",
+              "You can see each side's aircraft circling over the battlefields.",
               "Command your fleets: patrol, blockade, escort or seek battle.",
             ],
           },
@@ -118,6 +119,9 @@ const NEW_UPDATES = [
               "Fortify: draw a line to be built and choose how strong.",
               "Deploy: draw where your reinforcements come in.",
               "Fleets: give your ships their stations and orders.",
+              "Supply: see which of your ground is stretched or cut off, and which of theirs is cut off.",
+              "Rehearse the next week: see where the front would be with your orders as they stand.",
+              "Weather ahead: the next two weeks of weather, to time an offensive by.",
             ],
           },
         ],
@@ -168,6 +172,7 @@ const NEW_UPDATES = [
             items: [
               "Trained in thousands of fair duels on random battlefields, it beats every simple habit, from always attacking to always digging in.",
               "A deep thrust into its land is answered with a counter-offensive.",
+              "It thinks away from the page, so the map stays smooth while it does, and on a computer it thinks the next turn through while you read.",
             ],
           },
           {
@@ -175,6 +180,15 @@ const NEW_UPDATES = [
             icon: "flag",
             items: [
               "Scenario designers can script a war to be lost: that side is led by a plainer commander, and good play can still turn it.",
+              "The difficulty sets who you face: a plainer commander on the easy levels, one that weighs how you are likely to answer on the hard ones.",
+            ],
+          },
+          {
+            heading: "Know your enemy",
+            icon: "eye",
+            items: [
+              "An agent in one of their countries finds out what their staff plans, and your aircraft see where it sends its troops.",
+              "When a war ends, an after-action report tells its turning points, and stays to be read again.",
             ],
           },
         ],

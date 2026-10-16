@@ -180,6 +180,7 @@ export const ICONS = Object.freeze({
   plane: (size) => <svg {...iconFrame} height={size} width={size}><path d="M2.5 13.5l8-1.5L14 4.5h2l-1.5 7.5 5.5-1 1.5-2h1.5l-1 3.5 1 3.5H21.5l-1.5-2-5.5-1L16 20.5h-2l-3.5-7.5-8 1.5z" /></svg>,
   ship: (size) => <svg {...iconFrame} height={size} width={size}><path d="M3 15.5h18l-2.8 4.5H5.8zM12 3.5v12M12 5.5l6.5 8H12" /></svg>,
   flag: (size) => <svg {...iconFrame} height={size} width={size}><path d="M5 21V4M5 4h11l-2 4 2 4H5" /></svg>,
+  eye: (size) => <svg {...iconFrame} height={size} width={size}><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" /><circle cx="12" cy="12" r="2.6" /></svg>,
   map: (size) => <svg {...iconFrame} height={size} width={size}><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14" /></svg>,
   gear: (size) => <svg {...iconFrame} height={size} width={size}><circle cx="12" cy="12" r="3.2" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" /></svg>,
   star: (size) => <svg {...iconFrame} height={size} width={size}><path d="M12 3l2.6 5.6 6.1.7-4.5 4.1 1.2 6-5.4-3-5.4 3 1.2-6-4.5-4.1 6.1-.7z" /></svg>,

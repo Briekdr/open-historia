@@ -55,7 +55,7 @@ const UpdateCard = ({ update, onView, delay }) => {
         }}
       >
         <div style={{ alignItems: "baseline", display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-          <span style={{ color: major ? accent : FAINT, fontSize: "0.66rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>{major ? <>Major update</> : <>Update</>}</span>
+          <span style={{ color: major ? accent : FAINT, fontSize: "0.66rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>{major ? <>Major update</> : <>Minor update</>}</span>
           <span style={{ color: FAINT, fontSize: "0.72rem" }}>{noticeDate(update.date)}</span>
           {update.channel === "beta" && <span style={{ border: `1px solid ${LINE}`, borderRadius: "999px", color: FAINT, fontSize: "0.64rem", padding: "0 0.4rem" }}>First on the beta</span>}
           {update.channel === "alpha" && <span style={{ border: `1px solid ${LINE}`, borderRadius: "999px", color: FAINT, fontSize: "0.64rem", padding: "0 0.4rem" }}>First on the alpha</span>}

@@ -170,7 +170,7 @@ export const UpdateNotice = ({ updates = [], onClose }) => {
           {several && (
             <div style={{ alignItems: "center", display: "flex", gap: "0.55rem" }}>
               <button aria-label="Previous" className="oh-tap" disabled={at === 0} onClick={() => move(-1)} style={{ ...arrow(at === 0), ...chrome.arrow }} type="button">‹</button>
-              <div aria-label={`${at + 1} of ${pages.length}`} style={{ display: "flex", gap: "0.35rem" }}>
+              <div aria-label={`Update notice ${at + 1} of ${pages.length}`} style={{ display: "flex", gap: "0.35rem" }}>
                 {pages.map((entry, index) => (
                   <button
                     aria-label={entry.banner.title}
