@@ -22,8 +22,6 @@
 //   timeline    the events of a turn passing by, one of them lit
 //   dossier     a dossier under a lamp, its redactions lifting
 //   devices     a computer, a phone and a screen lighting up with one world
-//   relations   a map whose countries take, one by one, the colours of where
-//               they stand with the player, beside a Political / Diplomatic switch
 //
 // Flat shapes only (no gradient, nothing purple); still with Reduce motion.
 
@@ -60,9 +58,6 @@ const grid = (ink, step = 40) => (
 );
 // A few countries of a map, as flat shapes.
 const LANDS = ["M60 40 L180 30 L230 80 L170 130 L80 120 Z", "M230 80 L330 50 L380 110 L300 150 L170 130 Z", "M330 50 L470 40 L500 100 L380 110 Z", "M380 110 L500 100 L540 160 L420 170 L300 150 Z", "M470 40 L600 30 L640 90 L500 100 Z", "M500 100 L640 90 L700 150 L540 160 Z"];
-
-// The diplomatic map's colours (runtime/diplomaticStance.js), for the picture of it.
-const STANCES = ["rgb(37, 99, 235)", "rgb(56, 189, 248)", "rgb(34, 197, 94)", "rgb(20, 184, 166)", "rgb(249, 115, 22)", "rgb(239, 68, 68)"];
 
 const SCENES = {
   fleet: ({ p, still }) => (
@@ -294,28 +289,6 @@ const SCENES = {
         <circle cx="560" cy="120" fill="none" r="26" stroke={p.ink} strokeWidth="5" />
         <line stroke={p.ink} strokeLinecap="round" strokeWidth="8" x1="580" x2="606" y1="140" y2="166" />
       </g>
-    </Frame>
-  ),
-  relations: ({ p, still }) => (
-    <Frame ground={p.ground}>
-      {grid(p.ink)}
-      {LANDS.map((d, at) => (
-        <g key={at}>
-          <path d={d} fill="rgb(100, 116, 139)" stroke={p.ground} strokeWidth="2" />
-          <path d={d} fill={STANCES[at % STANCES.length]} stroke={p.ground} strokeWidth="2" style={appearing(still, 400 + at * 380, 600)} />
-        </g>
-      ))}
-      <circle cx="285" cy="100" fill="none" r="16" stroke={p.ink} strokeWidth="2" style={pulsing(still, 1600)} />
-      <g style={appearing(still, 200)}>
-        <rect fill={p.ink} fillOpacity="0.12" height="26" rx="13" stroke={p.accent} strokeWidth="1.5" width="120" x="640" y="18" />
-        <rect fill={p.accent} height="20" rx="10" width="58" x="699" y="21" style={still ? null : { "--oh-upd-from": "-56px", "--oh-upd-to": "0px", ...motion(still, "ohUpdDrift", 600, 300, ease) }} />
-      </g>
-      {STANCES.map((colour, at) => (
-        <g key={colour} style={appearing(still, 600 + at * 380, 400)}>
-          <rect fill={colour} height="12" rx="2" width="12" x="650" y={58 + at * 18} />
-          <rect fill={p.ink} fillOpacity="0.5" height="4" rx="2" width={50 + (at % 3) * 14} x="670" y={62 + at * 18} />
-        </g>
-      ))}
     </Frame>
   ),
   devices: ({ p, still }) => {
