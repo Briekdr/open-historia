@@ -252,6 +252,12 @@ const ButtonIcon = ({ kind, size = 15, strokeWidth = 1.9 }) => {
   };
 
   switch (kind) {
+    case "close":
+      return (
+        <svg aria-hidden="true" {...common}>
+          <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />
+        </svg>
+      );
     case "settings":
       return (
         <svg aria-hidden="true" {...common}>
@@ -1520,8 +1526,19 @@ const GameCard = ({ active, busy, game, onActivate, onArchive, onClone, onEdit, 
           <div style={{ color: "#fff", fontSize: "1.32rem", fontWeight: 800, letterSpacing: "-0.025em", lineHeight: 1.2, marginBottom: "0.4rem" }}>
             {game.name}
           </div>
-          <div style={{ color: "rgba(248,248,250,0.85)", fontSize: "0.82rem", marginBottom: "0.35rem" }}>
-            {game.country || "No player country"} / {game.currentDate || "No date"} / Round {game.round || 1}
+          <div style={{ display: "grid", gap: "0.4rem", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 0.6fr)", marginBottom: "0.55rem" }}>
+            <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "10px", gridColumn: "1 / -1", minWidth: 0, padding: "0.4rem 0.55rem" }}>
+              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>{"Country"}</div>
+              <div style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={game.country || undefined}>{game.country || "No player country"}</div>
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "10px", minWidth: 0, padding: "0.4rem 0.55rem" }}>
+              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>{"Date"}</div>
+              <div style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{game.currentDate || "No date"}</div>
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "10px", minWidth: 0, padding: "0.4rem 0.55rem" }}>
+              <div style={{ color: "rgba(255,255,255,0.45)", fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>{"Round"}</div>
+              <div style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{game.round || 1}</div>
+            </div>
           </div>
           <div
             style={{
@@ -1540,8 +1557,13 @@ const GameCard = ({ active, busy, game, onActivate, onArchive, onClone, onEdit, 
         </div>
 
         <div>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.75rem", marginBottom: "0.6rem" }}>
-            {game.pendingActions} pending action{game.pendingActions === 1 ? "" : "s"} / {game.eventCount} event{game.eventCount === 1 ? "" : "s"}
+          <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.6rem" }}>
+            {[["Actions", game.pendingActions], ["Events", game.eventCount]].map(([label, count]) => (
+              <span key={label} style={{ alignItems: "center", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", color: "rgba(255,255,255,0.6)", display: "inline-flex", fontSize: "0.72rem", gap: "0.35rem", padding: "0.2rem 0.5rem" }}>
+                {label}
+                <span style={{ color: "#fff", fontWeight: 700 }}>{count ?? 0}</span>
+              </span>
+            ))}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
             <button
@@ -1810,32 +1832,75 @@ const CreateScenarioTile = ({ busy, onCreate }) => (
   </button>
 );
 
-const SectionTabs = ({ badges = {}, currentSection, sections, setSection, touch }) => (  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.45rem", marginBottom: "0.95rem" }}>
-    {sections.map((sectionKey) => (
-      <button
-        key={sectionKey}
-        className="oh-tap-row"
-        onClick={() => setSection(sectionKey)}
-        style={touchFit({
-          ...themeButtonStyle,
-          background:
-            currentSection === sectionKey ? "rgba(0,0,0,0.42)" : "rgba(255,255,255,0.05)",
-          borderColor:
-            currentSection === sectionKey ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.08)",
-          minHeight: "2rem",
-          padding: "0 0.8rem",
-        }, touch)}
-        type="button"
-      >
-        {editorSectionLabels[sectionKey] || sectionKey}
-        {badges[sectionKey] && (
-          <span style={{ background: "rgba(245,158,11,0.16)", border: "1px solid rgba(245,158,11,0.28)", borderRadius: "999px", color: "#fde68a", fontSize: "0.57rem", fontWeight: 800, marginLeft: "0.32rem", padding: "0.12rem 0.35rem" }}>
-            {badges[sectionKey]}
-          </span>
-        )}
-      </button>
-    ))}
-  </div>
+const EDITOR_SECTION_GROUPS = Object.freeze([
+  Object.freeze({ label: "Presentation", sections: Object.freeze(["overview", "assets", "music"]) }),
+  Object.freeze({ label: "Setting", sections: Object.freeze(["world", "history", "politics"]) }),
+  Object.freeze({ label: "War", sections: Object.freeze(["fronts"]) }),
+  Object.freeze({ label: "Rules and AI", sections: Object.freeze(["stats", "features", "prompts"]) }),
+  Object.freeze({ label: "Sharing", sections: Object.freeze(["bundles"]) }),
+]);
+
+const EDITOR_SECTION_BLURBS = Object.freeze({
+  overview: "How it appears in the library: its name, colour and the words on its card.",
+  assets: "The cover and the files the map is drawn from.",
+  music: "The hub's tracks it plays while a game opens, in the game, at war and in the war room.",
+  world: "Where play begins: the player's country, the date, the troops and the story so far.",
+  history: "The events that led to the start date.",
+  politics: "Governments, parties and institutions.",
+  fronts: "How its wars are fought, every country's military and the fronts it begins with.",
+  stats: "The national stats every country is measured by.",
+  features: "Which gameplay features are on.",
+  prompts: "The instructions the AI follows.",
+  bundles: "Download it as one file to share or keep.",
+});
+
+const EDITOR_PANEL = "#12141a";
+const EDITOR_NAV = "#0d0f14";
+const editorCardStyle = {
+  background: "#171a22",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: "16px",
+  marginBottom: "0.95rem",
+  padding: "1rem 1.05rem",
+};
+const editorCardTitleStyle = { color: "#fff", fontSize: "0.92rem", fontWeight: 800, letterSpacing: "-0.01em", marginBottom: "0.75rem" };
+
+const EditorSectionIcon = ({ kind, size = 17 }) => {
+  const common = { fill: "none", height: size, stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 1.8, viewBox: "0 0 24 24", width: size };
+  const paths = {
+    overview: <><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" /><path d="M7 9h10M7 13h6" /></>,
+    assets: <><rect x="3.5" y="5" width="17" height="14" rx="2.5" /><circle cx="9" cy="10" r="1.6" /><path d="m4 17 5-4.5 4 3.5 3-2.5 4 3.5" /></>,
+    music: <><path d="M9 17.5V6l10-2v11.5" /><circle cx="6.5" cy="17.5" r="2.5" /><circle cx="16.5" cy="15.5" r="2.5" /></>,
+    world: <><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5c2.3 2.3 3.5 5.2 3.5 8.5s-1.2 6.2-3.5 8.5c-2.3-2.3-3.5-5.2-3.5-8.5s1.2-6.2 3.5-8.5z" /></>,
+    history: <><path d="M5 4.5h11.5a2 2 0 0 1 2 2v13H7a2 2 0 0 1-2-2z" /><path d="M5 17.5a2 2 0 0 1 2-2h11.5M9 8.5h6" /></>,
+    politics: <><path d="M4 9.5 12 5l8 4.5M5.5 19.5h13M7 10.5v7M12 10.5v7M17 10.5v7" /></>,
+    fronts: <><path d="M5 5v15M5 5.5c4-2 7 2 11 0v8c-4 2-7-2-11 0" /></>,
+    stats: <><path d="M5 19.5V11M10 19.5V6M15 19.5v-6M20 19.5V9" /></>,
+    features: <><path d="M6 6.5h12M6 12h12M6 17.5h12" /><circle cx="9" cy="6.5" r="1.8" /><circle cx="15" cy="12" r="1.8" /><circle cx="10" cy="17.5" r="1.8" /></>,
+    prompts: <><path d="M5 5.5h14v10H9.5L5 19.5z" /><path d="M8.5 9.5h7M8.5 12.5h4.5" /></>,
+    bundles: <><path d="M12 4.5v10M8 10.5l4 4 4-4" /><path d="M5 16.5v2a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-2" /></>,
+  };
+  return <svg aria-hidden="true" {...common}>{paths[kind] ?? <circle cx="12" cy="12" r="3" />}</svg>;
+};
+
+const editorNavButtonStyle = (active) => ({
+  ...themeButtonStyle,
+  background: active ? "rgba(255,255,255,0.1)" : "transparent",
+  border: `1px solid ${active ? "rgba(255,255,255,0.18)" : "transparent"}`,
+  color: active ? "#fff" : "rgba(236,236,240,0.72)",
+  fontWeight: active ? 700 : 600,
+  gap: "0.6rem",
+  justifyContent: "flex-start",
+  minHeight: "2.3rem",
+  padding: "0 0.7rem",
+  textAlign: "left",
+  width: "100%",
+});
+
+const SectionBadge = ({ text }) => (
+  <span style={{ background: "rgba(245,158,11,0.16)", border: "1px solid rgba(245,158,11,0.28)", borderRadius: "999px", color: "#fde68a", flexShrink: 0, fontSize: "0.57rem", fontWeight: 800, marginLeft: "auto", padding: "0.12rem 0.35rem" }}>
+    {text}
+  </span>
 );
 
 const EditorDrawer = ({
@@ -1864,12 +1929,8 @@ const EditorDrawer = ({
   setPromptSectionKey,
   statsValue,
   onStatsChange,
-  // The scenario's place on the community hub (ScenarioSuggestions.jsx), shown
-  // at the top of the Overview, and Suggest changes for a downloaded one.
   communityCard = null,
   onSuggestChanges = null,
-  // The countries this map offers (buildScenarioCountryOptions), for the
-  // Player Country field's suggestions and its check.
   countryOptions = [],
 }) => {
   const isMobile = useIsMobile();
@@ -1883,8 +1944,9 @@ const EditorDrawer = ({
     kind === "scenario"
       ? ["overview", "world", "history", "fronts", "politics", "stats", "features", "prompts", "assets", "music", "bundles"]
       : ["overview", "world", "features", "prompts", "assets"];
-  // Two fields to a row leave a phone under 140 px for each, too narrow for a
-  // date or a font name, so there the fields stack.
+  const groups = EDITOR_SECTION_GROUPS
+    .map((group) => ({ ...group, sections: group.sections.filter((key) => visibleSections.includes(key)) }))
+    .filter((group) => group.sections.length > 0);
   const formColumns = isMobile ? "minmax(0, 1fr)" : "repeat(2, minmax(0, 1fr))";
   const editorPoliticalWorld = kind === "scenario"
     ? politicalWorldCapability(details?.data?.world ?? {}, {
@@ -1896,199 +1958,373 @@ const EditorDrawer = ({
     : editorPoliticalWorld?.status === POLITICAL_WORLD_CAPABILITY.SPARSE
       ? { politics: "Partial" }
       : {};
+  const coverUrl = kind === "scenario"
+    ? details.scenario?.coverImageUrl
+    : details.game?.coverImageUrl || details.scenario?.coverImageUrl;
+  const accent = record.accentColor || "#a1a1aa";
+
+  const actions = (
+    <div style={{ display: "flex", flexDirection: isMobile ? "row" : "column", flexWrap: isMobile ? "wrap" : undefined, gap: "0.45rem" }}>
+      <button
+        className="oh-tap-row"
+        onClick={onSave}
+        style={touchFit({ ...themeButtonStyle, background: accent, borderColor: accent, borderRadius: "11px", boxShadow: `0 3px 12px ${accent}33`, color: "#fff", flex: isMobile ? "1 1 7rem" : undefined, fontWeight: 700, minHeight: "2.4rem", width: isMobile ? undefined : "100%" }, touch)}
+        type="button"
+      >
+        {isBusy ? "Saving..." : "Save"}
+      </button>
+      {kind === "scenario" && onOpenMapEditor && (
+        <button
+          className="oh-tap-row"
+          onClick={onOpenMapEditor}
+          style={touchFit({ ...themeButtonStyle, background: "rgba(255,255,255,0.08)", flex: isMobile ? "1 1 9rem" : undefined, width: isMobile ? undefined : "100%" }, touch)}
+          type="button"
+        >
+          🗺️ Open Map Editor
+        </button>
+      )}
+      {kind === "scenario" && onSuggestChanges && record.hubOrigin && (
+        <button
+          className="oh-tap-row"
+          onClick={onSuggestChanges}
+          title="Send your changes to this community scenario's author, who can accept or reject each one."
+          style={touchFit({ ...themeButtonStyle, background: "rgba(43,193,243,0.18)", borderColor: "rgba(43,193,243,0.45)", color: "#fff", flex: isMobile ? "1 1 9rem" : undefined, width: isMobile ? undefined : "100%" }, touch)}
+          type="button"
+        >
+          Suggest changes
+        </button>
+      )}
+      {record.canDelete && (
+        <button
+          className="oh-tap-row"
+          onClick={onDelete}
+          style={touchFit({ ...themeButtonStyle, background: "rgba(127,29,29,0.34)", borderColor: "rgba(248,113,113,0.28)", color: "#fecaca", flex: isMobile ? "1 1 6rem" : undefined, width: isMobile ? undefined : "100%" }, touch)}
+          type="button"
+        >
+          Delete
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div
       style={{
-        ...themeSurfaceStyle,
-        borderRadius: "26px",
-        // Every edge keeps clear of the status bar, the home indicator and a
-        // notch at the side in landscape (the SAFE_* insets, 0 on a desktop);
-        // the top follows the main menu's bar, which grows by the same inset.
-        bottom: `calc(0.85rem + ${SAFE_BOTTOM})`,
-        color: "#fff",
-        maxHeight: `calc(${APP_HEIGHT} - ${BAR_HEIGHT + 32}px - ${SAFE_TOP} - ${SAFE_BOTTOM})`,
-        overflow: "auto",
-        padding: "1.05rem",
+        alignItems: "center",
+        background: "rgba(0,0,0,0.62)",
+        display: "flex",
+        inset: 0,
+        justifyContent: "center",
+        padding: isMobile ? 0 : `calc(1.25rem + ${SAFE_TOP}) calc(1.25rem + ${SAFE_RIGHT}) calc(1.25rem + ${SAFE_BOTTOM}) calc(1.25rem + ${SAFE_LEFT})`,
         position: "fixed",
-        right: `calc(0.85rem + ${SAFE_RIGHT})`,
-        top: `calc(${TOP_BAR_OFFSET} + 3.5rem)`,
-        width: `min(34rem, calc(100vw - 1.2rem - ${SAFE_LEFT} - ${SAFE_RIGHT}))`,
-        // Above the main menu (10046) — the menu's + tile and Edit buttons open
-        // this drawer, and it must land on top of the menu it came from.
         zIndex: 10048,
       }}
     >
-      <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between", marginBottom: "1rem" }}>
-        <div>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.72rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            {kind === "scenario" ? "Scenario" : "Game"} Editor
-          </div>
-          <div style={{ fontSize: "1.35rem", fontWeight: 800, letterSpacing: "-0.03em", marginTop: "0.2rem" }}>
-            {record.name}
-          </div>
-        </div>
-        <button
-          aria-label={`Close the ${kind === "scenario" ? "scenario" : "game"} editor`}
-          className="oh-tap"
-          onClick={onClose}
-          style={touchFit({ ...themeButtonStyle, background: "rgba(255,255,255,0.04)", minWidth: "2.35rem", padding: 0 }, touch, { icon: true })}
-          type="button"
+      <div
+        role="dialog"
+        aria-label={`${kind === "scenario" ? "Scenario" : "Game"} Editor`}
+        style={{
+          background: EDITOR_PANEL,
+          border: isMobile ? "none" : "1px solid rgba(255,255,255,0.09)",
+          borderRadius: isMobile ? 0 : "22px",
+          boxShadow: "0 24px 70px rgba(0,0,0,0.55)",
+          color: "#fff",
+          display: "flex",
+          flexDirection: isMobile ? "column" : "row",
+          height: isMobile ? APP_HEIGHT : `min(56rem, calc(${APP_HEIGHT} - 2.5rem - ${SAFE_TOP} - ${SAFE_BOTTOM}))`,
+          overflow: "hidden",
+          maxWidth: isMobile ? undefined : "76rem",
+          width: "100%",
+        }}
+      >
+        <nav
+          style={{
+            background: EDITOR_NAV,
+            borderBottom: isMobile ? "1px solid rgba(255,255,255,0.08)" : "none",
+            borderRight: isMobile ? "none" : "1px solid rgba(255,255,255,0.08)",
+            display: "flex",
+            flexDirection: "column",
+            flexShrink: 0,
+            gap: isMobile ? "0.6rem" : "1rem",
+            overflow: isMobile ? "visible" : "hidden",
+            padding: isMobile ? `calc(0.8rem + ${SAFE_TOP}) calc(0.8rem + ${SAFE_RIGHT}) 0.7rem calc(0.8rem + ${SAFE_LEFT})` : "1.1rem 0.9rem",
+            width: isMobile ? "100%" : "15.5rem",
+          }}
         >
-          X
-        </button>
-      </div>
+          <div style={{ alignItems: "center", display: "flex", gap: "0.7rem", minWidth: 0 }}>
+            <div
+              aria-hidden="true"
+              style={{
+                background: coverUrl ? `url("${coverUrl}") center/cover, #1c1f27` : "#1c1f27",
+                border: `2px solid ${accent}`,
+                borderRadius: "12px",
+                flexShrink: 0,
+                height: isMobile ? "2.6rem" : "3.1rem",
+                width: isMobile ? "2.6rem" : "3.1rem",
+              }}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.66rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                {kind === "scenario" ? "Scenario" : "Game"} Editor
+              </div>
+              <div style={{ fontSize: "0.98rem", fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={record.name}>
+                {record.name}
+              </div>
+            </div>
+            {isMobile && (
+              <button
+                aria-label={`Close the ${kind === "scenario" ? "scenario" : "game"} editor`}
+                className="oh-tap"
+                onClick={onClose}
+                style={touchFit({ ...themeButtonStyle, minWidth: "2.35rem", padding: 0 }, touch, { icon: true })}
+                type="button"
+              >
+                <ButtonIcon kind="close" />
+              </button>
+            )}
+          </div>
 
-      <SectionTabs badges={sectionBadges} currentSection={editorSection} sections={visibleSections} setSection={setEditorSection} touch={touch} />
+          {isMobile ? (
+            <div style={{ display: "flex", gap: "0.4rem", overflowX: "auto", scrollbarWidth: "none" }}>
+              {groups.flatMap((group) => group.sections).map((sectionKey) => (
+                <button
+                  key={sectionKey}
+                  aria-current={editorSection === sectionKey ? "page" : undefined}
+                  className="oh-tap-row"
+                  onClick={() => setEditorSection(sectionKey)}
+                  style={touchFit({ ...editorNavButtonStyle(editorSection === sectionKey), border: `1px solid ${editorSection === sectionKey ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)"}`, flexShrink: 0, width: "auto" }, touch)}
+                  type="button"
+                >
+                  <EditorSectionIcon kind={sectionKey} size={15} />
+                  {editorSectionLabels[sectionKey] || sectionKey}
+                  {sectionBadges[sectionKey] && <SectionBadge text={sectionBadges[sectionKey]} />}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: "flex", flex: 1, flexDirection: "column", gap: "0.9rem", minHeight: 0, overflowY: "auto", scrollbarWidth: "thin" }}>
+              {groups.map((group) => (
+                <div key={group.label}>
+                  <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.64rem", fontWeight: 700, letterSpacing: "0.09em", marginBottom: "0.35rem", padding: "0 0.7rem", textTransform: "uppercase" }}>
+                    {group.label}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                    {group.sections.map((sectionKey) => (
+                      <button
+                        key={sectionKey}
+                        aria-current={editorSection === sectionKey ? "page" : undefined}
+                        className="oh-tap-row"
+                        onClick={() => setEditorSection(sectionKey)}
+                        style={touchFit(editorNavButtonStyle(editorSection === sectionKey), touch)}
+                        type="button"
+                      >
+                        <EditorSectionIcon kind={sectionKey} />
+                        <span>{editorSectionLabels[sectionKey] || sectionKey}</span>
+                        {sectionBadges[sectionKey] && <SectionBadge text={sectionBadges[sectionKey]} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!isMobile && actions}
+        </nav>
+
+        <div style={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0, minWidth: 0 }}>
+          {!isMobile && (
+            <div style={{ alignItems: "flex-start", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", flexShrink: 0, gap: "1rem", justifyContent: "space-between", padding: "1.15rem 1.4rem 1rem" }}>
+              <div style={{ minWidth: 0 }}>
+                <h2 style={{ color: "#fff", fontSize: "1.35rem", fontWeight: 800, letterSpacing: "-0.03em", margin: 0 }}>
+                  {editorSectionLabels[editorSection] || editorSection}
+                </h2>
+                {EDITOR_SECTION_BLURBS[editorSection] && (
+                  <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.8rem", lineHeight: 1.45, marginTop: "0.25rem" }}>
+                    {EDITOR_SECTION_BLURBS[editorSection]}
+                  </div>
+                )}
+              </div>
+              <button
+                aria-label={`Close the ${kind === "scenario" ? "scenario" : "game"} editor`}
+                className="oh-tap"
+                onClick={onClose}
+                style={touchFit({ ...themeButtonStyle, flexShrink: 0, minWidth: "2.35rem", padding: 0 }, touch, { icon: true })}
+                type="button"
+              >
+                <ButtonIcon kind="close" />
+              </button>
+            </div>
+          )}
+
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: isMobile ? `1rem calc(0.9rem + ${SAFE_RIGHT}) 1rem calc(0.9rem + ${SAFE_LEFT})` : "1.2rem 1.4rem 1.6rem" }}>
       {editorSection === "overview" && kind === "scenario" && communityCard}
       {editorSection === "overview" && (
-        <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "18px", marginBottom: "0.95rem", padding: "0.9rem" }}>
-          <div style={{ display: "grid", gap: "0.8rem", gridTemplateColumns: formColumns }}>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label style={fieldLabelStyle}>Name</label>
-              <input style={inputStyle} value={formState.name} onChange={(event) => onChange("name", event.target.value)} />
-            </div>
-            <div>
-              <label style={fieldLabelStyle}>Eyebrow</label>
-              <input style={inputStyle} value={formState.eyebrow} onChange={(event) => onChange("eyebrow", event.target.value)} />
-            </div>
-            <div>
-              <label style={fieldLabelStyle}>Accent</label>
-              <input style={{ ...inputStyle, height: "3.1rem", padding: "0.25rem 0.3rem" }} type="color" value={formState.accentColor} onChange={(event) => onChange("accentColor", event.target.value)} />
-            </div>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label style={fieldLabelStyle}>Subtitle</label>
-              <input style={inputStyle} value={formState.subtitle} onChange={(event) => onChange("subtitle", event.target.value)} />
-            </div>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label style={fieldLabelStyle}>Description</label>
-              <textarea style={{ ...textareaStyle, minHeight: "6rem" }} value={formState.description} onChange={(event) => onChange("description", event.target.value)} />
-            </div>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label style={fieldLabelStyle}>Hero Title</label>
-              <input style={inputStyle} value={formState.heroTitle} onChange={(event) => onChange("heroTitle", event.target.value)} />
-            </div>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label style={fieldLabelStyle}>Hero Subtitle</label>
-              <textarea style={{ ...textareaStyle, minHeight: "5rem" }} value={formState.heroSubtitle} onChange={(event) => onChange("heroSubtitle", event.target.value)} />
+        <>
+          <div style={editorCardStyle}>
+            <div style={editorCardTitleStyle}>On its card</div>
+            <div style={{ display: "grid", gap: "0.8rem", gridTemplateColumns: formColumns }}>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={fieldLabelStyle}>Name</label>
+                <input style={inputStyle} value={formState.name} onChange={(event) => onChange("name", event.target.value)} />
+              </div>
+              <div>
+                <label style={fieldLabelStyle}>Eyebrow</label>
+                <input style={inputStyle} value={formState.eyebrow} onChange={(event) => onChange("eyebrow", event.target.value)} />
+              </div>
+              <div>
+                <label style={fieldLabelStyle}>Accent</label>
+                <input style={{ ...inputStyle, height: "3.1rem", padding: "0.25rem 0.3rem" }} type="color" value={formState.accentColor} onChange={(event) => onChange("accentColor", event.target.value)} />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={fieldLabelStyle}>Subtitle</label>
+                <input style={inputStyle} value={formState.subtitle} onChange={(event) => onChange("subtitle", event.target.value)} />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={fieldLabelStyle}>Description</label>
+                <textarea style={{ ...textareaStyle, minHeight: "6rem" }} value={formState.description} onChange={(event) => onChange("description", event.target.value)} />
+              </div>
             </div>
           </div>
-        </div>
+          <div style={editorCardStyle}>
+            <div style={editorCardTitleStyle}>Its headline</div>
+            <div style={{ display: "grid", gap: "0.8rem" }}>
+              <div>
+                <label style={fieldLabelStyle}>Hero Title</label>
+                <input style={inputStyle} value={formState.heroTitle} onChange={(event) => onChange("heroTitle", event.target.value)} />
+              </div>
+              <div>
+                <label style={fieldLabelStyle}>Hero Subtitle</label>
+                <textarea style={{ ...textareaStyle, minHeight: "5rem" }} value={formState.heroSubtitle} onChange={(event) => onChange("heroSubtitle", event.target.value)} />
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {editorSection === "world" && (
-        <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "18px", marginBottom: "0.95rem", padding: "0.9rem" }}>
-          <div style={{ display: "grid", gap: "0.8rem", gridTemplateColumns: formColumns }}>
-            <div>
-              <label style={fieldLabelStyle}>Player Country</label>
-              <input list="oh-player-country-options" style={inputStyle} value={formState.country} onChange={(event) => onChange("country", event.target.value)} />
-              <datalist id="oh-player-country-options">
-                {countryOptions.map((option) => (
-                  <option key={option.code} value={option.code} label={option.name !== option.code ? option.name : undefined} />
-                ))}
-              </datalist>
-              {!isOfferedCountry(formState.country, countryOptions) && (
-                <div style={{ color: "#fde68a", fontSize: "0.72rem", lineHeight: 1.4, marginTop: "0.4rem" }}>
-                  No country or faction by this name is on this map, so the player would start with nothing. Pick one from the list.
-                </div>
-              )}
-            </div>
-            <div>
-              <label style={fieldLabelStyle}>Game Date</label>
-              <input
-                style={inputStyle}
-                value={formState.gameDate}
-                onChange={(event) => onChange("gameDate", event.target.value)}
-                placeholder="YYYY-MM-DD — before AD 1 use a minus: -0218-03-01 is 1 March 218 BC"
-                title="Dates are YYYY-MM-DD. A year before AD 1 carries a leading minus and counts backwards with no year zero: -0218-03-01 is 1 March 218 BC, -0001-12-31 the last day of 1 BC."
-              />
-            </div>
-            <div>
-              <label style={fieldLabelStyle}>Language</label>
-              <input style={inputStyle} value={formState.language} onChange={(event) => onChange("language", event.target.value)} />
-            </div>
-            {kind === "scenario" && (
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label style={fieldLabelStyle}>Deployable Troop Types</label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-                  {UNIT_TYPES.map((unitType) => {
-                    const checked = (formState.allowedUnitTypes ?? []).includes(unitType);
-                    return (
-                      <button
-                        key={unitType}
-                        type="button"
-                        className="oh-tap-row"
-                        onClick={() => {
-                          const set = new Set(formState.allowedUnitTypes ?? []);
-                          if (set.has(unitType)) set.delete(unitType);
-                          else set.add(unitType);
-                          onChange("allowedUnitTypes", UNIT_TYPES.filter((t) => set.has(t)));
-                        }}
-                        style={touchFit({
-                          ...themeButtonStyle,
-                          background: checked ? "rgba(0,0,0,0.42)" : "rgba(255,255,255,0.04)",
-                          borderColor: checked ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.1)",
-                          minHeight: "2rem",
-                          padding: "0 0.7rem",
-                        }, touch)}
-                      >
-                        {checked ? "✓ " : ""}
-                        {UNIT_TYPE_LABELS[unitType] ?? unitType}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.72rem", marginTop: "0.4rem" }}>
-                  Uncheck types that don't fit the era — e.g. no Air Force in 1200. Players can only deploy the checked types.
-                </div>
+        <>
+          <div style={editorCardStyle}>
+            <div style={editorCardTitleStyle}>Where play begins</div>
+            <div style={{ display: "grid", gap: "0.8rem", gridTemplateColumns: formColumns }}>
+              <div>
+                <label style={fieldLabelStyle}>Player Country</label>
+                <input list="oh-player-country-options" style={inputStyle} value={formState.country} onChange={(event) => onChange("country", event.target.value)} />
+                <datalist id="oh-player-country-options">
+                  {countryOptions.map((option) => (
+                    <option key={option.code} value={option.code} label={option.name !== option.code ? option.name : undefined} />
+                  ))}
+                </datalist>
+                {!isOfferedCountry(formState.country, countryOptions) && (
+                  <div style={{ color: "#fde68a", fontSize: "0.72rem", lineHeight: 1.4, marginTop: "0.4rem" }}>
+                    No country or faction by this name is on this map, so the player would start with nothing. Pick one from the list.
+                  </div>
+                )}
               </div>
-            )}
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label style={fieldLabelStyle}>World Before Round One</label>
-              <textarea style={{ ...textareaStyle, minHeight: "8rem" }} value={formState.startingTimelineText} onChange={(event) => onChange("startingTimelineText", event.target.value)} />
-            </div>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label style={fieldLabelStyle}>Simulation Rules</label>
-              <textarea style={{ ...textareaStyle, minHeight: "8rem" }} value={formState.simulationRules} onChange={(event) => onChange("simulationRules", event.target.value)} />
-            </div>
-            {/* Country-label styling. Labels rasterize from each player's LOCAL
-                fonts (the map has no glyph server), so any installed family
-                works — the list only suggests safe common ones. Empty = Georgia,
-                the map's default (Nations.jsx labelFontStack). */}
-            <div>
-              <label style={fieldLabelStyle}>Country Label Font</label>
-              <input
-                list="oh-label-font-options"
-                placeholder="Georgia (default)"
-                style={inputStyle}
-                value={formState.labelFont}
-                onChange={(event) => onChange("labelFont", event.target.value)}
-              />
-              <datalist id="oh-label-font-options">
-                {LABEL_FONT_SUGGESTIONS.map((font) => (
-                  <option key={font} value={font} />
-                ))}
-              </datalist>
-            </div>
-            <div>
-              <label style={fieldLabelStyle}>Label Letter Color</label>
-              <input
-                type="color"
-                style={{ ...inputStyle, height: "2.4rem", padding: "0.2rem" }}
-                value={/^#[0-9a-fA-F]{6}$/.test(formState.labelTextColor) ? formState.labelTextColor : "#ffffff"}
-                onChange={(event) => onChange("labelTextColor", event.target.value)}
-              />
-            </div>
-            <div>
-              <label style={fieldLabelStyle}>Label Border Color</label>
-              <input
-                type="color"
-                style={{ ...inputStyle, height: "2.4rem", padding: "0.2rem" }}
-                value={/^#[0-9a-fA-F]{6}$/.test(formState.labelHaloColor) ? formState.labelHaloColor : "#000000"}
-                onChange={(event) => onChange("labelHaloColor", event.target.value)}
-              />
+              <div>
+                <label style={fieldLabelStyle}>Game Date</label>
+                <input
+                  style={inputStyle}
+                  value={formState.gameDate}
+                  onChange={(event) => onChange("gameDate", event.target.value)}
+                  placeholder="YYYY-MM-DD — before AD 1 use a minus: -0218-03-01 is 1 March 218 BC"
+                  title="Dates are YYYY-MM-DD. A year before AD 1 carries a leading minus and counts backwards with no year zero: -0218-03-01 is 1 March 218 BC, -0001-12-31 the last day of 1 BC."
+                />
+              </div>
+              <div>
+                <label style={fieldLabelStyle}>Language</label>
+                <input style={inputStyle} value={formState.language} onChange={(event) => onChange("language", event.target.value)} />
+              </div>
             </div>
           </div>
-        </div>
+          {kind === "scenario" && (
+            <div style={editorCardStyle}>
+              <div style={editorCardTitleStyle}>Deployable Troop Types</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                {UNIT_TYPES.map((unitType) => {
+                  const checked = (formState.allowedUnitTypes ?? []).includes(unitType);
+                  return (
+                    <button
+                      key={unitType}
+                      type="button"
+                      className="oh-tap-row"
+                      onClick={() => {
+                        const set = new Set(formState.allowedUnitTypes ?? []);
+                        if (set.has(unitType)) set.delete(unitType);
+                        else set.add(unitType);
+                        onChange("allowedUnitTypes", UNIT_TYPES.filter((t) => set.has(t)));
+                      }}
+                      style={touchFit({
+                        ...themeButtonStyle,
+                        background: checked ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)",
+                        borderColor: checked ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.1)",
+                        minHeight: "2rem",
+                        padding: "0 0.7rem",
+                      }, touch)}
+                    >
+                      {checked ? "✓ " : ""}
+                      {UNIT_TYPE_LABELS[unitType] ?? unitType}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.72rem", marginTop: "0.5rem" }}>
+                Uncheck types that don't fit the era — e.g. no Air Force in 1200. Players can only deploy the checked types.
+              </div>
+            </div>
+          )}
+          <div style={editorCardStyle}>
+            <div style={editorCardTitleStyle}>The story so far</div>
+            <div style={{ display: "grid", gap: "0.8rem" }}>
+              <div>
+                <label style={fieldLabelStyle}>World Before Round One</label>
+                <textarea style={{ ...textareaStyle, minHeight: "8rem" }} value={formState.startingTimelineText} onChange={(event) => onChange("startingTimelineText", event.target.value)} />
+              </div>
+              <div>
+                <label style={fieldLabelStyle}>Simulation Rules</label>
+                <textarea style={{ ...textareaStyle, minHeight: "8rem" }} value={formState.simulationRules} onChange={(event) => onChange("simulationRules", event.target.value)} />
+              </div>
+            </div>
+          </div>
+          <div style={editorCardStyle}>
+            <div style={editorCardTitleStyle}>Country labels on the map</div>
+            <div style={{ display: "grid", gap: "0.8rem", gridTemplateColumns: isMobile ? "minmax(0, 1fr)" : "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)" }}>
+              <div>
+                <label style={fieldLabelStyle}>Country Label Font</label>
+                <input
+                  list="oh-label-font-options"
+                  placeholder="Georgia (default)"
+                  style={inputStyle}
+                  value={formState.labelFont}
+                  onChange={(event) => onChange("labelFont", event.target.value)}
+                />
+                <datalist id="oh-label-font-options">
+                  {LABEL_FONT_SUGGESTIONS.map((font) => (
+                    <option key={font} value={font} />
+                  ))}
+                </datalist>
+              </div>
+              <div>
+                <label style={fieldLabelStyle}>Label Letter Color</label>
+                <input
+                  type="color"
+                  style={{ ...inputStyle, height: "2.4rem", padding: "0.2rem" }}
+                  value={/^#[0-9a-fA-F]{6}$/.test(formState.labelTextColor) ? formState.labelTextColor : "#ffffff"}
+                  onChange={(event) => onChange("labelTextColor", event.target.value)}
+                />
+              </div>
+              <div>
+                <label style={fieldLabelStyle}>Label Border Color</label>
+                <input
+                  type="color"
+                  style={{ ...inputStyle, height: "2.4rem", padding: "0.2rem" }}
+                  value={/^#[0-9a-fA-F]{6}$/.test(formState.labelHaloColor) ? formState.labelHaloColor : "#000000"}
+                  onChange={(event) => onChange("labelHaloColor", event.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {editorSection === "history" && kind === "scenario" && (
@@ -2311,51 +2547,18 @@ const EditorDrawer = ({
       )}
 
       {editorError && (
-        <div style={{ background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.34)", borderRadius: "14px", color: "#fecaca", marginBottom: "0.9rem", padding: "0.8rem 0.9rem" }}>
+        <div style={{ background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.34)", borderRadius: "14px", color: "#fecaca", marginTop: "0.4rem", padding: "0.8rem 0.9rem" }}>
           {editorError}
         </div>
       )}
+          </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.55rem" }}>
-        <button
-          className="oh-tap-row"
-          onClick={onSave}
-          style={touchFit({ ...themeButtonStyle, background: record.accentColor, borderColor: record.accentColor, borderRadius: "11px", boxShadow: `0 3px 12px ${record.accentColor}33`, color: "#fff", fontWeight: 700, minWidth: "7.2rem" }, touch)}
-          type="button"
-        >
-          {isBusy ? "Saving..." : "Save"}
-        </button>
-        {kind === "scenario" && onOpenMapEditor && (
-          <button
-            className="oh-tap-row"
-            onClick={onOpenMapEditor}
-            style={touchFit({ ...themeButtonStyle, background: "rgba(255,255,255,0.12)", borderColor: "rgba(255,255,255,0.19)", color: "#fff", minWidth: "9rem" }, touch)}
-            type="button"
-          >
-            🗺️ Open Map Editor
-          </button>
-        )}
-        {kind === "scenario" && onSuggestChanges && record.hubOrigin && (
-          <button
-            className="oh-tap-row"
-            onClick={onSuggestChanges}
-            title="Send your changes to this community scenario's author, who can accept or reject each one."
-            style={touchFit({ ...themeButtonStyle, background: "rgba(43,193,243,0.18)", borderColor: "rgba(43,193,243,0.45)", color: "#fff" }, touch)}
-            type="button"
-          >
-            Suggest changes
-          </button>
-        )}
-        {record.canDelete && (
-          <button
-            className="oh-tap-row"
-            onClick={onDelete}
-            style={touchFit({ ...themeButtonStyle, background: "rgba(127,29,29,0.34)", borderColor: "rgba(248,113,113,0.28)", color: "#fecaca" }, touch)}
-            type="button"
-          >
-            Delete
-          </button>
-        )}
+          {isMobile && (
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", flexShrink: 0, padding: `0.7rem calc(0.9rem + ${SAFE_RIGHT}) calc(0.7rem + ${SAFE_BOTTOM}) calc(0.9rem + ${SAFE_LEFT})` }}>
+              {actions}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
