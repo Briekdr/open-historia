@@ -49,7 +49,7 @@ const libraryCardBody = { display: "flex", flexDirection: "column", height: "100
 // the game's name, where and when it is, and what it is about; its counts,
 // Play and Archive.
 export const GameCardSkeleton = ({ width = "100%" }) => (
-  <div aria-hidden="true" className="oh-skeleton" style={libraryCard({ minHeight: "14rem", width })}>
+  <div aria-hidden="true" className="oh-skeleton" style={libraryCard({ minHeight: "22rem", width })}>
     <div style={libraryCardBody}>
       <div>
         <div style={{ alignItems: "center", display: "flex", gap: "0.5rem", justifyContent: "space-between" }}>

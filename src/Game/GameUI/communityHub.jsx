@@ -94,9 +94,10 @@ const CARD_WIDTH = "min(21rem, calc(100vw - 2rem))";
 // displays instead of stopping at a resolution-specific max width.
 const COMMUNITY_GRID_TEMPLATE = "repeat(auto-fill, minmax(min(100%, 16.5rem), 1fr))";
 const cardSurface = {
-  background: "rgba(255,255,255,0.04)",
+  background: "#12141a",
   border: "1px solid rgba(255,255,255,0.09)",
   borderRadius: "16px",
+  boxShadow: "0 14px 32px rgba(0,0,0,0.45)",
   boxSizing: "border-box",
   color: "#fff",
   display: "flex",
@@ -112,8 +113,8 @@ const cardSurface = {
 const pillButton = {
   alignItems: "center",
   background: "rgba(255,255,255,0.06)",
-  border: "1px solid rgba(255,255,255,0.1)",
-  borderRadius: "999px",
+  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: "9px",
   color: "rgba(246,246,248,0.92)",
   cursor: "pointer",
   display: "inline-flex",
@@ -140,8 +141,8 @@ const rowTitleStyle = {
 
 const searchInputStyle = {
   background: "rgba(255,255,255,0.06)",
-  border: "1px solid rgba(255,255,255,0.1)",
-  borderRadius: "999px",
+  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: "9px",
   color: "#fff",
   fontSize: "0.8rem",
   height: "2rem",
