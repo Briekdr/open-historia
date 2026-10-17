@@ -135,6 +135,8 @@ const hexToRgbArray = (hex) => {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 };
 
+const gameShelfMemory = { search: "", sort: "recent", view: "active" };
+
 // Set by the mounted LibraryTopBar; lets outside callers open the main menu
 // on a specific tab.
 let _openLibraryTab = null;
@@ -1725,6 +1727,7 @@ const RecentlyDeletedRow = ({ kind, onChanged, trash }) => {
   const touch = useTouchPrimary();
   const [busy, setBusy] = useState(false);
   const [rowError, setRowError] = useState(null);
+  const [confirmEmpty, setConfirmEmpty] = useState(false);
   const entries = (trash?.entries ?? []).filter((entry) => entry.kind === kind);
   if (!entries.length) return null;
 
@@ -1740,12 +1743,13 @@ const RecentlyDeletedRow = ({ kind, onChanged, trash }) => {
       onChanged();
     }
   };
+  const count = entries.length;
+  const question = kind === "game"
+    ? (count === 1 ? "Delete the game in Recently deleted for good? This cannot be undone." : `Delete the ${count} games in Recently deleted for good? This cannot be undone.`)
+    : (count === 1 ? "Delete the scenario in Recently deleted for good? This cannot be undone." : `Delete the ${count} scenarios in Recently deleted for good? This cannot be undone.`);
   const handleEmpty = () => {
-    const count = entries.length;
-    const question = kind === "game"
-      ? (count === 1 ? "Delete the game in Recently deleted for good? This cannot be undone." : `Delete the ${count} games in Recently deleted for good? This cannot be undone.`)
-      : (count === 1 ? "Delete the scenario in Recently deleted for good? This cannot be undone." : `Delete the ${count} scenarios in Recently deleted for good? This cannot be undone.`);
-    if (window.confirm(question)) run(() => emptyTrash(kind));
+    setConfirmEmpty(false);
+    run(() => emptyTrash(kind));
   };
   const description = trash.keepCount
     ? (kind === "game"
@@ -1763,12 +1767,21 @@ const RecentlyDeletedRow = ({ kind, onChanged, trash }) => {
         </div>
       )}
       <MenuRow
-        action={(
-          <button className="oh-tap-row" disabled={busy} onClick={handleEmpty} style={touchFit({ ...themeButtonStyle, flexShrink: 0 }, touch)} type="button">
+        action={confirmEmpty ? (
+          <div style={{ display: "flex", flexShrink: 0, gap: "0.45rem" }}>
+            <button className="oh-tap-row" disabled={busy} onClick={() => setConfirmEmpty(false)} style={touchFit({ ...themeButtonStyle }, touch)} type="button">
+              Cancel
+            </button>
+            <button className="oh-tap-row" disabled={busy} onClick={handleEmpty} style={touchFit({ ...themeButtonStyle, background: "rgba(185,28,28,0.72)", borderColor: "rgba(248,113,113,0.4)", color: "#fff" }, touch)} type="button">
+              Empty
+            </button>
+          </div>
+        ) : (
+          <button className="oh-tap-row" disabled={busy} onClick={() => setConfirmEmpty(true)} style={touchFit({ ...themeButtonStyle, flexShrink: 0 }, touch)} type="button">
             Empty
           </button>
         )}
-        description={description}
+        description={confirmEmpty ? question : description}
         icon="🗑️"
         title="Recently deleted"
       >
@@ -2602,9 +2615,14 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   const [activeTab, setActiveTab] = useState("games");
   // The history of the game's updates, opened from the menu's mark (updates/UpdateHistory.jsx).
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [gameSearch, setGameSearch] = useState("");
-  const [gameSort, setGameSort] = useState("recent");
-  const [gameView, setGameView] = useState("active");
+  const [gameSearch, setGameSearch] = useState(() => gameShelfMemory.search);
+  const [gameSort, setGameSort] = useState(() => gameShelfMemory.sort);
+  const [gameView, setGameView] = useState(() => gameShelfMemory.view);
+  useEffect(() => {
+    gameShelfMemory.search = gameSearch;
+    gameShelfMemory.sort = gameSort;
+    gameShelfMemory.view = gameView;
+  }, [gameSearch, gameSort, gameView]);
   const [scenarioSearch, setScenarioSearch] = useState("");
   const [scenarioSort, setScenarioSort] = useState("recent");
   const [scenarioView, setScenarioView] = useState("all");
@@ -3391,7 +3409,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
       : `Delete the game "${name}"? You can restore it from Recently deleted for ${trash.keepDays} days.`);
 
   const handleGameDelete = async (game) => {
-    if (!game?.canDelete || !window.confirm(gameDeleteQuestion(game.name))) return;
+    if (!game?.canDelete) return;
     setEditorError(null);
     setIsBusy(true);
     try {
