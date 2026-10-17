@@ -68,7 +68,7 @@ import { useIsMobile } from "../../runtime/useIsMobile.js";
 import { DIFFICULTY_LEVELS } from "../../runtime/difficulty.js";
 import { POLITICAL_WORLD_CAPABILITY, politicalWorldCapability } from "../../runtime/politicalWorldCapability.js";
 import { useCountryDisplayName } from "../../runtime/polityNames.js";
-import { flagEmojiFromGid } from "../../runtime/countryFlags.js";
+import { bundledFlagUrl, flagImageUrlFromGid, gidToAlpha2 } from "../../runtime/countryFlags.js";
 import { splitScenarioBundleImage, unresolvedBundleBackground } from "../../runtime/communityBasemaps.js";
 import { noteMissingBasemapTried, retryMissingBasemap } from "../../runtime/missingBasemap.js";
 import { zipBundle, looksLikeZip } from "../../runtime/bundleZip.js";
@@ -4466,7 +4466,8 @@ const LibraryTopBar = ({ onOpenSettings }) => {
         {(countryPicker) => (
         <div
           onClick={closeCountryPicker}
-          style={{ position: "fixed", inset: 0, zIndex: 10060, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "center", padding: `${SAFE_TOP} ${SAFE_RIGHT} ${SAFE_BOTTOM} ${SAFE_LEFT}` }}        >
+          style={{ position: "fixed", inset: 0, zIndex: 10060, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)", display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "center", padding: `${SAFE_TOP} ${SAFE_RIGHT} ${SAFE_BOTTOM} ${SAFE_LEFT}` }}
+        >
           {/* On a phone the card takes the whole screen height rather than 80%
               of it: the search, the map, the list and the buttons need every
               row a phone has. The SCREEN height, and pinned to the top: sized
@@ -4476,29 +4477,61 @@ const LibraryTopBar = ({ onOpenSettings }) => {
               (mobileUi.js SCREEN_HEIGHT). */}
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ ...surfaceStyle, borderRadius: 16, width: difficultyPick ? "min(440px, 92vw)" : "min(640px, 92vw)", maxHeight: isMobile ? `calc(${SCREEN_HEIGHT} - 1.5rem - ${SAFE_TOP} - ${SAFE_BOTTOM})` : "80vh", marginTop: isMobile ? "0.75rem" : undefined, display: "flex", flexDirection: "column", padding: "1rem", color: "#fff", fontFamily: "sans-serif", overflow: difficultyPick ? "visible" : "auto" }}
+            style={{
+              ...surfaceStyle,
+              background: "#11141a",
+              border: "1px solid rgba(255,255,255,0.14)",
+              boxShadow: "0 24px 64px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.06)",
+              borderRadius: 18,
+              width: difficultyPick ? "min(460px, 92vw)" : isMobile ? "min(640px, 94vw)" : "min(1120px, 95vw)",
+              maxHeight: isMobile ? `calc(${SCREEN_HEIGHT} - 1.5rem - ${SAFE_TOP} - ${SAFE_BOTTOM})` : "88vh",
+              height: isMobile || difficultyPick ? undefined : "min(720px, 86vh)",
+              marginTop: isMobile ? "0.75rem" : undefined,
+              display: "flex",
+              flexDirection: "column",
+              padding: isMobile ? "1rem" : "1.25rem 1.5rem",
+              color: "#fff",
+              fontFamily: "sans-serif",
+              overflow: difficultyPick ? "visible" : isMobile ? "auto" : "hidden",
+            }}
           >
             {difficultyPick ? (
               <>
-                <div style={{ fontWeight: 800, fontSize: "1rem" }}>Choose your difficulty</div>
-                <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.75rem", margin: "0.15rem 0 0.7rem" }}>
+                <div style={{ fontWeight: 800, fontSize: "1.2rem", letterSpacing: "-0.01em" }}>Choose your difficulty</div>
+                <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.8rem", margin: "0.2rem 0 0.85rem" }}>
                   How hard should the world fight back?
                 </div>
-                {selectedCountryOption && (
-                  <div style={{ alignItems: "center", display: "flex", fontSize: "0.9rem", fontWeight: 700, gap: "0.5rem", marginBottom: "0.7rem" }}>
-                    <span aria-hidden="true" style={{ fontSize: "1.35rem" }}>
-                      {flagEmojiFromGid(selectedCountryOption.code) || "🏳️"}
-                    </span>
-                    <span>{selectedCountryOption.name}</span>
-                  </div>
-                )}
+                {selectedCountryOption && (() => {
+                  const flagUrl = bundledFlagUrl(flagImageUrlFromGid(selectedCountryOption.code) || flagImageUrlFromGid(selectedCountryOption.name))
+                    || (gidToAlpha2(selectedCountryOption.code) ? bundledFlagUrl(`https://flagcdn.com/${gidToAlpha2(selectedCountryOption.code)}.svg`) : null);
+                  return (
+                    <div style={{ alignItems: "center", display: "flex", fontSize: "0.95rem", fontWeight: 700, gap: "0.6rem", marginBottom: "0.85rem", padding: "0.6rem 0.85rem", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10 }}>
+                      {flagUrl ? (
+                        <img
+                          src={flagUrl}
+                          alt=""
+                          style={{ borderRadius: 3, boxShadow: "0 1px 3px rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.2)", display: "block", flexShrink: 0, height: "1.2rem", objectFit: "cover", width: "1.75rem" }}
+                        />
+                      ) : (
+                        <span aria-hidden="true" style={{ background: "rgba(255,255,255,0.15)", borderRadius: 3, display: "inline-block", flexShrink: 0, height: "1.2rem", width: "1.75rem" }} />
+                      )}
+                      <div style={{ display: "flex", flexDirection: "column" }}>
+                        <span>{selectedCountryOption.name}</span>
+                        <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.45)", fontWeight: 400 }}>Selected Nation</span>
+                      </div>
+                    </div>
+                  );
+                })()}
                 {difficultyPick?.group && (
-                  <div style={{ alignItems: "center", display: "flex", fontSize: "0.9rem", fontWeight: 700, gap: "0.5rem", marginBottom: "0.7rem" }}>
-                    <span aria-hidden="true" style={{ background: difficultyPick.group.color || "#a1a1aa", borderRadius: 4, display: "inline-block", height: 16, width: 16 }} />
-                    <span data-no-translate>{difficultyPick.group.name}</span>
+                  <div style={{ alignItems: "center", display: "flex", fontSize: "0.95rem", fontWeight: 700, gap: "0.6rem", marginBottom: "0.85rem", padding: "0.6rem 0.85rem", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10 }}>
+                    <span aria-hidden="true" style={{ background: difficultyPick.group.color || "#a1a1aa", borderRadius: 4, display: "inline-block", height: 20, width: 20 }} />
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <span data-no-translate>{difficultyPick.group.name}</span>
+                      <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.45)", fontWeight: 400 }}>Selected Group</span>
+                    </div>
                   </div>
                 )}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", overflowY: "auto" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem", overflowY: "auto" }}>
                   {DIFFICULTY_LEVELS.map((level) => (
                     <button
                       key={level.id}
@@ -4507,89 +4540,117 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                       style={{
                         ...actionButtonStyle,
                         alignItems: "center",
-                        background: "rgba(255,255,255,0.04)",
+                        background: "rgba(255,255,255,0.05)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        borderRadius: 10,
                         display: "flex",
                         flexDirection: "column",
-                        gap: "0.2rem",
-                        padding: "0.75rem 0.5rem",
+                        gap: "0.3rem",
+                        padding: "0.9rem 0.6rem",
+                        transition: "background 0.15s ease, border-color 0.15s ease",
                       }}
                     >
-                      <span style={{ fontSize: "1.6rem", lineHeight: 1 }}>{level.emoji}</span>
-                      <span style={{ fontWeight: 700 }}>{level.label}</span>
-                      <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.68rem", textAlign: "center" }}>{level.blurb}</span>
+                      <span style={{ fontSize: "1.75rem", lineHeight: 1 }}>{level.emoji}</span>
+                      <span style={{ fontWeight: 700, fontSize: "0.92rem" }}>{level.label}</span>
+                      <span style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.7rem", textAlign: "center", lineHeight: 1.3 }}>{level.blurb}</span>
                     </button>
                   ))}
                 </div>
-                <button type="button" className="oh-tap-row" onClick={() => setDifficultyPick(null)} style={touchFit({ ...actionButtonStyle, marginTop: "0.6rem" }, touch)}>
+                <button type="button" className="oh-tap-row" onClick={() => setDifficultyPick(null)} style={touchFit({ ...actionButtonStyle, marginTop: "0.85rem", borderRadius: 8, padding: "0.6rem" }, touch)}>
                   Back
                 </button>
               </>
             ) : (
               <>
-                <div style={{ fontWeight: 800, fontSize: "1rem" }}>
-                  {pickerTab === "faction" ? "Create your faction" : pickerTab === "group" && pickerOffersGroups ? "Play as a group" : "Choose your country"}
-                </div>
-                <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.75rem", margin: "0.15rem 0 0.6rem" }}>
-                  Starting “{countryPicker.name}”
-                </div>
-                {/* Whose music the scenario plays, where it has tracks of its
-                    own from the community hub: their licences ask for it to be
-                    said, and this is where a player reads about a scenario
-                    before starting it. */}
-                <ScenarioMusicCredits music={countryPicker.music} style={{ flex: "0 0 auto", fontSize: "0.72rem", marginBottom: "0.6rem", maxHeight: "5.5rem", overflowY: "auto" }} />
-                {/* Refining an existing game (Apply-&-Play) only swaps the country;
-                    inventing a faction is a fresh-game concern, so the tabs show
-                    only for a true new game. */}
-                {!playGameId && (
-                  <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.7rem" }}>
-                    <button
-                      type="button"
-                      className="oh-tap-row"
-                      onClick={() => setPickerTab("country")}
-                      style={touchFit({
-                        ...actionButtonStyle,
-                        flex: 1,
-                        fontWeight: 700,
-                        background: pickerTab === "country" ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)",
-                        borderColor: pickerTab === "country" ? "rgba(255,255,255,0.28)" : undefined,
-                      }, touch)}
-                    >
-                      Pick a country
-                    </button>
-                    <button
-                      type="button"
-                      className="oh-tap-row"
-                      onClick={() => setPickerTab("faction")}
-                      style={touchFit({
-                        ...actionButtonStyle,
-                        flex: 1,
-                        fontWeight: 700,
-                        background: pickerTab === "faction" ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)",
-                        borderColor: pickerTab === "faction" ? "rgba(255,255,255,0.28)" : undefined,
-                      }, touch)}
-                    >
-                      Create a faction
-                    </button>
-                    {pickerOffersGroups && (
-                    <button
-                      type="button"
-                      className="oh-tap-row"
-                      onClick={() => setPickerTab("group")}
-                      style={touchFit({
-                        ...actionButtonStyle,
-                        flex: 1,
-                        fontWeight: 700,
-                        background: pickerTab === "group" ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)",
-                        borderColor: pickerTab === "group" ? "rgba(255,255,255,0.28)" : undefined,
-                      }, touch)}
-                    >
-                      Play as a group
-                    </button>
-                    )}
+                <div style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.6rem", marginBottom: "0.75rem", flexShrink: 0 }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
+                      <span style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "rgba(255,255,255,0.55)", background: "rgba(255,255,255,0.08)", padding: "0.15rem 0.45rem", borderRadius: 4 }}>
+                        Scenario
+                      </span>
+                      <span style={{ color: "rgba(255,255,255,0.8)", fontSize: "0.82rem", fontWeight: 600 }}>
+                        {countryPicker.name}
+                      </span>
+                    </div>
+                    <div style={{ fontWeight: 800, fontSize: isMobile ? "1.1rem" : "1.3rem", marginTop: "0.2rem", letterSpacing: "-0.01em" }}>
+                      {pickerTab === "faction" ? "Create your faction" : pickerTab === "group" && pickerOffersGroups ? "Play as a group" : "Choose your country"}
+                    </div>
                   </div>
-                )}
+
+                  {/* Mode switcher tabs */}
+                  {!playGameId && (
+                    <div
+                      style={{
+                        display: "flex",
+                        background: "rgba(0,0,0,0.35)",
+                        padding: 3,
+                        borderRadius: 10,
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        gap: 2,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="oh-tap-row"
+                        onClick={() => setPickerTab("country")}
+                        style={touchFit({
+                          ...actionButtonStyle,
+                          border: "none",
+                          borderRadius: 7,
+                          fontSize: "0.8rem",
+                          fontWeight: 700,
+                          background: pickerTab === "country" ? "rgba(255,255,255,0.14)" : "transparent",
+                          color: pickerTab === "country" ? "#fff" : "rgba(255,255,255,0.6)",
+                          padding: "0.4rem 0.85rem",
+                        }, touch)}
+                      >
+                        Pick a country
+                      </button>
+                      <button
+                        type="button"
+                        className="oh-tap-row"
+                        onClick={() => setPickerTab("faction")}
+                        style={touchFit({
+                          ...actionButtonStyle,
+                          border: "none",
+                          borderRadius: 7,
+                          fontSize: "0.8rem",
+                          fontWeight: 700,
+                          background: pickerTab === "faction" ? "rgba(255,255,255,0.14)" : "transparent",
+                          color: pickerTab === "faction" ? "#fff" : "rgba(255,255,255,0.6)",
+                          padding: "0.4rem 0.85rem",
+                        }, touch)}
+                      >
+                        Create a faction
+                      </button>
+                      {pickerOffersGroups && (
+                        <button
+                          type="button"
+                          className="oh-tap-row"
+                          onClick={() => setPickerTab("group")}
+                          style={touchFit({
+                            ...actionButtonStyle,
+                            border: "none",
+                            borderRadius: 7,
+                            fontSize: "0.8rem",
+                            fontWeight: 700,
+                            background: pickerTab === "group" ? "rgba(255,255,255,0.14)" : "transparent",
+                            color: pickerTab === "group" ? "#fff" : "rgba(255,255,255,0.6)",
+                            padding: "0.4rem 0.85rem",
+                          }, touch)}
+                        >
+                          Play as a group
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Scenario Music Credits */}
+                <ScenarioMusicCredits music={countryPicker.music} style={{ flex: "0 0 auto", fontSize: "0.72rem", marginBottom: "0.6rem", maxHeight: "3.5rem", overflowY: "auto" }} />
+
                 {pickerTab === "group" && pickerOffersGroups && !playGameId ? (
-                  <>
+                  <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
                     {/* A group controls an area without owning it (runtime/groups.js):
                         lead one of the scenario's, or make one. */}
                     <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.76rem", lineHeight: 1.45, marginBottom: "0.6rem" }}>
@@ -4627,41 +4688,54 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                       onCreate={(created) => pickGroup({ ...created, existing: false })}
                       onCancel={() => { closeCountryPicker(); setPickerTab("country"); }}
                     />
-                  </>
+                  </div>
                 ) : pickerTab === "faction" && !playGameId ? (
-                  <FactionCreator
-                    regionsGeojson={customRegionData}
-                    busy={isBusy}
-                    onCreate={(faction) => pickFaction(faction)}
-                    onCancel={() => { closeCountryPicker(); setPickerTab("country"); }}
-                  />
+                  <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
+                    <FactionCreator
+                      regionsGeojson={customRegionData}
+                      busy={isBusy}
+                      onCreate={(faction) => pickFaction(faction)}
+                      onCancel={() => { closeCountryPicker(); setPickerTab("country"); }}
+                    />
+                  </div>
                 ) : (
                   <>
-                    <button
-                      type="button"
-                      className="oh-tap-row"
-                      onClick={() => pickCountry("")}
-                      style={touchFit({ ...actionButtonStyle, justifyContent: "flex-start", background: "rgba(255,255,255,0.06)", marginBottom: "0.4rem" }, touch)}
-                    >
-                      {playGameId ? "Keep scenario default" : "Scenario default"}
-                    </button>
-                    <Suspense
-                      fallback={
-                        <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.85rem", padding: "3rem 0", textAlign: "center" }}>
-                          Loading map…
-                        </div>
-                      }
-                    >
-                      <CountryPickerMap
-                        countryOptions={countryOptions}
-                        regionsGeojson={customRegionData}
-                        ownerOverrides={pickerOwnerOverrides}
-                        customBackground={pickerBackground}
-                        onPickCountry={(code) => pickCountry(code)}
-                      />
-                    </Suspense>
-                    <button type="button" className="oh-tap-row" onClick={closeCountryPicker} style={touchFit({ ...actionButtonStyle, marginTop: "0.6rem" }, touch)}>                      {playGameId ? "Done" : "Cancel"}
-                    </button>
+                    <div style={{ display: "flex", flex: 1, minHeight: 0, width: "100%" }}>
+                      <Suspense
+                        fallback={
+                          <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.85rem", padding: "4rem 0", textAlign: "center", width: "100%" }}>
+                            Loading map…
+                          </div>
+                        }
+                      >
+                        <CountryPickerMap
+                          countryOptions={countryOptions}
+                          regionsGeojson={customRegionData}
+                          ownerOverrides={pickerOwnerOverrides}
+                          customBackground={pickerBackground}
+                          onPickCountry={(code) => pickCountry(code)}
+                          onPickDefault={() => pickCountry("")}
+                          playGameId={playGameId}
+                        />
+                      </Suspense>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: isMobile ? "0.6rem" : "0.75rem", borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "0.6rem", flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        className="oh-tap-row"
+                        onClick={closeCountryPicker}
+                        style={touchFit({
+                          ...actionButtonStyle,
+                          background: "rgba(255,255,255,0.06)",
+                          borderRadius: 8,
+                          padding: "0.45rem 1.25rem",
+                          fontSize: "0.85rem",
+                          fontWeight: 600,
+                        }, touch)}
+                      >
+                        {playGameId ? "Done" : "Cancel"}
+                      </button>
+                    </div>
                   </>
                 )}
               </>

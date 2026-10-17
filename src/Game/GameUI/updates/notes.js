@@ -105,6 +105,14 @@ const NEW_UPDATES = [
               "The Economy tab opens again for every country: it no longer stops on a stat sheet error.",
             ],
           },
+          {
+            heading: "Country picker and flags",
+            icon: "map",
+            items: [
+              "The country picker now opens in an expansive command center with a detailed world relief map.",
+              "Every nation displays its official high-resolution vector flag and national map color.",
+            ],
+          },
         ],
         button: "To the field",
       },
