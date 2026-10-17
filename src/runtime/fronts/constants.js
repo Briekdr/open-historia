@@ -30,10 +30,12 @@ export const MAX_ORDERS_PER_SIDE = 16;
 
 // A side's troops on a battlefield are under its GENERALS, each with a body of
 // them: one general under the first of these counts, two under the second, and
-// so on to the most there are. A route drawn for troops to follow is kept to
-// this many points.
+// so on to the most the line has (FRONT_COMMANDS_MOST). A side has at most
+// MAX_COMMANDS generals, a swarm's among them (swarms.js): each swarm has a
+// general of its own. A route drawn for troops to follow is kept to this many points.
 export const COMMAND_TROOPS = Object.freeze([12, 40, 110, 220]);
-export const MAX_COMMANDS = 5;
+export const FRONT_COMMANDS_MOST = 5;
+export const MAX_COMMANDS = 8;
 export const MAX_WAY_POINTS = 12;
 export const GENERAL_NAME_MAX = 60;
 // What was said in a side's war room is kept with the battlefield: the last
@@ -277,6 +279,60 @@ export const WITHDRAW_KM = 60;
 // side defending needs the larger figures to do either. Under the last figure
 // any side digs in. A stretch of line needs this many troops to be attacked from.
 export const STAFF_MARK = "staff";
+
+// ---- fatigue (fatigue.js; Wars and Fronts Pt.2) ------------------------------------
+// What a day adds to a troop's fatigue (0 fresh to 1 spent): a full day's
+// march at its era's pace, a day it attacked, a day it was attacked; what a
+// day of rest takes off, dug in and cut off; the march under which a day is
+// rest. What a spent troop has lost of its attack, defence and pace. The
+// fatigue at which a troop counts as exhausted (brief.js).
+export const FATIGUE_MARCH = 0.05;
+export const FATIGUE_ATTACK = 0.035;
+export const FATIGUE_DEFEND = 0.015;
+export const FATIGUE_REST = 0.07;
+export const FATIGUE_REST_DUG = 1.25;
+export const FATIGUE_REST_POCKET = 0.25;
+export const FATIGUE_STILL_KM = 2;
+// A troop that did not advance the day before (it took no ground and made no
+// attack) fights a little harder the next, in attack and defence alike: "make
+// it so troops that are not advancing also get a small strength boost" (the
+// owner, 2026-10-14). With the fatigue mechanic (dawn.js).
+export const STILL_EDGE = 0.08;
+// ATTRITION (mechanics.js "attrition"): what the weather and a hard climate
+// take from every troop out in them each day, supplied or not ("make it so
+// strong winters or dangerous weather conditions can directly harm armies",
+// the owner, 2026-10-14): ATTRITION_WEATHER strength a day for each point of
+// cold or heat (a blizzard is 1, frost 0.6, a Siberian winter's ground 1.3
+// more: weather.js, climate.js). A spent troop suffers up to (1 +
+// ATTRITION_TIRED) times that, a dug-in one ATTRITION_DUG of it, and a side
+// short of what it needs (a blockade, its weariness, its war resources spent:
+// handicap.js) up to (1 + ATTRITION_SHORT) times. A day at ATTRITION_HARSH_FROM
+// or worse is a hard day on morale (runtime/warWeariness.js) and on supplies
+// (runtime/warResources.js).
+export const ATTRITION_WEATHER = 0.25;
+export const ATTRITION_TIRED = 1;
+export const ATTRITION_DUG = 0.6;
+export const ATTRITION_SHORT = 1;
+export const ATTRITION_HARSH_FROM = 0.8;
+export const FATIGUE_PUNCH = 0.35;
+export const FATIGUE_GUARD = 0.15;
+export const FATIGUE_LEGS = 0.4;
+export const FATIGUE_EXHAUSTED = 0.7;
+
+// ---- countries' own military figures (military.js; Wars and Fronts Pt.2) ------------
+// The least part of a counter a country's last men are raised as: what is
+// left of them after its whole counters, below this, stays at home.
+export const PART_COUNTER_LEAST = 0.1;
+
+// ---- ice (climate.js; Wars and Fronts Pt.2) -----------------------------------------
+// How fast troops cross frozen water, against open ground; what a troop left
+// on ice that thawed loses getting off it, and how far it may get, in cells.
+export const ICE_SPEED = 0.35;
+export const THAW_LOSS = 0.3;
+export const THAW_REACH_CELLS = 12;
+// EXPERIMENT, in the lab (mind/policy.js createTroopPolicy): what a trained staff
+// that orders troops one by one marks its orders with (engine.js orderTroopsByMind).
+export const MIND_MARK = "mind";
 // A FRONT'S POSTURE, AS ITS SCENARIO SET IT. The order each side of a front
 // begins under (runtime/fronts/scenarioFronts.js: hold, dig in or advance) is
 // what its author made that front: a dug-in line, a quiet one, one being
@@ -301,6 +357,29 @@ export const STAFF_DEFENDER_PROBES = 1.15;
 export const STAFF_CHANCE_DEFENDER = 0.5;
 export const STAFF_DIGS_IN_UNDER = 0.55;
 export const STAFF_SECTOR_TROOPS_LEAST = 3;
+// A country's PEACETIME ARMY (muster.js): this share of its levy stands on the
+// line from a war's first day, and its call-up brings in the rest. The side a
+// war was begun against used to begin it from nothing, and any thrust walked
+// through an empty country for its first weeks.
+export const MUSTER_STANDING_SHARE = 0.25;
+// A BREAKTHROUGH (Wars and Fronts Pt.2; staff.js breakthroughAnswer): "drawing
+// a route with all your forces and making the route go super deep into enemy
+// territory makes it just sledgehammer through and nothing can stop it" (the
+// owner, 2026-10-14). An enemy troop on a side's home ground is a SPEARHEAD
+// when, at BREAKTHROUGH_RING_KM round it, the side holds at least
+// BREAKTHROUGH_ENCLOSED of the eight points of the compass: it stands in a
+// salient, the side's ground on most sides of it. The side's staff looks for
+// one every day and answers it at once, and again while it lasts, on its own
+// days or once what it sent has got there (and BREAKTHROUGH_LOOK_DAYS apart):
+// every troop that is not outmatched where it stands (its side's worth within
+// BREAKTHROUGH_ODDS_KM at least BREAKTHROUGH_COUNTER_ODDS of the other's)
+// attacks, at the thrust and into the ground behind the other side's line,
+// which a thrust leaves thin; the outmatched hold.
+export const BREAKTHROUGH_RING_KM = 40;
+export const BREAKTHROUGH_ENCLOSED = 5;
+export const BREAKTHROUGH_ODDS_KM = 50;
+export const BREAKTHROUGH_COUNTER_ODDS = 0.8;
+export const BREAKTHROUGH_LOOK_DAYS = 3;
 export const WITHDRAW_DAYS_MOST = 12;
 export const ATTACK_LAPSE_DAYS = 120;
 // A sector named for a place is the line within this far of the point nearest it.
@@ -394,6 +473,13 @@ export const SUPPLY_EVERY_DAYS = 3;
 export const SUPPLY_FULL_KM = Object.freeze([120, 180, 300, 450]);
 export const SUPPLY_FAR_FACTOR = 2.5;
 export const SUPPLY_LEAST = 0.4;
+// A road the other side's ground lies near is a road under its guns (Wars and
+// Fronts Pt.2, with the supply mechanic): supply carried over a cell within
+// CORRIDOR_KM of the other side's ground goes CORRIDOR_COST times as far, so a
+// thrust fed down a narrow corridor is fed the worse the longer the corridor,
+// and a broad advance, whose roads run behind its own line, hardly so at all.
+export const CORRIDOR_KM = 20;
+export const CORRIDOR_COST = 4;
 // A body of ground cut off from every source. With none of its side's troops
 // in it and under this many square kilometres it is a patch, filled the day
 // the ring closes. Anything else is a pocket, fought for like any other ground
@@ -673,6 +759,14 @@ export const ADRIFT_DAYS = 2;
 // Thrown out of its works when the ground under it is lost, at this cost.
 export const DUG_IN_DEFENCE = 1.6;
 export const DUG_IN_LOSS = 0.55;
+// Stronger works with the fatigue mechanic on (Wars and Fronts Pt.2: dawn.js
+// sets battle.works): "make dug-in troops even stronger to make always
+// advancing a worse strategic decision" (the owner, 2026-10-14). A troop that
+// holds digs in faster and deeper, one dug in defends harder and loses less,
+// and an assault on troops in their works costs the attacker up to `assault`
+// times its losses (all of the defence dug in; a part of it, that part).
+export const WORKS = Object.freeze({ defence: DUG_IN_DEFENCE, loss: DUG_IN_LOSS, perDay: DIG_PER_DAY_HOLD, most: DIG_MAX_HOLD, assault: 1 });
+export const STRONG_WORKS = Object.freeze({ defence: 2.5, loss: 0.35, perDay: 0.06, most: 0.7, assault: 2.5 });
 export const THROWN_OUT_LOSS = 15;
 
 // Ground to be closed on draws in the nearest troops, whatever they are at: one
@@ -751,3 +845,18 @@ export const ASSAULT_WEAR = 2.5;
 
 // A border fortified in peace is given up after this many quiet days at token effort.
 export const STANDING_QUIET_DAYS = 30;
+
+// SWARMS (swarms.js): a general's body of troops deployed as a group and not
+// along the line. When it comes its troops stand as a block, this many of their
+// side's brushes apart; after that each moves by itself, as the line's do.
+export const SWARM_SPACING_BRUSHES = 0.9;
+// New troops join a swarm of their country's whose middle stands within this of
+// where they come in; with none there they gather as a new swarm.
+export const SWARM_JOIN_KM = 60;
+// A place of a block on ground that is not its side's is moved to the nearest
+// that is, within this far.
+export const SWARM_PLACE_KM = 40;
+// Raised as swarms when a war begins (warfare "swarm"): about this many troops a
+// swarm, each gathered this far behind the stretch of line it was raised along.
+export const SWARM_TROOPS_EACH = 24;
+export const SWARM_REAR_KM = 30;

@@ -70,8 +70,10 @@ import {
   TROOP_DEFENCE,
 } from "./constants.js";
 import { ownCell, takeCapsule } from "./field.js";
+import { weatherLoss } from "./weather.js";
 import { downhill } from "./ground.js";
-import { STATE_ADVANCING, STATE_DUG_IN, STATE_ENCIRCLED, STATE_HOLDING, STATE_SPENT, controlRadius, isLive, reachCells, stepAlong } from "./troops.js";
+import { KIND_ARTILLERY, STATE_ADVANCING, STATE_DUG_IN, STATE_ENCIRCLED, STATE_HOLDING, STATE_SPENT, controlRadius, isLive, reachCells, stepAlong } from "./troops.js";
+import { WALL_ASSAULT_COST, WALL_DEFENCE_PER_LEVEL, WALL_ODDS, wallAhead, wearWall } from "./walls.js";
 
 const clampRatio = (value) => (value < ATTRITION_RATIO_MIN ? ATTRITION_RATIO_MIN : value > ATTRITION_RATIO_MAX ? ATTRITION_RATIO_MAX : value);
 
@@ -80,12 +82,14 @@ const terrainDefence = (speed) => 1 + Math.min(0.8, Math.max(0, 1 - speed)) * TE
 
 // What a troop is worth in defence where it stands; `front` is whether the
 // attacker comes at its front, where its works count.
+// (And what the day makes of it, dawn.js: 1 with no newer mechanic on.)
+// (Its works: battle.works, the stronger ones of Wars and Fronts Pt.2 where dawn.js set them.)
 const defensivePower = (battle, side, troop, front = true) =>
-  troop.strength * TROOP_DEFENCE[troop.kind] * (!front ? 1 : troop.dug ? DUG_IN_DEFENCE : 1 + troop.dig)
-  * battle.quality[side] * battle.edge[side].power * troop.supply * (troop.pocket ? POCKET_DEFENCE : 1);
+  troop.strength * TROOP_DEFENCE[troop.kind] * (!front ? 1 : troop.dug ? (battle.works ? battle.works.defence : DUG_IN_DEFENCE) : 1 + troop.dig)
+  * battle.quality[side] * battle.edge[side].power * troop.supply * (troop.pocket ? POCKET_DEFENCE : 1) * troop.guard;
 // And in attack.
 const offensivePower = (battle, side, troop) =>
-  troop.strength * TROOP_ATTACK[troop.kind] * battle.quality[side] * battle.edge[side].power * troop.supply * (troop.pocket ? POCKET_ATTACK : 1);
+  troop.strength * TROOP_ATTACK[troop.kind] * battle.quality[side] * battle.edge[side].power * troop.supply * (troop.pocket ? POCKET_ATTACK : 1) * troop.punch;
 
 // ---- who is near whom ----------------------------------------------------------
 
@@ -206,9 +210,10 @@ const readDefender = (battle, side, troop, attackers, moment) => {
 };
 
 // What one defender is worth against one attacker at (x, y).
+// (And the more from behind a wall of its own side's: walls.js.)
 const defenceAgainst = (battle, side, defender, x, y) => {
   const front = (x - defender.x) * defender.faceX + (y - defender.y) * defender.faceY >= 0;
-  return defensivePower(battle, side, defender, front) * defender.flank;
+  return defensivePower(battle, side, defender, front) * defender.flank * (defender.walled > 0 ? 1 + WALL_DEFENCE_PER_LEVEL * defender.walled : 1);
 };
 
 // Walks the day in sub-steps short enough that no troop goes more than half
@@ -233,7 +238,7 @@ export const stepForward = (battle, paceKm, pace) => {
     const kept = battle.kept[entry.side];
     entry.forward = (x, y) => inPlay(x, y) && !spared(spare, x, y) && !(kept && kept[Math.floor(y) * field.cols + Math.floor(x)])
       && (x - troop.x) * troop.axisX + (y - troop.y) * troop.axisY >= 0;
-    entry.dayCells = (paceKm[troop.kind] * arena.speed[cell] * troop.supply * pace * troop.drive * troop.paceFactor * battle.edge[entry.side].pace) / kmAt(troop.y);
+    entry.dayCells = (paceKm[troop.kind] * arena.speed[cell] * troop.supply * pace * troop.drive * troop.paceFactor * battle.edge[entry.side].pace * troop.legs) / kmAt(troop.y);
     parts = Math.max(parts, Math.ceil(entry.dayCells / (entry.radius * 0.5)));
   }
   parts = Math.min(SUBSTEPS_MAX, parts);
@@ -257,6 +262,8 @@ export const stepForward = (battle, paceKm, pace) => {
       const aheadX = troop.x + troop.gx * entry.radius;
       const aheadY = troop.y + troop.gy * entry.radius;
       let defence = 0;
+      // How much of it comes from troops in their works (battle.works: dawn.js), for what the assault costs.
+      let entrenched = 0;
       const sparing = battle.spared[side];
       eachNear(standing[1 - side], aheadX, aheadY, (enemy) => {
         // A besieged place is not assaulted: its troops are in no fight they
@@ -268,7 +275,9 @@ export const stepForward = (battle, paceKm, pace) => {
         const weight = kernel(Math.sqrt(dx * dx + dy * dy), reach);
         if (!(weight > 0)) return;
         readDefender(battle, 1 - side, enemy, stepping[side], claims.moment);
-        defence += defenceAgainst(battle, 1 - side, enemy, troop.x, troop.y) * weight;
+        const part = defenceAgainst(battle, 1 - side, enemy, troop.x, troop.y) * weight;
+        defence += part;
+        if (battle.works && (enemy.dug || enemy.dig > 0)) entrenched += part * (enemy.dug ? 1 : enemy.dig < battle.works.most ? enemy.dig / battle.works.most : 1);
       });
       const raw = defence;
       if (inPlay(aheadX, aheadY)) defence *= terrainDefence(arena.speed[Math.floor(aheadY) * field.cols + Math.floor(aheadX)]);
@@ -284,14 +293,27 @@ export const stepForward = (battle, paceKm, pace) => {
       entry.fromX = troop.x;
       entry.fromY = troop.y;
       const length = Math.min((entry.dayCells * gain) / parts, entry.radius * 0.5);
-      entry.length = length > 0 && stepAlong(troop.x, troop.y, troop.gx, troop.gy, length, entry.forward, ended) ? length : 0;
+      // A stretch of the other side's wall in its way is assaulted, not gone round (walls.js).
+      const ahead = length > 0.5 ? length : 0.5;
+      const wall = battle.walls ? wallAhead(battle, side, troop.x + troop.gx * ahead, troop.y + troop.gy * ahead) : null;
+      entry.length = !wall && length > 0 && stepAlong(troop.x, troop.y, troop.gx, troop.gy, length, entry.forward, ended) ? length : 0;
       entry.toX = entry.length > 0 ? ended[0] : troop.x;
       entry.toY = entry.length > 0 ? ended[1] : troop.y;
       // What the fight costs, whether or not it gained anything: a failed
       // assault is paid for too. One that is cut off is worn the faster by
       // those closing on it.
+      // Assaulting a wall: what it wears of the wall, at the odds against what defends it there, and
+      // what it costs the assault besides the fight (walls.js).
+      if (wall && attack > 0) {
+        wearWall(battle, wall, raw > 0 ? attack / defence : WALL_ODDS, troop.kind === KIND_ARTILLERY, 1 / parts);
+        troop.loss += troop.strength * share * ATTACK_COST * (WALL_ASSAULT_COST - 1);
+        troop.fought = true;
+      }
       if (raw > 0 && attack > 0) {
-        troop.loss += troop.strength * share * ATTACK_COST * clampRatio(Math.sqrt(defence / attack));
+        // (An assault on troops in their works costs the more: constants.js STRONG_WORKS.assault.)
+        const works = battle.works && raw > 0 ? 1 + (battle.works.assault - 1) * (entrenched < raw ? entrenched / raw : 1) : 1;
+        troop.loss += troop.strength * share * ATTACK_COST * clampRatio(Math.sqrt(defence / attack)) * works;
+        troop.fought = true;
         const theirs = share * clampRatio(Math.sqrt(attack / defence));
         eachNear(standing[1 - side], aheadX, aheadY, (enemy) => {
           if (enemy.besieged || spared(sparing, enemy.x, enemy.y)) return;
@@ -386,7 +408,13 @@ export const closeDay = (battle) => {
       // off wastes: slowly in a besieged place or in squeezed ground, where
       // something still gets through, fast in a pocket.
       const wasting = troop.besieged ? SIEGE_LOSS : troop.sealed ? POCKET_LOSS : troop.squeezed ? SQUEEZED_LOSS : 0;
-      troop.strength -= troop.loss * (troop.dug ? DUG_IN_LOSS : 1) + wasting;
+      // (And what the day's cold or heat takes: from a troop short of supply, and
+      // with attrition on from every troop out in it: weather.js weatherLoss.
+      // Being cut off and the weather are its attrition, counted: dawn.js.)
+      const weathered = battle.sky ? weatherLoss(battle.sky, troop, battle.exposure ? battle.exposure[side] : null) : 0;
+      const wasted = wasting + weathered;
+      if (battle.lostBy && wasted > 0) battle.lostBy[side].set(troop.owner, (battle.lostBy[side].get(troop.owner) ?? 0) + (wasted < troop.strength ? wasted : troop.strength));
+      troop.strength -= troop.loss * (troop.dug ? (battle.works ? battle.works.loss : DUG_IN_LOSS) : 1) + wasted;
       // What is left of a cut-off troop, with the other side upon it, gives up.
       if (troop.pocket && !troop.besieged && troop.engaged && troop.strength < GIVES_UP_UNDER) troop.strength = 0;
     }
@@ -397,10 +425,16 @@ export const closeDay = (battle) => {
         const busy = troop.order !== null && !troop.order.done;
         if (troop.dug) troop.dig = 1;
         else if (troop.movedKm > DIG_LOST_KM) troop.dig = 0;
-        else if (!busy && troop.dig < DIG_MAX_HOLD) troop.dig = Math.min(DIG_MAX_HOLD, troop.dig + DIG_PER_DAY_HOLD);
+        else if (!busy && troop.dig < (battle.works ? battle.works.most : DIG_MAX_HOLD)) {
+          const most = battle.works ? battle.works.most : DIG_MAX_HOLD;
+          troop.dig = Math.min(most, troop.dig + (battle.works ? battle.works.perDay : DIG_PER_DAY_HOLD));
+        }
         // Reserves reach every troop that is not cut off.
         if (!troop.pocket && troop.strength < 100 && battle.pool[side] > 0) {
-          const sent = Math.min(REINFORCE_PER_DAY * battle.edge[side].mend, 100 - troop.strength, battle.pool[side]);
+          // (And, weighing countries' own military figures, only with men its country still has: dawn.js dusk.)
+          const budget = battle.mendOf ? battle.mendOf(side, troop.owner) : null;
+          const sent = budget ? Math.min(REINFORCE_PER_DAY * battle.edge[side].mend, 100 - troop.strength, battle.pool[side], budget.left()) : Math.min(REINFORCE_PER_DAY * battle.edge[side].mend, 100 - troop.strength, battle.pool[side]);
+          if (budget) budget.spend(sent);
           troop.strength += sent;
           battle.pool[side] -= sent;
           // (Men sent to make good a loss are recruits like any others: manpower.js counts them.)
@@ -419,6 +453,7 @@ export const closeDay = (battle) => {
       troop.movedKm = 0;
       troop.loss = 0;
       troop.engaged = false;
+      troop.fought = false;
     }
   }
 };

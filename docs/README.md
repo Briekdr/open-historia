@@ -19,6 +19,7 @@ New to the codebase? Read **[Architecture Overview](architecture.md)** first —
 ### Game
 - [Game Map & Rendering](game-map.md) — In-game MapLibre rendering: region/country layers, owner colouring, disputed stripes, labels, cities/markers/units, the decorative globe, and `world.json` data flow.
 - [In-Game UI (HUD, Panels & Buttons)](game-ui.md) — Complete HUD/panels/buttons reference: shell, z-index ladder, main menu, and every panel with its state/props and map/AI/server data flow.
+- [Update Notices & History](update-notices.md) — The banners behind the vault door after an update, and the timeline under the menu's logo: when to write one (every player-facing change, unprompted), the entry format, themed banners, the kit, the house rules.
 - [World State & Turn Model](world-state.md) — The `world.json`/`game.json` schema, normalizers, AI impact application, state distribution, country tags, and games-vs-scenarios storage.
 
 ### AI & Prompts
@@ -40,4 +41,5 @@ New to the codebase? Read **[Architecture Overview](architecture.md)** first —
 - [Android App](mobile.md) — The Capacitor app with everything on the device: the `--mode android` bundle, the map inside the APK, file saving through the share sheet, native HTTP for LAN models, the `android` release channel and the build.
 
 ### Delivery
+- [The Player Wiki](wiki.md) — Maintaining openhistoria.com/wiki/: the markdown-to-HTML generator, `npm run wiki:check` for spotting when it has gone stale, the screenshot harness, and the main-vs-beta rules.
 - [Delivery, Deploy & Releases](delivery-and-deploy.md) — Full CI/release/deploy topology: build scripts, main/beta/alpha channels + PR-triplet, the release assets, the desktop, Android, site and test workflows, `build:site`, the admin-panel deploy engine, and the Workers.

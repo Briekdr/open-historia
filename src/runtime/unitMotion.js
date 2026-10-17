@@ -1,4 +1,4 @@
-import { diffGameDays } from "./gameDates.js";
+import { diffGameDays, parseGameDate } from "./gameDates.js";
 
 /*! Open Historia — unit motion, reach & detection math © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
 // Deterministic movement for map units — the reason a fleet sent to the
@@ -110,9 +110,15 @@ const AIR_KM_PER_DAY = [700, 1000, 1500, 5000];
 // The formation is in contact with an enemy and goes at an advance's pace.
 export const ADVANCING_POSTURES = new Set(["assaulting"]);
 
-// Which of the four eras a game date is in. A date that carries no year reads
-// as the present, as it always has here.
-export const eraOf = (gameDate) => {
+// Which of the four eras a game date is in. A scenario may say which outright
+// (`era`, 0 to 3: warSettings.js eraSettingOf), as one with a calendar of its
+// own must. Otherwise it is read off the date's year, which may have any number
+// of digits ("45-03-01" is AD 45); a date that carries no year reads as the
+// present, as it always has here.
+export const eraOf = (gameDate, era = null) => {
+  if (Number.isInteger(era) && era >= 0 && era <= 3) return era;
+  const parsed = parseGameDate(gameDate);
+  if (parsed) return ERA_STARTS.filter((start) => parsed.year >= start).length;
   const text = String(gameDate ?? "");
   const match = /(-?\d{3,4})/.exec(text);
   const bce = /BC|BCE/i.test(text);
@@ -120,8 +126,20 @@ export const eraOf = (gameDate) => {
   return ERA_STARTS.filter((start) => year >= start).length;
 };
 
+// The year a date's carriers, canals and fleets are read by (transports.js),
+// kept within the era a scenario set where it set one: a war fought in its
+// own calendar's middle ages has no steamships whatever its year says.
+const ERA_YEARS = [1400, 1700, 1900, 2000];
+export const yearInEra = (year, era = null) => {
+  if (!Number.isInteger(era) || era < 0 || era > 3) return year;
+  const least = era === 0 ? -Infinity : ERA_STARTS[era - 1];
+  const most = era === 3 ? Infinity : ERA_STARTS[era] - 1;
+  const value = Number.isFinite(year) ? year : ERA_YEARS[era];
+  return value < least ? least : value > most ? most : value;
+};
+
 // Kept for whoever scales something else by the era (strike reach, supply).
-export const eraSpeedFactor = (gameDate) => [0.35, 0.5, 0.75, 1][eraOf(gameDate)];
+export const eraSpeedFactor = (gameDate, era = null) => [0.35, 0.5, 0.75, 1][eraOf(gameDate, era)];
 
 // How far a formation gets in a day.
 //   posture      "assaulting" is an advance; anything else a redeployment.
@@ -129,8 +147,9 @@ export const eraSpeedFactor = (gameDate) => [0.35, 0.5, 0.75, 1][eraOf(gameDate)
 //                nobody worked it out (an order from an older save): a long
 //                journey is then taken to be half by sea.
 //   remainingKm  how far it still has to go, for that guess.
-export const kmPerDay = (type, gameDate, { posture = "", seaShare = null, remainingKm = 0 } = {}) => {
-  const era = eraOf(gameDate);
+//   era          the era a scenario set (warSettings.js), or null
+export const kmPerDay = (type, gameDate, { posture = "", seaShare = null, remainingKm = 0, era: setEra = null } = {}) => {
+  const era = eraOf(gameDate, setEra);
   if (type === "garrison") return 0;
   if (type === "naval") return FLEET_KM_PER_DAY[era];
   if (type === "air") return AIR_KM_PER_DAY[era];
@@ -170,8 +189,8 @@ export const seaShareOf = (from, to, isLand) => {
 
 // What the model is told of all this, so an event does not land a division
 // the map still shows at sea: the paces of this game's own era, in a line.
-export const describeTravelPace = (gameDate) => {
-  const era = eraOf(gameDate);
+export const describeTravelPace = (gameDate, setEra = null) => {
+  const era = eraOf(gameDate, setEra);
   const overland = OVERLAND_KM_PER_DAY.infantry[era];
   const how = ["on the march", "on the march", "by rail", "by rail and road"][era];
   return `A formation that is redeployed covers about ${overland} km a day ${how} and about ${SEALIFT_KM_PER_DAY[era]} by sea; `

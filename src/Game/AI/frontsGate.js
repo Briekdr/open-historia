@@ -29,6 +29,23 @@ export const frontsPace = () => {
   return FRONT_PACE_SHARE * setting;
 };
 
+// EXPERIMENT, in the lab only (runtime/fronts/mind/). Whether the sides nobody
+// plays are led by the lab's own staff (mind/trained.js: on this branch the
+// staff that looks ahead) in place of the engine's scripted staff. On in this
+// lab build, for the owner to try ("put that current model on 3319 for me to
+// test", 2026-10-14), unless whoever is at the keyboard turns it off, in the
+// browser's console: localStorage.setItem("oh:strategyNet", "0"). There is no
+// setting for it and no scenario can ask for it. (Only in a page: what runs a
+// turn's fronts outside one, a test or a tool, has the engine's own staff.)
+export const STRATEGY_NET_KEY = "oh:strategyNet";
+export const strategyNetOn = () => {
+  try {
+    return typeof globalThis.window !== "undefined" && Boolean(globalThis.localStorage) && globalThis.localStorage.getItem(STRATEGY_NET_KEY) !== "0";
+  } catch {
+    return false;
+  }
+};
+
 // The formations a model that moves units is shown. One fighting on a
 // battlefield is a troop of its side there: the engine moves it, the
 // battlefield's own lines in [Fronts] speak for it, and it leaves the list, so

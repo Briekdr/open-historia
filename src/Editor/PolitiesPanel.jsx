@@ -13,6 +13,9 @@ import { resolveStockCountryCode } from "../runtime/polityIdentity.js";
 import { acceptFor } from "../runtime/fileAccept.js";
 import { formatPopulationFigure, readPopulationFigure } from "../runtime/populationFigure.js";
 import PuppetFields from "./PuppetFields.jsx";
+import MilitaryFields from "./MilitaryFields.jsx";
+import { rateMilitaryFigures } from "../Game/AI/militaryRating.js";
+import { militaryScaleOf } from "./militaryForm.js";
 import { rosterRowKey } from "./polityRoster.js";
 
 const clean = (value) => String(value ?? "").trim();
@@ -71,6 +74,9 @@ const PolitiesPanel = ({
   onPaintPolity,
   puppets = [],
   setPuppets,
+  // What a military figure left empty stands for in the scenario whose map
+  // this is (militaryForm.js militaryDefaultsFor); null for a map on its own.
+  militaryDefaults = null,
   onClose,
 }) => {
   const [query, setQuery] = useState("");
@@ -633,6 +639,24 @@ const PolitiesPanel = ({
                 style={inputStyle}
               />
               <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.42)", marginTop: 4 }}>Its troops are raised from these people, and its statistics begin from this figure. You can write 12,500,000 or 12.5 million.</div>
+              {/* Its own military figures (MilitaryFields.jsx), kept with its record as `military`. */}
+              <div style={{ marginTop: 8 }}>
+                <MilitaryFields
+                  recordKey={current.key}
+                  value={current.record?.military}
+                  defaults={militaryDefaults}
+                  onChange={(military) => upsertPolity?.(current.key, { military: military ?? undefined })}
+                  onRate={() => rateMilitaryFigures({
+                    name: current.record?.name || current.key,
+                    note: current.record?.note,
+                    population: current.record?.population,
+                    rated: militaryScaleOf(polities),
+                    date: militaryDefaults?.gameDate,
+                    era: Number.isInteger(militaryDefaults?.era) ? militaryDefaults.era : null,
+                    rules: militaryDefaults?.rules,
+                  })}
+                />
+              </div>
             </div>
           )}
 

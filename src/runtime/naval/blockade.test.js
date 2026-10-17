@@ -241,3 +241,13 @@ test("on land a country cut off from the sea loses ground it would have held, an
   assert.ok(strength(next({ Aland: 1 }).record, 0) < strength(next(null).record, 0), "its troops are worn down faster than they are made good");
   assert.ok(NAVAL_REACH_KM.length === 4);
 });
+
+test("under a blockade, a place on a frozen coast is shut by the ice; ice alone blockades nobody", () => {
+  const km = (lngA, latA, lngB, latB) => Math.abs(lngA - lngB) * 100 + Math.abs(latA - latB) * 100;
+  const stations = [[0, 0], [1, 0], [2, 0], [3, 0]];
+  const strong = { lng: 0.5, lat: 0, weight: BLOCKADE_CLOSES * 2 };
+  const iced = (lng) => lng >= 2;
+  assert.deepEqual(dayPressure({ stations, blockaders: [strong], reach: 100, km, seaShare: 1 }), { pressure: 0.5, covered: 0.5 });
+  assert.deepEqual(dayPressure({ stations, blockaders: [strong], reach: 100, km, seaShare: 1, iced }), { pressure: 1, covered: 0.5 }, "the fleet closes half, the ice the rest");
+  assert.deepEqual(dayPressure({ stations, blockaders: [], reach: 100, km, seaShare: 1, iced }), { pressure: 0, covered: 0 });
+});

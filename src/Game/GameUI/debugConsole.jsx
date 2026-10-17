@@ -274,7 +274,11 @@ const GenerationRow = ({ record, selected, onSelect, compact = false }) => {
         <span style={{ ...figure("8rem"), flexShrink: 0, textAlign: "right", color: COLORS.muted, fontFamily: MONO }}>
             {record.usage ? `↑${fmtInt(record.usage.promptTokens)} ↓${fmtInt(record.usage.outputTokens)}` : "no usage"}
         </span>
-        <span style={{ ...figure("3.5rem"), flexShrink: 0, textAlign: "right", color: COLORS.muted, fontFamily: MONO }}>{fmtMs(record.latencyMs)}</span>
+        <span style={{ ...figure("3.5rem"), flexShrink: 0, textAlign: "right", color: COLORS.muted, fontFamily: MONO }} title={record.skip ? `The request ${fmtMs(record.latencyMs)}; the whole time skip ${fmtMs(record.skip.totalMs)}` : undefined}>{fmtMs(record.latencyMs)}</span>
+        {/* A time skip's own request: the whole skip's time beside it (telemetry.js attachSkipTiming). */}
+        <span style={{ ...figure("5.4rem"), flexShrink: 0, textAlign: "right", color: COLORS.gold, fontFamily: MONO, ...(compact && !record.skip ? { display: "none" } : null) }}>
+            {record.skip ? `skip ${fmtMs(record.skip.totalMs)}` : ""}
+        </span>
         <span style={{ ...figure("2.8rem"), flexShrink: 0, textAlign: "right", color: COLORS.gold, fontFamily: MONO }}>{record.rating ? `${record.rating}/10` : ""}</span>
     </button>
     );
@@ -323,8 +327,19 @@ const GenerationDetail = ({ record, onRate }) => {
                 <Card label="Tokens in" value={fmtInt(usage.promptTokens)} sub={usage.cachedTokens ? `${fmtInt(usage.cachedTokens)} from cache` : undefined} />
                 <Card label="Tokens out" value={fmtInt(usage.outputTokens)} sub={usage.thinkingTokens ? `${fmtInt(usage.thinkingTokens)} thinking` : undefined} />
                 <Card label="Latency" value={fmtMs(record.latencyMs)} sub={Number.isFinite(record.firstByteMs) ? `first byte ${fmtMs(record.firstByteMs)}` : undefined} />
+                {record.skip ? (
+                    <Card label="Whole time skip" value={fmtMs(record.skip.totalMs)} sub={`this request ${fmtMs(record.latencyMs)}`} />
+                ) : null}
                 {requestCount(record) != null ? (
                     <Card label="Requests" value={fmtInt(requestCount(record))} sub={requestsTitle(record)} />
+                ) : null}
+                {record.skip?.phases?.length ? (
+                    <div style={{ flex: "1 1 100%", fontSize: "0.66rem", color: COLORS.muted, fontFamily: MONO }}>
+                        <div style={{ fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "0.2rem" }}>Where the time skip's time went</div>
+                        {record.skip.phases.map((line) => (
+                            <div key={line.label}>{`${line.label} · ${fmtMs(line.ms)}${line.requests ? ` · ${line.requests} request${line.requests === 1 ? "" : "s"}` : ""}`}</div>
+                        ))}
+                    </div>
                 ) : null}
                 {record.lookups?.calls ? (
                     <Card

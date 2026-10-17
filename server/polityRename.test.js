@@ -311,3 +311,11 @@ test("a Workshop rename keeps no previous name, while a rename in play does", ()
   const world = renamePolityInWorld({ polityOverrides: { Prussia: { name: "Prussia", aliases: [] } } }, "Prussia", "German Empire").world;
   assert.deepEqual(world.polityOverrides["German Empire"].formerNames, ["Prussia"], "history made in play still folds onto the country");
 });
+
+test("a rename carries the country's fortified lines, in play and in the Workshop", () => {
+  const world = { polityOverrides: { Aland: { name: "Aland", code: "Aland" } }, fortifications: [{ id: "w1", name: "The Line", owner: "Aland", level: 6, points: [[0, 0], [1, 1]] }, { id: "w2", name: "Theirs", owner: "Borea", level: 4, points: [[2, 2], [3, 3]] }] };
+  const { world: renamed } = renamePolityInWorld(world, "Aland", "New Aland");
+  assert.deepEqual(renamed.fortifications.map((line) => line.owner), ["New Aland", "Borea"]);
+  const doc = { polities: { Aland: { name: "Aland" } }, fortifications: world.fortifications };
+  assert.deepEqual(renamePolityInDocument(doc, "Aland", "New Aland").fortifications.map((line) => line.owner), ["New Aland", "Borea"]);
+});

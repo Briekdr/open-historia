@@ -14,12 +14,12 @@
 <meta property="og:type" content="website" />
 <meta property="og:title" content="Open Historia — Play AI-driven alternate history" />
 <meta property="og:description" content="A free, open-source AI turn-based history strategy game. Download, run, reshape history." />
-<meta property="og:image" content="https://openhistoria.com/play/screenshot.png" />
+<meta property="og:image" content="https://openhistoria.com/play/screenshots/screenshot.webp" />
 <meta property="og:url" content="https://openhistoria.com/" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Open Historia — Play AI-driven alternate history" />
 <meta name="twitter:description" content="A free, open-source AI turn-based history strategy game. Download, run, reshape history." />
-<meta name="twitter:image" content="https://openhistoria.com/play/screenshot.png" />
+<meta name="twitter:image" content="https://openhistoria.com/play/screenshots/screenshot.webp" />
 <link rel="canonical" href="https://openhistoria.com/" />
 <!-- Structured Data -->
 <script type="application/ld+json">
@@ -53,6 +53,7 @@
   "sameAs": [
     "https://github.com/Open-Historia/open-historia",
     "https://discord.gg/QaqAK7fQAg",
+    "https://x.com/open_historia",
     "https://openhistoria.itch.io/open-historia",
     "https://gamejolt.com/games/open-historia"
   ]
@@ -71,7 +72,7 @@
   }
 }
 </script>
-<link rel="preload" as="image" href="/play/screenshots/screenshot.png" fetchpriority="high" />
+<link rel="preload" as="image" href="/play/screenshots/screenshot.webp" fetchpriority="high" />
 <link rel="stylesheet" href="/fonts/fonts.css" />
 <style>
   :root{
@@ -129,7 +130,48 @@
     box-shadow:0 0.375rem 0.875rem -0.375rem rgba(0,0,0,.8);
     transition:background .2s,box-shadow .2s}
   .nav-cta:hover{background:linear-gradient(180deg,#a12b3e,#7a1e2b)}
-  @media(max-width:720px){.nav-links a:not(.nav-cta){display:none}}
+  /* No hamburger menu: below 720px the nav collapses to the Play button plus anything marked
+     .nav-keep. The wiki is the only place a new player can look things up, so it has to
+     survive on a phone — the in-page anchors do not. */
+  @media(max-width:720px){.nav-links a:not(.nav-cta):not(.nav-keep){display:none}
+    .nav-links{gap:1rem}}
+
+  /* ---------- community bar ---------- */
+  /* Above the sticky header, so it scrolls away once someone is reading and the
+     nav keeps the top of the screen. Carbon fibre in the page's own greys: a
+     woven texture built from hard-edged stripes, with no fade and no colour, so
+     the strip belongs to the dark page and still reads apart from the flat header. */
+  .community{position:relative;z-index:51;font-size:1rem;color:var(--sepia);
+    background-color:#131315;
+    background-image:
+      linear-gradient(27deg,#161618 5px,transparent 5px),
+      linear-gradient(207deg,#161618 5px,transparent 5px),
+      linear-gradient(27deg,#232327 5px,transparent 5px),
+      linear-gradient(207deg,#232327 5px,transparent 5px),
+      linear-gradient(90deg,#1c1c1f 10px,transparent 10px),
+      linear-gradient(#1e1e21 25%,#1a1a1d 25%,#1a1a1d 50%,transparent 50%,transparent 75%,#252529 75%,#252529);
+    background-position:0 5px,10px 0,0 10px,10px 5px,0 0,0 0;
+    background-size:20px 20px;
+    border-bottom:1px solid var(--line2)}
+  .community-in{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;
+    gap:0.5rem 1.125rem;min-height:2.875rem;padding:0.5rem 1.5rem;text-align:center}
+  .community-say b{color:var(--ink);font-weight:500}
+  .community-links{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0.5625rem}
+  /* The site's display type (Cinzel, uppercase, tracked) on a solid pill, so the
+     weave never runs behind the letters. Gold lettering, the page's accent, marks
+     them as links without competing with the red Play and Download. */
+  .community-btn{display:inline-flex;align-items:center;padding:0.375rem 0.9375rem;border-radius:999px;
+    font-family:var(--display);font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    white-space:nowrap;color:var(--gold-l);background:var(--parch);border:1px solid var(--line2);
+    transition:background .15s,border-color .15s,color .15s,transform .12s}
+  .community-btn:hover{color:#fff4d4;background:var(--marble);border-color:var(--gold-l);transform:translateY(-0.0625rem)}
+  .community-btn:focus-visible{outline:2px solid var(--gold-l);outline-offset:2px}
+  /* On a narrow screen the buttons ARE the message; the sentence is what goes,
+     and the words before each name with it, so three buttons stay on one row. */
+  @media(max-width:560px){.community-in{gap:0.5rem;padding:0.4375rem 0.75rem;min-height:2.625rem}
+    .community-say,.community-more{display:none}
+    .community-btn{font-size:.68rem;letter-spacing:.06em;padding:0.375rem 0.75rem}}
+  @media(prefers-reduced-motion: reduce){.community-btn{transition:none}.community-btn:hover{transform:none}}
 
   /* ---------- hero ---------- */
   .hero{padding:0 0 1.875rem;text-align:center}
@@ -161,7 +203,7 @@
   .hero-banner::before{
     top:-1rem;bottom:-1rem;left:calc(50% - 50vw - 1rem);width:calc(100vw + 2rem);
     z-index:-2;
-    background:url("/play/screenshots/screenshot.png") center/cover no-repeat;
+    background:url("/play/screenshots/screenshot.webp") center/cover no-repeat;
     filter:blur(0.1875rem);
     clip-path:inset(1rem);
   }
@@ -194,6 +236,10 @@
   .btn-primary:hover{background:linear-gradient(180deg,#a12b3e,#7a1e2b)}
   .btn-ghost{background:var(--marble);border-color:var(--line2);color:var(--ink)}
   .btn-ghost:hover{background:var(--marble2)}
+  /* The beta's button: gold, so it stands beside the red one instead of behind it. */
+  .btn-beta,.hero-banner .btn-beta{background:var(--gold-l);border-color:#f3dc92;color:#2a1c05;
+    box-shadow:0 0 0 0.1875rem rgba(220,185,84,.22),0 0.75rem 1.875rem -0.75rem rgba(0,0,0,.8)}
+  .btn-beta:hover,.hero-banner .btn-beta:hover{background:#e8c967}
   .hero-note{font-size:.96rem;color:var(--sepia2);margin-top:0.5rem;font-style:italic}
   #heroNote{max-width:40rem;margin-left:auto;margin-right:auto}
   .hero-note a{color:var(--bronze);border-bottom:1px solid rgba(201,147,47,.45)}
@@ -334,6 +380,8 @@
   .card p{color:var(--sepia);font-size:1.02rem;margin:0.75rem 0 1.25rem;flex:1}
   .card .btn{width:100%;justify-content:center;padding:0.8125rem}
   .card .btn + .btn{margin-top:0.625rem}
+  .card .beta-line{margin:1.125rem 0 0.625rem;padding-top:0.875rem;border-top:1px solid var(--line);color:var(--sepia2);font-size:.9rem}
+  .card .beta-line b{color:var(--ink);letter-spacing:.04em}
   .tag{position:absolute;top:1rem;right:1rem;font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
     color:#3b2707;background:linear-gradient(180deg,#e6c469,#c99a2e);padding:0.3125rem 0.6875rem;border-radius:999px;border:1px solid rgba(120,80,15,.4)}
   @media(max-width:1100px){.dl{grid-template-columns:1fr 1fr}}
@@ -371,12 +419,25 @@
 </head>
 <body>
 
+<aside class="community" aria-label="Join the community">
+  <div class="community-in">
+    <span class="community-say">Ask questions, share scenarios, and hear about updates &mdash; <b>come say hello.</b></span>
+    <span class="community-links">
+      <a class="community-btn" href="https://discord.gg/QaqAK7fQAg" target="_blank" rel="noopener"><span class="community-more">Join the&nbsp;</span>Discord</a>
+      <a class="community-btn" href="https://www.reddit.com/r/OpenHistoria" target="_blank" rel="noopener">r/OpenHistoria</a>
+      <a class="community-btn" href="https://x.com/open_historia" target="_blank" rel="noopener" aria-label="Follow Open Historia on X"><span class="community-more">Follow on&nbsp;</span>X</a>
+    </span>
+  </div>
+</aside>
+
 <header>
   <div class="wrap nav">
     <a class="brand" href="#top"><img class="mark" src="/play/icon-192.png" alt="" width="28" height="28" fetchpriority="high" /> Open Historia</a>
     <nav class="nav-links">
       <a href="#play">How it works</a>
       <a href="#features">Features</a>
+      <a class="nav-keep" href="/wiki/">Wiki</a>
+      <a href="#host">Host a node</a>
       <a href="#download">Download</a>
       <a href="https://github.com/Open-Historia/open-historia" target="_blank" rel="noopener">GitHub</a>
       <a class="nav-cta" href="/play/">▶ Play</a>
@@ -396,6 +457,9 @@
         <a id="primaryDownload" class="btn btn-primary" href="#download">
           <span>⬇</span> <span id="primaryLabel">Download for Desktop</span>
         </a>
+        <a id="betaDownload" class="btn btn-beta" href="#download">
+          <span>⬇</span> <span id="betaLabel">Download the Beta</span>
+        </a>
         <a class="btn btn-ghost" href="/play/"><span>▶</span> Demo in your browser</a>
       </div>
     </div>
@@ -404,20 +468,16 @@
     <div class="gallery">
       <div class="gtrack" id="gtrack" tabindex="0" role="group" aria-label="Screenshots">
         <div class="gcard">
-          <img src="/play/screenshots/screenshot.png" alt="Open Historia gameplay — a strategic world map with events and nations" decoding="async" />
-            <span class="shot-tag">Beta</span>
+          <img src="/play/screenshots/screenshot.webp" alt="Open Historia gameplay — a strategic world map with events and nations" decoding="async" />
         </div>
         <div class="gcard">
-          <img src="/play/screenshots/screenshot2.png" alt="" loading="lazy" decoding="async" />
-            <span class="shot-tag">Beta</span>
+          <img src="/play/screenshots/screenshot2.webp" alt="" loading="lazy" decoding="async" />
         </div>
         <div class="gcard">
-          <img src="/play/screenshots/scenarios.png" alt="" loading="lazy" decoding="async" />
-            <span class="shot-tag">Beta</span>
+          <img src="/play/screenshots/scenarios.webp" alt="" loading="lazy" decoding="async" />
         </div>
         <div class="gcard">
-          <img src="/play/screenshots/economics.png" alt="" loading="lazy" decoding="async" />
-            <span class="shot-tag">Beta</span>
+          <img src="/play/screenshots/economics.webp" alt="" loading="lazy" decoding="async" />
         </div>
       </div>
     </div>
@@ -474,6 +534,8 @@
         <div class="meta">Windows 10 &amp; 11 · <span data-size="Open-Historia-Setup.exe">~260 MB</span></div>
         <p>An ordinary installer. Run it and Open Historia lands in your Start Menu like any other app — no Node.js, no setup script, no terminal window. The world map downloads itself the first time you open it.</p>
         <a class="btn btn-primary" href="https://github.com/Open-Historia/open-historia/releases/download/desktop-stable/Open-Historia-Setup.exe">⬇ Download Installer</a>
+        <div class="beta-line"><b>Beta</b> · the newest features first. A separate app with its own saves.</div>
+        <a class="btn btn-ghost" data-beta href="https://github.com/Open-Historia/open-historia/releases/download/desktop-beta/Open-Historia-Beta-Setup.exe">⬇ Beta Installer</a>
       </div>
       <div class="card" data-os-card="mac">
         <div class="ic">🍎</div>
@@ -482,6 +544,9 @@
         <p>Unzip and drag Open Historia to your Applications folder. First launch: right-click it and choose <b>Open</b> — the app isn't code-signed yet, so macOS asks once.</p>
         <a class="btn btn-ghost" href="https://github.com/Open-Historia/open-historia/releases/download/desktop-stable/Open-Historia-mac-arm64.zip">⬇ Apple Silicon</a>
         <a class="btn btn-ghost" href="https://github.com/Open-Historia/open-historia/releases/download/desktop-stable/Open-Historia-mac-x64.zip">⬇ Intel</a>
+        <div class="beta-line"><b>Beta</b> · the newest features first. A separate app with its own saves.</div>
+        <a class="btn btn-ghost" data-beta href="https://github.com/Open-Historia/open-historia/releases/download/desktop-beta/Open-Historia-Beta-mac-arm64.zip">⬇ Beta · Apple Silicon</a>
+        <a class="btn btn-ghost" data-beta href="https://github.com/Open-Historia/open-historia/releases/download/desktop-beta/Open-Historia-Beta-mac-x64.zip">⬇ Beta · Intel</a>
       </div>
       <div class="card" data-os-card="linux">
         <div class="ic">🐧</div>
@@ -490,6 +555,9 @@
         <p>One portable file that runs on essentially any distribution. Make it executable and launch it — nothing to install, no packages to add.</p>
         <a class="btn btn-ghost" href="https://github.com/Open-Historia/open-historia/releases/download/desktop-stable/Open-Historia-amd64.deb">⬇ Download .deb</a>
         <a class="btn btn-ghost" href="https://github.com/Open-Historia/open-historia/releases/download/desktop-stable/Open-Historia-x86_64.AppImage">⬇ Download .AppImage</a>
+        <div class="beta-line"><b>Beta</b> · the newest features first. A separate app with its own saves.</div>
+        <a class="btn btn-ghost" data-beta href="https://github.com/Open-Historia/open-historia/releases/download/desktop-beta/Open-Historia-Beta-amd64.deb">⬇ Beta .deb</a>
+        <a class="btn btn-ghost" data-beta href="https://github.com/Open-Historia/open-historia/releases/download/desktop-beta/Open-Historia-Beta-x86_64.AppImage">⬇ Beta .AppImage</a>
       </div>
       <div class="card" data-os-card="android">
         <div class="ic">📱</div>
@@ -497,6 +565,8 @@
         <div class="meta">Everything on the device · <span data-size="open-historia.apk">~56 MB</span></div>
         <p>Install it and play, even offline. Your games, the scenario workshop and the whole world map are on the phone — no server to run, no download after install, nothing to set up.</p>
         <a class="btn btn-ghost" href="https://github.com/Open-Historia/open-historia/releases/download/android/open-historia.apk">⬇ Download APK</a>
+        <div class="beta-line"><b>Beta</b> · the newest features first. A separate app with its own saves.</div>
+        <a class="btn btn-ghost" data-beta href="https://github.com/Open-Historia/open-historia/releases/download/android-beta/open-historia-beta.apk">⬇ Beta APK</a>
       </div>
     </div>
     <p class="hero-note" style="text-align:center;margin-top:22px">Already installed? Download the newest build and run it over the top — your saves and scenarios are kept. · <a href="https://github.com/Open-Historia/open-historia/releases" target="_blank" rel="noopener">All releases</a></p>
@@ -512,11 +582,40 @@
       <div class="feat"><div class="fi">🤝</div><h4>Natural-language diplomacy</h4><p>Click any country to negotiate, threaten, or ally through open-ended chat.</p></div>
       <div class="feat"><div class="fi">🎖️</div><h4>Troops &amp; warfare</h4><p>Deploy and maneuver armies; the AI resolves fronts and moves the borders.</p></div>
       <div class="feat"><div class="fi">🖌️</div><h4>Built-in map editor</h4><p>Draw regions, paint owners, place cities — build a world and hit Apply &amp; Play.</p></div>
-      <div class="feat"><div class="fi">🌐</div><h4>Scenario hub</h4><p>Browse and import community scenarios in-game, or publish your own.</p></div>
+      <div class="feat"><div class="fi">🌐</div><h4>Scenario hub</h4><p>Browse and import community scenarios in-game, or publish your own. Every shared scenario is released under CC BY 4.0.</p></div>
       <div class="feat"><div class="fi">🦉</div><h4>Strategy advisor</h4><p>Consult an AI advisor for guidance, economic analysis, and situation briefings.</p></div>
       <div class="feat"><div class="fi">🔒</div><h4>Runs on your machine</h4><p>Self-hostable and local-first — it runs at localhost, with your own AI backend.</p></div>
       <div class="feat"><div class="fi">⚖️</div><h4>Free &amp; open source</h4><p>AGPL-3.0 licensed and community-built. Fork it, mod it, ship it — as long as your changes stay open too.</p></div>
     </div>
+  </section>
+
+  <section id="host">
+    <p class="eyebrow">Grow the network</p>
+    <h2>Host a server node</h2>
+    <div class="rule"></div>
+    <p class="lead">Run a small node on your own device to help players load the world map faster. It's deliberately safe: a node only ever serves read-only map data, verified byte-for-byte by checksum. It never touches anyone's games, accounts, or AI keys, and never runs their code — so it can't be turned against players.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="n">I</div>
+        <h3>Install in one click</h3>
+        <p>Download the node and run <code>install.bat</code> (Windows) or <code>install.sh</code> (macOS/Linux). It sets everything up and downloads the verified map content for you.</p>
+      </div>
+      <div class="step">
+        <div class="n">II</div>
+        <h3>Put it online</h3>
+        <p>Expose it over HTTPS — a free <b>Cloudflare Tunnel</b> is easiest (no open ports, hides your IP). The README walks you through it step by step.</p>
+      </div>
+      <div class="step">
+        <div class="n">III</div>
+        <h3>You're live</h3>
+        <p>Your node registers itself and starts serving straight away — no waiting, no extra steps on your side. Players only ever use nodes listed in the project's signed directory, and an admin can pause or remove any node from it at any time.</p>
+      </div>
+    </div>
+    <div class="cta-row" style="margin-top:36px">
+      <a class="btn btn-primary" href="https://github.com/Open-Historia/open-historia-node" target="_blank" rel="noopener"><span>🖥️</span> Host a server</a>
+      <a class="btn btn-ghost" href="https://github.com/Open-Historia/open-historia-node#readme" target="_blank" rel="noopener">Read the setup guide</a>
+    </div>
+    <p class="hero-note" style="text-align:center;margin-top:8px">Trust is in the checksum and the project's signature — never in the node itself.</p>
   </section>
 
   <section id="faq">
@@ -526,9 +625,11 @@
     <div class="faq">
       <details><summary>Do I need to install anything else?</summary><p>Just <b>Node.js</b>, and the launcher offers to install it for you if it's missing (via winget on Windows, Homebrew on macOS, or your package manager on Linux). Everything else — including all map data — ships inside the download.</p></details>
       <details><summary>Is it really free?</summary><p>Yes. Open Historia is free and open source under the GNU AGPL v3. The AI features connect to an AI backend you configure — see the <a href="https://github.com/Open-Historia/open-historia#readme" target="_blank" rel="noopener">README</a> or ask in <a href="https://discord.gg/QaqAK7fQAg" target="_blank" rel="noopener">Discord</a> for setup help.</p></details>
-      <details><summary>Where does it run — is my data uploaded?</summary><p>The game runs locally on your own machine and opens in your browser at <code>localhost:3000</code>. Your saves and scenarios stay on your computer.</p></details>
+      <details><summary>Where does it run — is my data uploaded?</summary><p>The game runs locally on your own machine and opens in your browser at <code>localhost:3000</code>. Your saves and scenarios stay on your computer, and your AI key goes only to the AI provider you choose. Visits are counted only if you say yes. The <a href="/privacy/">privacy policy</a> lists everything the game contacts.</p></details>
+      <details><summary>What licence are shared scenarios under?</summary><p>Every scenario made in Open Historia that is posted or shared in any way is released under the <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">Creative Commons Attribution 4.0 International</a> licence (<b>CC BY 4.0</b>). The game says so before you publish and writes it into the file.</p></details>
       <details><summary>How do I update later?</summary><p>Run the <b>Update Open Historia</b> script that comes with your install — it fetches the latest version while preserving your saves, scenarios, and map data. You can choose the Stable or Beta channel when updating.</p></details>
       <details><summary>What about mobile?</summary><p>Download the Android APK and open it — that is the whole setup. Your games live on the phone and the world map is kept there after it downloads the first time, so there is no server to run and nothing to point it at.</p></details>
+      <details><summary>Can I help by hosting a server?</summary><p>Yes! Running a <a href="https://github.com/Open-Historia/open-historia-node" target="_blank" rel="noopener">content node</a> caches the game's map data and serves it to nearby players, so everyone loads faster. It's a one-click install and completely safe — a node only serves read-only, checksum-verified map files and never touches games, accounts, or API keys. See <a href="#host">Host a server node</a>.</p></details>
     </div>
   </section>
 
@@ -549,9 +650,12 @@
     <div><img class="mark" src="/play/icon-192.png" alt="" width="22" height="22" loading="lazy" /> <b>Open Historia</b> · AGPL-3.0 licensed · built by <a href="https://github.com/Open-Historia/open-historia/graphs/contributors" target="_blank" rel="noopener">contributors</a></div>
     <div class="fnav">
       <a href="#download">Download</a>
+      <a href="/wiki/">Wiki</a>
+      <a href="https://github.com/Open-Historia/open-historia-node" target="_blank" rel="noopener">Host a node</a>
       <a href="https://github.com/Open-Historia/open-historia" target="_blank" rel="noopener">GitHub</a>
       <a href="https://discord.gg/QaqAK7fQAg" target="_blank" rel="noopener">Discord</a>
       <a href="https://www.reddit.com/r/OpenHistoria" target="_blank" rel="noopener">Reddit</a>
+      <a href="https://x.com/open_historia" target="_blank" rel="noopener">X</a>
       <a href="https://github.com/Open-Historia/open-historia/releases" target="_blank" rel="noopener">Releases</a>
       <a href="/privacy/">Privacy</a>
       <a href="/privacy/#choices" data-consent-open>Privacy choices</a>
@@ -597,6 +701,17 @@
            : (os === "windows") ? WIN
            : (os === "linux") ? LINUX
            : "#download";
+
+  // The beta sits beside it: the same platform's beta build, the newest features first.
+  var BETA = "https://github.com/Open-Historia/open-historia/releases/download/";
+  var betaLabel = { windows:"Beta for Windows", mac:"Beta for macOS", linux:"Beta for Linux",
+                    android:"Beta Android app", ios:"Download the Beta", desktop:"Download the Beta" }[os];
+  var betaHref = (os === "android") ? BETA + "android-beta/open-historia-beta.apk"
+               : (os === "windows") ? BETA + "desktop-beta/Open-Historia-Beta-Setup.exe"
+               : (os === "linux") ? BETA + "desktop-beta/Open-Historia-Beta-amd64.deb"
+               : "#download";
+  var btl = document.getElementById("betaLabel"); if (btl) btl.textContent = betaLabel;
+  var btd = document.getElementById("betaDownload"); if (btd) btd.href = betaHref;
 
   var pl = document.getElementById("primaryLabel"); if (pl) pl.textContent = label;
   var pd = document.getElementById("primaryDownload"); if (pd) pd.href = href;

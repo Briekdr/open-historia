@@ -121,7 +121,7 @@ test("on the map at large a troop has its counter only from close in; in the war
 
 test("the war room's layers have their place on the map: plans under the troops, marks among them", () => {
   const index = (id) => MAP_LAYER_ORDER.indexOf(id);
-  const plans = ["warroom-plans-casing", "warroom-plans", "warroom-plans-decoy", "warroom-plans-head", "warroom-plans-label"];
+  const plans = ["warroom-plans-casing", "warroom-plans", "warroom-plans-decoy", "warroom-plans-deploy", "warroom-plans-spot", "warroom-plans-head", "warroom-plans-label"];
   for (const id of [...plans, "fronts-sides-lit", "fronts-troops-lit", "fronts-troops-picked"]) assert.ok(index(id) >= 0, `${id} is missing from the map's order`);
   assert.deepEqual([...plans].sort((a, b) => index(a) - index(b)), plans);
   for (const id of plans) {
@@ -132,8 +132,10 @@ test("the war room's layers have their place on the map: plans under the troops,
   assert.ok(index("fronts-troops-lit") < index("fronts-troops"));
   assert.ok(index("fronts-troops-picked") > index("fronts-troops"), "the ring round a troop picked out is over its counter");
   assert.ok(index("fronts-troops-picked") < index("units-fill"));
+  // What the room shades of the ground (supply, a rehearsal's gains and losses): over the battlefield's paint, under the borders.
+  assert.ok(index("warroom-shade-fill") > index("fronts-paint-11") && index("warroom-shade-fill") < index("polity-boundaries"));
   const drawn = [...read("../Map/WarRoomLayers.jsx").matchAll(/id="([a-z-]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(drawn.sort(), [...plans].sort(), "every layer the room declares is in the order, and no other");
+  assert.deepEqual(drawn.sort(), [...plans, "warroom-shade-fill"].sort(), "every layer the room declares is in the order, and no other");
 });
 
 test("the war room writes through its own seam and asks one request a message", () => {

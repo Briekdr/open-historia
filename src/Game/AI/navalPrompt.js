@@ -70,7 +70,8 @@ const fleetsAtWar = (units, wars) => {
 //   players   the countries people play
 //   date      the game's date, for how far a fleet reaches
 //   blockades world.blockades as the period begins: what stood before it
-export const buildSeasBlock = ({ sea = null, units = [], wars = [], players = [], date = "", blockades = [], max = SEAS_BLOCK_MAX } = {}) => {
+//   era         the era the scenario set (runtime/warSettings.js), or null to read it off the date
+export const buildSeasBlock = ({ sea = null, units = [], wars = [], players = [], date = "", blockades = [], max = SEAS_BLOCK_MAX, era = null } = {}) => {
   const fought = Boolean(sea);
   const fleets = fought ? list(sea.fleets) : fleetsAtWar(units, wars);
   const battles = fought ? list(sea.battles) : [];
@@ -83,7 +84,7 @@ export const buildSeasBlock = ({ sea = null, units = [], wars = [], players = []
     : standing.map((entry) => ({ entry, days: entry.days }));
   if (fleets.length === 0 && battles.length === 0 && laid.length === 0) return "";
   const human = list(players).map(clean).filter(Boolean);
-  const reach = NAVAL_REACH_KM[eraOf(date)];
+  const reach = NAVAL_REACH_KM[eraOf(date, era)];
   const rules = [
     SEAS_BLOCK_HEADING,
     "War at sea is decided by the game, as war on land is. A fleet is a formation of type naval: you move it with unitOps as before, and where it is and the posture it keeps are its orders. "

@@ -19,7 +19,7 @@ export const REVIEW_SECTIONS = [
   // detailed map, which is optional and drawn on top of the basemap.
   { id: "basemaps", kinds: ["background", "allowed-basemaps", "own-basemap-add", "own-basemap-remove", "own-basemap-change"] },
   { id: "detailedMap", kinds: ["detailed-map"] },
-  { id: "settings", kinds: ["projection", "map-field"] },
+  { id: "settings", kinds: ["projection", "map-field", "war-map"] },
 ];
 
 export const sectionOfChange = (change) => REVIEW_SECTIONS.find((section) => section.kinds.includes(change?.kind))?.id ?? "settings";

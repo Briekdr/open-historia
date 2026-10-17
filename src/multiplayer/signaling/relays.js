@@ -18,4 +18,8 @@ export const configuredRelays = (storage = globalThis.localStorage) => {
   return [...DEFAULT_RELAYS];
 };
 
+// A list of this device's own in localStorage: a local relay for development
+// and tests. Nothing outside is asked anything then (client/clock.js).
+export const usesCustomRelays = (storage = globalThis.localStorage) => configuredRelays(storage).join(" ") !== DEFAULT_RELAYS.join(" ");
+
 export const relayChannelFactory = (options) => createNostrChannel({ ...options, relays: configuredRelays() });

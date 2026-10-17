@@ -2,7 +2,9 @@
 // The troop tools: a thin plate that comes out of the left edge of the screen
 // while the war room is open, with a key a tool. What is done ON the map is
 // beside the map, and not in the drawer across the screen from it: the drawer
-// keeps what is read (the generals, the plans, the talk).
+// keeps what is read (the generals, the plans, the talk). At its foot, two that
+// are not for troops: Fortify, a line drawn to be built (warRoomFortify.jsx),
+// and Fleets, the plate that commands the player's fleets (warRoomFleets.jsx).
 //
 // Beside the rail, a small plate says what the tool in hand wants done, how
 // many troops are picked out, and why nothing can be ordered when it cannot.
@@ -60,6 +62,14 @@ const CarrierWord = ({ medium }) => {
 };
 // A movement that is not meant.
 const DiversionIcon = () => <Icon dashed><path d="M4 18c2-7 6-9 14-10" /><path d="M14.5 4.6L18.4 8l-3.2 3.9" strokeDasharray="0" /></Icon>;
+// A line with three counters standing on it.
+const DeployIcon = () => <Icon><path d="M3 19h18" /><path d="M4.5 11h4v4h-4z" /><path d="M10 11h4v4h-4z" /><path d="M15.5 11h4v4h-4z" /></Icon>;
+// A wall and its battlements.
+const FortifyIcon = () => <Icon><path d="M3.5 20.5v-11h3v-3h3v3h5v-3h3v3h3v11z" /><path d="M10 20.5v-4.5h4v4.5" /></Icon>;
+// A hull and its sail, from the side.
+const FleetIcon = () => <Icon><path d="M3 15.5h18l-2.8 4.5H5.8z" /><path d="M12 3.5v12" /><path d="M12 5.5l6.5 8H12" /></Icon>;
+// A crate, corded.
+const SupplyIcon = () => <Icon><path d="M4 8l8-4.5L20 8v8.5L12 21l-8-4.5z" /><path d="M4 8l8 4.5L20 8M12 12.5V21" /></Icon>;
 
 const keyLook = (on, disabled) => ({
   alignItems: "center",
@@ -113,7 +123,16 @@ const Rule = () => <div aria-hidden="true" style={{ background: STEEL.seam, boxS
 //   away         the player's troops have all withdrawn from it
 //   onWithdraw   the troops picked out leave the battlefield (all of the player's, with none picked)
 //   onReturn     a side that withdrew is sent back
-const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning, notice, carriers = [], own = 0, away = false, onTool, onOrder, onRelease, onClear, onCarrier, onWithdraw, onReturn }) => {
+//   canFortify   fortified lines are part of this scenario's wars, so one may be drawn
+//   drafted      a line has been drawn and waits for its level (warRoomFortify.jsx)
+//   fleets       how many fleets the player has; fleetsOut, the fleets' plate is out (warRoomFleets.jsx)
+//   onFleets     the fleets' plate is put out, or away
+//   station      what a click orders for the fleet picked out, while the fleet tool is in hand
+//   deployForm   what the Deploy tool deploys, "front" or "swarm" (runtime/fronts/swarms.js); onDeployForm, chosen
+//   supply       the map shades how well supplied the ground is (Map/warRoomCells.js); onSupply, shown or not;
+//                supplyAreas, how much of it is stretched and cut off, in km²
+//   foot         how much of the screen's foot the drawer covers, in px (a phone's folded drawer): the rail ends above it
+const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning, notice, carriers = [], own = 0, away = false, onTool, onOrder, onRelease, onClear, onCarrier, onWithdraw, onReturn, canFortify = false, drafted = false, fleets = 0, fleetsOut = false, onFleets = () => {}, station = "", deployForm = "front", onDeployForm = () => {}, supply = false, onSupply = () => {}, supplyAreas = null, foot = 0 }) => {
   const none = selected.length === 0;
   const drawing = tool !== "pan";
   // The choice of carrier, open beside the rail.
@@ -149,7 +168,7 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
   }, [out]);
 
   const plate = plateStyle();
-  const says = shown && (turnRunning || drawing || !none || Boolean(notice));
+  const says = shown && (turnRunning || drawing || !none || Boolean(notice) || supply);
   return (
     <>
       <div
@@ -165,7 +184,7 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
           position: "fixed",
           left: 0,
           top,
-          maxHeight: `calc(100vh - ${top} - 5.6rem - ${SAFE_BOTTOM})`,
+          maxHeight: foot > 0 ? `calc(100vh - ${top} - ${foot}px - 0.5rem)` : `calc(100vh - ${top} - 5.6rem - ${SAFE_BOTTOM})`,
           boxSizing: "border-box",
           paddingLeft: `calc(0.3rem + ${SAFE_LEFT})`,
           paddingRight: "0.3rem",
@@ -217,6 +236,13 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
         {/* Carried to where their side holds no land: by ship, rail or air, then a click on the map for where. */}
         <RailKey label="Transport" title="Transport: carry these troops by ship, rail or air to a place your side has no border with" on={tool === "transport" || choice} disabled={locked || none} onClick={() => (tool === "transport" ? onTool("pan") : setChoosing((value) => !value))}><ShipIcon /></RailKey>
         <RailKey label="Diversion" title="Draw a diversion: a movement you want the other side to believe" on={tool === "diversion"} disabled={locked} onClick={() => onTool("diversion")}><DiversionIcon /></RailKey>
+        <RailKey label="Deploy" title="Deploy: choose where your new troops on this battlefield come in, along a front or as a swarm" on={tool === "deploy"} disabled={locked} onClick={() => onTool("deploy")}><DeployIcon /></RailKey>
+        <Rule />
+        {/* What is built and what sails: a fortified line drawn on the map (its level is chosen once it is drawn), and the fleets. */}
+        <RailKey label="Fortify" title="Fortify: draw a line to be built, then choose how strong it is to be" on={tool === "fortify" || drafted} disabled={locked || !canFortify} onClick={() => onTool("fortify")}><FortifyIcon /></RailKey>
+        <RailKey label="Fleets" title="Fleets: command your fleets at sea" on={fleetsOut || tool === "fleet"} disabled={fleets === 0} onClick={onFleets}><FleetIcon /></RailKey>
+        {/* How well supplied the ground is, shaded on the map. */}
+        <RailKey label="Supply" title="Supply: shade how well supplied the ground is" on={supply} onClick={onSupply}><SupplyIcon /></RailKey>
         <span aria-hidden="true" style={rivetStyle({ left: `calc(0.16rem + ${SAFE_LEFT})`, top: "0.16rem" }, "0.34rem")} />
         <span aria-hidden="true" style={rivetStyle({ right: "0.16rem", top: "0.16rem" }, "0.34rem")} />
       </div>
@@ -341,8 +367,44 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
           {!turnRunning && tool === "select" && <>Drag a box round your troops on the map. Hold Shift to add to those picked.{selected.length > 0 && <> {selected.length} picked out.</>}</>}
           {!turnRunning && tool === "route" && <>Draw the way for the {selected.length} picked out. They follow it as the ground and the enemy allow.</>}
           {!turnRunning && tool === "diversion" && <>Draw the movement you want the other side to believe.</>}
+          {!turnRunning && tool === "deploy" && (
+            <>
+              {/* Deployed along a front, or as a swarm: a group under a general of its own (runtime/fronts/swarms.js). */}
+              <div role="radiogroup" aria-label="Deploy as" style={{ display: "flex", gap: "0.3rem", marginBottom: "0.35rem" }}>
+                {[["front", "Front"], ["swarm", "Swarm"]].map(([form, word]) => (
+                  <button
+                    key={form}
+                    type="button"
+                    role="radio"
+                    className="oh-tap"
+                    aria-checked={(deployForm === "swarm") === (form === "swarm")}
+                    data-oh-war-room-deploy-form={form}
+                    onClick={() => onDeployForm(form)}
+                    style={{ ...keyLook((deployForm === "swarm") === (form === "swarm"), false), flexDirection: "row", fontSize: "0.72rem", height: "auto", padding: "0.28rem 0.7rem", width: "auto" }}
+                  >{form === "swarm" ? <>Swarm</> : <>Front</>}</button>
+                ))}
+              </div>
+              {deployForm === "swarm"
+                ? <>Click the place your new troops here are to gather at: levies, drafts and reinforcements come in there as a swarm, under one general of their own, and each moves and fights as troops on a front do. Drag to move the map.</>
+                : <>Draw the line your new troops here are to come in on: levies, drafts and reinforcements. They stand on ground your side holds along it.</>}
+            </>
+          )}
           {!turnRunning && tool === "replan" && <>Draw the operation’s way anew.</>}
           {!turnRunning && tool === "transport" && <>Click the place the {selected.length} picked out are to be carried to. Drag to move the map. They board when time next passes.</>}
+          {!turnRunning && tool === "fortify" && <>Draw the fortified line on the map. You choose how strong it is to be once it is drawn.</>}
+          {!turnRunning && tool === "fleet" && station === "patrol" && <>Click the place at sea the fleet is to patrol. Drag to move the map.</>}
+          {!turnRunning && tool === "fleet" && station !== "patrol" && <>Click the place at sea the fleet is to sail to. Drag to move the map.</>}
+          {!turnRunning && !drawing && supply && (
+            <div data-oh-war-room-supply="">
+              Supply: your ground in amber is stretched past where supplies come in full, in red it is cut off; pale ground is theirs, cut off.
+              {!supplyAreas
+                ? <> How well supplied it is shows once time next passes here.</>
+                : supplyAreas.stretched > 0 || supplyAreas.cut > 0 || supplyAreas.theirsCut > 0
+                  ? <> Stretched {supplyAreas.stretched.toLocaleString()} km², cut off {supplyAreas.cut.toLocaleString()} km²; theirs cut off {supplyAreas.theirsCut.toLocaleString()} km².</>
+                  : <> All your ground here is well supplied.</>}
+              {" "}<button type="button" onClick={onSupply} style={linkStyle}>Hide</button>
+            </div>
+          )}
           {!turnRunning && !drawing && selected.length > 0 && (
             <>{selected.length} picked out. <button type="button" onClick={onClear} style={linkStyle}>Clear</button></>
           )}

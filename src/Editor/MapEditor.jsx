@@ -42,14 +42,16 @@ import DocumentsMenu from "./DocumentsMenu.jsx";
 import CityPopup from "./CityPopup.jsx";
 import MarkerPopup from "./MarkerPopup.jsx";
 import { isMapFeature, markerToFeature, newMapFeature } from "./mapFeatures.js";
-import { removeRowStep } from "./documentUndo.js";
+import { addRowStep, membershipStep, patchRowStep, removeRowStep } from "./documentUndo.js";
+import WarMapPanel from "./WarMapPanel.jsx";
+import { WAR_LISTS, isWarTool, newClimateZone, newFortification, newTerrainArea, warGeographyOf } from "./warGeographyDoc.js";
 import SearchBar from "./SearchBar.jsx";
 import BasemapPicker from "./BasemapPicker.jsx";
 import FlagPicker from "./FlagPicker.jsx";
 import { useMapDocument, createDocument, newId, openStoredDocument } from "./useMapDocument.js";
 import { loadBackgroundFile, rebuildPersistedBackground, vectorLayerToGeoJSON } from "./customBackground.js";
 import ProjectionPanel from "./ProjectionPanel.jsx";
-import { DETAILED_MAP_CONVERSION_MESSAGE, hasDetailedMap, moveFeatureCoords, moveUnits, planBasemapChange } from "./projectionConvert.js";
+import { DETAILED_MAP_CONVERSION_MESSAGE, hasDetailedMap, moveFeatureCoords, moveUnits, moveWarShapes, planBasemapChange } from "./projectionConvert.js";
 import { reprojectPicture } from "./projectionImage.js";
 import { convertPlane, normalizeProjection, sameProjection } from "../../server/mapProjection.js";
 import { addBackgroundToLibrary, getBasemapPayload } from "../runtime/basemapLibrary.js";
@@ -62,7 +64,7 @@ import { moveOwnBasemapsBetween, ownBasemapFromLibrary, ownBasemapIdOfLibrary } 
 import { addBuiltinMap, addOwnMap, makeStartingMap, removeMap, scenarioMaps, setShownOver } from "./scenarioMaps.js";
 import { DETAILED_MAP_NEEDS_BASIC_MAP_MESSAGE, buildGameSeed, gameCityToFeature } from "./exportPreset.js";
 import { normalizeGroups } from "../runtime/groups.js";
-import { normalizeRegionTypes } from "../runtime/regionTypes.js";
+import { isWaterType, normalizeRegionTypes } from "../runtime/regionTypes.js";
 import { panelSurface, inputStyle } from "./editorStyles.js";
 import FmgPanel from "./fmg/FmgPanel.jsx";
 import SuggestionReviewPanel, { useSuggestionMarkup, useSuggestionReview } from "./SuggestionReviewPanel.jsx";
@@ -115,6 +117,14 @@ const removalsForScenario = (operations) => {
     removals.push({ op: "remove", key });
   });
   return removals;
+};
+
+// What each war tool does, said above the map while it is picked
+// (warGeographyDoc.js).
+const WAR_TOOL_HINTS = {
+  terrain: "Click to draw an area and double-click to finish (shift-drag draws freehand). Click an outline to pick an area, drag its points to reshape it, and press Delete to remove it.",
+  fortification: "Click to draw a line and double-click to finish. Click a line to pick it, drag its points to reshape it, and press Delete to remove it.",
+  climate: "Click to draw a zone and double-click to finish (shift-drag draws freehand). Click an outline to pick a zone, drag its points to reshape it, and press Delete to remove it.",
 };
 
 // review: a suggestion to review in this map (libraryBar.jsx, from the Suggested
@@ -212,6 +222,13 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
   // and taking it back is the same call the other way round.
   const customBgRef = useRef(null);
   customBgRef.current = customBg;
+  // The war geography's terrain areas, fortified lines and climate zones move
+  // with the regions, as the cities and units do (projectionConvert.js).
+  const moveWarGeography = (from, to) => {
+    d.setTerrainAreas((list) => moveWarShapes(list, from, to));
+    d.setFortifications((list) => moveWarShapes(list, from, to));
+    d.setClimateZones((list) => moveWarShapes(list, from, to));
+  };
   const convertForReview = useCallback((source, target, bounds = null) => {
     if (!api) return;
     const from = normalizeProjection(source);
@@ -256,6 +273,7 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
     api.transformRegions(moveXY);
     d.setFeatures((list) => moveFeatureCoords(list, from, to));
     d.setUnits((list) => moveUnits(list, from, to));
+    moveWarGeography(from, to);
     d.patchMetadata({ projection: to, ...(plan.kind === "tiles" ? { customBackground: null } : {}) });
     if (nextBg !== background) setCustomBg(nextBg);
     api.fitToData?.();
@@ -324,6 +342,59 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
   }, []);
 
   const togglePanel = (name) => setOpenPanel((cur) => (cur === name ? null : name));
+
+  // ---- the war geography: terrain, fortified lines, climate zones ----------
+  // (warGeographyDoc.js) The shape the designer has picked, { kind, id } or
+  // null, and the War map panel's tab. Drawing, reshaping and deleting a shape
+  // change the document and hand the map's undo stack the step that takes it
+  // back (documentUndo.js); everything else is edited in the panel.
+  const [warSelection, setWarSelection] = useState(null);
+  const [warTab, setWarTab] = useState("terrain");
+  const warSetters = { terrain: d.setTerrainAreas, fortification: d.setFortifications, climate: d.setClimateZones };
+  const warListOf = (kind) => d[WAR_LISTS[kind]] || [];
+  const pickWarShape = (choice) => {
+    setWarSelection(choice);
+    if (!choice) return;
+    setWarTab(choice.kind);
+    setOpenPanel("war");
+  };
+  const createWarShape = (kind, shape) => {
+    const list = warListOf(kind);
+    const row = kind === "terrain"
+      ? newTerrainArea(newId("terrain"), shape.rings, list)
+      : kind === "fortification"
+        ? newFortification(newId("wall"), shape.points, shape.owner, list)
+        : newClimateZone(newId("zone"), shape.rings, list);
+    const step = addRowStep(warSetters[kind], row);
+    pickWarShape({ kind, id: row.id });
+    return step;
+  };
+  const changeWarShape = (kind, id, patch) => patchRowStep(warListOf(kind), warSetters[kind], id, patch);
+  const removeWarShape = (kind, id) => {
+    const step = removeRowStep(warListOf(kind), warSetters[kind], id);
+    setWarSelection((current) => (current?.kind === kind && current.id === id ? null : current));
+    return step;
+  };
+  // A shape picked is gone once an undo or a delete takes it away.
+  const warPickedRow = warSelection ? warListOf(warSelection.kind).find((row) => row.id === warSelection.id) : null;
+  useEffect(() => {
+    if (warSelection && !warPickedRow) setWarSelection(null);
+  }, [warSelection, warPickedRow]);
+  // Terrain and climate zones are on the map only while the designer works on
+  // them: the War map panel open on their tab, or their tool picked.
+  const workingOnWar = (kind) => d.activeTool === kind || (openPanel === "war" && warTab === kind);
+  // Picking one of the war tools opens the War map panel on its tab.
+  useEffect(() => {
+    if (!isWarTool(d.activeTool)) return;
+    setWarTab(d.activeTool);
+    setOpenPanel("war");
+  }, [d.activeTool]);
+  // Water regions marked or unmarked Can freeze (the region inspector), one
+  // undo step each time.
+  const setRegionsFreezing = (ids, on) => {
+    const step = membershipStep(d.freezingRegions, d.setFreezingRegions, (ids || []).map(String), on);
+    if (step) api?.pushStep(step);
+  };
 
   // An OpenLayers-loaded background in the persistable form the library stores.
   const normalizeBackground = (bg) => {
@@ -497,6 +568,7 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
       api.transformRegions(moveXY);
       d.setFeatures((list) => moveFeatureCoords(list, from, to));
       d.setUnits((list) => moveUnits(list, from, to));
+      moveWarGeography(from, to);
       // The scenario's other drawn basemaps move with it; a picture fills the
       // sheet in any projection and stays as it is.
       const movedOwnBasemaps = moveOwnBasemapsBetween(d.doc?.metadata?.ownBasemaps, from, to);
@@ -590,6 +662,11 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
     units: d.units,
     groups: d.groups,
     puppets: d.puppets,
+    // What the scenario draws on its map for war (warGeographyDoc.js).
+    terrainAreas: d.terrainAreas,
+    fortifications: d.fortifications,
+    climateZones: d.climateZones,
+    freezingRegions: d.freezingRegions,
     // Without this the marker never persists, so a document migrates on every open,
     // forever — and, far worse, a document saved after being migrated still reads
     // as legacy to everything downstream.
@@ -1072,6 +1149,9 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
     base.groups = normalizeGroups(initialMap.groups);
     // The scenario's puppet states, as its world has them (scenarioPuppets.js).
     base.puppets = Array.isArray(initialMap.puppets) ? structuredClone(initialMap.puppets) : [];
+    // What it draws on its map for war, as its world has it, so a round trip
+    // keeps every shape and every frozen lake (warGeographyDoc.js).
+    Object.assign(base, warGeographyOf(initialMap));
     // Its region types, so a round trip keeps them (the default Land and
     // Coastal for a scenario saved before they were).
     const regionTypes = normalizeRegionTypes(initialMap.regionTypes);
@@ -1182,6 +1262,17 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
     [api, d.groups, regionEpoch],
   );
 
+  // The regions marked Can freeze that are water on the map now: what the save
+  // writes (warGeographyDoc.js warGeographyForGame).
+  const freezingCount = useMemo(() => {
+    const typesById = Object.fromEntries((d.types || []).map((type) => [type.id, type]));
+    return d.freezingRegions.filter((id) => {
+      const region = api?.getRegionSummary?.(id);
+      return Boolean(region) && isWaterType(typesById[region.typeId]);
+    }).length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, d.freezingRegions, d.types, regionEpoch]);
+
   const polityChoices = useMemo(() => {
     const keys = new Set(Object.keys(d.polities || {}));
     for (const row of api?.listPolityUsage?.() || []) keys.add(row.key);
@@ -1278,6 +1369,17 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
         referenceImage={refImage}
         referenceAdjust={openPanel === "reference" && Boolean(refImage)}
         referencePlaceNonce={refPlaceNonce}
+        terrainAreas={d.terrainAreas}
+        fortifications={d.fortifications}
+        climateZones={d.climateZones}
+        freezingRegions={d.freezingRegions}
+        showTerrain={workingOnWar("terrain")}
+        showClimate={workingOnWar("climate")}
+        warSelection={warPickedRow ? warSelection : null}
+        onWarSelect={pickWarShape}
+        onWarShapeCreate={createWarShape}
+        onWarShapeChange={changeWarShape}
+        onWarShapeRemove={removeWarShape}
       />
 
       <DocumentsMenu
@@ -1505,8 +1607,67 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
         </div>
       )}
 
+      {isWarTool(d.activeTool) && (
+        <div
+          style={{
+            ...panelSurface,
+            position: "fixed",
+            top: "var(--editor-toolbar-bottom, 58px)",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 31,
+            padding: "7px 11px",
+            maxWidth: "min(760px, calc(100vw - 24px))",
+            fontSize: 11.5,
+            color: "rgba(255,255,255,0.78)",
+            textAlign: "center",
+          }}
+        >
+          {WAR_TOOL_HINTS[d.activeTool]}
+        </div>
+      )}
+
       {openPanel === "types" && (
         <TypeManager types={d.types} setTypes={d.setTypes} usage={typeUsage} onClose={() => setOpenPanel(null)} />
+      )}
+      {openPanel === "war" && (
+        <WarMapPanel
+          tab={warTab}
+          onTab={(kind) => {
+            setWarTab(kind);
+            // Drawing goes on with the new tab's kind of shape.
+            if (isWarTool(d.activeTool)) d.setActiveTool(kind);
+          }}
+          terrainAreas={d.terrainAreas}
+          fortifications={d.fortifications}
+          climateZones={d.climateZones}
+          setTerrainAreas={d.setTerrainAreas}
+          setFortifications={d.setFortifications}
+          setClimateZones={d.setClimateZones}
+          selection={warPickedRow ? warSelection : null}
+          // A shape picked from the list is shown, and its tool is picked so it
+          // can be reshaped at once.
+          onPick={(kind, id) => {
+            pickWarShape({ kind, id });
+            d.setActiveTool(kind);
+            api?.zoomToWarShape?.(kind, id);
+          }}
+          onUnpick={() => setWarSelection(null)}
+          onZoom={(kind, id) => api?.zoomToWarShape?.(kind, id)}
+          onRemove={(kind, id) => {
+            const step = removeWarShape(kind, id);
+            if (step) api?.pushStep(step);
+          }}
+          activeTool={d.activeTool}
+          setActiveTool={d.setActiveTool}
+          owners={polityChoices}
+          groupNames={Object.keys(normalizeGroups(d.groups)).sort((a, b) => a.localeCompare(b))}
+          freezingCount={freezingCount}
+          onClose={() => {
+            setOpenPanel(null);
+            if (isWarTool(d.activeTool)) d.setActiveTool("select");
+          }}
+        />
       )}
       {openPanel === "regions" && (
         <RegionsPanel api={api} polities={d.polities} selection={d.selection} setSelection={d.setSelection} onClose={() => setOpenPanel(null)} />
@@ -1558,6 +1719,9 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
           }}
           puppets={d.puppets}
           setPuppets={d.setPuppets}
+          // What its Military fields stand for left empty: the scenario's war
+          // settings and era (libraryBar.jsx); none for a map opened on its own.
+          militaryDefaults={initialMap?.militaryDefaults ?? null}
           importPolityRoster={d.importPolityRoster}
           setColorOverride={d.setColorOverride}
           setTags={d.setTags}
@@ -1578,6 +1742,7 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
           setGroups={d.setGroups}
           selection={d.selection}
           regionEpoch={regionEpoch}
+          militaryDefaults={initialMap?.militaryDefaults ?? null}
           onClose={() => setOpenPanel(null)}
         />
       )}
@@ -1710,6 +1875,9 @@ const MapEditor = ({ onClose, scenarioName, onApplyToScenario, initialMap, revie
         groups={d.groups}
         onOpenGroups={() => setOpenPanel("groups")}
         onCopyToClipboard={(ids) => copySelectionToClipboard(ids)}
+        freezingRegions={d.freezingRegions}
+        onSetFreezing={setRegionsFreezing}
+        militaryDefaults={initialMap?.militaryDefaults ?? null}
       />
 
       {cityPopup && isMapFeature(d.features.find((f) => f.id === cityPopup.id)) && (

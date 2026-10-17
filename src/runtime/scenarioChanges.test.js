@@ -16,7 +16,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { countChanges, diffScenarioBundles, measureGeometry, sameShape, summarizeChangesForComment } from "./scenarioChanges.js";
+import { countChanges, diffScenarioBundles, measureGeometry, sameShape, summarizeChangesForComment, WAR_MAP_FIELDS } from "./scenarioChanges.js";
+import { normalizeSuggestion, SUGGESTION_SCHEMA } from "./scenarioSuggestion.js";
 import { layOutScenarioBundle, sheetBounds } from "../../server/mapProjection.js";
 
 const square = (x, y, size = 1) => ({
@@ -363,4 +364,23 @@ test("a file that only declares its projection reads as its laid-out copy, and t
   assert.deepEqual(ids(changes), ["map:projection"]);
   assert.deepEqual(changes[0].to, { type: "mercator", globe: false, wrap: false });
   assert.equal(changes[0].bounds, undefined);
+});
+
+test("a suggestion carries what a scenario draws on its map for war, each list whole, and how its wars are fought", () => {
+  const next = clone(baseBundle());
+  next.data.world.terrainAreas = [{ id: "t1", name: "The Hills", level: 5, rings: [[[0, 0], [1, 0], [1, 1], [0, 0]]] }];
+  next.data.world.fortifications = [{ id: "w1", name: "The Line", owner: "Alpha", level: 6, points: [[0, 0], [1, 1]] }];
+  next.data.world.warSettings = { mechanics: { weather: false } };
+  const changes = diffScenarioBundles(baseBundle(), next);
+  const war = changes.filter((change) => change.kind === "war-map");
+  assert.deepEqual(war.map((change) => [change.id, change.field, change.to.length]), [["map:war:terrainAreas", "terrainAreas", 1], ["map:war:fortifications", "fortifications", 1]]);
+  assert.equal(war[0].to[0].name, "The Hills");
+  assert.ok(changes.some((change) => change.kind === "field" && change.path.join(".") === "world.warSettings"));
+  assert.deepEqual(WAR_MAP_FIELDS, ["terrainAreas", "fortifications", "climateZones", "freezingRegions"]);
+  // A file keeps them; one that names no list it knows loses them.
+  const read = normalizeSuggestion({ schema: SUGGESTION_SCHEMA, changes: [...changes, { id: "map:war:bogus", area: "map", kind: "war-map", field: "bogus", from: [], to: [] }] });
+  assert.deepEqual(read.changes.filter((change) => change.kind === "war-map").map((change) => change.field), ["terrainAreas", "fortifications"]);
+  assert.ok(summarizeChangesForComment(changes).some((line) => /map settings changed/.test(line)));
+  // The same lists twice are no change.
+  assert.deepEqual(diffScenarioBundles(next, clone(next)), []);
 });

@@ -134,6 +134,15 @@ export const createTroop = ({ x = 0, y = 0, strength = 100, kind = KIND_INFANTRY
   squeezed: false,
   besieged: false,
   supply: 1,
+  // Wars and Fronts Pt.2 (dawn.js): how worn out it is, 0 to 1 (fatigue.js),
+  // and what the day's conditions make of its attack, its defence and its
+  // pace, set every morning: each 1 with nothing on.
+  fatigue: 0,
+  punch: 1,
+  guard: 1,
+  legs: 1,
+  // Whether it attacked today (combat.js stepForward).
+  fought: false,
 });
 
 export const isLive = (troop) => troop.strength > 0;
@@ -217,10 +226,14 @@ const spread = (index) => {
 
 // The kinds of `count` counters in an era, in the order they stand along the
 // line: so many armour (cavalry before the tank) and so many artillery, spread
-// along it rather than bunched at one end, the rest infantry.
-export const kindsFor = (count, era) => {
-  const armour = Math.round(count * ARMOUR_SHARE_BY_ERA[era]);
-  const artillery = Math.min(count - armour, Math.round(count * ARTILLERY_SHARE_BY_ERA[era]));
+// along it rather than bunched at one end, the rest infantry. A country may
+// have its own shares (`mix`: { armour, artillery }, each 0 to 1 or null for
+// the era's; military.js mixOf): a horde nearly all horse, a host with no siege train.
+export const kindsFor = (count, era, mix = null) => {
+  const armourShare = mix && Number.isFinite(mix.armour) ? mix.armour : ARMOUR_SHARE_BY_ERA[era];
+  const artilleryShare = mix && Number.isFinite(mix.artillery) ? mix.artillery : ARTILLERY_SHARE_BY_ERA[era];
+  const armour = Math.min(count, Math.round(count * armourShare));
+  const artillery = Math.min(count - armour, Math.round(count * artilleryShare));
   const ranked = Array.from({ length: count }, (_, index) => index).sort((a, b) => spread(a) - spread(b) || a - b);
   const kinds = new Array(count).fill(KIND_INFANTRY);
   ranked.forEach((rank, turn) => {

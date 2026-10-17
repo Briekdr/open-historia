@@ -91,6 +91,7 @@ const BottomBar = ({
       <Chip icon="image" label="Import Map" active={openPanel === "province-import"} onClick={() => open("province-import")} />
       <Chip icon="pin" label={`Features: ${counts.features}`} active={openPanel === "features"} onClick={() => open("features")} />
       <Chip icon="unit" label={`Units: ${counts.units ?? 0}`} active={openPanel === "units"} onClick={() => open("units")} />
+      <Chip icon="mountain" label="War map" active={openPanel === "war"} onClick={() => open("war")} />
       <Chip icon="copy" label={`Clipboard: ${clipboardCount}`} active={openPanel === "clipboard"} onClick={() => open("clipboard")} />
       <Chip icon="types" label={`Types: ${counts.types}`} active={openPanel === "types"} onClick={() => open("types")} />
       <Chip icon="layers" label="Layers" active={openPanel === "layers"} onClick={() => open("layers")} />

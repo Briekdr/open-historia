@@ -20,6 +20,10 @@
 //                                                                 (again) sent once more after it was
 //                                                                 carried out
 //   { op: "unplan",    battlefield, id }                          a diversion taken off
+//   { op: "deploy",    battlefield, way, form? }                  where the asker's new troops there are to
+//                                                                 come in (deploy.js): along a line, or with
+//                                                                 form "swarm" as a swarm at the way's one
+//                                                                 place (swarms.js); an empty way takes it off
 //
 // Nothing here moves a troop: orders are put to the troops when time next
 // passes (engine.js assignStanding).
@@ -27,15 +31,18 @@
 // Pure, and runs in bare node.
 
 import { gameDateYear } from "../gameDates.js";
+import { yearInEra } from "../unitMotion.js";
 import { decodeTroops } from "./codec.js";
 import { generalsOf, nameGenerals, orderTroops, ownTroopsOf, readTalk, releaseTroops, returnTroops, withTalk } from "./command.js";
 import { HOLDER_SIDE_A, HOLDER_SIDE_B, MAX_COMMANDS, MAX_TROOPS_PER_SIDE, MAX_WAY_POINTS, TALK_TEXT_MAX, WAR_ROOM_ORDERS } from "./constants.js";
 import { pointInFrame, projectorOf } from "./frame.js";
 import { withDiversion, withProjectPlan, withoutPlan } from "./plans.js";
+import { withDeployLine } from "./deploy.js";
+import { DEPLOY_FORMS, SWARM_FORM } from "./swarms.js";
 import { battlefieldSideOf, foldBattlefieldName, isOpenBattlefield, normalizeBattlefield } from "./record.js";
 import { TRANSPORT_LOAD_MOST, TRANSPORT_MEDIA, cancelTransport, huntTransport, isUnderWay, normalizeTransports, orderTransport } from "./transports.js";
 
-export const WAR_ROOM_OPS = Object.freeze(["order", "route", "release", "return", "talk", "forget", "diversion", "plan", "unplan", "transport", "untransport", "hunt"]);
+export const WAR_ROOM_OPS = Object.freeze(["order", "route", "release", "return", "talk", "forget", "diversion", "plan", "unplan", "transport", "untransport", "hunt", "deploy"]);
 // The ops that change the world's transporters and not a battlefield.
 const TRANSPORT_OPS = Object.freeze(["transport", "untransport", "hunt"]);
 // The most a drawn way may hold as it is sent: it is thinned to what a route keeps.
@@ -103,7 +110,7 @@ const REFUSED = Object.freeze({
 //                 and be taken to `to` ([lng, lat]); they board when time next passes
 //   untransport   one that has not set out is called off
 //   hunt          one of the other side's is gone after (`off` stops it)
-const applyTransportOp = (record, side, op, { player, date, transports }) => {
+const applyTransportOp = (record, side, op, { player, date, transports, era = null }) => {
   const kept = normalizeTransports(transports);
   if (op.op === "untransport") {
     const mine = kept.find((entry) => entry.id === clean(op.id, 24) && entry.status === "ordered" && [entry.by, entry.owner].some((name) => foldName(name) === foldName(player)));
@@ -132,7 +139,7 @@ const applyTransportOp = (record, side, op, { player, date, transports }) => {
     to: { lng, lat, name: clean(op.name, 120) },
     embark: { battlefield: record.name, side, troops },
     by: player,
-  }, { date: clean(date, 40), year: gameDateYear(date) });
+  }, { date: clean(date, 40), year: yearInEra(gameDateYear(date), era) });
   if (sent.error) return { error: sent.error === "not-yet" ? REFUSED.carrier : sent.error === "too-many" ? REFUSED.transports : REFUSED.nothing };
   return { transports: sent.transports, transport: sent.transport };
 };
@@ -220,6 +227,14 @@ const applyTo = (record, side, op, { player, date }) => {
     return { record: next };
   }
   if (op.op === "unplan") return { record: withoutPlan(record, side, clean(op.id, 180)) };
+  if (op.op === "deploy") {
+    // A way of the battlefield's is the line drawn, or a swarm's place its first point; none at all takes it off.
+    const form = op.form === SWARM_FORM ? SWARM_FORM : "";
+    const drawn = list(op.way);
+    const way = drawn.length > 0 ? wayOn(record, form ? drawn.slice(0, 1) : drawn) : [];
+    if (drawn.length > 0 && way.length < (form ? 1 : 2)) return { error: REFUSED.way };
+    return { record: withDeployLine(record, side, { country: player, way, form }) };
+  }
   return { error: REFUSED.nothing };
 };
 
@@ -228,7 +243,8 @@ const applyTo = (record, side, op, { player, date }) => {
 // words a person can read. `date` is the game's date, written on what is kept.
 // An op for a transporter leaves the battlefields as they are and returns
 // `transports` as well: the world's (`transports`, handed in) with the op applied.
-export const applyWarRoomOp = (battlefields, op, { player = "", date = "", transports = [] } = {}) => {
+//   era   the era the scenario set (runtime/warSettings.js), or null: what carries a transport
+export const applyWarRoomOp = (battlefields, op, { player = "", date = "", transports = [], era = null } = {}) => {
   if (!op || !WAR_ROOM_OPS.includes(op.op)) return { error: REFUSED.nothing };
   const wanted = foldBattlefieldName(op.battlefield);
   const rows = list(battlefields);
@@ -238,7 +254,7 @@ export const applyWarRoomOp = (battlefields, op, { player = "", date = "", trans
   const side = battlefieldSideOf(record, player);
   if (side !== HOLDER_SIDE_A && side !== HOLDER_SIDE_B) return { error: REFUSED.side };
   if (TRANSPORT_OPS.includes(op.op)) {
-    const carried = applyTransportOp(record, side, op, { player: clean(player, 120), date, transports });
+    const carried = applyTransportOp(record, side, op, { player: clean(player, 120), date, transports, era });
     return carried.error ? carried : { battlefields: rows, record, side, transports: carried.transports };
   }
   const result = applyTo(record, side, op, { player: clean(player, 120), date });
@@ -275,6 +291,8 @@ export const cleanWarRoomOp = (op) => {
   if (op.id !== undefined) sent.id = clean(op.id, 180);
   // A transporter: what it goes by, and where to (and what the place is called, if anything is near).
   if (op.medium !== undefined) sent.medium = TRANSPORT_MEDIA.includes(op.medium) ? op.medium : "";
+  // A deployment's form (swarms.js).
+  if (op.form !== undefined) sent.form = DEPLOY_FORMS.includes(op.form) ? op.form : "";
   if (op.to !== undefined) sent.to = [Math.round(Number(op.to?.[0]) * 10000) / 10000, Math.round(Number(op.to?.[1]) * 10000) / 10000];
   if (op.name !== undefined) sent.name = clean(op.name, 120);
   return sent;

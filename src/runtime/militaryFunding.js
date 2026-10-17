@@ -15,6 +15,11 @@
 //                     and how well funded each of its people is against the
 //                     other countries whose economies are known.
 //
+// A country the AI rated has a figure for it besides (militaryStats.js
+// `spending`, rated against every other country: Game/AI/militaryRating.js),
+// and that is what its weight takes (forcesFunding): every country so rated is
+// on one scale, whether or not its economy is known.
+//
 // The second part needs other sheets to compare with, and in the same
 // currency, which is true of a scenario's own countries; with fewer than
 // FUNDING_COMPARED_LEAST of them known, only the state of the treasury counts.
@@ -22,6 +27,8 @@
 // changed.
 //
 // Pure, and loads in plain Node.
+
+import { statFactor } from "./fronts/military.js";
 
 export const MILITARY_GDP_SHARE = 0.03;
 // The budget's balance and the debt, as shares of GDP in percent: each point
@@ -82,4 +89,22 @@ export const fundingFactor = (sheet, middle = 0) => {
   // (The treasury is in the funding already; with nothing to compare with, it is all there is.)
   const against = middle > 0 && head > 0 ? Math.pow(head / middle, FUNDING_POWER) : treasuryFactor(sheet);
   return within(against, FUNDING_FACTOR_LEAST, FUNDING_FACTOR_MOST);
+};
+
+// What a rated `spending` (0 to 100, 50 the middle of the world) does to a country's weight: FUNDING_FACTOR_LEAST
+// at nothing, 1 at 50, FUNDING_FACTOR_MOST for the best funded, in a straight line between.
+export const spendingFactor = (spending) => {
+  const value = Number(spending);
+  return spending !== null && spending !== undefined && spending !== "" && Number.isFinite(value)
+    ? statFactor(within(value, 0, 100), FUNDING_FACTOR_LEAST, FUNDING_FACTOR_MOST)
+    : 1;
+};
+
+// What a country's forces have to spend, as its weight in a land war takes it (countryWeight.js): the figure it
+// was rated at against the others where it has one ("when this stuff is generated, it should be relative to other
+// countries", the owner, 2026-10-16), else what its economy pays for (fundingFactor), else 1.
+//   military   its figures as the game counts them (militaryStats.js militaryLookup), or null
+export const forcesFunding = ({ sheet = null, middle = 0, military = null } = {}) => {
+  const rated = military?.spending;
+  return rated !== null && rated !== undefined && rated !== "" && Number.isFinite(Number(rated)) ? spendingFactor(rated) : fundingFactor(sheet, middle);
 };

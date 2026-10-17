@@ -43,6 +43,8 @@ import { translateLabel } from "../../runtime/translator.js";
 import { MAP_SETTING_KEYS, reduceMotionEnabled, useMapSetting, useMapSettingValue } from "../../runtime/mapSettings.js";
 import { getFrontShownOwners, shownOwnerIds, subscribeFrontShownOwners, withShownOwners, withoutShownTransitions } from "./frontOwnership.js";
 import { useActiveFeatures } from "../../runtime/gameFeatures.js";
+import { useActiveGameCountry } from "../../runtime/library.js";
+import { buildDiplomaticStanceMap, getDiplomaticOwnerColor } from "../../runtime/diplomaticStance.js";
 import { getWorldStateSnapshot, useWorldState } from "./useWorldState.js";
 import { cityPopulationOverridesByTileName, effectiveCityPopulation } from "../../runtime/cityPopulation.js";
 import { buildProvinceOutlinePaint, PROVINCE_OUTLINE_MIN_ZOOM } from "./provinceOutlineStyle.js";
@@ -394,11 +396,17 @@ const WorldMap = ({ isGlobe = false }) => {
     polityOverrides,
     groups,
     groupAreas,
+    puppets,
+    wars,
+    relations,
+    agreements,
     regionTypes,
     labelFont,
     labelHaloColor,
     labelTextColor,
   } = useWorldState();
+  const playerCountry = useActiveGameCountry();
+  const mapMode = useMapSettingValue(MAP_SETTING_KEYS.mapMode, "political");
   // A region a battlefield has taken in name but not yet in full is DRAWN as
   // its old holder's until all of it is held (frontOwnership.js). Everything
   // below that follows ownership (fills, borders, labels) reads this, and so
@@ -1203,9 +1211,20 @@ const WorldMap = ({ isGlobe = false }) => {
     [colorMap, polityOverrides],
   );
 
+  const diplomaticStanceMap = useMemo(() => {
+    if (mapMode !== "diplomatic") return null;
+    return buildDiplomaticStanceMap({ playerCountry, wars, agreements, relations, puppets });
+  }, [mapMode, playerCountry, wars, agreements, relations, puppets]);
+
   const ownerColorCss = useCallback(
-    (owner) => ownerDisplayCss(resolveOwnerRgb, owner, NEUTRAL_LAND_COLOR),
-    [resolveOwnerRgb],
+    (owner) => {
+      if (!owner) return NEUTRAL_LAND_COLOR;
+      if (mapMode === "diplomatic" && diplomaticStanceMap) {
+        return getDiplomaticOwnerColor(owner, diplomaticStanceMap);
+      }
+      return ownerDisplayCss(resolveOwnerRgb, owner, NEUTRAL_LAND_COLOR);
+    },
+    [mapMode, diplomaticStanceMap, resolveOwnerRgb],
   );
 
   // Worker geometry is keyed by canonical political owner, so label metadata

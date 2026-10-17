@@ -15,33 +15,72 @@ import { readField } from "./field.js";
 export const FAR_THIRDS = 1 << 28;
 
 // How far each cell is from the nearest source cell, into `out` (an Int32Array).
+// Each pass gives every cell the least of what it has and what the neighbours
+// the pass has been through offer; the first row and the first and last
+// columns are taken on their own, so that the cells between test no edge (the
+// staff that looks ahead works this out thousands of times a turn: "its SOO
+// LAGGY while in war", the owner, 2026-10-15). The least is the least in any
+// order: the same distances as ever.
 export const distanceFrom = (cols, rows, isSource, out) => {
   const size = cols * rows;
   for (let cell = 0; cell < size; cell += 1) out[cell] = isSource(cell) ? 0 : FAR_THIRDS;
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      const cell = row * cols + col;
-      let best = out[cell];
-      if (col > 0 && out[cell - 1] + 3 < best) best = out[cell - 1] + 3;
-      if (row > 0) {
-        if (out[cell - cols] + 3 < best) best = out[cell - cols] + 3;
-        if (col > 0 && out[cell - cols - 1] + 4 < best) best = out[cell - cols - 1] + 4;
-        if (col < cols - 1 && out[cell - cols + 1] + 4 < best) best = out[cell - cols + 1] + 4;
-      }
+  if (size === 0) return out;
+  const last = cols - 1;
+  // Forward: from the west and the north.
+  for (let cell = 1; cell < cols; cell += 1) if (out[cell - 1] + 3 < out[cell]) out[cell] = out[cell - 1] + 3;
+  for (let start = cols; start < size; start += cols) {
+    let best = out[start];
+    if (out[start - cols] + 3 < best) best = out[start - cols] + 3;
+    if (last > 0 && out[start - cols + 1] + 4 < best) best = out[start - cols + 1] + 4;
+    out[start] = best;
+    const end = start + last;
+    for (let cell = start + 1; cell < end; cell += 1) {
+      best = out[cell];
+      const west = out[cell - 1] + 3;
+      if (west < best) best = west;
+      const north = out[cell - cols] + 3;
+      if (north < best) best = north;
+      const northWest = out[cell - cols - 1] + 4;
+      if (northWest < best) best = northWest;
+      const northEast = out[cell - cols + 1] + 4;
+      if (northEast < best) best = northEast;
       out[cell] = best;
     }
+    if (last > 0) {
+      best = out[end];
+      if (out[end - 1] + 3 < best) best = out[end - 1] + 3;
+      if (out[end - cols] + 3 < best) best = out[end - cols] + 3;
+      if (out[end - cols - 1] + 4 < best) best = out[end - cols - 1] + 4;
+      out[end] = best;
+    }
   }
-  for (let row = rows - 1; row >= 0; row -= 1) {
-    for (let col = cols - 1; col >= 0; col -= 1) {
-      const cell = row * cols + col;
-      let best = out[cell];
-      if (col < cols - 1 && out[cell + 1] + 3 < best) best = out[cell + 1] + 3;
-      if (row < rows - 1) {
-        if (out[cell + cols] + 3 < best) best = out[cell + cols] + 3;
-        if (col < cols - 1 && out[cell + cols + 1] + 4 < best) best = out[cell + cols + 1] + 4;
-        if (col > 0 && out[cell + cols - 1] + 4 < best) best = out[cell + cols - 1] + 4;
-      }
+  // Back: from the east and the south.
+  const lastRow = size - cols;
+  for (let cell = size - 2; cell >= lastRow; cell -= 1) if (out[cell + 1] + 3 < out[cell]) out[cell] = out[cell + 1] + 3;
+  for (let start = lastRow - cols; start >= 0; start -= cols) {
+    const end = start + last;
+    let best = out[end];
+    if (out[end + cols] + 3 < best) best = out[end + cols] + 3;
+    if (last > 0 && out[end + cols - 1] + 4 < best) best = out[end + cols - 1] + 4;
+    out[end] = best;
+    for (let cell = end - 1; cell > start; cell -= 1) {
+      best = out[cell];
+      const east = out[cell + 1] + 3;
+      if (east < best) best = east;
+      const south = out[cell + cols] + 3;
+      if (south < best) best = south;
+      const southEast = out[cell + cols + 1] + 4;
+      if (southEast < best) best = southEast;
+      const southWest = out[cell + cols - 1] + 4;
+      if (southWest < best) best = southWest;
       out[cell] = best;
+    }
+    if (last > 0) {
+      best = out[start];
+      if (out[start + 1] + 3 < best) best = out[start + 1] + 3;
+      if (out[start + cols] + 3 < best) best = out[start + cols] + 3;
+      if (out[start + cols + 1] + 4 < best) best = out[start + cols + 1] + 4;
+      out[start] = best;
     }
   }
   return out;

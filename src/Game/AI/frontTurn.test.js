@@ -8,6 +8,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  ENGINE_SLICE_MS,
   FRONT_MARK,
   applyFrontUnitChanges,
   attachFrontFlips,
@@ -15,6 +16,7 @@ import {
   describeFrontNotes,
   frontFlipAllowance,
   frontRunSpan,
+  leaveCapturesToTroops,
   planFrontMoments,
   runFrontTurn,
   stripFrontOps,
@@ -22,6 +24,21 @@ import {
 
 const event = (id, date, impacts = {}, extra = {}) => ({ id, date, title: id, description: "x", impacts, ...extra });
 const frontControl = (regionId) => ({ op: "control", regionId, fromCode: "Ukraine", toCode: "Russia", basis: "occupation", note: "Eastern Ukraine", by: FRONT_MARK });
+
+test("a capture the events state of a battlefield's ground is left to its troops (Pt.2), and nothing else is", () => {
+  const capture = { op: "control", regionId: "3475", regionName: "Matamoros", fromCode: "Mexico", toCode: "United States", basis: "occupation" };
+  const elsewhere = { op: "control", regionId: "r9", fromCode: "Mexico", toCode: "United States" };
+  const events = [
+    event("e1", "2016-03-06", { regionControlOps: [capture, elsewhere, frontControl("r1")] }),
+    event("e2", "2016-03-07", { regionControlOps: [elsewhere] }),
+  ];
+  const stated = [{ id: "stated:e1:3475", battlefield: "United States - Mexico front", side: "United States", objective: "region: Matamoros", result: "captured" }];
+  const kept = leaveCapturesToTroops(events, stated);
+  assert.deepEqual(kept.events[0].impacts.regionControlOps, [elsewhere, frontControl("r1")], "only the stated capture goes");
+  assert.equal(kept.events[1], events[1], "an event with none is the same object");
+  assert.deepEqual(kept.left, ["Matamoros"], "named, never by id");
+  assert.equal(leaveCapturesToTroops(events, []).events, events);
+});
 
 test("the engine's own changes are taken out of the events, and nothing else is", () => {
   const written = { op: "control", regionId: "r9", fromCode: "Ukraine", toCode: "Russia" };
@@ -124,20 +141,16 @@ test("a change of control the model wrote itself is told on its event's day; the
   ]);
 });
 
-test("a country's weight: its people by the square root, else the land it holds", () => {
+test("a country's weight: its people by the square root and what its forces have to spend, never the land it holds", () => {
   assert.equal(countryWeight({ population: 100e6 }), 20);
   assert.equal(countryWeight({ population: 1e6 }), 2);
   assert.ok(countryWeight({ population: 1.4e9 }) / countryWeight({ population: 14e6 }) < 11, "a hundred times the people is ten times the weight");
   assert.equal(countryWeight({ population: 1000 }), 1, "never less than one");
-  // The land it holds, on the scale the engine sizes troops by: a great power
-  // about 24 points, a small state one or two.
-  assert.equal(countryWeight({ regions: 25 }), 6.5);
-  assert.ok(Math.abs(countryWeight({ regions: 341 }) - 24) < 0.1, "the largest country of the built-in map");
-  assert.ok(countryWeight({ regions: 3 }) > 2 && countryWeight({ regions: 3 }) < 3);
-  assert.equal(countryWeight({ regions: 1 }), 1.3);
-  assert.equal(countryWeight({}), 1, "a country with no land and no sheet still counts for one");
-  // And the two measures are of one size: a country of 128 regions and one of forty million people.
-  assert.ok(Math.abs(countryWeight({ regions: 128 }) - countryWeight({ population: 40e6 })) < 3);
+  assert.equal(countryWeight({ population: 100e6, funding: 1.5 }), 30);
+  // "remove region count power entirely" (the owner, 2026-10-16): nobody knows its people, it has no weight of its
+  // own (the engine counts it as the middle of those it knows until the AI rates it: militaryRating.js).
+  assert.equal(countryWeight({ regions: 341 }), null, "the land it holds is no weight");
+  assert.equal(countryWeight({}), null);
 });
 
 test("the engine may move what a scenario's ceiling leaves after the model's own changes", () => {
@@ -175,6 +188,52 @@ test("the engine is run with what it has, and again with the map when it asks fo
   assert.equal(await runFrontTurn({ createFrontRun, input: { map: {} }, loadRegions: async () => null }), null);
   assert.equal(await runFrontTurn({ createFrontRun, input: { map: {} } }), null);
   assert.equal(await runFrontTurn({ input: { map: {} } }), null);
+});
+
+test("a step that is something to wait for is waited for, and what it came to is handed back to the run", async () => {
+  // "do the multi-core rehearsals too" (the owner, 2026-10-16): a staff's plans fought on other cores
+  // (runtime/fronts/mind/rehearsers.js) are waited for as a step of the run's own; a wait that fails hands back nothing.
+  const heard = [];
+  const createFrontRun = () => {
+    let done = false;
+    function* steps() {
+      heard.push(yield { wait: async () => 42 });
+      heard.push(yield);
+      heard.push(yield { wait: async () => { throw new Error("the cores are gone"); } });
+      done = true;
+    }
+    return { steps, advance: () => true, finished: () => done, finish: () => ({ battlefields: [], flips: [], unitChanges: [], notes: [] }) };
+  };
+  const result = await runFrontTurn({ createFrontRun, input: { map: {} }, pause: async () => {} });
+  assert.deepEqual(heard, [42, undefined, undefined]);
+  assert.deepEqual(result.battlefields, []);
+});
+
+test("a run that gives its days as steps is taken in slices, the page let draw between them", async () => {
+  // "its SOO LAGGY while in war" (the owner, 2026-10-15): a staff that thinks for seconds no longer holds the page.
+  const busy = (ms) => {
+    const until = performance.now() + ms;
+    while (performance.now() < until) { /* thinking */ }
+  };
+  let taken = 0;
+  const createFrontRun = () => ({
+    advance: () => { throw new Error("taken whole"); },
+    steps: function* steps() {
+      for (let step = 0; step < 6; step += 1) {
+        busy(ENGINE_SLICE_MS + 4);
+        taken += 1;
+        yield;
+      }
+    },
+    finished: () => taken >= 6,
+    finish: () => ({ battlefields: ["ok"], flips: [], unitChanges: [], notes: [] }),
+  });
+  let pauses = 0;
+  const result = await runFrontTurn({ createFrontRun, input: { map: { regions: [] } }, pause: async () => { pauses += 1; } });
+  assert.deepEqual(result.battlefields, ["ok"]);
+  assert.ok(pauses >= 5, `${pauses} pauses over six long steps`);
+  // Without a pause it is taken whole, as ever.
+  assert.equal(await runFrontTurn({ createFrontRun: () => ({ advance: () => true, finish: () => ({ battlefields: ["whole"] }) }), input: { map: {} } }).then((run) => run.battlefields[0]), "whole");
 });
 
 test("a change of hands goes on the first event of its day or later, never on one told to some governments only", () => {

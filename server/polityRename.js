@@ -261,6 +261,12 @@ export const renamePolityInWorld = (world, fromName, toName) => {
   put("storylines", mapRows(world?.storylines, (storyline) => ({ ...storyline, participants: mapList(storyline.participants, fromKey, to) })));
   put("puppets", mapRows(world?.puppets, (row) => renamePuppetRow(row, fromKey, to)));
   put("projects", mapRows(world?.projects, (project) => ({ ...project, ownerCode: one(project.ownerCode) })));
+  // The fortified lines it holds (runtime/warGeography.js): a wall keeps its owner.
+  put("fortifications", mapRows(world?.fortifications, (line) => ({ ...line, owner: one(line.owner) })));
+  // How weary of war it is, and what it has left to fight with (runtime/warWeariness.js, warResources.js).
+  put("warWeariness", mapRows(world?.warWeariness, (row) => ({ ...row, country: one(row.country) })));
+  put("warResources", mapRows(world?.warResources, (row) => ({ ...row, country: one(row.country) })));
+  put("attrition", mapRows(world?.attrition, (row) => ({ ...row, country: one(row.country) })));
   for (const field of ["countryStats", "countryTags", "internationalReputation", "intelligence", "playerGoals"]) {
     put(field, mapKeys(world?.[field], fromKey, to));
   }
@@ -363,5 +369,7 @@ export const renamePolityInDocument = (doc, fromName, toName) => {
   // The starting units and the puppet states follow their polity too.
   put("units", mapRows(doc?.units, (unit) => ({ ...unit, ownerCode: mapName(unit.ownerCode, fromKey, to) })));
   put("puppets", mapRows(doc?.puppets, (row) => renamePuppetRow(row, fromKey, to)));
+  // And the fortified lines it holds.
+  put("fortifications", mapRows(doc?.fortifications, (line) => ({ ...line, ...(typeof line.owner === "string" ? { owner: mapName(line.owner, fromKey, to) } : {}) })));
   return next;
 };

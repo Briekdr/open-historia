@@ -55,6 +55,10 @@ export const prefetchGameplay = () => {
 
 // --- Timeline ---------------------------------------------------------------
 export const simulateTimelineJump = hostOnly(async (...args) => (await gameplay()).simulateTimelineJump(...args));
+// The War Room's rehearsal of the days ahead, and the next period thought through while the player reads (both fight
+// a period ahead of time and write nothing): the host's to do in a shared game, and nobody's on a guest's screen.
+export const warRoomRehearse = hostOnly(async (...args) => (await gameplay()).warRoomRehearse(...args));
+export const prethinkFronts = async (...args) => (inSharedGame() ? null : (await gameplay()).prethinkFronts(...args));
 export const simulateAutoJump = hostOnly(async (...args) => (await gameplay()).simulateAutoJump(...args));
 export const retryPendingJumpSegment = hostOnly(async (...args) => (await gameplay()).retryPendingJumpSegment(...args));
 export const retryPendingProjectsJump = hostOnly(async (...args) => (await gameplay()).retryPendingProjectsJump(...args));
@@ -118,6 +122,8 @@ export const consolidateHistoryNow = hostOnly(async (...args) => (await gameplay
 
 // --- Stats and intelligence -------------------------------------------------
 export const ensureIntelligenceRated = hostQuietly(async (...args) => (await gameplay()).ensureIntelligenceRated(...args));
+// The figures of the countries the game needs and has none for, rated against the others (militaryRating.js).
+export const ensureMilitaryFigures = hostQuietly(async (...args) => (await gameplay()).ensureMilitaryFigures(...args));
 export const readOpenedIntercepts = async (...args) => (await gameplay()).readOpenedIntercepts(...args);
 // A stat sheet is the game's own record, so in a shared game the host writes
 // it, on the host's AI key: the page asks (the host answers once it is
@@ -163,3 +169,7 @@ export const warRoomRouteAttacks = async (...args) => (await gameplay()).warRoom
 // The war room: the way each transporter deployed there would take. Read from
 // the map, with no request made and nothing written.
 export const warRoomTransportWays = async (...args) => (await gameplay()).warRoomTransportWays(...args);
+// The war room: what its fortified lines and fleets are held to on the map
+// (where the sea is, whose the ground). Read from the map, with no request made
+// and nothing written.
+export const warRoomChart = async (...args) => (await gameplay()).warRoomChart(...args);

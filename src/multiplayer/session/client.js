@@ -18,7 +18,7 @@
 //   invalid       the token itself is wrong ({ message })
 //   left          we left
 //
-// Every state comes with what is known so far: { room, heard, failures }.
+// Every state comes with what is known so far: { room, heard, failures, clock }.
 // `heard` is true once anything signed by the host has arrived (its beacon or
 // an answer), and `failures` counts connections the host answered that then
 // never opened. A screen that shows only "finding" for all of this cannot tell
@@ -32,6 +32,9 @@
 //                   (maxConnectFailures in a row): the two networks will not
 //                   connect directly (transport/peer.js)
 //   no-welcome      the connection opens and the host never lets us in
+//   clock           the relays refused what we sent for its time stamp: this
+//                   computer's clock is wrong (signaling/nostr.js
+//                   CLOCK_REFUSAL), so the host never heard us
 //   host-closed     the host closed the game
 //   gave-up         a player who was in could not get back
 
@@ -89,10 +92,12 @@ export const createClientSession = ({
   let findTimer = null;
   let findArmed = false;
   let heard = false;
+  // A relay refused what we sent for its time stamp (onRefused).
+  let clockRefused = false;
   let connectFailures = 0;
   let joinFailures = 0;
 
-  const known = (extra = {}) => ({ room, heard, failures: connectFailures, ...extra });
+  const known = (extra = {}) => ({ room, heard, failures: connectFailures, clock: clockRefused, ...extra });
   const setState = (next, detail = {}) => {
     state = next;
     onState(next, known(detail));
@@ -123,7 +128,7 @@ export const createClientSession = ({
     findTimer = timers.setTimeout(() => {
       findArmed = false;
       if (finished() || player) return;
-      giveUp("lost", { reason: heard ? "no-answer" : "host-not-found" });
+      giveUp("lost", { reason: clockRefused ? "clock" : heard ? "no-answer" : "host-not-found" });
     }, findTimeoutMs);
   };
 
@@ -358,7 +363,14 @@ export const createClientSession = ({
         return;
       }
       keys = deriveRoomKeys(invite);
-      channel = channelFactory({ topic: keys.topic, key: keys.signalKey, onPayload, log, now, timers });
+      const onRefused = ({ clock }) => {
+        if (!clock || clockRefused) return;
+        clockRefused = true;
+        log("a relay refused what we sent for its time stamp: this computer's clock is wrong");
+        // The same state again, now with `clock`: a screen can say so.
+        if (!finished()) onState(state, known());
+      };
+      channel = channelFactory({ topic: keys.topic, key: keys.signalKey, onPayload, onRefused, log, now, timers });
       armFindTimer();
       log("looking for the host on the relays");
       startAttempt();

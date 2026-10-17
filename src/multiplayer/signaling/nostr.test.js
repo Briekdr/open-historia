@@ -235,3 +235,25 @@ test("a ban is respected for longer, and a relay is never the only one gone quie
   assert.equal(host.instance.publish({ t: "beacon", n: 5 }), 3);
   host.instance.close();
 });
+
+test("a relay that refuses an event says why, and whether the time stamp was the reason", async () => {
+  const network = createFakeRelayNetwork({ ephemeralMaxAgeSeconds: 60 });
+  const keys = room();
+  const refused = [];
+  const late = channel(network, keys, { now: () => Date.now() - 3_600_000, onRefused: (refusal) => refused.push(refusal) });
+  await settle();
+  late.instance.publish({ t: "offer" });
+  await settle();
+  assert.equal(refused.length, 3);
+  assert.ok(refused.every((refusal) => refusal.clock && /ephemeral event expired/.test(refusal.said)));
+  // Refused for anything else, it is not the clock.
+  refused.length = 0;
+  const onTime = channel(network, keys, { onRefused: (refusal) => refused.push(refusal) });
+  await settle();
+  network.refuse(RELAYS[0], "rate-limited: slow down");
+  onTime.instance.publish({ t: "offer" });
+  await settle();
+  assert.deepEqual(refused.map((refusal) => refusal.clock), [false]);
+  late.instance.close();
+  onTime.instance.close();
+});

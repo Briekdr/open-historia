@@ -70,6 +70,20 @@ export const PUBLIC_WORLD_KEYS = Object.freeze([
   // what every government would know of. Only the country an offer or a call
   // is addressed to may answer it (host/gameHost.js).
   "warWeariness",
+  // And what each country has left to fight with (runtime/warResources.js).
+  "warResources",
+  // And what attrition has cost each (runtime/attrition.js).
+  "attrition",
+  // How the scenario's wars are fought (runtime/warSettings.js): the scenario's own rules.
+  "warSettings",
+  // What the scenario draws on its map for war (runtime/warGeography.js): there for all to see.
+  "terrainAreas",
+  "fortifications",
+  "climateZones",
+  "freezingRegions",
+  // And the water frozen now, and each climate zone's weather: there for all to see.
+  "frozenRegions",
+  "zoneWeather",
   "peaceOffers",
   "reparations",
   "peaceTreaties",

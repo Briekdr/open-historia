@@ -11,6 +11,8 @@
 
 import { installWebApiRouter } from "./router.js";
 import { ensureSeeded, migrateStoreLayout } from "./libraryStore.js";
+import * as idb from "./idb.js";
+import { bringHttpSavesAcross } from "./saveMove.js";
 import { markEntered, showHomePage, shouldShowHome } from "./homePage.js";
 import { isNativeApp, showNativeBoot } from "./nativeBoot.js";
 import { forgetRetiredAccount } from "./retiredAccount.js";
@@ -74,6 +76,10 @@ export const installWebBackend = async () => {
   const boot = isNativeApp() ? showNativeBoot() : null;
   const bootLanguage = loadBootLanguage();
   if (boot) bootLanguage.then(() => boot.relabel());
+
+  // Saves this browser holds under the site's http address come across first,
+  // so the library below already has them (saveMove.js). Never in the app.
+  if (!isNativeApp()) await bringHttpSavesAcross({ db: idb });
 
   // Seed the default scenario before any /api call, then intercept.
   try {

@@ -3,7 +3,8 @@
 //
 // The countries of a game ranked against one another by one figure at a time.
 // Some figures every country has, because the game works them out itself: how
-// much land it holds, what it weighs in a land war. The rest come from a
+// much land it holds, its military power (runtime/militaryPower.js: what it
+// weighs in a land war, through its own military figures). The rest come from a
 // country's sheet of statistics, and only the countries that have been
 // assessed have one (the player's own, those being tracked, those opened in
 // the Stats pane, those the player came into conflict with). So a ranking by
@@ -17,8 +18,9 @@
 //
 // No React here, so node can test it. The tab is in stats.jsx.
 
-import { countryWeight } from "../../runtime/countryWeight.js";
-import { fundingFactor, middleFundingPerHead } from "../../runtime/militaryFunding.js";
+import { middleFundingPerHead } from "../../runtime/militaryFunding.js";
+import { militaryPower } from "../../runtime/militaryPower.js";
+import { militaryLookup } from "../../runtime/militaryStats.js";
 import { buildOwnerAliasMap, createOwnerResolver, regionBaseOwner } from "../../runtime/ownerNames.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
 import { wearinessOf } from "../../runtime/warWeariness.js";
@@ -29,7 +31,7 @@ export const RANKING_METRICS = Object.freeze([
   { key: "population", label: "Population", kind: "number", sheet: true },
   { key: "gdp", label: "Economy", kind: "money", sheet: true },
   { key: "gdpPerCapita", label: "Wealth per person", kind: "money each", sheet: true },
-  { key: "military", label: "Military weight", kind: "weight", sheet: false },
+  { key: "military", label: "Military power", kind: "weight", sheet: false },
   { key: "regions", label: "Land held", kind: "count", sheet: false },
   { key: "stability", label: "Stability", kind: "index", sheet: true },
   { key: "reputation", label: "Reputation", kind: "index", sheet: true },
@@ -94,7 +96,9 @@ const peopleOf = (world, key) => {
 };
 
 // One country's figure, or null where the game has none for it.
-//   context   { regions, middle }: regionCountsOf, and middleFundingPerHead of the world's sheets
+//   context   { regions, middle, military }: regionCountsOf, middleFundingPerHead of
+//             the world's sheets, and militaryLookup of the world (read once for the
+//             whole ranking; worked out for the one country when not given)
 export const rankingValue = (metric, world, key, context = {}) => {
   const sheet = record(record(world?.countryStats)[key]);
   const held = context.regions?.get(lower(key)) ?? 0;
@@ -114,9 +118,10 @@ export const rankingValue = (metric, world, key, context = {}) => {
     case "regions":
       return held > 0 ? held : null;
     case "military": {
-      const people = peopleOf(world, key);
-      if (people === null && held === 0) return null;
-      return Math.round(countryWeight({ population: people ?? 0, regions: held, funding: fundingFactor(sheet, context.middle ?? 0) }) * 10) / 10;
+      // Its weight in a land war through its own figures; at the figures every country has, the weight itself. (Its
+      // people's and its figures', never the land it holds: none where its people are not known yet.)
+      const power = militaryPower(world, key, { middle: context.middle ?? 0, lookup: context.military ?? null });
+      return power === null ? null : Math.round(power * 10) / 10;
     }
     case "reputation": {
       const moved = finite(record(world?.internationalReputation)[key]);
@@ -151,7 +156,11 @@ export const openingMetric = ({ world = {}, countries = [], metrics = [], catalo
 //   unranked   how many countries the game has no such figure for
 //   most       the largest figure, for a bar
 export const buildRanking = ({ world = {}, countries = [], metric = null, catalog = [] } = {}) => {
-  const context = { regions: regionCountsOf(catalog, world), middle: middleFundingPerHead(record(world?.countryStats)) };
+  const context = {
+    regions: regionCountsOf(catalog, world),
+    middle: middleFundingPerHead(record(world?.countryStats)),
+    military: metric?.key === "military" ? militaryLookup(world) : null,
+  };
   const seen = new Set();
   const ranked = [];
   let unranked = 0;

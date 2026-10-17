@@ -417,6 +417,29 @@ export const attachRequestOutcome = (record, status) => {
   record.requests = requests;
 };
 
+// A time skip's whole time, on the generations of its own request (a jump's): a
+// record's latency is its request's, and a skip is that and the war fought
+// before and after it, the checks and the writing. "it reports that the jump
+// forward was 16.6 seconds but the time skip took much longer than that" (the
+// owner, 2026-10-15). Marks every such record begun since `since` (ms) and not
+// marked yet with { totalMs, phases: [{ label, ms, requests }] } (skipPhases.js
+// summarizeSkipPhases), and says how many it marked.
+const SKIP_TASK_KEYS = new Set(["jumpForward", "autoJumpForward"]);
+export const attachSkipTiming = (since, summary) => {
+  const totalMs = Number(summary?.totalMs);
+  if (!Number.isFinite(totalMs) || totalMs <= 0) return 0;
+  const phases = (Array.isArray(summary?.phases) ? summary.phases : [])
+    .map((line) => ({ label: String(line?.label ?? ""), ms: Number(line?.ms) || 0, requests: Number(line?.requests) || 0 }));
+  let marked = 0;
+  for (const record of sessionRecords) {
+    if (!SKIP_TASK_KEYS.has(record.taskKey) || record.skip || !(record.startedAt >= since)) continue;
+    record.skip = { totalMs, phases };
+    marked += 1;
+    if (record.finished && !record.awaitingOutcome) persist(record);
+  }
+  return marked;
+};
+
 // All the requests a record made, or null for a record from before they were
 // counted.
 export const requestCount = (record) => {

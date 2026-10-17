@@ -72,3 +72,10 @@ test("Count my visits: on only after a yes, and why it is off otherwise", async 
         else delete globalThis.window;
     }
 });
+
+test("Seasons and weather: on unless the player turned it off", async () => {
+    assert.equal(await line("Seasons and weather"), "Seasons and weather: on");
+    localStorage.setItem(MAP_SETTING_KEYS.seasonsWeather, "0");
+    assert.equal(await line("Seasons and weather"), "Seasons and weather: off");
+    localStorage.removeItem(MAP_SETTING_KEYS.seasonsWeather);
+});

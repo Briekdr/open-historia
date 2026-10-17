@@ -48,7 +48,25 @@ test("a map saved before the newer fields existed opens with them defaulted", ()
   assert.deepEqual(opened.doc.units, []);
   assert.deepEqual(opened.doc.groups, {});
   assert.deepEqual(opened.doc.puppets, []);
+  assert.deepEqual(opened.doc.terrainAreas, []);
+  assert.deepEqual(opened.doc.fortifications, []);
+  assert.deepEqual(opened.doc.climateZones, []);
+  assert.deepEqual(opened.doc.freezingRegions, []);
   assert.equal(opened.regions, null);
+});
+
+test("a stored map's war geography opens cleaned the way the game cleans it", () => {
+  const opened = openStoredDocument({
+    id: "north",
+    ownerSchema: OWNER_SCHEMA,
+    terrainAreas: [{ id: "hills", name: "Hills", level: 14, rings: [[[0, 0], [1, 0], [1, 1], [0, 0]]] }, { id: "dot", rings: [[[0, 0]]] }],
+    fortifications: [{ id: "wall", owner: "Aland", level: 1, points: [[0, 0], [1, 1]] }],
+    freezingRegions: ["lake", "lake"],
+  });
+  assert.deepEqual(opened.doc.terrainAreas, [{ id: "hills", name: "Hills", level: 10, rings: [[[0, 0], [1, 0], [1, 1], [0, 0]]] }]);
+  assert.equal(opened.doc.fortifications[0].level, 3, "a fortified line is at least level 3");
+  assert.deepEqual(opened.doc.climateZones, []);
+  assert.deepEqual(opened.doc.freezingRegions, ["lake"]);
 });
 
 test("a legacy map's regions come back with their owners migrated", () => {

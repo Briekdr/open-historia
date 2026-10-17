@@ -14,7 +14,8 @@ test("a plan is drawn in the colour of whose it is and what kind", () => {
   assert.equal(planTone(plan({ kind: "project", live: false })), "idle", "an operation that moves nothing yet is fainter");
   assert.equal(planTone(plan({ project: "project-1" })), "project", "an operation that has been sent stands among the orders, in its colour");
   assert.equal(planTone(plan({ kind: "diversion" }), { theirs: true }), "known", "what is known of theirs is all one colour: nothing says which is true");
-  assert.equal(new Set(Object.values(PLAN_COLOURS)).size, 5);
+  assert.equal(planTone(plan({ kind: "deploy" })), "deploy", "where new troops come in: a colour of its own");
+  assert.equal(new Set(Object.values(PLAN_COLOURS)).size, 6);
 });
 
 test("a way has its corners cut and keeps its ends", () => {

@@ -31,7 +31,8 @@ import { createLoopbackScreenSide } from "../transport/loopback.js";
 import { createClientSession } from "../session/client.js";
 import { probeNetwork } from "../transport/peer.js";
 import { hostingHere, joinFailure, scenarioMissing, unreadableFromHost } from "./joinProgress.js";
-import { relayChannelFactory } from "../signaling/relays.js";
+import { relayChannelFactory, usesCustomRelays } from "../signaling/relays.js";
+import { describeClock, offsetClock, readSignalingClock } from "./clock.js";
 import { loadDeviceIdentity } from "../identity.js";
 import { parseInvite } from "../invite.js";
 import { HOST_MESSAGES, SHARED_GAME_VERSION } from "../game/messages.js";
@@ -336,7 +337,9 @@ const prepareStandIn = async (owner, lobby, roomId) => {
     const created = await createGame({
       id: wanted,
       scenarioId,
-      name: `Shared game: ${String(lobby?.settings?.name || "with friends").slice(0, 60)}`,
+      // A host sharing a game that was itself a shared game's stand-in names
+      // it "Shared game: …" already: said once.
+      name: `Shared game: ${String(lobby?.settings?.name || "with friends").replace(/^(?:shared game:\s*)+/i, "").slice(0, 60) || "with friends"}`,
       gamePatch: { country: String(lobby?.countries?.[0] || "") },
     });
     gameId = String(created?.id || created?.game?.id || "");
@@ -370,12 +373,18 @@ export const joinSharedGame = async ({ token, name } = {}) => {
   // made afterwards was refused. Anywhere with no desktop app behind the page
   // (the website, a phone) there is nothing to ask, and nothing is hosted.
   joinStarting = true;
+  let clock = { offsetMs: 0, source: "" };
   try {
     const here = await fetch("/api/multiplayer/engine").then((response) => response.json()).catch(() => null);
     if (here?.open) {
       logDebugEvent("shared game", "not joining: this computer is hosting a shared game", undefined, { problem: true });
       throw new Error(hostingHere());
     }
+    // The relays' time, which every signaling message is stamped by
+    // (client/clock.js): a computer whose clock was an hour behind had every
+    // message refused, and was told no host was found.
+    clock = await readSignalingClock({ customRelays: usesCustomRelays() });
+    if (clock.offsetMs) logDebugEvent("shared game", describeClock(clock));
   } finally {
     joinStarting = false;
   }
@@ -397,12 +406,13 @@ export const joinSharedGame = async ({ token, name } = {}) => {
     version: SHARED_GAME_VERSION,
     appMessages: HOST_MESSAGES,
     channelFactory: relayChannelFactory,
+    now: offsetClock(clock.offsetMs),
     // Every step of the joining goes in the diagnostics log: which of them
     // never came is the whole of what a report of "it will not connect" needs.
     log: (text) => logDebugEvent("shared game", text),
     onState: (connection, detail = {}) => {
       if (current !== joining) return;
-      set({ connection, detail: { heard: Boolean(detail.heard), failures: Number(detail.failures) || 0 } });
+      set({ connection, detail: { heard: Boolean(detail.heard), failures: Number(detail.failures) || 0, clock: Boolean(detail.clock) } });
       if (!["rejected", "lost", "invalid"].includes(connection)) return;
       logDebugEvent("shared game", `joining ended: ${connection} (${detail.reason || detail.message || "no reason given"})`, undefined, { problem: true });
       set({ mode: "ended", error: joinFailure({ connection, reason: detail.reason, message: detail.message, network: state.network }) });

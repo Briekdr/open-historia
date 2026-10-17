@@ -34,6 +34,8 @@
 // stands for its home ground: otherwise every rising would be a pocket.
 
 import {
+  CORRIDOR_COST,
+  CORRIDOR_KM,
   EMPTY_POCKET_KM2,
   HOLDER_SIDE_A,
   HOLDER_SIDE_B,
@@ -51,7 +53,9 @@ import {
   SUPPLY_LEAST,
 } from "./constants.js";
 import { bodiesOf, ownCell, takeCells } from "./field.js";
+import { distanceFrom } from "./ground.js";
 import { describePoint } from "./sectors.js";
+import { keptWith } from "./walls.js";
 import { isLive } from "./troops.js";
 
 const cellOf = (field, x, y) => (x >= 0 && y >= 0 && x < field.cols && y < field.rows ? Math.floor(y) * field.cols + Math.floor(x) : -1);
@@ -246,18 +250,20 @@ export const findPockets = (battle) => {
   }
   // A siege that has ended and begins again is news again.
   for (const pocket of pockets) if (!pocket.siege) pocket.told = false;
-  // The ground each side leaves alone: every cell of a place it is besieging.
-  battle.kept = [null, null];
+  // The ground each side leaves alone: every cell of a place it is besieging
+  // (and, where walls stand, every stretch of the other side's: walls.js).
+  battle.siegeKept = [null, null];
   if (pockets.some((pocket) => pocket.siege !== "")) {
     for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
       for (let index = 0; index < field.size; index += 1) {
         const pocket = pocketOf[side][index];
         if (pocket < 0 || !pockets[pocket].siege) continue;
-        battle.kept[1 - side] ??= new Uint8Array(field.size);
-        battle.kept[1 - side][index] = 1;
+        battle.siegeKept[1 - side] ??= new Uint8Array(field.size);
+        battle.siegeKept[1 - side][index] = 1;
       }
     }
   }
+  battle.kept = keptWith(battle);
   battle.pockets = pockets;
   battle.pocketOf = pocketOf;
   battle.pocketTurns = field.turns;
@@ -407,8 +413,9 @@ export const settlePockets = (battle, date) => {
 // How well supplied each cell a side holds is, 1 at home falling to the least
 // far from it: the shortest way back to a source through the side's own
 // ground, counted five for a step along a row or a column and seven for a
-// step on the diagonal. Worked out every few days, and only if ground changed
-// hands since.
+// step on the diagonal (and CORRIDOR_COST times that onto a cell near the
+// other side's ground, with battle.corridors: dawn.js). Worked out every few
+// days, and only if ground changed hands since.
 export const refreshSupply = (battle, day, era) => {
   const { field, arena } = battle;
   if (battle.supply && (day % SUPPLY_EVERY_DAYS !== 0 || battle.supplyTurns === field.turns)) return;
@@ -417,19 +424,28 @@ export const refreshSupply = (battle, day, era) => {
   const fullKm = SUPPLY_FULL_KM[era];
   const farKm = fullKm * SUPPLY_FAR_FACTOR;
   const kmEach = arena.frame.km / 5;
+  // (A step may cost up to 7 * CORRIDOR_COST: as many rounds as that and more, a power of two.)
+  const corridors = battle.corridors === true;
+  const ringSize = corridors ? 32 : 8;
+  const near = corridors ? new Int32Array(size) : null;
+  // CORRIDOR_KM in thirds of a cell (ground.js distanceFrom).
+  const nearThirds = (CORRIDOR_KM * 3) / arena.frame.km;
   battle.supply = [null, null];
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     const bodies = bodiesOf(field, side);
     const supplied = battle.supplied[side];
     const cost = new Int32Array(size).fill(-1);
-    const rounds = [[], [], [], [], [], [], [], []];
+    const rounds = Array.from({ length: ringSize }, () => []);
+    const mask = ringSize - 1;
     let waiting = 0;
     const reach = (index, value) => {
       if (cost[index] >= 0 && cost[index] <= value) return;
       cost[index] = value;
-      rounds[value & 7].push(index);
+      rounds[value & mask].push(index);
       waiting += 1;
     };
+    if (corridors) distanceFrom(cols, rows, (cell) => field.holders[cell] === 1 - side, near);
+    const exposed = (cell) => corridors && near[cell] < nearThirds;
     let homeless = true;
     for (let index = 0; index < size; index += 1) {
       if (field.holders[index] !== side || !supplied[bodies.label[index]] || battle.homeSide[arena.region[index]] !== side) continue;
@@ -448,7 +464,7 @@ export const refreshSupply = (battle, day, era) => {
       for (let index = 0; index < size; index += 1) if (field.holders[index] === side && supplied[bodies.label[index]]) reach(index, 0);
     }
     for (let value = 0; waiting > 0; value += 1) {
-      const round = rounds[value & 7];
+      const round = rounds[value & mask];
       for (let position = 0; position < round.length; position += 1) {
         const index = round[position];
         waiting -= 1;
@@ -461,7 +477,8 @@ export const refreshSupply = (battle, day, era) => {
           for (let dx = -1; dx <= 1; dx += 1) {
             const x = col + dx;
             if ((dx === 0 && dy === 0) || x < 0 || x >= cols || field.holders[y * cols + x] !== side) continue;
-            reach(y * cols + x, value + (dx !== 0 && dy !== 0 ? 7 : 5));
+            const step = dx !== 0 && dy !== 0 ? 7 : 5;
+            reach(y * cols + x, value + (exposed(y * cols + x) ? step * CORRIDOR_COST : step));
           }
         }
       }

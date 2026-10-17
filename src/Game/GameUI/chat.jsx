@@ -7,7 +7,7 @@ import { useBackToClose } from "../../runtime/backToClose.js";
 import { dedupeByName, landHolderNames, pickableCountries } from "../../runtime/countryList.js";
 import ReactDOM from "react-dom";
 import { sendDiplomaticMessage, startDiplomaticChat, loadDiplomaticHistory } from "../AI/main.jsx";
-import { checkDemandReply, ensureCountryAssessed, processPendingEventOutreach, runChatActionBatch } from "../AI/gameplayLazy.js";
+import { SharedGameRefusal, checkDemandReply, ensureCountryAssessed, processPendingEventOutreach, runChatActionBatch } from "../AI/gameplayLazy.js";
 import { createPlayerPollEvent, eventsFromLegacyChat, projectChatThread } from "../../runtime/chatThreads.js";
 import { openDemandOf, placeDemandCards, playerAnswerEvent, playerDemandEvent } from "../../runtime/demandCheck.js";
 import { describeChatCutIn, planChatReveal, randomChatRevealPauseMs } from "../AI/chatActions.js";
@@ -60,6 +60,7 @@ import { buildPlayerPoliticalKnowledgeView } from "../../runtime/politicalKnowle
 import { commitInstitutionLifecycleCommand, institutionLifecycleCasesForPolity, institutionLifecycleConversationState, institutionPortfolioForPolity } from "../../runtime/institutionLifecycle.js";
 import { buildLifecycleReplyRevealPlan } from "./institutionLifecyclePresentation.js";
 import { inSharedGame, requestFromHost } from "../../multiplayer/client/sharedGameBridge.js";
+import { askHostForInstitution } from "../../runtime/sharedInstitutions.js";
 
 // Who the player is and when it is: all this panel reads of game.json.
 const selectGameIdentity = (game) => ({
@@ -524,7 +525,7 @@ const PollCard = ({ poll, playerCountry, onVote }) => {
                         key={option.id}
                         type="button"
                         className="oh-tap-row"
-                        disabled={Boolean(mine)}
+                        disabled={Boolean(mine) || !onVote}
                         onClick={() => onVote?.(option.id)}
                         title={voters.length ? voters.join(", ") : "No vote yet"}
                         style={{
@@ -535,7 +536,7 @@ const PollCard = ({ poll, playerCountry, onVote }) => {
                             border: chosen ? "1px solid rgba(255,255,255,0.28)" : "1px solid rgba(255,255,255,0.12)",
                             borderRadius: "8px",
                             color: "white",
-                            cursor: mine ? "default" : "pointer",
+                            cursor: mine || !onVote ? "default" : "pointer",
                             display: "flex",
                             fontFamily: "inherit",
                             fontSize: "0.78rem",
@@ -1171,7 +1172,10 @@ const ConversationView = ({ chat, playerCountry, gameDate, world = {}, onDelete,
     // expose it to the human too. Institution Councils use their separate formal
     // governance/ballot system and lifecycle hearings are membership workflows,
     // so neither gets this conversational vote control.
-    const canCallChatVote = isGroup && !isInstitutional && !isLifecycleConversation;
+    // Not in a shared game: the host keeps every thread, and a vote is nothing
+    // a player can ask it for yet. Called here, it ran the table on this
+    // screen, which a shared game refuses, and Retry ran it again.
+    const canCallChatVote = isGroup && !isInstitutional && !isLifecycleConversation && !inSharedGame();
     const playerLifecycleCase = useMemo(() => {
         if (!isLifecycleConversation || !playerCountry) return null;
         const wanted = new Set((Array.isArray(chat?.lifecycleCaseIds) ? chat.lifecycleCaseIds : []).map((id) => String(id || "").trim()));
@@ -1636,6 +1640,31 @@ const ConversationView = ({ chat, playerCountry, gameDate, world = {}, onDelete,
         // request followed by one request per leader. This is the only group-chat
         // response path; failure is surfaced rather than reviving the old sequence.
         const runGroupTurn = async (text, nextMessages, { lifecycleResponseRequested = false, formalBusinessRequested = false, formalBusinessInteractive = false, institutionDebateRequested = false, institutionProposalId = "", chatOverride = null } = {}) => {
+            // In a shared game the host's computer runs every table: a line is
+            // sent to it, as a typed one is (submitPlayerText), and anything
+            // else is the host's to start. A Retry from an older error bubble
+            // comes here too, and it ran the table on this screen again.
+            if (inSharedGame()) {
+                // A hearing's governments answering it: the host's to run, on its AI key.
+                if (lifecycleResponseRequested && !text) {
+                    setIsLoading(true);
+                    try {
+                        await askHostForInstitution("hearing", { thread: String((chatOverride || chat).id) }, { timeoutMs: 180_000 });
+                    } catch (error) {
+                        pushMessages([...nextMessages, { role: "error", speaker: "System", text: error?.message || "The host did not take the message.", time: gameDate }]);
+                    } finally {
+                        setIsLoading(false);
+                    }
+                    return true;
+                }
+                const answer = text
+                    ? await requestFromHost("say", { thread: String((chatOverride || chat).id), to: [], text })
+                    : { ok: false, error: new SharedGameRefusal().message };
+                if (!answer.ok) {
+                    pushMessages([...nextMessages, { role: "error", speaker: "System", text: answer.error || "The host did not take the message.", time: gameDate }]);
+                }
+                return true;
+            }
             setIsLoading(true);
             // The player's line, with the catch-up it carries and its moment.
             const asked = nextMessages.at(-1);
@@ -2210,7 +2239,9 @@ const ConversationView = ({ chat, playerCountry, gameDate, world = {}, onDelete,
                     key={poll.id}
                     poll={poll}
                     playerCountry={playerCountry}
-                    onVote={(optionId) => handlePlayerVote(poll, optionId)}
+                    // A vote cast here would stay on this screen: the host keeps
+                    // the thread in a shared game, and takes no votes yet.
+                    onVote={inSharedGame() ? null : (optionId) => handlePlayerVote(poll, optionId)}
                 />
             ))}
             {/* A demand whose message is older than the window, or which was
@@ -3750,6 +3781,17 @@ const ChatPanel = ({ isOpen, onClose, requestedCountry, requestedDraft = "", onC
         // than discovering the new game id after the delay and writing into it.
         const expectedGameId = String(getLibraryState()?.activeGameId || "");
         try {
+            // In a shared game the host runs the Council, on its AI key, for
+            // this player's country; the channel comes back in the next view.
+            if (inSharedGame()) {
+                setInstitutionAutomation((current) => [
+                    ...current.filter((entry) => entry.key !== key),
+                    { key, institutionId: id, proposalId: proposal, kind: mode },
+                ]);
+                const shared = await askHostForInstitution("council", { institutionId: id, proposalId: proposal, kind: mode, comment: String(playerComment || "").trim() }, { timeoutMs: 180_000 });
+                adoptInstitutionalResult(shared);
+                return shared;
+            }
             if (Number(delayMs) > 0) {
                 await new Promise((resolve) => window.setTimeout(resolve, Math.max(0, Number(delayMs) || 0)));
             }

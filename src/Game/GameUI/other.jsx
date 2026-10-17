@@ -168,7 +168,8 @@ const Other = memo(function Other({ dockStyle = DEFAULT_DOCK_STYLE, active = fal
         style={{
             ...baseStyle,
             ...dockStyle,
-            bottom: `calc(4.75rem + ${SAFE_BOTTOM})`,
+            // Above the advisor's button, which stands above the map switch.
+            bottom: `calc(7.25rem + ${SAFE_BOTTOM})`,
             // Rides beside the advisor drawer, so a wide drawer carries it over
             // the Actions/Projects/chat panels (9998); an open panel stays on top.
             zIndex: 9997,

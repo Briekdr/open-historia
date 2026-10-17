@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { describeBattlefield } from "./brief.js";
 import { decodeTroops } from "./codec.js";
 import { chosenOrdersOf, commandCount, commandOfTroops, generalsOf, nameGenerals, orderTroops, releaseTroops, thinRoute } from "./command.js";
-import { MAX_COMMANDS, MAX_ORDERS_PER_SIDE, MAX_WAY_POINTS } from "./constants.js";
+import { FRONT_COMMANDS_MOST, MAX_ORDERS_PER_SIDE, MAX_WAY_POINTS } from "./constants.js";
 import { runFronts } from "./engine.js";
 import { normalizeBattlefield } from "./record.js";
 import { applyFlips, frontInput, syntheticMap } from "./syntheticMap.js";
@@ -31,7 +31,7 @@ const run = (world, record, days, extra = {}) => {
 
 test("a side has a general for every body of its troops, and a troop keeps the one it was given", () => {
   assert.deepEqual([3, 12, 39, 40, 109, 110, 219, 220, 400].map(commandCount), [1, 2, 2, 3, 3, 4, 4, 5, 5]);
-  assert.equal(commandCount(100000), MAX_COMMANDS);
+  assert.equal(commandCount(100000), FRONT_COMMANDS_MOST);
 
   const world = plain();
   const record = battlefieldOn(world, { troops: [row(20.9, 49.1, 50.9, 45), row(21.1, 49.1, 50.9, 9)] });

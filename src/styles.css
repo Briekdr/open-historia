@@ -472,6 +472,50 @@ button:active:not(:disabled) {
   transform: scale(0.97);
 }
 
+/* The main menu's skeletons (GameUI/menuSkeleton.jsx): while a page's games,
+   scenarios or lobbies are on their way, the outlines of their cards stand
+   where the cards will be and a glimmer passes over them, in place of the word
+   "Loading" (the owner: "show outlines of where all the games/scenarios go
+   with a glimmer animation (like youtube loading does)"). The glimmer is a
+   flat band of light carried across each card and clipped to its corners, not
+   a fade (noGradients.test.js); it crosses, then rests off the card for a
+   moment. Under reduced motion (the rule below) it runs once in no time and
+   ends where it began, off the card, so the outlines stand still. */
+.oh-skeleton {
+  overflow: hidden;
+  position: relative;
+}
+.oh-skeleton::after {
+  animation: oh-skeleton-glimmer 1.9s ease-in-out infinite;
+  background: rgba(255, 255, 255, 0.06);
+  bottom: 0;
+  content: "";
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  transform: translateX(-100%);
+  width: 40%;
+}
+@keyframes oh-skeleton-glimmer {
+  0% { transform: translateX(-100%); }
+  65%, 100% { transform: translateX(250%); }
+}
+
+/* Read by a screen reader and not seen: what a skeleton stands for. */
+.oh-visually-hidden {
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

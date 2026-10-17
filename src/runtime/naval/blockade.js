@@ -25,11 +25,16 @@
 //                                     nobody with a coast lives by less than
 //                                     SEA_TRADE_LEAST of it)
 //
+// A place on a coast whose water is frozen (fronts/climate.js) is shut by the
+// ice: nothing comes in or goes out there, so under a blockade it counts as
+// closed without a fleet. Ice alone lays no blockade on anyone.
+//
 // The period's pressure is the mean of its days, and the world keeps it
 // (world.blockades) with how many days in a row the blockade has stood.
 //
 // THE ECONOMY. A country's economy shrinks under it: BLOCKADE_GDP_A_YEAR of
-// its GDP in a year at full pressure, taken off the backend of its sheet
+// its GDP in a year at full pressure, and BLOCKADE_BUDGET_A_YEAR points off its
+// budget's balance, taken off the backend of its sheet
 // (runtime/statsBackend.js) as a turn's manpower is. What it has to spend on
 // its forces follows of itself (runtime/militaryFunding.js).
 //
@@ -58,6 +63,12 @@ export const BLOCKADE_LEAST = 0.02;
 // most a single period takes however long it is.
 export const BLOCKADE_GDP_A_YEAR = 0.2;
 export const BLOCKADE_GDP_PERIOD_MOST = 0.5;
+// And the points of GDP its budget's balance loses in a year at full pressure
+// (customs and the trade it taxed are gone; the war at sea is paid for all
+// the same): "make blockades directly effect economies" (the owner,
+// 2026-10-14). A worse balance leaves it less for its forces
+// (militaryFunding.js), and its war resources refill slower (warResources.js).
+export const BLOCKADE_BUDGET_A_YEAR = 6;
 // The days a blockade has to stand before a country is as short on land as
 // its pressure makes it.
 export const BLOCKADE_BITES_DAYS = 90;
@@ -94,12 +105,17 @@ export const seaShareOf = (coast, border) => {
 //   reach        how far a fleet commands the water, in km
 //   km           (lngA, latA, lngB, latB) => km
 //   seaShare     seaShareOf of the country
+//   iced         (lng, lat) => whether the water off that place is frozen today; null for none
 // Returns { pressure, covered }: 0 to 1 each; `covered` is the share of its coast any blockading fleet reaches.
-export const dayPressure = ({ stations = [], blockaders = [], reach = 0, km, seaShare = 1 } = {}) => {
+export const dayPressure = ({ stations = [], blockaders = [], reach = 0, km, seaShare = 1, iced = null } = {}) => {
   if (stations.length === 0 || blockaders.length === 0) return { pressure: 0, covered: 0 };
   let closed = 0;
   let covered = 0;
   for (const [lng, lat] of stations) {
+    if (iced && iced(lng, lat)) {
+      closed += 1;
+      continue;
+    }
     let weight = 0;
     for (const fleet of blockaders) if (km(lng, lat, fleet.lng, fleet.lat) <= reach) weight += fleet.weight;
     if (weight > 0) covered += 1;
@@ -162,6 +178,13 @@ export const shortageOfBlockade = (record) => {
   const days = Number(record?.days);
   if (!(pressure >= BLOCKADE_LEAST) || !(days > 0)) return 0;
   return within(pressure, 0, 1) * Math.min(1, days / BLOCKADE_BITES_DAYS);
+};
+
+// A budget's balance (percent of GDP) after a period under blockade, no lower than -100.
+export const budgetUnderBlockade = (balance, pressure, days) => {
+  const was = Number(balance);
+  if (!Number.isFinite(was)) return was;
+  return Math.max(-100, was - (BLOCKADE_BUDGET_A_YEAR * within(Number(pressure) || 0, 0, 1) * Math.max(0, Number(days) || 0)) / 365);
 };
 
 // A country's GDP after a period under blockade.

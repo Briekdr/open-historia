@@ -22,6 +22,7 @@ import { useCountryDisplayName } from "../../runtime/polityNames.js";
 import { DateWidget } from "./time";
 import { Other } from "./other";
 import { Toolbar } from "./chat";
+import MapModeSelector from "./MapModeSelector.jsx";
 import { Search } from "./search";
 import { ForcesPanel } from "./forces";
 import { ADVISOR_SLIDE } from "./advisorSlide.js";
@@ -112,6 +113,10 @@ const LazyCountryPanel = lazy(() =>
 );
 // The war room (warRoom.jsx): nothing of it loads until there is a war and the
 // player opens it.
+// A war's after-action report, put before the player once a battlefield of theirs closes (afterAction.jsx).
+const LazyAfterActionReports = lazy(() =>
+  import("./afterAction.jsx").then((module) => ({ default: module.AfterActionReports })),
+);
 const LazyWarRoomPanel = lazy(() =>
   import("./warRoom.jsx").then((module) => ({ default: module.WarRoomPanel })),
 );
@@ -224,7 +229,8 @@ const AdvisorButton = ({ isAdvisorOpen, dockStyle, onToggle }) => (
     style={{
       ...baseStyle,
       ...dockStyle,
-      bottom: `calc(0.5rem + ${SAFE_BOTTOM})`,
+      // Above the map switch at the foot of the stack (MapModeSelector.jsx).
+      bottom: `calc(3rem + ${SAFE_BOTTOM})`,
       // Rides beside the advisor drawer, so a wide drawer carries it over the
       // Actions/Projects/chat panels (9998); an open panel stays on top.
       zIndex: 9997,
@@ -797,6 +803,7 @@ const Main = ({
               onTogglePanel={toggleBottomPanel}
               mapRef={mapRef}
             />
+            <MapModeSelector dockStyle={advisorDockStyle} />
             <Other
               dockStyle={advisorDockStyle}
               active={isCountryOpen}
@@ -824,6 +831,9 @@ const Main = ({
       {(atWar || isWarRoomOpen) && (
         <WarRoomButton open={warRoomShown} isMobile={isMobile} onToggle={toggleWarRoom} />
       )}
+      <Suspense fallback={null}>
+        <LazyAfterActionReports />
+      </Suspense>
       <Suspense fallback={null}>
         {shouldLoadWarRoom && (
           <LazyWarRoomPanel

@@ -4,7 +4,7 @@
 // useMapSetting() below instead of receiving these as props threaded through
 // GameUI/main.jsx, mirroring how useCountryDisplayName (polityNames.js) sits
 // beside the data it subscribes to.
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { logDebugEvent, logSettingChange } from "./debugLog.js";
 
 // Immediate source of truth for string-valued settings. This also keeps a
@@ -18,6 +18,7 @@ export const MAP_SETTING_KEYS = {
     // pick is kept apart, per game (runtime/basemapPick.js).
     defaultBasemap: "map_basemap_default",
     defaultBasemapOn: "map_basemap_default_on",
+    mapMode: "map_mode",
     // Empty/unset means "use the scenario author's label font" (world.labelFont,
     // itself defaulting to Georgia). A family name here is a local, reversible
     // player override, like the default basemap above. It exists in
@@ -96,12 +97,36 @@ export const MAP_SETTING_KEYS = {
     // getMapSettingDefaultOn. Settings → General → Sound. (The chat's chime
     // has a switch of its own, in the chat.)
     soundEffects: "audio_sound_effects",
-    // The vault door the app opens on (GameUI/VaultDoor.jsx). ON by default —
-    // read with getMapSettingDefaultOn (vaultDoorEnabled). Off, the app opens
-    // straight onto the main menu (the owner, 2026-10-14: "make a setting to
-    // turn off the opening doors animation"). Settings → General → Display.
-    vaultDoor: "vault_door_at_start",
+    // Whether the vault door the app opens on (GameUI/VaultDoor.jsx) shows every
+    // time the game opens. OFF by default — read with getMapSetting
+    // (vaultDoorAlways): off, the door shows the first time the game opens
+    // after an update (runtime/vaultDoorDue.js; the owner, 2026-10-14: "vault
+    // door by default only after a new update, setting to make it always when
+    // opening game"). Settings → General → Display. It is the door's only
+    // switch: "remove the Vault door at start setting, just have the Every
+    // time the game opens setting" (the owner, 2026-10-16).
+    vaultDoorAlways: "vault_door_every_time",
+    // The seasons and the weather on the map (Map/SeasonLayers.jsx,
+    // FrontWeatherLayers.jsx): the season's tint over the whole map and the
+    // weather. ON by
+    // default — read with getMapSettingDefaultOn (useMapSettingDefaultOn).
+    // Frozen water is drawn as ice either way: troops cross it. Settings → Map.
+    seasonsWeather: "map_seasons_weather",
+    // The weather's patterns alone (Map/FrontWeatherLayers.jsx): "add a
+    // setting to turn off the visual weather effects" (the owner, 2026-10-14).
+    // ON by default, and only while Seasons and weather is on; off, the
+    // season's tint and the ice stay. Settings → Map.
+    weatherEffects: "map_weather_effects",
 };
+
+// Kept for the sitting only, never on the device: whichever map was last shown,
+// the game opens on the political map. "its opening onto the diplomatic map by
+// default, it should be on political be default" (the owner, 2026-10-16).
+export const SITTING_ONLY_SETTINGS = Object.freeze([MAP_SETTING_KEYS.mapMode]);
+// (What an earlier build kept of them on the device is let go.)
+try {
+    for (const key of SITTING_ONLY_SETTINGS) globalThis.localStorage?.removeItem?.(key);
+} catch { /* nothing kept, or nothing to keep it in */ }
 
 // Families the label-font pickers suggest — Settings → Map and the game and
 // scenario editors, one list. Suggestions only: labels rasterize from the
@@ -128,7 +153,7 @@ export function getMapSetting(key) {
 // "1" !== null, i.e. off — so every consumer of such a key must come through here.
 //
 // lookupFunctions, liveSkipEvents, discordPresence, ambientMusic,
-// soundEffects and vaultDoor ship on;
+// soundEffects, seasonsWeather and weatherEffects ship on;
 // limitAiGeneration and chunkLongJumps, which used to, went default-off in the
 // beta.
 export function getMapSettingDefaultOn(key) {
@@ -136,12 +161,13 @@ export function getMapSettingDefaultOn(key) {
     return localStorage.getItem(key) !== "0";
 }
 
-// Whether the app opens on the vault door (on unless the player turned it off).
-export const vaultDoorEnabled = () => {
+// Whether the door shows every time the game opens rather than the first time
+// after an update (off unless the player turned it on).
+export const vaultDoorAlways = () => {
     try {
-        return getMapSettingDefaultOn(MAP_SETTING_KEYS.vaultDoor);
+        return getMapSetting(MAP_SETTING_KEYS.vaultDoorAlways);
     } catch {
-        return true;
+        return false;
     }
 };
 
@@ -158,11 +184,15 @@ const SETTING_LABELS = {
     [MAP_SETTING_KEYS.lookupFunctions]: "AI lookup functions",
     [MAP_SETTING_KEYS.liveSkipEvents]: "Show time skip events as they are written",
     [MAP_SETTING_KEYS.stopOnPlayerFailures]: "Stop when my events fail",
-    [MAP_SETTING_KEYS.defaultBasemapOn]: "Use my default basemap",
     [MAP_SETTING_KEYS.discordPresence]: "Show what I am playing on Discord",
     [MAP_SETTING_KEYS.ambientMusic]: "Music",
     [MAP_SETTING_KEYS.soundEffects]: "Sound effects",
-    [MAP_SETTING_KEYS.vaultDoor]: "Vault door at start",
+    // "Every time the game opens" in the panel; named in full here, where the
+    // log line stands alone.
+    [MAP_SETTING_KEYS.vaultDoorAlways]: "Vault door every time the game opens",
+    [MAP_SETTING_KEYS.seasonsWeather]: "Seasons and weather",
+    [MAP_SETTING_KEYS.weatherEffects]: "Weather effects",
+    [MAP_SETTING_KEYS.defaultBasemapOn]: "Use my default basemap",
 };
 
 export function setMapSetting(key, value) {
@@ -176,6 +206,7 @@ export function setMapSetting(key, value) {
 
 export function getMapSettingValue(key, fallback = "") {
     if (valueSettingMemory.has(key)) return valueSettingMemory.get(key);
+    if (SITTING_ONLY_SETTINGS.includes(key)) return fallback;
     try {
         const value = localStorage.getItem(key);
         return value === null ? fallback : value;
@@ -189,8 +220,8 @@ export function getMapSettingValue(key, fallback = "") {
 const VALUE_SETTING_LABELS = {
     [MAP_SETTING_KEYS.defaultBasemap]: "Default basemap",
     [MAP_SETTING_KEYS.labelFont]: "Label font",
-    [MAP_SETTING_KEYS.scenarioTerrain]: "Scenario terrain",
     [MAP_SETTING_KEYS.musicVolume]: "Music volume",
+    [MAP_SETTING_KEYS.scenarioTerrain]: "Scenario terrain",
 };
 
 export function setMapSettingValue(key, value) {
@@ -201,7 +232,7 @@ export function setMapSettingValue(key, value) {
     }
     valueSettingMemory.set(key, normalized);
     try {
-        if (normalized) localStorage.setItem(key, normalized);
+        if (normalized && !SITTING_ONLY_SETTINGS.includes(key)) localStorage.setItem(key, normalized);
         else localStorage.removeItem(key);
     } catch {
         // The live in-memory setting still applies for this session.
@@ -222,6 +253,16 @@ export function useMapSetting(key) {
     }, [key]);
 
     return value;
+}
+
+// The same subscription for a setting that ships ON (getMapSettingDefaultOn):
+// useMapSetting would read its absent key as off.
+const subscribeMapSettings = (notify) => {
+    window.addEventListener("mapSettings:updated", notify);
+    return () => window.removeEventListener("mapSettings:updated", notify);
+};
+export function useMapSettingDefaultOn(key) {
+    return useSyncExternalStore(subscribeMapSettings, () => getMapSettingDefaultOn(key), () => true);
 }
 
 // The operating system's own reduced-motion setting. While it is on, the game

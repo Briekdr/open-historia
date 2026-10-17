@@ -5,10 +5,10 @@
 
 // Document-side halves of map undo steps. The map's undo stack (OlMap) holds
 // region commands; an edit that also changes the document — a group's record,
-// a city or unit the Delete tool removed — hands it these closures so Ctrl+Z
-// reverses both sides. Each takes the document's functional setter, so it
-// works on whatever the document is when the step runs. Pure; tested in
-// documentUndo.test.js.
+// a city or unit the Delete tool removed, a shape a war tool drew or reshaped —
+// hands it these closures so Ctrl+Z reverses both sides. Each takes the
+// document's functional setter, so it works on whatever the document is when
+// the step runs. Pure; tested in documentUndo.test.js.
 
 // Remove the row with `id` from a list (cities and features, units). Returns
 // the undo step, or null when there was no such row: undo puts the row back
@@ -59,6 +59,60 @@ export const removeRowsStep = (list, setList, shouldRemove) => {
     }),
     redo: remove,
   };
+};
+
+// Add a row to a list (a terrain area, a fortified line or a climate zone the
+// Workshop's war tools drew). Returns the undo step, the row already added:
+// undo takes it out again, and redo puts it back at the end unless one with
+// its id has come back meanwhile.
+export const addRowStep = (setList, row) => {
+  const add = () => setList((current) => {
+    const now = current || [];
+    return now.some((other) => other?.id === row.id) ? now : [...now, row];
+  });
+  add();
+  return {
+    undo: () => setList((current) => (current || []).filter((other) => other?.id !== row.id)),
+    redo: add,
+  };
+};
+
+// Change some fields of the row with `id` (a shape reshaped on the map).
+// Returns the undo step, the change already made, or null when there is no
+// such row: undo gives the row back the values those fields had, redo the new
+// ones, and a field changed since in the panel keeps its change either way.
+export const patchRowStep = (list, setList, id, patch) => {
+  const row = (Array.isArray(list) ? list : []).find((other) => other?.id === id);
+  if (!row) return null;
+  const before = Object.fromEntries(Object.keys(patch).map((key) => [key, row[key]]));
+  const apply = (fields) => () => setList((current) => (current || []).map((other) => {
+    if (other?.id !== id) return other;
+    const next = { ...other, ...fields };
+    for (const [key, value] of Object.entries(fields)) if (value === undefined) delete next[key];
+    return next;
+  }));
+  apply(patch)();
+  return { undo: apply(before), redo: apply(patch) };
+};
+
+// Put ids into a list of ids, or take them out (`on`): the water regions that
+// can freeze. Returns the undo step, the change already made, or null when
+// every id was already where it was asked to be. Undo touches only the ids
+// this step moved.
+export const membershipStep = (list, setList, ids, on) => {
+  const current = new Set(Array.isArray(list) ? list : []);
+  const moved = [...new Set(ids || [])].filter((id) => id !== "" && id != null && current.has(id) !== on);
+  if (!moved.length) return null;
+  const put = (inside) => () => setList((now) => {
+    const next = new Set(now || []);
+    for (const id of moved) {
+      if (inside) next.add(id);
+      else next.delete(id);
+    }
+    return [...next];
+  });
+  put(on)();
+  return { undo: put(!on), redo: put(on) };
 };
 
 // A group renamed: its record moves from `from` to `to` (`fallback` is the

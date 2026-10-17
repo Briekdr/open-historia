@@ -22,10 +22,17 @@ import { intelligenceOf } from "../../runtime/spycraft.js";
 import { bundledFlagUrl, flagImageUrlFromGid } from "../../runtime/countryFlags.js";
 import COUNTRY_NAMES from "../../runtime/generated/countryNames.js";
 import { REGION_SELECTED_EVENT } from "../Selection/Regions.jsx";
-import { ensureCountryAssessed, ensureIntelligenceRated, generateCountryStatSheet, pendingCountryStatSheet, readOpenedIntercepts } from "../AI/gameplayLazy.js";
+import { ensureCountryAssessed, ensureIntelligenceRated, ensureMilitaryFigures, generateCountryStatSheet, pendingCountryStatSheet, readOpenedIntercepts } from "../AI/gameplayLazy.js";
+import { wantsRating } from "../AI/militaryRating.js";
+import { militaryLookup } from "../../runtime/militaryStats.js";
 import PoliticalOverview from "./PoliticalOverview.jsx";
 import { buildRanking, openingMetric, rankingMetricsFor } from "./countryRanking.js";
+import { MANPOWER_PERCENT, militaryProfile } from "../../runtime/militaryPower.js";
+import { RESOURCES_SHORT_FROM } from "../../runtime/warResources.js";
+import { attritionOf } from "../../runtime/attrition.js";
+import { warSettingsOf } from "../../runtime/warSettings.js";
 import { PeaceControls, ReparationsNote } from "./warAndPeace.jsx";
+import { WarReportsList } from "./afterAction.jsx";
 import { institutionPortfolioForPolity } from "../../runtime/institutionLifecycleCore.js";
 import { TURN_RUNNING_NOTE, isSimulationBusy } from "../AI/simulationStatus.js";
 import { useTurnRunning } from "./useTurnRunning.js";
@@ -109,12 +116,22 @@ const storeTrackingSettingsFallback = (gameKey, value, playerCountry = "") => {
     }
 };
 
+// A sheet as the model's schema (gameplaySchemas.js countryStatSheet) knows it: without the military figures the
+// game keeps on it in the backend (runtime/militaryStats.js), which the schema does not list. Checked with them, every
+// sheet that had them "failed validation: $.military is not allowed" and the Economy tab could not open.
+const withoutBackendFields = (sheet) => {
+    if (!sheet || typeof sheet !== "object" || !("military" in sheet)) return sheet;
+    const checked = { ...sheet };
+    delete checked.military;
+    return checked;
+};
+
 const isValidStatSheet = (value, definition) => {
     const sheet = finalizeCountryStatSheet(value);
     if (definition?.custom) {
         return isCompleteCustomCountryStatSheet(sheet, statSheetKeys(definition));
     }
-    return isCompleteCountryStatSheet(sheet) && validateGameplayPayload("countryStatSheet", sheet).valid;
+    return isCompleteCountryStatSheet(sheet) && validateGameplayPayload("countryStatSheet", withoutBackendFields(sheet)).valid;
 };
 
 // 8B.2.16 compatibility repair: one older Stats path could plan >64 live-map
@@ -391,6 +408,107 @@ const IntelligenceServiceCard = ({ value, style }) => (
         <Bar value={value} color="#38bdf8" />
     </div>
 );
+
+// ---- the Military card ---------------------------------------------------------------
+// "All 4 of these backend stats (quality, technology, manpower share,
+// weariness) should decide what the country's overall frontend military power
+// is", and land, sea and air are "ANOTHER set of stats that affect the overall
+// front end military strength". The card shows the power (runtime/
+// militaryPower.js, the figure the Ranking tab ranks by) and the figures it is
+// read from, each as a bar with a mark where every country stands: a figure
+// of the country's own (its scenario's author's, its sheet's) in the accent,
+// one it shares with every country in grey, and any weariness in amber.
+
+const MILITARY_FIGURE_LABELS = Object.freeze({
+    quality: "Troop quality",
+    technology: "Technology",
+    manpowerShare: "Manpower share",
+    weariness: "War weariness",
+    resources: "War resources",
+    land: "Land",
+    sea: "Naval",
+    air: "Air",
+    spending: "Spending",
+});
+const MILITARY_FIGURE_ORDER = Object.freeze(["quality", "technology", "spending", "manpowerShare", "weariness", "resources", "land", "sea", "air"]);
+const MILITARY_OWN_COLOR = "#2bc1f3";
+const MILITARY_SHARED_COLOR = "rgba(255,255,255,0.32)";
+const MILITARY_WEARY_COLOR = "#f59e0b";
+
+// Where every country stands on each figure, for the hairline on its bar (none
+// for weariness: every country begins a war at none).
+// For war resources, where running low begins to tell (runtime/warResources.js).
+const MILITARY_FIGURE_MARKS = Object.freeze({ quality: 50, technology: 50, spending: 50, manpowerShare: MANPOWER_PERCENT, resources: RESOURCES_SHORT_FROM, land: 50, sea: 50, air: 50 });
+
+// A figure's bar, 0 to 100, and a hairline where every country stands.
+const MilitaryBar = ({ value, mark, color }) => (
+    <div style={{ backgroundColor: "rgba(255,255,255,0.1)", borderRadius: "999px", height: "6px", overflow: "hidden", position: "relative" }}>
+    <div style={{ backgroundColor: color, borderRadius: "999px", height: "100%", width: `${clamp01(value)}%` }} />
+    {mark !== undefined && <div style={{ backgroundColor: "rgba(255,255,255,0.55)", height: "100%", left: `${clamp01(mark)}%`, position: "absolute", top: 0, width: "1px" }} />}
+    </div>
+);
+
+const MilitaryCard = ({ world, country, style }) => {
+    const profile = useMemo(() => {
+        if (!world || !country) return null;
+        return militaryProfile(world, country);
+    }, [world, country]);
+    // A country with no people known, or figures never rated, is rated against the others now that it is looked at
+    // (militaryRating.js): "if it is not pregenerated, it should just generate it whenever it is needed for the game
+    // for a country" (the owner, 2026-10-16). Background AI, once a sitting.
+    const unrated = Boolean(profile) && (profile.power === null || (profile.counted && wantsRating(militaryLookup(world)(country))));
+    useEffect(() => {
+        if (unrated) void ensureMilitaryFigures([country], { reason: "its Military card" });
+    }, [unrated, country]);
+    if (!profile) return null;
+    const { figures, own } = profile;
+    // What attrition has cost it in its war (runtime/attrition.js), where the scenario counts it.
+    const worn = warSettingsOf(world).mechanics.attrition ? attritionOf(world?.attrition, country) : null;
+    const power = profile.power === null ? "—" : (Math.round(profile.power * 10) / 10).toLocaleString();
+    return (
+        <div style={{ ...cardStyle, ...style }}>
+            <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between", marginBottom: "0.2rem" }}>
+                <span style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                    Military power
+                </span>
+                <span data-no-translate style={{ fontSize: "1.05rem", fontWeight: 800 }}>{power}</span>
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.42)", fontSize: "0.64rem", lineHeight: 1.4, marginBottom: "0.55rem" }}>
+                What it weighs in a land war, by its people and what its forces have to spend, through the figures below.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                {MILITARY_FIGURE_ORDER.filter((key) => key !== "resources" || profile.supplied).map((key) => {
+                    const value = figures[key];
+                    const low = (key === "weariness" && value > 0) || (key === "resources" && value < RESOURCES_SHORT_FROM);
+                    const color = low ? MILITARY_WEARY_COLOR : own[key] ? MILITARY_OWN_COLOR : MILITARY_SHARED_COLOR;
+                    const text = key === "manpowerShare" ? `${Math.round(value * 10) / 10}%` : `${Math.round(value)}/100`;
+                    return (
+                        <div key={key} style={{ alignItems: "center", display: "grid", gap: "0.5rem", gridTemplateColumns: "6.4rem minmax(0, 1fr) 3.2rem" }}>
+                            <span style={{ color: own[key] ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.6)", fontSize: "0.72rem" }}>{MILITARY_FIGURE_LABELS[key]}</span>
+                            <MilitaryBar value={value} mark={MILITARY_FIGURE_MARKS[key]} color={color} />
+                            <span data-no-translate style={{ fontSize: "0.72rem", fontVariantNumeric: "tabular-nums", fontWeight: 800, textAlign: "right" }}>{text}</span>
+                        </div>
+                    );
+                })}
+            </div>
+            <div style={{ color: "rgba(255,255,255,0.38)", fontSize: "0.62rem", lineHeight: 1.4, marginTop: "0.55rem" }}>
+                {profile.counted
+                    ? "In colour: its own figures. In grey: what every country has. The mark on a bar is where every country stands."
+                    : "This scenario does not count countries' own military figures: every country fights with the same."}
+            </div>
+            {worn && (
+                <div data-oh-attrition="" style={{ color: "rgba(255,255,255,0.38)", fontSize: "0.62rem", lineHeight: 1.4, marginTop: "0.3rem" }}>
+                    {`Lost to attrition, the weather and being cut off: ${worn.lastMen.toLocaleString()} men last turn, ${worn.warMen.toLocaleString()} in this war.`}
+                </div>
+            )}
+            {profile.supplied && profile.refill !== null && (
+                <div data-oh-war-resources-refill="" style={{ color: "rgba(255,255,255,0.38)", fontSize: "0.62rem", lineHeight: 1.4, marginTop: "0.3rem" }}>
+                    {`Its economy refills its war resources by about ${profile.refill} a month, less under a blockade.`}
+                </div>
+            )}
+        </div>
+    );
+};
 
 const stabilityColor = (value) => (value < 40 ? "#ef4444" : value < 70 ? "#f59e0b" : "#22c55e");
 
@@ -850,6 +968,8 @@ const DiplomacySection = ({ world, identity, targetCountry, viewerPolity }) => {
             </div>
         )}
         </div>
+        {/* The reports of the wars it fought on battlefields that have closed, to read again (afterAction.jsx). */}
+        <WarReportsList world={world} country={viewerPolity} style={{ ...cardStyle, marginTop: "0.55rem", padding: 0, overflow: "hidden" }} />
         <ReparationsNote world={world} target={targetCountry} />
         </>
     );
@@ -1724,6 +1844,22 @@ const RankingSection = ({ world, definition, index, playerCode, targetCountry, o
         () => (metric ? buildRanking({ world: world ?? {}, countries, metric, catalog: getPrimedScenarioRegionCatalog() ?? [] }) : null),
         [world, countries, metric],
     );
+    // Ranked by military power: the countries it has no figure for (nobody knows their people) or whose figures were
+    // never rated are rated against the others, twenty to a request, as background AI (militaryRating.js): "if it is
+    // not pregenerated, it should just generate it whenever it is needed for the game for a country" (the owner,
+    // 2026-10-16). Nobody's sheet is assessed.
+    const unrated = useMemo(() => {
+        if (metric?.key !== "military" || !ranking) return [];
+        const ranked = new Set(ranking.rows.map((row) => row.key));
+        const lookup = warSettingsOf(world ?? {}).mechanics.military ? militaryLookup(world ?? {}) : null;
+        return countries.map((country) => country.key).filter((key) => !ranked.has(key) || (lookup !== null && wantsRating(lookup(key))));
+    }, [metric?.key, ranking, countries, world]);
+    const unratedKey = unrated.join("|");
+    useEffect(() => {
+        if (unrated.length > 0) void ensureMilitaryFigures(unrated, { reason: "the military ranking" });
+        // (Asked again only when the list changes.)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [unratedKey]);
     if (!metric || !ranking) return null;
     const shown = showAll ? ranking.rows : ranking.rows.slice(0, RANKING_ROWS_FIRST);
     return (
@@ -1776,7 +1912,11 @@ const RankingSection = ({ world, definition, index, playerCode, targetCountry, o
             )}
             {ranking.unranked > 0 && (
                 <p style={{ color: "rgba(255,255,255,0.42)", fontSize: "0.7rem", lineHeight: 1.45, marginTop: "0.7rem" }}>
-                    {metric.sheet ? "Countries that have not been assessed are left out. Open a country's sheet, or track it, to add it here." : "Countries the game has no figure for are left out."}
+                    {metric.sheet
+                        ? "Countries that have not been assessed are left out. Open a country's sheet, or track it, to add it here."
+                        : metric.key === "military"
+                            ? "Countries whose military has not been rated yet are left out until the AI rates them against the others."
+                            : "Countries the game has no figure for are left out."}
                     {" "}<span data-no-translate>({ranking.rows.length}/{ranking.total})</span>
                 </p>
             )}
@@ -2175,7 +2315,7 @@ const StatsPaneBody = ({ active, mapRef, requestedTarget = "", onConsumeTarget }
                     throw new Error("The scenario-defined stat sheet was incomplete.");
                 }
             } else {
-                const validation = validateGameplayPayload("countryStatSheet", generated);
+                const validation = validateGameplayPayload("countryStatSheet", withoutBackendFields(generated));
                 if (!validation.valid) throw new Error(`The stat sheet failed validation: ${validation.error}`);
             }
             // generateCountryStatSheet already receives the previous persistent sheet as
@@ -2865,6 +3005,16 @@ const StatsPaneBody = ({ active, mapRef, requestedTarget = "", onConsumeTarget }
                 ))}
                 </div>
                 </div>
+                    </>
+                )}
+
+                {/* Its military power and the figures it is read from, on the
+                    standard sheet and on a scenario's own alike: the game works
+                    them out for every country (MilitaryCard). */}
+                {worldSnapshot && (
+                    <>
+                    <div style={sectionTitleStyle}>⚔ Military</div>
+                    <MilitaryCard world={worldSnapshot} country={resolvedTargetKey || targetCountry} />
                     </>
                 )}
 

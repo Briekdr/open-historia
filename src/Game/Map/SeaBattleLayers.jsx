@@ -17,6 +17,7 @@ import { Layer, Source, useMap } from "react-map-gl/maplibre";
 import { normalizeBlockades } from "../../runtime/naval/blockade.js";
 import { normalizeSeaBattles } from "../../runtime/naval/record.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
+import { eraSettingOf } from "../../runtime/warSettings.js";
 import { enforceMapLayerOrder } from "./mapLayerOrder.js";
 import { blockadeFeatures, seaBattleFeatures } from "./seaBattleFeatures.js";
 import { TRANSPORT_TONES } from "./transportIcons.js";
@@ -31,6 +32,7 @@ const selectUnits = (world) => (Array.isArray(world?.units) ? world.units : NONE
 const selectFlat = (world) => world?.projection?.type === "freeform";
 const selectCountry = (game) => String(game?.country ?? "");
 const selectDate = (game) => String(game?.gameDate || game?.startDate || "");
+const selectEra = (world) => eraSettingOf(world);
 
 // The colours the transporters have: the player's own, an enemy's, anyone else's.
 const TONE_COLOUR = ["match", ["get", "tone"], "own", TRANSPORT_TONES.own, "enemy", TRANSPORT_TONES.enemy, TRANSPORT_TONES.other];
@@ -47,10 +49,11 @@ const SeaBattleLayers = () => {
   const flat = useRuntimeState("world", selectFlat);
   const country = useRuntimeState("game", selectCountry);
   const date = useRuntimeState("game", selectDate);
+  const era = useRuntimeState("world", selectEra);
   const data = useMemo(() => seaBattleFeatures({ battles: normalizeSeaBattles(raw), viewer: country }), [raw, country]);
   const blockades = useMemo(
-    () => blockadeFeatures({ blockades: normalizeBlockades(laid), units: laid.length > 0 ? units : NONE, viewer: country, date, flat }),
-    [laid, units, country, date, flat],
+    () => blockadeFeatures({ blockades: normalizeBlockades(laid), units: laid.length > 0 ? units : NONE, viewer: country, date, flat, era }),
+    [laid, units, country, date, flat, era],
   );
 
   const fought = data.features.length > 0;

@@ -51,6 +51,11 @@ const RECONNECT_DELAYS = [1000, 2000, 5000, 10_000, 30_000];
 // seconds later. The relay is still listened to, and the others carry what is
 // said: any one of them is enough.
 const QUIET_AFTER_RATE_LIMIT_MS = 60_000;
+// What relays say when an event's time stamp is outside what they take: strfry
+// "ephemeral event expired" and "created_at too late", others "too old", "in
+// the future", "is too far off". Only the stamp can cause these, and the stamp
+// is this computer's clock.
+export const CLOCK_REFUSAL = /expired|too old|too late|in the future|too far|created_at/i;
 const QUIET_AFTER_BAN_MS = 15 * 60_000;
 
 const HEX64 = str(64, { min: 64, pattern: /^[0-9a-f]+$/ });
@@ -83,6 +88,9 @@ const open = (key, topic, content) => {
 //   onPayload(payload, { relay, at })   a sealed body that opened, parsed but
 //                                       not yet checked against any schema
 //   onStatus({ connected, total })      relays currently open
+//   onRefused({ relay, said, clock })   a relay refused an event we sent;
+//                                       `clock` when for its time stamp: this
+//                                       computer's clock is wrong (CLOCK_REFUSAL)
 export const createNostrChannel = ({
   topic,
   key,
@@ -90,6 +98,7 @@ export const createNostrChannel = ({
   WebSocketImpl = globalThis.WebSocket,
   onPayload = () => {},
   onStatus = () => {},
+  onRefused = () => {},
   log = () => {},
   now = () => Date.now(),
   maxEventsPerSecond = 40,
@@ -211,6 +220,7 @@ export const createNostrChannel = ({
         const said = String(rest[2] ?? "").slice(0, 120);
         log(`relay ${url} refused an event: ${said}`);
         quieten(entry, said);
+        onRefused({ relay: url, said, clock: CLOCK_REFUSAL.test(said) });
       }
       else if (type === "NOTICE" || type === "CLOSED") log(`relay ${url}: ${String(rest.at(-1) ?? "").slice(0, 120)}`);
     };

@@ -25,6 +25,7 @@ export const joinStage = ({ role = "", connection = "", detail = null } = {}) =>
   const heard = Boolean(detail?.heard);
   const failures = Number(detail?.failures) || 0;
   if (connection === "connected") return "Connected to the host. Loading the lobby…";
+  if (detail?.clock && connection !== "joining") return "The relays are refusing this computer's messages: its clock looks wrong. Still trying…";
   if (connection === "joining") return "Connected to the host. Waiting to be let in…";
   if (connection === "reconnecting") return "The connection dropped. Reconnecting…";
   if (connection === "connecting") {
@@ -47,6 +48,11 @@ const whichNetwork = (network) => {
   if (network === "open") return " This computer's network looks fine, so it is probably the host's: someone else may need to host.";
   return "";
 };
+
+// How a player puts a computer's clock right: automatically, and in the right
+// time zone (a clock set by hand to the right hour in the wrong zone is an
+// hour out for everyone else).
+const SET_THE_CLOCK = "Set the date and time to set themselves, and check the time zone: on Windows in Settings → Time & language → Date & time, on a Mac in System Settings → General → Date & Time.";
 
 // Why joining ended, for the player it ended for.
 export const joinFailure = ({ connection = "", reason = "", message = "", network = "" } = {}) => {
@@ -72,6 +78,8 @@ export const joinFailure = ({ connection = "", reason = "", message = "", networ
       return "The host's lobby is there, but it did not answer. It may be busy with other people joining: try again in a minute.";
     case "cannot-connect":
       return `The host answered, but no connection between your computer and theirs could be opened. Players connect to the host directly, and one of the two networks does not allow it (some routers, mobile and campus networks, and VPNs).${whichNetwork(network)}`;
+    case "clock":
+      return `The relays refused every message this computer sent, because its clock is wrong (they take a message only when its time is within about a minute of theirs). ${SET_THE_CLOCK} Then join again.`;
     case "no-welcome":
       return "Connected to the host, but it never let this device in. Join again; if it keeps happening, the host should stop sharing and share again.";
     case "host-closed":
@@ -110,6 +118,12 @@ export const hostLines = (engine) => {
   if (gaveUp.length) {
     lines.push({
       text: `Could not connect: ${sentence(gaveUp)}. They found this lobby, but no connection between their computer and this one could be opened.`,
+      problem: true,
+    });
+  }
+  if (engine?.clockRefused) {
+    lines.push({
+      text: `The relays refuse this computer's messages because its clock is wrong, so nobody can find this lobby. ${SET_THE_CLOCK} Then stop sharing and share again.`,
       problem: true,
     });
   }

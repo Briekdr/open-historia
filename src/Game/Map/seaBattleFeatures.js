@@ -84,10 +84,11 @@ export const blockadeTone = (blockades, viewer) => {
 //   date        the game's date, for how far a fleet closes the water
 //   flat        true for a map laid out flat: a place is marked, and no ring is drawn
 // Returns { rings, labels }: two feature collections.
-export const blockadeFeatures = ({ blockades = [], units = [], viewer = "", date = "", flat = false } = {}) => {
+//   era         the era the scenario set (runtime/warSettings.js), or null to read it off the date
+export const blockadeFeatures = ({ blockades = [], units = [], viewer = "", date = "", flat = false, era = null } = {}) => {
   const laid = list(blockades).filter((blockade) => blockade && clean(blockade.country) && Number(blockade.pressure) > 0);
   if (laid.length === 0) return { rings: collection([]), labels: collection([]) };
-  const reach = NAVAL_REACH_KM[eraOf(date)];
+  const reach = NAVAL_REACH_KM[eraOf(date, era)];
   const rings = [];
   const labels = [];
   for (const unit of list(units)) {

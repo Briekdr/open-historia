@@ -13,6 +13,7 @@
 // never by a folded or matched name, and the key is what regions own.
 
 import { normalizeTagList } from "../runtime/countryTags.js";
+import { normalizeMilitaryStats } from "../runtime/militaryStats.js";
 
 const clean = (value) => String(value ?? "").trim();
 
@@ -65,8 +66,10 @@ const pipeList = (value) => {
 };
 
 // Rows in any accepted shape -> { key, name, aliases, color, flag, tags, status,
-// note, mapRefs }, one per key; the first row for a key wins. status and note
-// are "" when the row has none, so the merge keeps what the polity already has.
+// note, mapRefs, military? }, one per key; the first row for a key wins. status
+// and note are "" when the row has none, so the merge keeps what the polity
+// already has; `military`, its own military figures (runtime/militaryStats.js),
+// is there only when the row gives some, for the same reason.
 export const normalizeRosterRows = (rows) => {
   const normalized = [];
   const seen = new Set();
@@ -84,6 +87,7 @@ export const normalizeRosterRows = (rows) => {
         .filter(Boolean),
     )];
     const flag = clean(firstFilled(raw, FLAG_FIELDS));
+    const military = normalizeMilitaryStats(raw.military);
 
     normalized.push({
       key,
@@ -97,6 +101,7 @@ export const normalizeRosterRows = (rows) => {
       mapRefs: raw.mapRefs && typeof raw.mapRefs === "object" && !Array.isArray(raw.mapRefs)
         ? raw.mapRefs
         : null,
+      ...(military ? { military } : {}),
     });
   }
 
@@ -146,6 +151,7 @@ export const mergePolityRoster = (doc, rows) => {
       status: row.status || current.status || "active",
       note: row.note || current.note || "",
       ...(row.mapRefs ? { mapRefs: row.mapRefs } : {}),
+      ...(row.military ? { military: row.military } : {}),
     };
 
     if (row.color) colorOverrides[row.key] = row.color;

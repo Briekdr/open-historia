@@ -23,16 +23,25 @@
 // arena not kept) it answers { needsRegions: true } having changed nothing,
 // and is run again in full with them.
 
-import { addGameDays, compareGameDates, gameDateYear } from "../gameDates.js";
+import { attritionReport } from "./attrition.js";
+import { addGameDays, compareGameDates, diffGameDays, gameDateYear } from "../gameDates.js";
 import { waterTypeIds } from "../regionTypes.js";
-import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf } from "../unitMotion.js";
+import { ADVANCE_KM_PER_DAY, OVERLAND_KM_PER_DAY, eraOf, yearInEra } from "../unitMotion.js";
 import { arenaFor } from "./arena.js";
+import { dawn } from "./dawn.js";
+import { anyMechanic, readMechanics } from "./mechanics.js";
+import { levyOwed, musterShare } from "./muster.js";
+import { deployCells } from "./deploy.js";
+import { linesChanged } from "./walls.js";
+import { AIR_MISSIONS, wingChanges } from "./air.js";
+import { MILITARY_NEUTRAL, airWorth, landWorth, mixOf, readMilitary, seaWorth } from "./military.js";
 import { absorbUnit, holderOf, keepStart, lineLength, loadBattle, memberIndex, memberWeights, openBattle, paintGround, raiseTroops, readRegion, reconcile, releaseNamed, saveBattle, setHandicap, setRadii, sideOfName } from "./battle.js";
 import { buildBrief } from "./brief.js";
 import { assignCommands } from "./command.js";
 import { hashKey } from "./codec.js";
 import {
   BATTLEFIELD_NAME_MAX,
+  BREAKTHROUGH_LOOK_DAYS,
   EFFORT_FACTORS,
   FRONT_EFFORTS,
   FRONT_ORDERS,
@@ -55,6 +64,7 @@ import {
   MAX_TROOPS_PER_SIDE,
   POOL_PER_TROOP,
   STAFF_MARK,
+  MIND_MARK,
   STAFF_REVIEW_DAYS,
   STANDING_QUIET_DAYS,
   TROOPS_PER_STRENGTH,
@@ -65,17 +75,19 @@ import {
 import { contactAt, findContacts, frameForContact, middleOf } from "./contact.js";
 import { REGIONS_NEEDED, growToHold, prepare, recordDay, settleRegions, simulateDay, startRecorder } from "./day.js";
 import { redistance, takeCapsule, traceContour } from "./field.js";
-import { pointInFrame } from "./frame.js";
+import { downhill } from "./ground.js";
+import { pointInFrame, projectorOf } from "./frame.js";
 import { landWithin, othersOnWay } from "./invade.js";
-import { draw, formationsLeft, manpowerReport, menPerFormation, sendHome } from "./manpower.js";
-import { applyOrder, assignOrder, landCarried, putAshore, readSieges, setStandingOrder } from "./orders.js";
+import { draw, formationsLeft, manpowerReport, menOf, menPerFormation, partLeft, sendHome } from "./manpower.js";
+import { applyOrder, assignOrder, landCarried, putAshore, readSieges, setStandingOrder, standingOf } from "./orders.js";
 import { foldBattlefieldName, normalizeBattlefields } from "./record.js";
 import { authoredName } from "./scenarioFronts.js";
-import { sideIsPlayed, staffDecision, staffMayOrder, staffStanding } from "./staff.js";
+import { breakthroughAnswer, sideIsPlayed, staffDecision, staffMayOrder, staffStanding } from "./staff.js";
 import { findPockets } from "./supply.js";
+import { SWARM_FORM, gatherNewcomers } from "./swarms.js";
 import { TRANSPORT_ENDED, boundFor, interceptionOf, loadOf, moveOn, normalizeTransports, setOut, struck, transportChance } from "./transports.js";
-import { findPlace, inSector, resolveSector } from "./sectors.js";
-import { createTroop, isLive, kindsFor, liveCount, troopsCap, troopsFactor, troopsLeast, troopsWanted } from "./troops.js";
+import { describePoint, findPlace, inSector, resolveSector } from "./sectors.js";
+import { STATE_HOLDING, createTroop, isLive, kindsFor, liveCount, troopsCap, troopsFactor, troopsLeast, troopsWanted } from "./troops.js";
 import { buildWorldGrid, kmBetween, placeAlong, worldSheetKey } from "./worldGrid.js";
 
 const clean = (value, max = 120) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max).trim();
@@ -96,7 +108,8 @@ const createRun = (input) => {
   const days = Math.max(0, Math.floor(Number(input?.days) || 0));
   const fromDate = String(input?.fromDate ?? "");
   const dated = addGameDays(fromDate, 0) !== "";
-  const era = eraOf(fromDate);
+  // (A scenario may set its era outright: runtime/warSettings.js.)
+  const era = eraOf(fromDate, Number.isInteger(input?.era) ? input.era : null);
   const controller = new Map();
   const group = new Map();
   const areas = input?.groupAreas && typeof input.groupAreas === "object" ? input.groupAreas : {};
@@ -106,12 +119,22 @@ const createRun = (input) => {
     day: 0,
     steps: 0,
     era,
+    // Which of the newer mechanics this run uses (mechanics.js): none unless the input turns them on.
+    mech: readMechanics(input?.mechanics),
+    // How its wars are fought where nobody chose otherwise (swarms.js; runtime/warSettings.js warfare): along a front
+    // unless the input says in swarms.
+    warfare: input?.warfare === SWARM_FORM ? SWARM_FORM : "front",
     seed: String(input?.seed ?? ""),
     // How many troops are raised, of the usual (troops.js troopsFactor).
     troops: troopsFactor(input?.troops),
-    // The men a formation is, and what each country has been charged and given back this run (manpower.js).
-    menEach: menPerFormation(era),
+    // The men a formation is (the scenario's where it set them, else its era's), and what each
+    // country has been charged and given back this run (manpower.js).
+    menEach: Number(input?.menEach) >= 1 ? Math.round(Number(input.menEach)) : menPerFormation(era),
+    // The share of a country's people who can fight, where the scenario set it: else MANPOWER_SHARE (manpower.js).
+    manpowerShare: Number(input?.manpowerShare) > 0 && Number(input.manpowerShare) <= 100 ? Number(input.manpowerShare) / 100 : 0,
     manpower: new Map(),
+    // Each country's days of advance this run, for its war resources (dawn.js dusk, runtime/warResources.js).
+    effort: new Map(),
     pace: Math.min(3, Math.max(0.1, Number(input?.pace) || 1)),
     // The weights that bend a troop's step, for a test or the rig to set aside.
     steer: input?.steering && typeof input.steering === "object" ? input.steering : {},
@@ -156,6 +179,29 @@ const createRun = (input) => {
     setController: (id, name) => controller.set(id, clean(name)),
     setGroup: (id, name) => group.set(id, clean(name)),
   };
+  // Each country's own military figures (military.js): read once a run, and
+  // only where the run weighs them; every country is neutral otherwise.
+  const figures = new Map();
+  run.militaryOf = (name) => {
+    if (!run.mech.military) return MILITARY_NEUTRAL;
+    const key = fold(name);
+    if (!figures.has(key)) figures.set(key, readMilitary(input?.militaryOf?.(name)));
+    return figures.get(key);
+  };
+  // Each country's mustering curve (muster.js), as the run is handed it: { table, head }, or null.
+  const curves = new Map();
+  run.musterOf = (name) => {
+    if (!run.mech.muster) return null;
+    const key = fold(name);
+    if (!curves.has(key)) {
+      const curve = input?.musterOf?.(name);
+      curves.set(key, curve && Array.isArray(curve.table) ? curve : null);
+    }
+    return curves.get(key);
+  };
+  // (What the run has itself been told or worked out of the world, kept where a copy of it fought on another core
+  // can be given it: rehearsalPacket below. Not among its own keys.)
+  Object.defineProperty(run, "lookups", { value: { controller, group, figures, curves } });
   // A region changed hands: every battlefield it lies on reads its side again.
   run.regionChanged = (id) => {
     for (const battle of run.battles) {
@@ -177,7 +223,8 @@ const createRun = (input) => {
   for (const war of Array.isArray(input?.wars) ? input.wars : []) {
     const id = clean(war?.id);
     if (!id || run.wars.has(id)) continue;
-    run.wars.set(id, { id, title: clean(war.title), status: ["active", "ceasefire", "ended"].includes(war.status) ? war.status : "active", sides: [memberList(war.sideA), memberList(war.sideB)] });
+    // (When it began, for whether its levies must muster: muster.js.)
+    run.wars.set(id, { id, title: clean(war.title), status: ["active", "ceasefire", "ended"].includes(war.status) ? war.status : "active", sides: [memberList(war.sideA), memberList(war.sideB)], began: clean(war.startedDate) });
   }
   run.moments = (Array.isArray(input?.moments) ? input.moments : [])
     .filter((moment) => moment && typeof moment === "object")
@@ -302,12 +349,14 @@ const closeBattle = (run, battle, day) => {
 // The map's regions that are LAND. Two sides touch where their land does: a
 // stretch of sea each holds a region of is no front, and no frame is laid
 // round it. null while the shapes have not been read.
+// (With the water frozen this turn, climate.js: ground the two sides may meet across.)
 const landRegionsOf = (run) => {
   const regions = regionsOf(run);
   if (!regions) return null;
   if (run.landRegions?.of !== regions) {
     const water = waterTypeIds(run.input.regionTypes);
-    run.landRegions = { of: regions, list: water.size > 0 ? regions.filter((region) => !water.has(clean(region?.typeId))) : regions };
+    const frozen = Array.isArray(run.input.map?.frozen) && run.input.map.frozen.length > 0 ? new Set(run.input.map.frozen) : null;
+    run.landRegions = { of: regions, list: water.size > 0 ? regions.filter((region) => !water.has(clean(region?.typeId)) || (frozen && frozen.has(region?.id))) : regions };
   }
   return run.landRegions.list;
 };
@@ -324,7 +373,9 @@ const contactKey = (run, war) => {
     const side = warSideOf(run, war, id);
     if (side >= 0 && !covered(id)) held[side].push(id);
   }
-  return `contact|${clean(run.input.map?.key)}|${war.id}|${hashKey([war.sides[0].join("\u0002"), war.sides[1].join("\u0002"), held[0].length, held[1].length, held[0].join("\u0002"), held[1].join("\u0002")])}`;
+  // (And which water is frozen: ice may join two sides that did not touch.)
+  const frozen = Array.isArray(run.input.map?.frozen) ? run.input.map.frozen.slice().sort().join("\u0002") : "";
+  return `contact|${clean(run.input.map?.key)}|${war.id}|${hashKey([war.sides[0].join("\u0002"), war.sides[1].join("\u0002"), held[0].length, held[1].length, held[0].join("\u0002"), held[1].join("\u0002"), frozen])}`;
 };
 
 // Opens a battlefield for every stretch where an active war's two sides touch
@@ -364,9 +415,15 @@ const examineWar = (run, war, day) => {
 // along the line: as many as its own strength brings, while the line has room
 // for them.
 const raiseFor = (battle, run, side, owner) => {
+  const member = battle.sides[side][owner];
+  const military = run.mech.military;
+  // (A country with no army raises none: military.js.)
+  if (military && landWorth(run.militaryOf(member)) === 0) return;
   const wanted = Math.round(TROOPS_PER_STRENGTH * run.troops * memberWeights(battle, run, side)[owner] * EFFORT_FACTORS[battle.effort[side]]);
   const room = Math.min(MAX_TROOPS_PER_SIDE - battle.troops[side].length, troopsCap(battle.lineKm, run.troops) - liveCount(battle.troops[side]));
-  const count = Math.max(0, Math.min(room, Math.max(2, wanted), formationsLeft(run, battle.sides[side][owner])));
+  const whole = formationsLeft(run, member);
+  const part = military ? partLeft(run, member) : 0;
+  const count = Math.max(0, Math.min(room, Math.max(2, wanted), whole + (part > 0 ? 1 : 0)));
   const contour = traceContour(battle.field);
   const own = side === HOLDER_SIDE_A ? contour.cellA : contour.cellB;
   let cells = [];
@@ -379,13 +436,95 @@ const raiseFor = (battle, run, side, owner) => {
     return region > 0 && fold(holderOf(battle, run, battle.arena.ids[region])) === wantedName;
   });
   if (home.length > 0) cells = home;
+  // (On the line its commander drew for its new troops, where it drew one: deploy.js.)
+  cells = deployCells(battle, side, member, cells);
   if (cells.length === 0) return;
+  const kinds = military ? kindsFor(count, run.era, mixOf(run.militaryOf(member))) : null;
+  let men = 0;
+  const first = battle.troops[side].length;
   for (let index = 0; index < count; index += 1) {
     const cell = cells[Math.min(cells.length - 1, Math.floor(((index + 0.5) * cells.length) / count))];
-    battle.troops[side].push(createTroop({ x: (cell % battle.field.cols) + 0.5, y: Math.floor(cell / battle.field.cols) + 0.5, owner }));
+    // (Its last men, fewer than a counter's: a counter at part strength.)
+    const strength = military && index === count - 1 && count > whole ? Math.round(100 * part) : 100;
+    battle.troops[side].push(createTroop({ x: (cell % battle.field.cols) + 0.5, y: Math.floor(cell / battle.field.cols) + 0.5, owner, strength, ...(kinds ? { kind: kinds[index] } : {}) }));
+    men += (strength / 100) * menOf(run, member);
   }
-  draw(run, battle.sides[side][owner], count * run.menEach);
+  draw(run, member, military ? men : count * run.menEach);
   battle.pool[side] += count * POOL_PER_TROOP * battle.edge[side].reserves;
+  // (Where they come as a swarm they stand as one: swarms.js.)
+  gatherNewcomers(battle, side, owner, first, run.warfare);
+};
+
+// A side's new troops, from `first` on in its list, come under what their
+// stretch of the line is told: an order for that stretch before one for the whole line.
+const putUnderStanding = (run, battle, side, first, today, day) => {
+  const standing = battle.orders.filter((order) => order.s === side && !order.chosen && order.order !== "assault" && order.order !== "withdraw");
+  const under = new Map();
+  for (let at = first; at < battle.troops[side].length; at += 1) {
+    const troop = battle.troops[side][at];
+    const fits = (order) => {
+      const stretch = resolveSector(battle.arena, today.line, today.sectors, order.sector);
+      return stretch && stretch.kind !== "all" && inSector(stretch, troop.x, troop.y, battle.place.kmAt);
+    };
+    const order = standing.find(fits) ?? standing.find((entry) => fold(entry.sector) === "all") ?? null;
+    if (order) under.set(order, [...(under.get(order) ?? []), at]);
+  }
+  for (const [order, picked] of under) assignOrder(battle, run, order, { ...today, date: run.dateOf(day), run }, { picked, lagless: true });
+};
+
+// Weighing a war's mustering (muster.js): each morning the levies each member
+// is owed come in as its curve says, as many as it has men for, in its own
+// unit mix, on its own ground along the line, under what their stretch of the
+// line is told, each charged to its people as it comes.
+const musterDay = (run, battle, day) => {
+  if (!run.mech.muster || !levyOwed(battle.levy)) return;
+  let today = null;
+  for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
+    for (const entry of battle.levy[side]) {
+      const member = battle.sides[side][entry.o];
+      if (entry.r >= entry.t || !member || battle.gone[side].has(entry.o)) continue;
+      const days = diffGameDays(entry.f, run.dateOf(day));
+      const share = days === null ? 1 : musterShare(run, member, days);
+      const military = run.mech.military;
+      const whole = formationsLeft(run, member);
+      const part = military ? partLeft(run, member) : 0;
+      const due = Math.min(Math.min(entry.t, Math.floor(entry.t * share)) - entry.r, MAX_TROOPS_PER_SIDE - battle.troops[side].length, whole + (part > 0 ? 1 : 0));
+      if (due <= 0) continue;
+      const contour = traceContour(battle.field);
+      const own = side === HOLDER_SIDE_A ? contour.cellA : contour.cellB;
+      let cells = [];
+      for (let vertex = 0; vertex < own.length; vertex += 1) if (own[vertex] >= 0) cells.push(own[vertex]);
+      const home = cells.filter((cell) => {
+        const region = battle.arena.region[cell];
+        return region > 0 && fold(holderOf(battle, run, battle.arena.ids[region])) === fold(member);
+      });
+      if (home.length > 0) cells = home;
+      if (cells.length === 0 && battle.field.holders.indexOf(side) >= 0) cells = [battle.field.holders.indexOf(side)];
+      // (On the line its commander drew for its new troops, where it drew one: deploy.js.)
+      cells = deployCells(battle, side, member, cells);
+      if (cells.length === 0) continue;
+      today = today ?? prepare(battle, day);
+      const kinds = kindsFor(entry.t, run.era, military ? mixOf(run.militaryOf(member)) : null).slice(entry.r, entry.r + due);
+      const first = battle.troops[side].length;
+      let men = 0;
+      for (let index = 0; index < due; index += 1) {
+        const cell = cells[Math.min(cells.length - 1, Math.floor(((index + 0.5) * cells.length) / due))];
+        const strength = military && index === due - 1 && due > whole ? Math.round(100 * part) : 100;
+        battle.troops[side].push(createTroop({ x: (cell % battle.field.cols) + 0.5, y: Math.floor(cell / battle.field.cols) + 0.5, kind: kinds[index], owner: entry.o, strength }));
+        men += (strength / 100) * menOf(run, member);
+      }
+      draw(run, member, men);
+      battle.pool[side] += due * POOL_PER_TROOP * battle.edge[side].reserves;
+      entry.r += due;
+      // (Where they come as a swarm they stand as one first: swarms.js.)
+      gatherNewcomers(battle, side, entry.o, first, run.warfare);
+      putUnderStanding(run, battle, side, first, today, day);
+      battle.touched = true;
+      battle.planKey = "";
+    }
+  }
+  battle.levy = battle.levy.map((list) => list.filter((entry) => entry.r < entry.t));
+  if (today) setRadii(battle);
 };
 
 const joinBattle = (run, battle, side, names) => {
@@ -549,7 +688,7 @@ const attackOpensWar = (run, attacker, defender, day, serious = true) => {
   if (!serious) return null;
   const id = `war-${slugOf(attacker)}-${slugOf(defender)}-${date}`;
   if (run.wars.has(id)) return run.wars.get(id).status === "active" ? run.wars.get(id) : null;
-  run.wars.set(id, { id, title: "", status: "active", sides: [[clean(attacker)], [clean(defender)]] });
+  run.wars.set(id, { id, title: "", status: "active", sides: [[clean(attacker)], [clean(defender)]], began: date });
   run.starts.push({ day, date, warId: id, attacker: clean(attacker), defender: clean(defender) });
   examineWar(run, run.wars.get(id), day);
   return run.wars.get(id);
@@ -831,8 +970,14 @@ const reinforceOnFront = (run, battle, moment, day) => {
     REINFORCED_SIZE_MOST * usual - live,
     REINFORCED_LINE_MOST * troopsCap(battle.lineKm, run.troops) - live,
   );
-  // And the men have to be there to call up (manpower.js).
-  const men = formationsLeft(run, battle.sides[side][owner]);
+  // And the men have to be there to call up (manpower.js): weighing military figures, a country's last men too, as a
+  // counter at part strength, and a country with no army has nobody to call up (military.js).
+  const military = run.mech.military;
+  const drafted = battle.sides[side][owner];
+  const noArmy = military && landWorth(run.militaryOf(drafted)) === 0;
+  const fullCounters = noArmy ? 0 : formationsLeft(run, drafted);
+  const lastPart = military && !noArmy ? partLeft(run, drafted) : 0;
+  const men = fullCounters + (lastPart > 0 ? 1 : 0);
   const said = Number(moment.count);
   const asked = Number.isFinite(said) && said >= 1 ? Math.min(REINFORCE_MOST, Math.round(said)) : Math.max(2, Math.round(usual * REINFORCE_USUAL_SHARE));
   const count = Math.max(0, Math.min(asked, room, men));
@@ -860,30 +1005,25 @@ const reinforceOnFront = (run, battle, moment, day) => {
   });
   if (home.length > 0) cells = home;
   if (cells.length === 0 && battle.field.holders.indexOf(side) >= 0) cells = [battle.field.holders.indexOf(side)];
+  // (On the line its commander drew for its new troops, where it drew one: deploy.js.)
+  cells = deployCells(battle, side, drafted, cells);
   if (cells.length === 0) {
     run.notes.push({ ...note, kind: "reinforce-no-ground" });
     return;
   }
   const first = battle.troops[side].length;
-  kindsFor(count, run.era).forEach((kind, index) => {
+  let called = 0;
+  kindsFor(count, run.era, military ? mixOf(run.militaryOf(drafted)) : null).forEach((kind, index) => {
     const cell = cells[Math.min(cells.length - 1, Math.floor(((index + 0.5) * cells.length) / count))];
-    battle.troops[side].push(createTroop({ x: (cell % cols) + 0.5, y: Math.floor(cell / cols) + 0.5, kind, owner }));
+    const strength = military && index === count - 1 && count > fullCounters ? Math.round(100 * lastPart) : 100;
+    battle.troops[side].push(createTroop({ x: (cell % cols) + 0.5, y: Math.floor(cell / cols) + 0.5, kind, owner, strength }));
+    called += (strength / 100) * menOf(run, drafted);
   });
-  draw(run, battle.sides[side][owner], count * run.menEach);
+  draw(run, drafted, military ? called : count * run.menEach);
   battle.pool[side] += count * POOL_PER_TROOP * battle.edge[side].reserves;
-  // They come under what their stretch of the line is told: an order for that stretch before one for the whole line.
-  const standing = battle.orders.filter((order) => order.s === side && !order.chosen && order.order !== "assault" && order.order !== "withdraw");
-  const under = new Map();
-  for (let at = first; at < battle.troops[side].length; at += 1) {
-    const troop = battle.troops[side][at];
-    const fits = (order) => {
-      const stretch = resolveSector(battle.arena, today.line, today.sectors, order.sector);
-      return stretch && stretch.kind !== "all" && inSector(stretch, troop.x, troop.y, battle.place.kmAt);
-    };
-    const order = standing.find(fits) ?? standing.find((entry) => fold(entry.sector) === "all") ?? null;
-    if (order) under.set(order, [...(under.get(order) ?? []), at]);
-  }
-  for (const [order, picked] of under) assignOrder(battle, run, order, { ...today, date: run.dateOf(day), run }, { picked, lagless: true });
+  // (Where they come as a swarm they stand as one first: swarms.js.)
+  gatherNewcomers(battle, side, owner, first, run.warfare);
+  putUnderStanding(run, battle, side, first, today, day);
   // (Troops come back to a battlefield their side had left.)
   if (battle.away[side]) comeBack(run, battle, day);
   battle.log.push({ d: run.dateOf(day), k: "drafted", s: side, at: `${count} fresh formations ${whole ? "along its whole line" : `in the ${sector.word ?? clean(moment.sector)}`}`, n: count });
@@ -1087,7 +1227,7 @@ const applyWarMoment = (run, moment, day) => {
   const mine = () => run.battles.filter((battle) => battle.warId === id && battle.status !== "closed");
   if (moment.op === "start") {
     if (!id || run.wars.has(id)) return;
-    run.wars.set(id, { id, title: clean(moment.title), status: "active", sides: [names, memberList(moment.opponents)] });
+    run.wars.set(id, { id, title: clean(moment.title), status: "active", sides: [names, memberList(moment.opponents)], began: run.dateOf(day) });
     examineWar(run, run.wars.get(id), day);
     return;
   }
@@ -1199,6 +1339,12 @@ const markAttacks = (run, battle) => {
   if (battle.status !== "active") return;
   for (const order of battle.orders) {
     if (!order.chosen || !Array.isArray(order.way) || order.way.length === 0) continue;
+    // (A trained staff's routes bring nobody into the war: the ground outside it is a wall to them. mind/policy.js.)
+    if (order.mark === MIND_MARK) {
+      delete order.attacks;
+      delete order.crosses;
+      continue;
+    }
     const troops = battle.troops[order.s];
     let midX = 0;
     let midY = 0;
@@ -1520,6 +1666,10 @@ const departTransport = (run, index, day) => {
     run.transports[index] = { ...transport, status: "refused", note, ended: date };
     tellVoyage(run, day, "refused", transport, { why: note });
   };
+  // (Weighing countries' own military figures, one with no navy sends nothing by sea and one with no
+  // air arm nothing by air: military.js.)
+  if (run.mech.military && transport.medium === "sea" && seaWorth(run.militaryOf(transport.owner)) === 0) return refuse("no-navy");
+  if (run.mech.military && transport.medium === "air" && airWorth(run.militaryOf(transport.owner)) === 0) return refuse("no-air-force");
   let war = transportWar(run, transport);
   const grid = worldGridOf(run);
   // Its owner is fighting no war: bound for land of a country it is at peace
@@ -1564,8 +1714,8 @@ const departTransport = (run, index, day) => {
     load = picked.map((at) => [Math.round(battle.troops[side][at].strength), battle.troops[side][at].kind]);
     boarding = { battle, side, picked };
   } else if (load.length === 0) {
-    load = kindsFor(Math.max(1, transport.raise || 1), run.era).map((kind) => [100, kind]);
-    draw(run, transport.owner, load.length * run.menEach);
+    load = kindsFor(Math.max(1, transport.raise || 1), run.era, run.mech.military ? mixOf(run.militaryOf(transport.owner)) : null).map((kind) => [100, kind]);
+    draw(run, transport.owner, load.length * menOf(run, transport.owner));
     if (origins.length === 0) origins = originsOf(run, grid, war, transport);
   }
   if (origins.length === 0) return refuse("no-origin");
@@ -1579,7 +1729,7 @@ const departTransport = (run, index, day) => {
       holderOf: (id) => holderIn(run, war, id),
       friendly,
       hostile,
-      year: gameDateYear(run.dateOf(0)),
+      year: yearInEra(gameDateYear(run.dateOf(0)), Number.isInteger(run.input?.era) ? run.input.era : null),
       date,
       dateOf: (days) => run.dateOf(day + days),
     });
@@ -1837,12 +1987,71 @@ const assignStanding = (run, battle) => {
   }
 };
 
+// EXPERIMENT, in the lab (mind/policy.js createTroopPolicy): a trained staff
+// may order a side's troops one by one, as bodies of them it names: { order,
+// picked, way } each, `order` "hold", "dig in" or "advance" (straight out from
+// where they stand, or along `way`, points as stored). What it ordered last
+// time is over, and nothing stands for a stretch of the side's line any more:
+// its troops do what it gave each of them. A body sent on to where it was
+// going already sets off without waiting.
+const REST_KM = 20;
+const restAim = [0, 0];
+const orderTroopsByMind = (run, battle, side, bodies, day, today, lead) => {
+  const date = run.dateOf(day);
+  const troops = battle.troops[side];
+  const endOf = (order) => (!order || order.mark !== MIND_MARK ? "" : Array.isArray(order.way) && order.way.length > 0 ? order.way[order.way.length - 1].join(",") : "out");
+  const was = troops.map((troop) => (isLive(troop) ? endOf(standingOf(battle, troop)) : ""));
+  battle.orders = battle.orders.filter((order) => order.s !== side || (order.chosen && order.mark !== MIND_MARK));
+  for (const body of bodies) {
+    const picked = (Array.isArray(body?.picked) ? body.picked : []).filter((index) => troops[index] && isLive(troops[index]));
+    if (picked.length === 0) continue;
+    if (body.order === "hold" || body.order === "dig in") {
+      assignOrder(battle, run, { s: side, sector: "all", order: body.order, since: date, age: 0 }, { ...today, date, run }, { picked });
+      continue;
+    }
+    // A rest (Wars and Fronts Pt.2): each pulls back REST_KM from where it stands, into its own ground, and
+    // out of the fighting it recovers (fatigue.js).
+    if (body.order === "rest") {
+      const order = { s: side, sector: "all", order: "fall back", since: date, age: 0, chosen: true, mark: MIND_MARK, ...(lead ? { by: lead } : {}) };
+      battle.orders.push(order);
+      for (const index of picked) {
+        const troop = troops[index];
+        let target = null;
+        if (battle.toSide && downhill(battle.field, battle.toSide[1 - side], troop.x, troop.y, restAim)) {
+          const cells = REST_KM / battle.place.kmAt(troop.y);
+          target = { x: troop.x - restAim[0] * cells, y: troop.y - restAim[1] * cells };
+        }
+        if (troop.dug) troop.state = STATE_HOLDING;
+        troop.dug = false;
+        troop.order = { kind: "fallback", standing: order, target, since: day, day, gone: 0 };
+        troop.fallback = null;
+      }
+      continue;
+    }
+    const way = Array.isArray(body.way) && body.way.length > 0 ? body.way.map((point) => [Number(point[0]), Number(point[1])]) : null;
+    const order = { s: side, sector: "all", order: "advance", since: date, age: 0, chosen: true, mark: MIND_MARK, ...(lead ? { by: lead } : {}), ...(way ? { way } : {}) };
+    battle.orders.push(order);
+    const end = endOf(order);
+    assignOrder(battle, run, order, { ...today, date, run }, { picked, lagless: picked.every((index) => was[index] === end) });
+  }
+  battle.ordersChanged += 1;
+  battle.touched = true;
+  battle.planKey = "";
+};
+
+// A staff of the run's own asked what it orders: as steps the run may be stopped between, where it thinks in them
+// (mind/planner.js `steps`), else at once.
+function* askOwnStaff(policy, battle, side, context, run) {
+  if (typeof policy.steps === "function") return yield* policy.steps(battle, side, context, run);
+  return policy(battle, side, context, run);
+}
+
 // The staff of each side nobody plays looks at how it stands and decides what
 // it does (staff.js): on a battle's first day of a run and every
 // STAFF_REVIEW_DAYS after. Before the day is fought, and after whatever the
 // story ordered for that day or before it: an order of the story's is left
 // alone, and the staff's own is replaced only when it would decide otherwise.
-const reviewStaff = (run, battle, day) => {
+function* reviewStaff(run, battle, day, regular = true) {
   // (A run may be told to leave every side to its orders: the engine's own tests of other things are.)
   if (run.input?.staff === false) return;
   const war = run.wars.get(battle.warId);
@@ -1869,24 +2078,98 @@ const reviewStaff = (run, battle, day) => {
       battle.begunBy = side;
     }
   }
+  // A war a person's own country began, on its battlefield's first day: when nobody has given that side any order
+  // (the story's or the person's own), its troops go over to the attack along the whole line, as the side that
+  // begins a war does. "When a front is deployed in the first time skip even if you skip a year the front doesnt do
+  // anything" (the owner, 2026-10-14): nobody but that person leads their side, and they cannot until the skip has
+  // landed. From then on the side is theirs to order, as ever.
+  const opener = battle.swap ? HOLDER_SIDE_B : HOLDER_SIDE_A;
+  const opening = battle.openedDate ? diffGameDays(battle.openedDate, run.dateOf(day)) : null;
+  if (!begun && battle.openedFor !== true && opening !== null && opening <= 1 && !battle.away[opener] && sideIsPlayed(battle, opener, run.input?.players)
+    && !battle.orders.some((order) => order.s === opener) && liveCount(battle.troops[opener]) > 0) {
+    battle.openedFor = true;
+    today = today ?? prepare(battle, day);
+    const lead = battle.sides[opener].find((member, at) => !battle.gone[opener].has(at)) ?? "";
+    const order = setStandingOrder(battle, opener, { sector: "all", order: "advance", since: run.dateOf(day), age: 0, by: lead, mark: STAFF_MARK });
+    assignOrder(battle, run, order, { ...today, date: run.dateOf(day), run });
+    battle.touched = true;
+    battle.planKey = "";
+    battle.log.push({ d: run.dateOf(day), k: "offensive", s: opener, at: "the whole line" });
+  }
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
     // (The side that has just gone over to the attack is left to it until the staff next looks.)
     if (begun && battle.begunBy === side) continue;
     if (battle.away[side] || sideIsPlayed(battle, side, run.input?.players) || !staffMayOrder(battle, side)) continue;
     if (liveCount(battle.troops[side]) === 0) continue;
+    // A staff of the run's own is asked on the engine's days, or every day if it looks often (mind/planner.js).
+    const policy = typeof run.input?.staffPolicy === "function" ? run.input.staffPolicy : null;
+    const asks = policy !== null && (regular || policy.often === true);
+    // The engine's own staff, with the newer mechanics, watches every day for a breakthrough to answer
+    // (staff.js breakthroughAnswer): the day it sees one, and every BREAKTHROUGH_LOOK_DAYS while it lasts. (Not for
+    // a side a staff of the run's own leads: what it said when it last looked stands until it next does.)
+    const ledByOwn = policy !== null && !asks && battle.ledByOwn?.[side] === true;
+    const answer = anyMechanic(run.mech) && !ledByOwn ? breakthroughAnswer(battle, side) : null;
+    const answering = battle.answering?.[side] ?? -1;
+    // (Told afresh only once those it sent have got where they were sent, or stopped: an order given again is set
+    // off again, and one given again every few days never gets going.)
+    const idle = () => !battle.troops[side].some((troop) => isLive(troop) && troop.order && !troop.order.done && troop.order.standing?.mark === MIND_MARK);
+    const answers = answer !== null && (answering < 0 || regular || (battle.daysRun - answering >= BREAKTHROUGH_LOOK_DAYS && idle()));
+    if (!regular && !asks && !answers) continue;
     today = today ?? prepare(battle, day);
-    const decided = staffDecision(battle, side, {
+    const context = {
       // (The first side of a war is the one that began it.)
       began: battleSide(battle, side) === 0,
       today,
       key: `${run.seed}|${battle.name}|${side}|${run.dateOf(day)}`,
-    });
+    };
+    // EXPERIMENT, in the lab (mind/policy.js): a run may be handed a staff of
+    // its own, a trained network, asked first. `undefined` from it leaves the
+    // side to the staff the engine has.
+    const own = asks ? (yield* askOwnStaff(policy, battle, side, { ...context, regular }, run)) : undefined;
+    // What its wings are sent to do over the battle (air.js AIR_MISSIONS), whatever it says of its troops.
+    if (own && typeof own.air === "string") setAirMission(battle, side, own.air);
+    // What its plan is and where it aims (mind/planner.js), for the record: the other side may come to know it.
+    if (own && typeof own.plan === "string") noteStaffPlan(run, battle, side, own, day);
+    if (asks) {
+      battle.ledByOwn ??= [false, false];
+      battle.ledByOwn[side] = own !== undefined;
+    }
+    // (One may keep what it ordered.)
+    if (own && own.keep === true) continue;
+    const lead = battle.sides[side].find((member, at) => !battle.gone[side].has(at)) ?? "";
+    if (own === undefined && answers) {
+      battle.answering ??= [-1, -1];
+      battle.answering[side] = battle.daysRun;
+      if (answering < 0) battle.log.push({ d: run.dateOf(day), k: "counter", s: side, at: describePoint(battle.arena, answer.at.x, answer.at.y) });
+      orderTroopsByMind(run, battle, side, answer.bodies, day, today, lead);
+      continue;
+    }
+    // (Between the engine's own looks only a staff of the run's own decides; and what the staff ordered against a
+    // breakthrough stands while the breakthrough does, and is over with it.)
+    if (own === undefined && (!regular || answer)) continue;
+    if (own === undefined && answering >= 0) {
+      battle.answering[side] = -1;
+      battle.orders = battle.orders.filter((order) => order.s !== side || order.mark !== MIND_MARK);
+    }
+    const decided = own === undefined ? staffDecision(battle, side, context) : own;
     if (!decided) continue;
+    // (Or it orders the side's troops one by one.)
+    if (Array.isArray(decided.troops)) {
+      orderTroopsByMind(run, battle, side, decided.troops, day, today, lead);
+      continue;
+    }
+    // Such a staff may call up fresh formations too (reinforceOnFront): as many as a draft usually brings,
+    // within what a side may be brought to and the men its country has. One refused says nothing.
+    if (decided.draft === true && lead) {
+      const said = run.notes.length;
+      reinforceOnFront(run, battle, { side: lead, sector: decided.sector, given: true }, day);
+      run.notes.length = said;
+      today = prepare(battle, day);
+    }
     const wanted = `${decided.order}|${fold(decided.sector)}`;
     const stands = staffStanding(battle, side);
     // To hold is what a side with no order does: nothing is written for it, unless the staff had it attacking.
     if (stands === wanted || (decided.order === "hold" && stands === "" && !battle.orders.some((order) => order.s === side && !order.chosen))) continue;
-    const lead = battle.sides[side].find((member, at) => !battle.gone[side].has(at)) ?? "";
     // What the staff had the side doing before is over, and so is an order of the story's that has
     // stood too long to be left alone (staffMayOrder): the line is the staff's to order afresh.
     battle.orders = battle.orders.filter((order) => order.s !== side || order.chosen);
@@ -1897,9 +2180,9 @@ const reviewStaff = (run, battle, day) => {
     // Going over to the attack is something to tell.
     if (decided.order === "advance" && !stands.startsWith("advance")) battle.log.push({ d: run.dateOf(day), k: "offensive", s: side, at: decided.sector === "all" ? "the whole line" : decided.sector });
   }
-};
+}
 
-const stepDay = (run) => {
+function* stepDay(run) {
   const day = run.day + 1;
   for (let index = 0; index < run.battles.length; index += 1) {
     const battle = run.battles[index];
@@ -1909,7 +2192,14 @@ const stepDay = (run) => {
       invadeWhereSent(run, battle, day);
       // A side that withdrew and whose orders no longer say so (the war room sent it back) is back.
       if (battle.away[0] || battle.away[1]) comeBack(run, battle, day);
-      if (battle.begun || battle.daysRun === 0 || battle.daysRun % STAFF_REVIEW_DAYS === 0) reviewStaff(run, battle, day);
+      // The levies owed come in (muster.js), and the morning: what the day makes of every troop, before its staff looks (dawn.js).
+      musterDay(run, battle, day);
+      dawn(run, battle, day);
+      // The staff looks every STAFF_REVIEW_DAYS; a staff of a run's own that looks more often
+      // (`often` on it: mind/planner.js) is asked every day, and the engine's own staff only on its days.
+      const regular = battle.begun || battle.daysRun === 0 || battle.daysRun % STAFF_REVIEW_DAYS === 0;
+      // (With the newer mechanics the staff watches for a breakthrough every day too: staff.js breakthroughAnswer.)
+      if (regular || run.input?.staffPolicy?.often === true || anyMechanic(run.mech)) yield* reviewStaff(run, battle, day, regular);
       run.steps += simulateDay(battle, run, day);
       // Whoever was told to withdraw and has got clear is gone from the battlefield.
       withdrawWhoLeft(run, battle, day);
@@ -1926,12 +2216,13 @@ const stepDay = (run) => {
     if (battle.status !== "closed") assignCommands(battle);
   }
   run.day = day;
-};
+}
 
 // The result of a run as it stands after the days simulated so far.
 const snapshot = (run) => {
   const day = run.day;
-  const changes = run.unitChanges.map(({ committedTo, ...change }) => ({ ...change, committedTo: typeof committedTo === "string" ? committedTo : committedTo.name }));
+  // (With what became of the air wings that flew over the battlefields: air.js.)
+  const changes = [...run.unitChanges, ...wingChanges(run)].map(({ committedTo, ...change }) => ({ ...change, committedTo: typeof committedTo === "string" ? committedTo : committedTo.name }));
   const records = run.battles.map((battle) => saveBattle(battle, run, day, changes, buildBrief(battle, battle.openedDay > 0 ? battle.openedDate : run.dateOf(0))));
   const open = records.filter((record) => record.status !== "closed").slice(0, MAX_BATTLEFIELDS);
   const closed = records.filter((record) => record.status === "closed").slice(-MAX_CLOSED_BATTLEFIELDS);
@@ -1960,8 +2251,217 @@ const snapshot = (run) => {
     })),
     // What recruitment drew from each country's people and what came home to them, in men (manpower.js).
     manpower: manpowerReport(run),
+    // How much each country's formations advanced, which its war resources pay for (runtime/warResources.js).
+    ...(run.mech.supply ? { effort: [...run.effort.values()].map(({ name, advanced, troopDays, warDays }) => ({ name, advanced, troopDays, warDays })) } : {}),
+    // What the weather and being cut off took from each country, besides the fighting (attrition.js).
+    ...(run.mech.attrition ? { attrition: attritionReport(run, day) } : {}),
+    // What the fighting did to the scenario's walls: their breaches and wear (walls.js).
+    ...(run.lines && run.lines.some((line) => line.changed) ? { fortifications: linesChanged(run) } : {}),
     stats: { days: day, steps: run.steps },
   };
+};
+
+// ---- rehearsal (mind/planner.js) ------------------------------------------------
+// A staff that looks ahead tries orders out on a COPY of a battle, days ahead,
+// before it gives any: "make it the stockfish of Open historia" (the owner,
+// 2026-10-14). The copy shares only what a day never changes (the map: arena,
+// place, frame, and how things stood when the run began); everything else is its own. It is
+// fought on a stand-in run that keeps the regions it changes hands over to
+// itself, writes no flips, notes or news anyone reads, never grows its frame
+// and calls on no staff: nothing of the real run or the real battle is touched.
+// (Whose home each cell is changes as regions are taken whole: each copy has its own.)
+const SHARED_BATTLE_KEYS = Object.freeze(["arena", "place", "frame", "recorder", "watch", "startPhi", "startHolders", "mindHomes", "mendOf", "wallsFor", "wallRun"]);
+
+// (A copy's days are recorded nowhere.)
+const SILENT_RECORDER = Object.freeze({ record: () => {}, shown: () => {}, finish: () => null });
+
+export const rehearsal = (run, battle) => {
+  // (A key ending in For or Run is what something was last worked out for, kept by its identity: shared too.)
+  const shared = Object.keys(battle).filter((key) => SHARED_BATTLE_KEYS.includes(key) || /(For|Run)$/.test(key));
+  const bare = { ...battle };
+  for (const key of shared) delete bare[key];
+  bare.field = { ...battle.field };
+  delete bare.field.arena;
+  const copy = structuredClone(bare);
+  for (const key of shared) copy[key] = battle[key];
+  copy.field.arena = battle.field.arena;
+  copy.watch = null;
+  copy.recorder = SILENT_RECORDER;
+  copy.mendOf = null;
+  copy.grown = 6;
+  const controllers = new Map();
+  const groups = new Map();
+  const stub = Object.create(run);
+  Object.assign(stub, {
+    battles: [copy],
+    flips: [],
+    notes: [],
+    joins: [],
+    starts: [],
+    unitChanges: [],
+    taken: new Set(run.taken),
+    manpower: structuredClone(run.manpower),
+    effort: new Map(),
+    mendLeft: run.mendLeft ? new Map(run.mendLeft) : run.mendLeft,
+    wings: run.wings ? new Map([...run.wings].map(([id, wing]) => [id, { ...wing }])) : run.wings,
+    airOver: new Map(),
+    airDay: -1,
+    lines: Array.isArray(run.lines) ? structuredClone(run.lines) : run.lines,
+    steps: 0,
+    braked: false,
+    flipsLeft: Infinity,
+    controllerOf: (id) => (controllers.has(id) ? controllers.get(id) : run.controllerOf(id)),
+    setController: (id, who) => { controllers.set(id, who); },
+    groupOf: (id) => (groups.has(id) ? groups.get(id) : run.groupOf(id)),
+    setGroup: (id, who) => { groups.set(id, who); },
+    regionChanged: () => {},
+    spendFlip: () => {},
+    input: { ...run.input, watch: null, staffPolicy: null },
+  });
+  // Its walls are worn on its own lines (walls.js wearWall wears those of battle.wallRun): the copy's first day
+  // begins after the morning that sets them, and it wore and broke the real walls. Found 2026-10-15, when a skip's
+  // second run, its staff's looks had again rather than rehearsed, came out otherwise than the first.
+  if (copy.wallRun) copy.wallRun = stub;
+  return { run: stub, battle: copy };
+};
+
+// What a side's wings are sent to do over a battle (air.js AIR_MISSIONS); anything else is no change.
+const setAirMission = (battle, side, mission) => {
+  if (!AIR_MISSIONS.includes(mission)) return;
+  battle.airMission = Array.isArray(battle.airMission) ? battle.airMission : ["support", "support"];
+  battle.airMission[side] = mission;
+};
+
+// What a staff of the run's own said its plan is, and where most of those it sent forward are going (mind/planner.js),
+// kept on the battle as its record keeps it (battle.js, brief.carry.staff): its side's own, which the other side's
+// agents and aircraft may find out (GameUI/warRoom.jsx).
+const noteStaffPlan = (run, battle, side, said, day) => {
+  const aim = Array.isArray(said.aim) && said.aim.length === 2 ? battle.place.toCell(Number(said.aim[0]), Number(said.aim[1])) : null;
+  const at = aim && Number.isFinite(aim[0]) && Number.isFinite(aim[1]) ? describePoint(battle.arena, aim[0], aim[1]) : "";
+  let sent = 0;
+  for (const body of Array.isArray(said.troops) ? said.troops : []) if (body.order === "advance" && Array.isArray(body.picked)) sent += body.picked.length;
+  battle.staffPlans = Array.isArray(battle.staffPlans) ? battle.staffPlans : [null, null];
+  battle.staffPlans[side] = { plan: said.plan, ...(at ? { at } : {}), since: run.dateOf(day), n: sent };
+};
+
+// Gives a rehearsal's side orders, troop by troop, as a staff of the run's own does ({ order, picked, way } bodies),
+// and, with `air`, what its wings are sent to do.
+export const rehearseOrders = (rehearsed, side, bodies, day, { air = null } = {}) => {
+  const { run, battle } = rehearsed;
+  if (typeof air === "string") setAirMission(battle, side, air);
+  if (!Array.isArray(bodies) || bodies.length === 0 || liveCount(battle.troops[side]) === 0) return;
+  const today = prepare(battle, day);
+  const lead = battle.sides[side].find((member, at) => !battle.gone[side].has(at)) ?? "";
+  orderTroopsByMind(run, battle, side, bodies, day, today, lead);
+};
+
+// Fights a rehearsal's next day, from its morning (the levies owed coming in, and dawn.js) unless the copy was
+// made after it: a staff looks after the morning, so the first day of a rehearsal it makes is `morning: false`.
+// False once the battle there is over.
+export const rehearseDay = (rehearsed, day, { morning = true } = {}) => {
+  const { run, battle } = rehearsed;
+  if (battle.status !== "active" || battle.closing) return false;
+  if (morning) {
+    musterDay(run, battle, day);
+    dawn(run, battle, day);
+  }
+  run.steps += simulateDay(battle, run, day);
+  battle.daysRun += 1;
+  return !battle.closing;
+};
+
+// ---- rehearsals on other cores (mind/planner.js, mind/rehearsers.js) ------------
+// "do the multi-core rehearsals too" (the owner, 2026-10-16). A staff's plans,
+// each fought out on a copy of the battle one after another, are most of what a
+// war's turn takes. Other cores fight them as well, together: each is sent the
+// battle and the run as they stand, as data (rehearsalPacket), rebuilds the
+// same two (rehearsalBase) and makes its copies of those exactly as here. The
+// same orders on the same battle come out the same to the last digit wherever
+// they are fought. What a copy is asked and was not told (a region or a
+// country its tables lack) it says it missed, and that plan is fought here.
+//
+// What is not data is said by name: the battle's projector (its place, and
+// what was worked out for it) and the run itself (what its walls were worn
+// on). The run's readers of the world become tables: whose each of the
+// battle's regions is, and each country's figures, for every country the
+// battle could ask about.
+const PLACE_MARK = "\u0000place";
+const RUN_MARK = "\u0000run";
+// (Never sent: what every copy is given afresh (rehearsal above), the arenas kept, the map's shapes.)
+const RUN_LEFT_OUT = new Set(["input", "battles", "cache", "landRegions", "airOver", "flips", "notes", "joins", "starts", "unitChanges"]);
+const INPUT_LEFT_OUT = new Set(["arenas", "battlefields", "staffPolicy", "watch", "rehearsers"]);
+const BATTLE_LEFT_OUT = new Set(["recorder", "watch", "mendOf"]);
+// The readers asked of a region (by its id); every other is asked of a country (by its name).
+const REGION_READERS = Object.freeze(["controllerOf", "sovereignOf"]);
+
+export const rehearsalPacket = (run, battle) => {
+  const books = {};
+  for (const key of Object.keys(run)) if (!RUN_LEFT_OUT.has(key) && typeof run[key] !== "function") books[key] = run[key];
+  const input = {};
+  const readers = [];
+  for (const [key, value] of Object.entries(run.input ?? {})) {
+    if (INPUT_LEFT_OUT.has(key)) continue;
+    if (typeof value === "function") readers.push([key, value]);
+    else input[key] = key === "map" && value && typeof value === "object" ? { ...value, regions: null } : value;
+  }
+  // Every region of the battle's, and every country it could ask about.
+  const ids = battle.arena.ids.filter((id) => typeof id === "string" && id);
+  const names = new Set();
+  const add = (name) => {
+    const text = clean(name);
+    if (text) names.add(text);
+  };
+  for (const list of battle.sides) list.forEach(add);
+  for (const war of run.wars.values()) for (const list of war.sides) list.forEach(add);
+  for (const id of ids) {
+    add(run.controllerOf(id));
+    add(run.sovereignOf(id));
+    add(run.groupOf(id));
+  }
+  for (const unit of Array.isArray(run.input?.units) ? run.input.units : []) {
+    add(unit?.ownerCode);
+    add(unit?.owner);
+  }
+  for (const list of [run.transports, run.lines, run.wings ? [...run.wings.values()] : []]) for (const item of Array.isArray(list) ? list : []) add(item?.owner);
+  const tables = {};
+  for (const [key, reader] of readers) {
+    const table = new Map();
+    for (const asked of REGION_READERS.includes(key) ? ids : names) table.set(asked, reader(asked));
+    tables[key] = table;
+  }
+  const lookups = {};
+  for (const [key, kept] of Object.entries(run.lookups ?? {})) lookups[key] = [...kept];
+  const bare = {};
+  for (const key of Object.keys(battle)) {
+    const value = battle[key];
+    bare[key] = value === battle.place ? PLACE_MARK : value === run ? RUN_MARK : BATTLE_LEFT_OUT.has(key) ? null : value;
+  }
+  return { books, input, tables, lookups, battle: bare };
+};
+
+// The battle and the run a packet was made of, rebuilt (from a copy of it: it is made over): { run, battle, missed },
+// missed.count the times a copy was asked what its tables did not have.
+export const rehearsalBase = (packet) => {
+  const missed = { count: 0 };
+  const input = { ...packet.input };
+  for (const [key, table] of Object.entries(packet.tables ?? {})) {
+    input[key] = (asked) => {
+      if (table.has(asked)) return table.get(asked);
+      missed.count += 1;
+      return undefined;
+    };
+  }
+  const run = createRun(input);
+  for (const [key, entries] of Object.entries(packet.lookups ?? {})) for (const [asked, value] of entries) run.lookups[key]?.set(asked, value);
+  Object.assign(run, packet.books);
+  const battle = packet.battle;
+  const place = projectorOf(battle.frame);
+  for (const key of Object.keys(battle)) {
+    if (battle[key] === PLACE_MARK) battle[key] = place;
+    else if (battle[key] === RUN_MARK) battle[key] = run;
+  }
+  run.battles = [battle];
+  return { run, battle, missed };
 };
 
 export const createFrontRun = (input) => {
@@ -1981,15 +2481,29 @@ export const createFrontRun = (input) => {
     run = createRun(input ?? {});
     begin(run);
   });
+  // The days as steps a caller may stop between: between any two a staff of the run's own may be thinking
+  // (mind/planner.js), and Game/AI/frontTurn.js runFrontTurn lets the page draw there.
+  function* daySteps(maxDays = Infinity) {
+    if (needsRegions) return;
+    try {
+      for (let done = 0; done < maxDays && run.day < run.days; done += 1) yield* stepDay(run);
+    } catch (error) {
+      if (error !== REGIONS_NEEDED) throw error;
+      needsRegions = true;
+    }
+  }
+  const finished = () => needsRegions || run.day >= run.days;
   const advance = (maxDays = Infinity) => {
-    work(() => {
-      for (let done = 0; done < maxDays && run.day < run.days; done += 1) stepDay(run);
-    });
-    return needsRegions || run.day >= run.days;
+    const steps = daySteps(maxDays);
+    for (let step = steps.next(); !step.done; step = steps.next()) { /* taken one after another */ }
+    return finished();
   };
   return {
     // Simulates up to `maxDays` more days; true when the run is finished.
     advance,
+    // The same, as steps (a generator); then finished() says whether the run is.
+    steps: daySteps,
+    finished,
     // The result as it stands now, without ending the run: what a run cut here would give.
     snapshot: () => (needsRegions ? { needsRegions: true } : snapshot(run)),
     finish: () => {

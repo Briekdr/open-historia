@@ -32,7 +32,6 @@
 // but what it is handed, so the same turn applied twice is the same world.
 
 import { TREATY_BROKEN_REPUTATION, agreementsWithout, callsForTurn, defendersOf, honoursCall, normalizeCallsToArms, reputationAfterBreaking } from "../../runtime/alliances.js";
-import { countryWeight } from "../../runtime/countryWeight.js";
 import { diffGameDays } from "../../runtime/gameDates.js";
 import { applyCountryStatPatchToWorld, applyEventImpactsToWorld } from "../../runtime/gameState.js";
 import {
@@ -49,8 +48,14 @@ import {
   withTurnPeaceOffers,
   wouldAccept,
 } from "../../runtime/peaceTerms.js";
+import { startingWearinessOf } from "../../runtime/militaryStats.js";
+import { landWeightsOf } from "../../runtime/militaryPower.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
-import { normalizeWarWeariness, wearinessOf, withTurnWeariness } from "../../runtime/warWeariness.js";
+import { normalizeWarWeariness, wearinessGoingIn, wearinessOf, withTurnWeariness } from "../../runtime/warWeariness.js";
+import { economyRate, withTurnResources } from "../../runtime/warResources.js";
+import { withTurnAttrition } from "../../runtime/attrition.js";
+import { middleFundingPerHead } from "../../runtime/militaryFunding.js";
+import { warSettingsOf } from "../../runtime/warSettings.js";
 import { applyWarUpdates } from "./nativeWarLedger.js";
 
 const clean = (value, most = 160) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, most).trim();
@@ -292,7 +297,8 @@ export const turnWarAndPeace = ({ world = {}, baseWorld = {}, days = 0, date = "
   const fought = new Set(list(baseWorld?.wars).filter(active).map((war) => clean(war.id)));
   const began = list(next.wars).filter((war) => active(war) && !fought.has(clean(war.id))).map((war) => clean(war.id));
   const before = normalizeWarWeariness(baseWorld?.warWeariness);
-  const strengthOf = (name) => countryWeight({ population: peopleOf(next, name), regions: holdings.get(fold(name)) ?? 0 });
+  // (What each weighs in a land war: its people and what its forces have to spend, never the land it holds.)
+  const strengthOf = landWeightsOf(next);
   const due = callsForTurn({
     world: next,
     wars: next.wars,
@@ -334,7 +340,8 @@ export const turnWarAndPeace = ({ world = {}, baseWorld = {}, days = 0, date = "
   next = { ...next, callsToArms: due.calls };
 
   // ---- weariness ----
-  const weariness = withTurnWeariness(before, {
+  // (A country that goes to war with none yet goes as weary as its own military figures say.)
+  const weariness = withTurnWeariness(wearinessGoingIn(before, { wars: next.wars, startOf: startingWearinessOf(next) }), {
     days,
     wars: next.wars,
     manpower: fronts?.manpower,
@@ -342,8 +349,34 @@ export const turnWarAndPeace = ({ world = {}, baseWorld = {}, days = 0, date = "
     flips: fronts?.flips,
     heldBy: (name) => holdings.get(fold(name)) ?? 0,
     blockades: fronts?.sea?.blockades,
+    // (And what attrition took, where the scenario's wars count it: runtime/fronts/attrition.js.)
+    attrition: fronts?.attrition,
   });
   next = { ...next, warWeariness: weariness };
+  // What attrition has cost each country at war (runtime/attrition.js).
+  if (warSettingsOf(next).mechanics.attrition) next = { ...next, attrition: withTurnAttrition(baseWorld?.attrition, { attrition: fronts?.attrition, wars: next.wars }) };
+
+  // ---- war resources ----
+  // What advancing and building fortified lines spent, and what each country's
+  // economy refilled, less under the period's blockades (runtime/warResources.js),
+  // where the scenario's wars use them.
+  if (warSettingsOf(next).mechanics.supply) {
+    const sheets = next.countryStats && typeof next.countryStats === "object" ? next.countryStats : {};
+    const middle = middleFundingPerHead(sheets);
+    const sheetOf = (name) => sheets[Object.keys(sheets).find((key) => fold(key) === fold(name)) ?? ""] ?? null;
+    const pressed = new Map(list(fronts?.sea?.blockades).map((entry) => [fold(entry?.country), Number(entry?.pressure) || 0]));
+    next = {
+      ...next,
+      warResources: withTurnResources(baseWorld?.warResources, {
+        days,
+        toDate: date,
+        effort: fronts?.effort,
+        fortifications: next.fortifications,
+        attrition: fronts?.attrition,
+        rateOf: (name) => economyRate({ sheet: sheetOf(name), middle, pressure: pressed.get(fold(name)) ?? 0 }),
+      }),
+    };
+  }
 
   // ---- peace ----
   const wearyOf = (name) => wearinessOf(weariness, name);

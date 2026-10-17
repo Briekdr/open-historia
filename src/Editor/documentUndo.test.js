@@ -10,7 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { groupEraseSteps, groupRenameSteps, removeRowStep, removeRowsStep } from "./documentUndo.js";
+import { addRowStep, groupEraseSteps, groupRenameSteps, membershipStep, patchRowStep, removeRowStep, removeRowsStep } from "./documentUndo.js";
 
 // A document setter as useMapDocument has them: a value or an updater.
 const store = (initial) => {
@@ -129,4 +129,59 @@ test("undoing the erase of a group that had no record leaves the registry alone"
   steps.redo();
   steps.undo();
   assert.deepEqual(groups.value, { Other: { name: "Other" } });
+});
+
+// --- the war tools' shapes (warGeographyDoc.js) ------------------------------
+
+test("a shape drawn is added at once; undo takes it out, and redo puts it back only once", () => {
+  const areas = store([{ id: "alps", level: 8 }]);
+  const step = addRowStep(areas.set, { id: "marsh", level: 4 });
+  assert.deepEqual(areas.value.map((row) => row.id), ["alps", "marsh"]);
+
+  step.undo();
+  assert.deepEqual(areas.value.map((row) => row.id), ["alps"]);
+
+  step.redo();
+  step.redo();
+  assert.deepEqual(areas.value.map((row) => row.id), ["alps", "marsh"]);
+});
+
+test("a shape reshaped takes its old points back on undo, and keeps a rename made since", () => {
+  const before = [[[0, 0], [1, 0], [1, 1], [0, 0]]];
+  const after = [[[0, 0], [2, 0], [2, 2], [0, 0]]];
+  const zones = store([{ id: "north", name: "North", rings: before }]);
+  const step = patchRowStep(zones.value, zones.set, "north", { rings: after });
+  assert.equal(zones.value[0].rings, after);
+
+  zones.set((list) => list.map((row) => ({ ...row, name: "The North" })));
+  step.undo();
+  assert.deepEqual(zones.value, [{ id: "north", name: "The North", rings: before }]);
+
+  step.redo();
+  assert.equal(zones.value[0].rings, after);
+  assert.equal(patchRowStep(zones.value, zones.set, "nowhere", { rings: after }), null, "no such shape, no step");
+});
+
+test("a field a patch adds is taken out again on undo", () => {
+  const walls = store([{ id: "wall", level: 5 }]);
+  const step = patchRowStep(walls.value, walls.set, "wall", { owner: "Aland" });
+  step.undo();
+  assert.deepEqual(walls.value, [{ id: "wall", level: 5 }]);
+});
+
+test("marking water that can freeze moves only the ids that were not marked, and undo moves only those", () => {
+  const freezing = store(["lake"]);
+  const step = membershipStep(freezing.value, freezing.set, ["lake", "sea", "sea"], true);
+  assert.deepEqual(freezing.value, ["lake", "sea"]);
+
+  step.undo();
+  assert.deepEqual(freezing.value, ["lake"], "the lake was marked before, and stays marked");
+
+  step.redo();
+  const off = membershipStep(freezing.value, freezing.set, ["lake", "sea"], false);
+  assert.deepEqual(freezing.value, []);
+  off.undo();
+  assert.deepEqual(freezing.value.sort(), ["lake", "sea"]);
+
+  assert.equal(membershipStep(freezing.value, freezing.set, ["lake"], true), null, "nothing to move, no step");
 });

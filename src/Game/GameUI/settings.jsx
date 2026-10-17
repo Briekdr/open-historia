@@ -1,5 +1,5 @@
 /*! Open Historia — portions (reasoning toggle + small-screen menu) © 2026 Nicholas Krol, AGPL-3.0-or-later (see LICENSE). */
-import React, { Suspense, lazy, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { APP_HEIGHT, SAFE_BOTTOM, SAFE_LEFT, SAFE_RIGHT, SAFE_TOP, useTouchPrimary } from "../../runtime/mobileUi.js";
 import { useBackToClose } from "../../runtime/backToClose.js";
 import { createPortal } from "react-dom";
@@ -798,6 +798,20 @@ const StructuredModeSelect = ({ onChange, value }) => {
     );
 };
 
+const EyeIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const EyeOffIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+    <line x1="1" y1="1" x2="23" y2="23" />
+  </svg>
+);
+
 const SettingsInput = ({
     label,
     value,
@@ -812,6 +826,10 @@ const SettingsInput = ({
 }) => {
     const listId = useId();
     const list = Array.isArray(suggestions) && suggestions.length ? suggestions : null;
+    const [revealed, setRevealed] = useState(false);
+    const isPassword = type === "password";
+    const effectiveType = isPassword ? (revealed ? "text" : "password") : type;
+
     return (
         <div style={fieldGroupStyle}>
         <label style={labelStyle}>
@@ -827,6 +845,56 @@ const SettingsInput = ({
             spellCheck={false}
             style={{ ...inputStyle, fontFamily: "monospace", resize: "vertical" }}
             />
+        ) : isPassword ? (
+            <div style={{ alignItems: "center", display: "flex", position: "relative" }}>
+                <input
+                type={effectiveType}
+                value={value}
+                onChange={(event) => onChange(event.target.value)}
+                placeholder={placeholder}
+                autoComplete="off"
+                spellCheck={false}
+                list={list ? listId : undefined}
+                style={{ ...inputStyle, paddingRight: "2.5rem" }}
+                />
+                <button
+                  type="button"
+                  className="oh-tap"
+                  onClick={() => setRevealed((v) => !v)}
+                  title={revealed ? "Hide API key" : "Show API key"}
+                  aria-label={revealed ? "Hide API key" : "Show API key"}
+                  style={{
+                    alignItems: "center",
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: "6px",
+                    color: revealed ? "#38bdf8" : "inherit",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    height: "2rem",
+                    justifyContent: "center",
+                    opacity: revealed ? 1 : 0.65,
+                    padding: "0",
+                    position: "absolute",
+                    right: "0.35rem",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    transition: "opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease",
+                    width: "2.1rem",
+                    zIndex: 20,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.opacity = "1";
+                    e.currentTarget.style.background = "rgba(128, 128, 128, 0.18)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = revealed ? "1" : "0.65";
+                    e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  {revealed ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
+                </button>
+            </div>
         ) : (
             <input
             type={type}
@@ -2651,6 +2719,7 @@ const PrivacySection = ({ discordPresenceOn, onToggleDiscordPresence }) => {
 
 const SETTINGS_SECTIONS = [
     { key: "general", label: "General", icon: "◫", description: "Language, display, accessibility, sound and privacy" },
+    { key: "sound", label: "Sound", icon: "♫", description: "The game's music and sound effects." },
     { key: "map", label: "Map", icon: "◇", description: "Basemap, labels, globe and camera" },
     { key: "ai", label: "AI", icon: "✦", description: "Models, backups, keys and reasoning" },
     { key: "advanced", label: "Advanced", icon: "⌘", description: "Per-task models and expert controls" },
@@ -2730,6 +2799,8 @@ const SettingsWorkspace = ({
     const leaving = usePresenceLeaving();
     const cardRef = useRef(null);
     const [basemapsOpen, setBasemapsOpen] = useState(false);
+    const mapMode = useMapSettingValue(MAP_SETTING_KEYS.mapMode, "political");
+    const updateMapMode = (value) => setMapSettingValue(MAP_SETTING_KEYS.mapMode, value);
     // The system asks for reduced motion: the motion switches are on whatever
     // is stored, so they show on and stay put (mapSettings.js).
     const systemReducedMotion = useSystemReducedMotion();
@@ -2812,12 +2883,15 @@ const SettingsWorkspace = ({
                 </SettingsSection>
                 <SettingsSection title="Display" description="Window and presentation preferences that apply to the game client.">
                     <Toggle label="Fullscreen" enabled={isFullscreenEnabled} onToggle={onToggleFullscreen} />
+                    {/* The vault door shows the first time the game opens after an
+                        update (runtime/vaultDoorDue.js); this shows it at every
+                        opening. */}
                     <Toggle
-                    label="Vault door at start"
-                    enabled={mapSettings.vaultDoor}
-                    onToggle={() => updateMapSetting("vaultDoor", MAP_SETTING_KEYS.vaultDoor, !mapSettings.vaultDoor)}
+                    label="Every time the game opens"
+                    enabled={mapSettings.vaultDoorAlways}
+                    onToggle={() => updateMapSetting("vaultDoorAlways", MAP_SETTING_KEYS.vaultDoorAlways, !mapSettings.vaultDoorAlways)}
                     />
-                    <div style={{ ...helperStyle, marginTop: "-0.6rem", marginBottom: "0.6rem" }}>{"Off, the game opens straight onto the main menu."}</div>
+                    <div style={{ ...helperStyle, marginTop: "-0.6rem", marginBottom: "0.6rem" }}>{"Off, the door shows only the first time the game opens after an update."}</div>
                 </SettingsSection>
                 <SettingsSection title="Accessibility" description="Reduce automatic camera motion and map animations without changing simulation behavior.">
                     <Toggle
@@ -2832,12 +2906,6 @@ const SettingsWorkspace = ({
                     />
                     {systemReducedMotion && <div style={{ ...helperStyle, marginTop: "-0.6rem", marginBottom: "0.6rem" }}>On, following your system setting for reduced motion.</div>}
                 </SettingsSection>
-                <SoundSection
-                musicOn={mapSettings.ambientMusic}
-                onToggleMusic={() => updateMapSetting("ambientMusic", MAP_SETTING_KEYS.ambientMusic, !mapSettings.ambientMusic)}
-                effectsOn={mapSettings.soundEffects}
-                onToggleEffects={() => updateMapSetting("soundEffects", MAP_SETTING_KEYS.soundEffects, !mapSettings.soundEffects)}
-                />
                 <PrivacySection
                 discordPresenceOn={mapSettings.discordPresence}
                 onToggleDiscordPresence={() => updateMapSetting("discordPresence", MAP_SETTING_KEYS.discordPresence, !mapSettings.discordPresence)}
@@ -2845,8 +2913,34 @@ const SettingsWorkspace = ({
                 </>
             )}
 
+            {activeSection === "sound" && (
+                <>
+                <SoundSection
+                musicOn={mapSettings.ambientMusic}
+                onToggleMusic={() => updateMapSetting("ambientMusic", MAP_SETTING_KEYS.ambientMusic, !mapSettings.ambientMusic)}
+                effectsOn={mapSettings.soundEffects}
+                onToggleEffects={() => updateMapSetting("soundEffects", MAP_SETTING_KEYS.soundEffects, !mapSettings.soundEffects)}
+                />
+                </>
+            )}
+
             {activeSection === "map" && (
                 <>
+                <SettingsSection title="Map presentation" description="Choose the map mode and visual presentation options.">
+                    <div style={fieldGroupStyle}>
+                        <label style={labelStyle} htmlFor="game-map-mode">Map mode</label>
+                        <select
+                            id="game-map-mode"
+                            style={inputStyle}
+                            value={mapMode || "political"}
+                            onChange={(event) => updateMapMode(event.target.value)}
+                        >
+                            <option value="political">Political (Countries and borders)</option>
+                            <option value="diplomatic">Diplomatic (Allies, enemies, trade partners)</option>
+                        </select>
+                        <div style={helperStyle}>Diplomatic mode colours each country by where it stands with you: your puppets, allies, friends, hostile countries and enemies at war.</div>
+                    </div>
+                </SettingsSection>
                 {/* In a game, this game's own pick among the scenario's maps
                     (detailed maps among them); in the main menu, what every
                     game starts on (Map/useBasemapPick.js). */}
@@ -2899,6 +2993,18 @@ const SettingsWorkspace = ({
                         <div style={helperStyle}>Empty uses the font the scenario author chose. Any font installed on this computer works; overrides apply immediately.</div>
                     </div>
                     <Toggle label="Hide country labels" enabled={mapSettings.hideCountryLabels} onToggle={() => updateMapSetting("hideCountryLabels", MAP_SETTING_KEYS.hideCountryLabels, !mapSettings.hideCountryLabels)} />
+                    <Toggle label="Seasons and weather" enabled={mapSettings.seasonsWeather} onToggle={() => updateMapSetting("seasonsWeather", MAP_SETTING_KEYS.seasonsWeather, !mapSettings.seasonsWeather)} />
+                    <div style={settingsHelper}>
+                    On (default): the map is tinted by the season and shows its weather. Frozen water is drawn as ice either way.
+                    </div>
+                    {mapSettings.seasonsWeather && (
+                        <>
+                            <Toggle label="Weather effects" enabled={mapSettings.weatherEffects} onToggle={() => updateMapSetting("weatherEffects", MAP_SETTING_KEYS.weatherEffects, !mapSettings.weatherEffects)} />
+                            <div style={settingsHelper}>
+                            On (default): rain, snow, frost, fog and the other weathers are drawn over the land they fall on. Off: no weather is drawn; the season's tint and the ice stay, and the advisor can still tell you the weather.
+                            </div>
+                        </>
+                    )}
                     <PerformanceModeSetting />
                 </SettingsSection>
                 <SettingsSection title="3D map" description="Globe and terrain rendering are presentation features; they do not change world state.">
@@ -3181,8 +3287,13 @@ const SettingsMenu = ({
         ambientMusic: getMapSettingDefaultOn(MAP_SETTING_KEYS.ambientMusic),
         // And the sound effects (the vault door's; General → Sound).
         soundEffects: getMapSettingDefaultOn(MAP_SETTING_KEYS.soundEffects),
-        // And the vault door the app opens on (General → Display).
-        vaultDoor: getMapSettingDefaultOn(MAP_SETTING_KEYS.vaultDoor),
+        // Off by default: the vault door shows the first time the game opens
+        // after an update, unless this asks for every time (General → Display).
+        vaultDoorAlways: getMapSetting(MAP_SETTING_KEYS.vaultDoorAlways),
+        // And the seasons and weather on the map (Map → Map presentation),
+        // and the weather's patterns among them.
+        seasonsWeather: getMapSettingDefaultOn(MAP_SETTING_KEYS.seasonsWeather),
+        weatherEffects: getMapSettingDefaultOn(MAP_SETTING_KEYS.weatherEffects),
     }));
 
     const updateMapSetting = (stateKey, settingKey, value) => {
@@ -3305,6 +3416,7 @@ const SettingsMenu = ({
             <QuickMenuPanel title="Settings" description="Jump straight into the options category you want.">
                 <div style={grid}>
                     <QuickAction title="General" description="Language, display, accessibility, sound and privacy" symbol="◫" tone="blue" onClick={() => openSettingsSection("general")} />
+                    <QuickAction title="Sound" description="The game's music and sound effects." symbol="♫" tone="blue" onClick={() => openSettingsSection("sound")} />
                     <QuickAction title="Map" description="Basemap, labels, globe and camera" symbol="◇" tone="blue" onClick={() => openSettingsSection("map")} />
                     <QuickAction title="AI" description="Models, backups, keys and reasoning" symbol="✦" onClick={() => openSettingsSection("ai")} />
                     <QuickAction title="Advanced" description="Per-task models and expert controls" symbol="⌘" onClick={() => openSettingsSection("advanced")} />
@@ -3315,7 +3427,7 @@ const SettingsMenu = ({
         panelContent = (
             <QuickMenuPanel title="Help" description="Guides, bug reporting and community links.">
                 <div style={grid}>
-                    <QuickAction title="Guides" description="How-to pages and setup help" symbol="?" href={GUIDES_HREF} />
+                    <QuickAction title="Wiki" description="How-to pages and setup help" symbol="?" href="/wiki/" />
                     <QuickAction
                         title={updateCheckResult.status === "checking" ? "Checking for updates…" : "Check for updates"}
                         description={appUpdateCheckDescription(updateCheckResult)}

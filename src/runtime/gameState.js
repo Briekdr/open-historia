@@ -7,6 +7,11 @@ import { normalizeBlockades } from "./naval/blockade.js";
 import { normalizeCallsToArms } from "./alliances.js";
 import { normalizePeaceOffers, normalizePeaceTreaties, normalizeReparations } from "./peaceTerms.js";
 import { normalizeWarWeariness } from "./warWeariness.js";
+import { normalizeWarResources } from "./warResources.js";
+import { normalizeAttrition } from "./attrition.js";
+import { eraSettingOf, normalizeWarSettings } from "./warSettings.js";
+import { normalizeClimateZones, normalizeFortifications, normalizeFreezingRegions, normalizeTerrainAreas, normalizeZoneWeather } from "./warGeography.js";
+import { normalizeMilitaryShift, normalizeMilitaryStats, shiftedMilitary } from "./militaryStats.js";
 import { MAX_GROUPS, applyGroupOps, canRenameGroup, findGroupKey, normalizeGroupAreas, normalizeGroupOp, normalizeGroups } from "./groups.js";
 import { enqueueEventStrings } from "./translator.js";
 import { normalizeTagList } from "./countryTags.js";
@@ -63,6 +68,7 @@ import { normalizeBattlefields } from "./fronts/record.js";
 import { normalizeTransports } from "./fronts/transports.js";
 import { normalizeStrikes } from "./strikes.js";
 import { battlefieldHeldClaimants } from "./fronts/heldRegions.js";
+import { sharedGameHostCountry } from "./humanPolities.js";
 
 export const GAME_DEFAULTS = {
   country: "",
@@ -275,6 +281,24 @@ export const WORLD_DEFAULTS = {
   // How weary of war each country is, 0 to 100 (warWeariness.js): the game's
   // own figure, moved every turn by what the turn did to it.
   warWeariness: [],
+  // What each country has left to fight with, 0 to 100 (warResources.js): spent
+  // by advancing and building fortified lines, refilled by its funding.
+  warResources: [],
+  // What the weather and being cut off have cost each country at war (attrition.js).
+  attrition: [],
+  // How the scenario's wars are fought (warSettings.js): null where it says nothing.
+  warSettings: null,
+  // What the scenario draws on its map for war (warGeography.js): ground harder
+  // to cross, walls that must be broken through, its own climates, and the
+  // water that freezes in winter.
+  terrainAreas: [],
+  fortifications: [],
+  climateZones: [],
+  freezingRegions: [],
+  // The water frozen as the last turn left it (runtime/fronts/climate.js): for the map to show as ice.
+  frozenRegions: [],
+  // Each climate zone's weather as the last turn left it (runtime/zoneWeather.js): the map's patches of weather.
+  zoneWeather: null,
   // Peace (peaceTerms.js): the offers that wait for an answer or were given
   // one, the reparations being paid, and the last peaces made on terms.
   peaceOffers: [],
@@ -1013,8 +1037,13 @@ export const reconcileChatsForPlayer = (chats, world, playerCountry = "") => {
   // against this player, never merged into a thread of this player's.
   const playerName = normalizeOptionalString(playerCountry);
   const playerKey = playerName ? normalizedChatIdentityToken(playerName, world, index) : "";
+  // While this engine hosts a shared game a thread that names no owner is the
+  // host's (multiplayer/host/projection.js threadOwner). Reconciled for a
+  // guest's institution business as though it were the guest's, a host's
+  // thread with only that guest in it lost its last member and was dropped.
+  const hostOwner = normalizeOptionalString(sharedGameHostCountry());
   const anothers = (entry) => {
-    const owner = normalizeOptionalString(entry?.player);
+    const owner = normalizeOptionalString(entry?.player) || hostOwner;
     return Boolean(owner) && normalizedChatIdentityToken(owner, world, index) !== playerKey;
   };
   const reconciled = normalizeArray(chats)
@@ -1217,6 +1246,10 @@ const normalizePolityChange = (entry) => {
     ? entry.stats
     : null;
 
+  // A lasting change to how it makes war (runtime/militaryStats.js): by how
+  // much each of its figures moves. Left out when there is none.
+  const military = normalizeMilitaryShift(entry.military);
+
   // Old saved events predate explicit lifecycle operations; they stay ordinary
   // updates. New AI output states create/rename/restore/dissolve explicitly.
   const rawOperation = normalizeOptionalString(entry.operation || entry.op || entry.action).toLowerCase();
@@ -1228,6 +1261,7 @@ const normalizePolityChange = (entry) => {
     color: normalizeOptionalString(entry.color),
     name: normalizeOptionalString(entry.name || entry.newName),
     intelligence,
+    ...(military ? { military } : {}),
     note: normalizeOptionalString(entry.note || entry.reason),
     operation,
     reputation,
@@ -2888,11 +2922,11 @@ const nearestKm = (point, anchors) => {
 // The threshold is "30 days of this type's travel", which makes it era- and
 // type-aware off the same speed table for free: a modern navy reads as globally
 // supported (~18,000 km, correct), a 1400 army does not (~420 km, also correct).
-const isUnsupportedSpawn = (point, anchors, type, gameDate) => {
+const isUnsupportedSpawn = (point, anchors, type, gameDate, era = null) => {
   // An unknown footprint is not a suspicious one — world.units is empty at the
   // start of most scenarios, and gating on that would ghost every first spawn.
   if (anchors.length === 0) return false;
-  const radius = Math.max(600, Math.min(15000, maxTravelKm(type, gameDate, 30)));
+  const radius = Math.max(600, Math.min(15000, maxTravelKm(type, gameDate, 30, { era })));
   return nearestKm(point, anchors) > radius;
 };
 
@@ -2943,7 +2977,7 @@ export const resumeStandingOrders = (world, { round = 0, previousSystem = "" } =
 //   what a non-Gregorian scenario date must fall back to).
 export const applyUnitOpBatch = (units, orders, ops, context = {}) => {
   const {
-    gameDate = "", elapsedDays = null, round = 0, extraAnchors = [], eventId = "",
+    gameDate = "", elapsedDays = null, round = 0, extraAnchors = [], eventId = "", era = null,
   } = context;
   let next = normalizeUnits(units);
   let nextOrders = normalizePendingUnitOrders(orders);
@@ -2973,7 +3007,7 @@ export const applyUnitOpBatch = (units, orders, ops, context = {}) => {
       const anchors = buildOwnerFootprint({ units: next, markers }, unit.ownerCode, extraAnchors);
       // Reach/supply feasibility: a spawn its owner could not support where the
       // model put it is downgraded rather than dropped.
-      if (isUnsupportedSpawn(unit, anchors, unit.type, gameDate)) {
+      if (isUnsupportedSpawn(unit, anchors, unit.type, gameDate, era)) {
         // A fixed installation is the one thing that cannot simply be detected
         // into existence — it has to be built. Downgrade it to the troops it
         // would take rather than dropping the op, because a silently dropped op
@@ -3035,6 +3069,7 @@ export const applyUnitOpBatch = (units, orders, ops, context = {}) => {
             ? Infinity
             : maxTravelKm(unit.type, gameDate, elapsedDays, {
               posture,
+              era,
               seaShare: op.seaShare ?? null,
               remainingKm: haversineKm(unit.lat, unit.lng, op.toLat, op.toLng),
             });
@@ -3188,6 +3223,7 @@ export const advanceStandingOrders = (
       { lng: order.toLng, lat: order.toLat },
       maxTravelKm(unit.type, toDate || fromDate, unitElapsed, {
         posture: unit.posture,
+        era: eraSettingOf(world),
         seaShare: order.seaShare ?? null,
         remainingKm: haversineKm(unit.lat, unit.lng, order.toLat, order.toLng),
       }),
@@ -3729,6 +3765,8 @@ const normalizePolityOverride = (key, value) => {
     note: normalizeOptionalString(value.note),
     // Its people when the scenario begins, where its author says (runtime/populationFigure.js).
     ...(populationFigureOf(value) > 0 ? { population: populationFigureOf(value) } : {}),
+    // Its own military figures, where its author gives them (runtime/militaryStats.js).
+    ...(normalizeMilitaryStats(value.military) ? { military: normalizeMilitaryStats(value.military) } : {}),
     ...(POLITY_STATUS_SET.has(status) ? { status } : {}),
     ...(value.verbatim === true ? { verbatim: true } : {}),
   };
@@ -4448,6 +4486,17 @@ export const normalizeWorldState = (world) => {
     naviesRaised: normalizeNaviesRaised(nextWorld.naviesRaised),
     blockades: normalizeBlockades(nextWorld.blockades),
     warWeariness: normalizeWarWeariness(nextWorld.warWeariness),
+    warResources: normalizeWarResources(nextWorld.warResources),
+    attrition: normalizeAttrition(nextWorld.attrition),
+    // How the scenario's wars are fought (warSettings.js): null where it says nothing.
+    warSettings: normalizeWarSettings(nextWorld.warSettings),
+    // What it draws on its map for war (warGeography.js).
+    terrainAreas: normalizeTerrainAreas(nextWorld.terrainAreas),
+    fortifications: normalizeFortifications(nextWorld.fortifications),
+    climateZones: normalizeClimateZones(nextWorld.climateZones),
+    freezingRegions: normalizeFreezingRegions(nextWorld.freezingRegions),
+    frozenRegions: normalizeFreezingRegions(nextWorld.frozenRegions),
+    zoneWeather: normalizeZoneWeather(nextWorld.zoneWeather),
     peaceOffers: normalizePeaceOffers(nextWorld.peaceOffers),
     reparations: normalizeReparations(nextWorld.reparations),
     peaceTreaties: normalizePeaceTreaties(nextWorld.peaceTreaties),
@@ -5542,6 +5591,14 @@ const applyPolityAndTerritoryImpacts = ({
       world.intelligence[code] = change.intelligence;
     }
 
+    // How it makes war, moved this turn (a purge, a rearmament, a fleet lost:
+    // runtime/militaryStats.js), into the game's own sheet, which stands over
+    // the figures the scenario's author gave it.
+    if (change.military) {
+      const military = shiftedMilitary(world, code, change.military);
+      if (military) applyCountryStatPatchToWorld(world, code, { military });
+    }
+
     // Reputation the AI set this turn becomes the polity's authoritative value.
     if (Number.isFinite(change.reputation)) {
       world.internationalReputation[code] = change.reputation;
@@ -5841,6 +5898,7 @@ export const applyEventImpactsToWorld = ({
         {
           markers: nextWorld.markers,
           gameDate: event.date || cursorDate,
+          era: eraSettingOf(nextWorld),
           elapsedDays: motion ? daysBetweenDates(cursorDate, event.date) : null,
           round: motion?.round ?? 0,
           eventId: event.id,

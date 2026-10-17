@@ -119,6 +119,23 @@ export const decodeMask = (text, length) => {
   return holders;
 };
 
+// The same runs, of any of four values a cell (a mask's own holders read past HOLDER_WALL as a wall): how well
+// supplied each cell is (battle.js supplyLevels: 0 none, 1 supplied, 2 stretched, 3 cut off).
+export const decodeFourMask = (text, length) => {
+  const values = new Uint8Array(Math.max(0, Math.floor(Number(length) || 0)));
+  const source = String(text ?? "");
+  const reader = createBitReader(source);
+  const runs = Math.floor(source.length / 2);
+  let index = 0;
+  for (let run = 0; run < runs && index < values.length; run += 1) {
+    const value = reader.read(2);
+    const end = Math.min(values.length, index + reader.read(RUN_BITS) + 1);
+    values.fill(value, index, end);
+    index = end;
+  }
+  return values;
+};
+
 // The cells whose distance to the line is kept: held by one side, with a cell
 // of the other within `reach` cells of it in each direction. In scan order,
 // which is the order the band's values are stored in, so no index is saved.
@@ -229,6 +246,27 @@ export const decodeTroops = (text) => {
     troops.push({ x, y, strength, kind, owner, named, dig, state });
   }
   return troops;
+};
+
+// ---- levels ------------------------------------------------------------------
+
+// A value from 0 to 1 a letter, in 63rds: a troop's fatigue (fatigue.js), a
+// string a side, in the order of its troops. A letter outside the alphabet reads as 0.
+export const encodeLevels = (values) => {
+  let text = "";
+  for (const value of Array.isArray(values) ? values : []) text += ALPHABET[clampInt((Number(value) || 0) * 63, 0, 63)];
+  return text;
+};
+
+export const decodeLevels = (text) => {
+  const source = String(text ?? "");
+  const values = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index);
+    const value = code < 128 ? VALUE_OF[code] : -1;
+    values.push(value > 0 ? value / 63 : 0);
+  }
+  return values;
 };
 
 // ---- the drawn line ----------------------------------------------------------

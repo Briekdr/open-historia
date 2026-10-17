@@ -135,6 +135,7 @@ import { AGENT_REQUESTS_DIR, writeAgentFolder, writeAgentSubagents } from "./age
 import { handleMcpMessage, tokenMatches } from "./agentMcp.js";
 import { AGENT_WAIT_MS, createAgentQueue } from "./agentQueue.js";
 import { appKindOf } from "./appKind.js";
+import { createClockOffsetCache } from "./clockOffset.js";
 import { createDiscordPresence, DISCORD_APPLICATION_ID, normalizePresence } from "./discordPresence.js";
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -727,6 +728,18 @@ const sharedGameEngine = () => globalThis.__ohSharedGameEngine || null;
 // each time, so a window that closed by itself holds nothing.
 export const HOSTING_HOLDS_THE_GAME = "This computer is hosting a shared game, and the game it hosts stays its open game. Stop sharing first.";
 setActiveGameHold(() => (sharedGameEngine()?.status?.().open ? HOSTING_HOLDS_THE_GAME : ""));
+
+// How far this computer's clock is from the signaling relays' (clockOffset.js):
+// { offsetMs, sources }. A shared game asks before it joins or hosts, and
+// stamps its signaling by the relays' time (src/multiplayer/client/clock.js).
+const clockOffset = createClockOffsetCache();
+app.get("/api/multiplayer/clock", async (_req, res) => {
+  try {
+    res.json(await clockOffset());
+  } catch (error) {
+    sendError(res, 500, error);
+  }
+});
 
 app.get("/api/multiplayer/engine", (req, res) => {
   const engine = sharedGameEngine();

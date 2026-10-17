@@ -26,6 +26,9 @@ import {
   normalizeGroupName,
 } from "../runtime/groups.js";
 import { groupEraseSteps, groupRenameSteps } from "./documentUndo.js";
+import MilitaryFields from "./MilitaryFields.jsx";
+import { rateMilitaryFigures } from "../Game/AI/militaryRating.js";
+import { militaryScaleOf } from "./militaryForm.js";
 
 const Swatch = ({ color, size = 14 }) => (
   <span
@@ -34,7 +37,9 @@ const Swatch = ({ color, size = 14 }) => (
   />
 );
 
-const GroupsPanel = ({ api, groups = {}, setGroups, selection = [], regionEpoch = 0, onClose }) => {
+// militaryDefaults: what a military figure left empty stands for in the
+// scenario (militaryForm.js militaryDefaultsFor); null for a map on its own.
+const GroupsPanel = ({ api, groups = {}, setGroups, selection = [], regionEpoch = 0, militaryDefaults = null, onClose }) => {
   const [current, setCurrent] = useState("");
   const [draftName, setDraftName] = useState("");
   const [newName, setNewName] = useState("");
@@ -211,6 +216,23 @@ const GroupsPanel = ({ api, groups = {}, setGroups, selection = [], regionEpoch 
               patchRecord(current, { population: people > 0 ? people : undefined });
             }}
             style={{ ...inputStyle, padding: "5px 7px" }}
+          />
+          {/* Its own military figures, as a country's (MilitaryFields.jsx): a
+              group fights on a battlefield like any side. */}
+          <MilitaryFields
+            recordKey={current}
+            value={record.military}
+            defaults={militaryDefaults}
+            onChange={(military) => patchRecord(current, { military: military ?? undefined })}
+            onRate={() => rateMilitaryFigures({
+              name: current,
+              note: record.description,
+              population: record.population,
+              rated: militaryScaleOf({}, groups),
+              date: militaryDefaults?.gameDate,
+              era: Number.isInteger(militaryDefaults?.era) ? militaryDefaults.era : null,
+              rules: militaryDefaults?.rules,
+            })}
           />
           <div style={labelDim}>Tint colour</div>
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 5 }}>

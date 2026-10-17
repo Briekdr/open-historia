@@ -36,11 +36,11 @@ import {
 import { isRatingEnabled, isTelemetryEnabled } from "../Game/AI/telemetry.js";
 import { requestDay, requestSettings } from "../Game/AI/requestBudget.js";
 import { deviceProfileForLog } from "./deviceProfile.js";
-import { GAME_BASEMAP_PICK_PREFIX } from "./basemapPick.js";
-import { DEFAULT_BASEMAP_ID } from "./assets.js";
 import { presenceAllowed, presenceAvailable } from "./discordPresence.js";
 import { describeVisitConsent, readVisitConsent } from "./visitConsent.js";
 import { musicEnabled, musicVolume } from "./ambientMusic.js";
+import { GAME_BASEMAP_PICK_PREFIX } from "./basemapPick.js";
+import { DEFAULT_BASEMAP_ID } from "./assets.js";
 
 const onOff = (value) => (value ? "on" : "off");
 
@@ -67,20 +67,13 @@ registerSettingsSnapshot("Display", () => [
     ["UI language", languageDisplayName(getStoredLanguage())],
     ["AI chat language", languageDisplayName(getStoredChatLanguage())],
     ["Fullscreen", onOff(typeof document !== "undefined" && document.fullscreenElement)],
-    ["Vault door at start", onOff(getMapSettingDefaultOn(MAP_SETTING_KEYS.vaultDoor))],
+    // The vault door at every opening, not only after an update.
+    ["Every time the game opens", onOff(getMapSetting(MAP_SETTING_KEYS.vaultDoorAlways))],
     // The umbrella switch: on exactly when both of the map's motion switches are.
     ["Reduce motion", onOff(getMapSetting(MAP_SETTING_KEYS.disableIdleRotation) && getMapSetting(MAP_SETTING_KEYS.disableEventCamera))],
     // The OS setting, which holds all three motion switches on while it is.
     ["System reduced motion", onOff(systemPrefersReducedMotion())],
 ]);
-
-const gamesWithOwnBasemapPick = () => {
-    try {
-        return Object.keys(localStorage).filter((key) => key.startsWith(GAME_BASEMAP_PICK_PREFIX)).length;
-    } catch {
-        return 0;
-    }
-};
 
 // Stored on, Discord is still only told by the desktop app and the local server
 // (runtime/discordPresence.js); the website and the Android app cannot reach it,
@@ -103,6 +96,14 @@ registerSettingsSnapshot("Privacy", () => [
     ["Count my visits", describeVisitConsent(readVisitConsent())],
 ]);
 
+const gamesWithOwnBasemapPick = () => {
+    try {
+        return Object.keys(localStorage).filter((key) => key.startsWith(GAME_BASEMAP_PICK_PREFIX)).length;
+    } catch {
+        return 0;
+    }
+};
+
 registerSettingsSnapshot("Map", () => [
     // A game's own pick is kept per game (runtime/basemapPick.js): how many have one.
     ["Basemap", `${gamesWithOwnBasemapPick()} game(s) with their own pick`],
@@ -114,6 +115,9 @@ registerSettingsSnapshot("Map", () => [
     ["3D Globe", onOff(storedBoolean("Globe", false))],
     ["3D Terrain", onOff(storedBoolean("Terrain", true))],
     ["Hide country labels", onOff(getMapSetting(MAP_SETTING_KEYS.hideCountryLabels))],
+    // Ships on: an absent key is on.
+    ["Seasons and weather", onOff(getMapSettingDefaultOn(MAP_SETTING_KEYS.seasonsWeather))],
+    ["Weather effects", onOff(getMapSettingDefaultOn(MAP_SETTING_KEYS.weatherEffects))],
     ["Disable idle globe rotation", onOff(getMapSetting(MAP_SETTING_KEYS.disableIdleRotation))],
     ["Disable camera movement during events", onOff(getMapSetting(MAP_SETTING_KEYS.disableEventCamera))],
     // What decides the worker count, whole-archive warming, the regions parse

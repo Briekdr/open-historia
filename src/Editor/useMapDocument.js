@@ -16,6 +16,7 @@ import { findPolityKey, renamePolityInDocument } from "../../server/polityRename
 import { mergeCityMarkers } from "./cityMarkers.js";
 import { mergePolityRoster } from "./polityRoster.js";
 import { withoutPolities } from "./scenarioPuppets.js";
+import { warGeographyOf } from "./warGeographyDoc.js";
 
 // The official editor ships a handful of region "types" carrying render +
 // gameplay settings. We seed the two core ones (Land / Coastal); users add more.
@@ -55,6 +56,10 @@ export const DEFAULT_TYPES = [
     zoomSettings: [{ minZoom: 0, maxZoom: 24 }],
   },
 ];
+
+// The list a document without one hands out: always the same, so the map's
+// effects keyed on it do not run again on every render.
+const NO_ROWS = Object.freeze([]);
 
 let _uid = 0;
 export const newId = (prefix = "reg") =>
@@ -112,6 +117,13 @@ export const createDocument = ({ name = "Untitled Map", kind = "import-world" } 
     // Puppet states the scenario starts with, as world.puppets rows
     // (scenarioPuppets.js); set in the Countries panel.
     puppets: [],
+    // What the scenario draws on its map for war, in the world's own form
+    // (warGeographyDoc.js): the Terrain, Fortified line and Climate zone tools'
+    // shapes, and the water regions marked Can freeze.
+    terrainAreas: [],
+    fortifications: [],
+    climateZones: [],
+    freezingRegions: [],
   };
 };
 
@@ -145,6 +157,8 @@ export const openStoredDocument = (stored) => {
       units: Array.isArray(doc.units) ? doc.units : [],
       groups: doc.groups && typeof doc.groups === "object" ? doc.groups : {},
       puppets: Array.isArray(doc.puppets) ? doc.puppets : [],
+      // Cleaned as the game cleans them; empty for a map saved before them.
+      ...warGeographyOf(doc),
     },
   };
 };
@@ -395,6 +409,24 @@ export const useMapDocument = (initial) => {
     setDoc((d) => ({ ...d, units: typeof updater === "function" ? updater(d.units || []) : (updater || []) }));
     setSaveStatus("dirty");
   }, [setSaveStatus]);
+  // The war geography's four lists (warGeographyDoc.js), each a value or an
+  // updater like the setters above.
+  const setTerrainAreas = useCallback((updater) => {
+    setDoc((d) => ({ ...d, terrainAreas: typeof updater === "function" ? updater(d.terrainAreas || []) : (updater || []) }));
+    setSaveStatus("dirty");
+  }, [setSaveStatus]);
+  const setFortifications = useCallback((updater) => {
+    setDoc((d) => ({ ...d, fortifications: typeof updater === "function" ? updater(d.fortifications || []) : (updater || []) }));
+    setSaveStatus("dirty");
+  }, [setSaveStatus]);
+  const setClimateZones = useCallback((updater) => {
+    setDoc((d) => ({ ...d, climateZones: typeof updater === "function" ? updater(d.climateZones || []) : (updater || []) }));
+    setSaveStatus("dirty");
+  }, [setSaveStatus]);
+  const setFreezingRegions = useCallback((updater) => {
+    setDoc((d) => ({ ...d, freezingRegions: typeof updater === "function" ? updater(d.freezingRegions || []) : (updater || []) }));
+    setSaveStatus("dirty");
+  }, [setSaveStatus]);
 
   return {
     doc,
@@ -433,6 +465,14 @@ export const useMapDocument = (initial) => {
     setGroups,
     puppets: doc.puppets || [],
     setPuppets,
+    terrainAreas: doc.terrainAreas || NO_ROWS,
+    setTerrainAreas,
+    fortifications: doc.fortifications || NO_ROWS,
+    setFortifications,
+    climateZones: doc.climateZones || NO_ROWS,
+    setClimateZones,
+    freezingRegions: doc.freezingRegions || NO_ROWS,
+    setFreezingRegions,
     metadata: doc.metadata,
     basemap: doc.metadata.basemap,
     setBasemap,

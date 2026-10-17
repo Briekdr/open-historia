@@ -24,12 +24,27 @@
 // Only + - * / and whole-number steps: the same input gives the same ledger
 // on every machine.
 
-import { HOLDER_SIDE_A, HOLDER_SIDE_B, MANPOWER_SHARE, MEN_PER_FORMATION_BY_ERA } from "./constants.js";
+import { HOLDER_SIDE_A, HOLDER_SIDE_B, MANPOWER_SHARE, MEN_PER_FORMATION_BY_ERA, PART_COUNTER_LEAST } from "./constants.js";
 
 const fold = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 
 // How many men a formation at full strength is, in a run's era.
 export const menPerFormation = (era) => MEN_PER_FORMATION_BY_ERA[Math.max(0, Math.min(MEN_PER_FORMATION_BY_ERA.length - 1, Number(era) || 0))];
+
+// The men one of a country's counters stands for: its own figure where the
+// run weighs countries' military figures (military.js) and it has one, else
+// the run's (the scenario's, else its era's).
+export const menOf = (run, name) => {
+  const own = run.mech?.military ? run.militaryOf(name).menPerCounter : null;
+  return own > 0 ? own : run.menEach;
+};
+
+// The share of a country's people who can fight: its own the same way, else
+// the scenario's, else MANPOWER_SHARE.
+export const shareOf = (run, name) => {
+  const own = run.mech?.military ? run.militaryOf(name).manpowerShare : null;
+  return own > 0 ? own / 100 : run.manpowerShare > 0 ? run.manpowerShare : MANPOWER_SHARE;
+};
 
 // A country's people, where a run knows them: 0 where it does not.
 export const peopleOf = (run, name) => {
@@ -76,7 +91,7 @@ export const servingOf = (run, name) => {
       });
     }
   }
-  return (strength / 100) * run.menEach;
+  return (strength / 100) * menOf(run, name);
 };
 
 // How many formations a country can still raise: Infinity where nothing holds it.
@@ -84,7 +99,23 @@ export const formationsLeft = (run, name) => {
   if (!levies(run)) return Infinity;
   const people = peopleOf(run, name);
   if (people === 0) return Infinity;
-  return Math.max(0, Math.floor((MANPOWER_SHARE * people - servingOf(run, name)) / run.menEach));
+  return Math.max(0, Math.floor((shareOf(run, name) * people - servingOf(run, name)) / menOf(run, name)));
+};
+
+// What is left of a country's men after its whole counters, as a part of one
+// (0 to 1): weighing countries' own military figures, its last men are raised
+// as a counter at that part of its strength, from PART_COUNTER_LEAST up, so a
+// realm of a thousand at two thousand men a counter still has one, at half.
+// 0 otherwise, and 0 where nothing holds a country to its men.
+export const partLeft = (run, name) => {
+  if (!run.mech?.military || !levies(run)) return 0;
+  const people = peopleOf(run, name);
+  if (people === 0) return 0;
+  const men = shareOf(run, name) * people - servingOf(run, name);
+  if (!(men > 0)) return 0;
+  const counters = men / menOf(run, name);
+  const part = counters - Math.floor(counters);
+  return part >= PART_COUNTER_LEAST ? part : 0;
 };
 
 // The same for a side of a battle: what its members that are still there can raise between them.
@@ -96,6 +127,27 @@ export const sideFormationsLeft = (run, battle, side) => {
   return left;
 };
 
+// Weighing countries' own military figures, what a country's reserves may
+// still send to make good its losses on a day, in strength points: the men it
+// has not yet put under arms (Infinity where nothing holds it). Read once a
+// day for the whole run and spent as it is sent (combat.js closeDay), so a
+// realm of a thousand cannot mend its one counter past the men it has.
+// (name) => { left(), spend(points) }.
+export const mendBudget = (run, day) => {
+  if (run.mendDay !== day) {
+    run.mendDay = day;
+    run.mendLeft = new Map();
+  }
+  return (name) => {
+    const key = fold(name);
+    if (!run.mendLeft.has(key)) {
+      const people = levies(run) ? peopleOf(run, name) : 0;
+      run.mendLeft.set(key, people === 0 ? Infinity : Math.max(0, ((shareOf(run, name) * people - servingOf(run, name)) / menOf(run, name)) * 100));
+    }
+    return { left: () => run.mendLeft.get(key), spend: (points) => run.mendLeft.set(key, run.mendLeft.get(key) - points) };
+  };
+};
+
 // Troops that leave a battlefield alive go home: their men are given back.
 //   indexes   the places of those troops in the side's list; all of the living where none is given
 export const sendHome = (run, battle, side, indexes = null) => {
@@ -103,7 +155,7 @@ export const sendHome = (run, battle, side, indexes = null) => {
   battle.troops[side].forEach((troop, at) => {
     if (!(troop.strength > 0) || (indexes && !indexes.includes(at))) return;
     if (battle.named.some((entry) => entry.s === side && entry.i === at)) return;
-    giveBack(run, battle.sides[side][troop.owner], (troop.strength / 100) * run.menEach);
+    giveBack(run, battle.sides[side][troop.owner], (troop.strength / 100) * menOf(run, battle.sides[side][troop.owner]));
   });
 };
 
@@ -127,7 +179,7 @@ export const manpowerReport = (run) => {
       for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
         (battle.mendedBy?.[side] ?? []).forEach((points, owner) => {
           const member = battle.sides[side][owner];
-          if (points > 0 && member && peopleOf(run, member) > 0) add(member, "drawn", (points / 100) * run.menEach);
+          if (points > 0 && member && peopleOf(run, member) > 0) add(member, "drawn", (points / 100) * menOf(run, member));
         });
       }
     }

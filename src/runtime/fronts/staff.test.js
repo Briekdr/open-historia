@@ -76,15 +76,20 @@ test("at even odds the side that began the war attacks one stretch of the line, 
 });
 
 test("a side a person plays has no staff, and the side against it has", () => {
-  // The player's own side is the stronger and began the war: nothing is ordered for it.
+  // The player's own side is the stronger and began the war: on its battlefield's first day, ordered by nobody,
+  // it goes over to the attack along the whole line ("when a front is deployed in the first time skip ... the
+  // front doesnt do anything", the owner, 2026-10-14), and nothing more is ordered for it.
   const mine = fight({ aland: 4, borduria: 1, players: ["Aland"] });
-  assert.deepEqual(mine.aland, []);
+  assert.deepEqual(mine.aland, [["advance", "all", STAFF_MARK, "Aland"]]);
   assert.deepEqual(mine.borduria, [["dig in", "all", STAFF_MARK, "Borduria"]]);
   // The other way round, the enemy does not wait to be attacked.
   const theirs = fight({ aland: 2, borduria: 3, players: ["Aland"] });
-  assert.deepEqual(theirs.aland, []);
+  assert.deepEqual(theirs.aland, [["advance", "all", STAFF_MARK, "Aland"]]);
   assert.deepEqual(theirs.borduria, [["advance", "all", STAFF_MARK, "Borduria"]]);
-  assert.ok(theirs.share < 0.4, `the player has lost ground: ${theirs.share}`);
+  assert.ok(theirs.share < 0.5, `the player has lost ground: ${theirs.share}`);
+  // A person's side the war was begun against is never sent forward by the engine.
+  const attacked = fight({ aland: 1, borduria: 4, players: ["Borduria"] });
+  assert.deepEqual(attacked.borduria, []);
   // And a run told to leave every side to its orders does.
   const still = fight({ aland: 4, borduria: 1, staff: false });
   assert.deepEqual([still.aland, still.borduria, still.offensives], [[], [], []]);

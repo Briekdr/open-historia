@@ -151,7 +151,7 @@ test("the game's difficulty reaches the engine, and each level says what it does
   const combat = read("combat.js");
   assert.equal(combat.split("battle.edge[side].power").length - 1, 2);
   assert.match(combat, /REINFORCE_PER_DAY \* battle\.edge\[side\]\.mend/);
-  assert.match(combat, /troop\.paceFactor \* battle\.edge\[entry\.side\]\.pace\) \/ kmAt\(troop\.y\)/);
+  assert.match(combat, /troop\.paceFactor \* battle\.edge\[entry\.side\]\.pace \* troop\.legs\) \/ kmAt\(troop\.y\)/);
   assert.match(combat, /const open = theirs \? Math\.min\(1, 1 \/ battle\.edge\[1 - side\]\.power\) : 1;/);
   // What the player is told of each level is the figures the engine uses.
   for (const level of DIFFICULTY_LEVELS) {

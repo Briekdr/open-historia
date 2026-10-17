@@ -19,7 +19,10 @@
 //     and his Board have of the other side's;
 //   - the TROOP TOOLS, which are not in the drawer: they are on a rail that
 //     comes out of the left edge of the screen, beside the map they are used
-//     on (warRoomRail.jsx).
+//     on (warRoomRail.jsx). At its foot, Fortify draws a fortified line to be
+//     built (warRoomFortify.jsx) and Fleets commands the player's fleets
+//     (warRoomFleets.jsx), each on a plate beside the rail; the drawer lists
+//     the player's lines and fleets as they stand.
 //   - the TALK with the generals: one request a message (AI/gameplay.js
 //     generateWarRoomReply). They answer, push back, and take orders.
 //
@@ -28,7 +31,7 @@
 // goes through runtime/warRoomWrites.js.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { generateWarRoomReply, warRoomRouteAttacks, warRoomTransportWays } from "../AI/gameplayLazy.js";
+import { generateWarRoomReply, warRoomChart, warRoomRouteAttacks, warRoomTransportWays } from "../AI/gameplayLazy.js";
 import { warRoomIntel, warRoomPlans } from "../AI/frontPlans.js";
 import { isSimulationBusy } from "../AI/simulationStatus.js";
 import { closeWarRoom, getWarRoom, onWarRoomWay, openWarRoom, setWarRoom, showBattlefield, takeTool, useWarRoom } from "../Map/warRoomStore.js";
@@ -38,6 +41,7 @@ import { readFrontCities } from "../../runtime/frontCities.js";
 import { chosenOrdersOf, commandTitle, generalsOf, ownTroopsOf, talkOf } from "../../runtime/fronts/command.js";
 import { THRUST_TROOPS } from "../../runtime/fronts/constants.js";
 import { handicapOf } from "../../runtime/fronts/handicap.js";
+import { deployLinesOf } from "../../runtime/fronts/deploy.js";
 import { foldBattlefieldName, normalizeBattlefield } from "../../runtime/fronts/record.js";
 import { TRANSPORT_MEDIA, carrierFor, isUnderWay, loadOf, normalizeTransports } from "../../runtime/fronts/transports.js";
 import { formatGameDateReadable, gameDateYear } from "../../runtime/gameDates.js";
@@ -47,10 +51,20 @@ import { useLibraryState } from "../../runtime/library.js";
 import { SAFE_BOTTOM, SAFE_LEFT, SAFE_RIGHT, SAFE_TOP } from "../../runtime/mobileUi.js";
 import { useIsMobile } from "../../runtime/useIsMobile.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
-import { sendWarRoomOp } from "../../runtime/warRoomWrites.js";
+import { convoysOf, enemiesOf, fleetsOf } from "../../runtime/naval/fleetOps.js";
+import { sendFleetOp, sendFortifyOp, sendWarRoomOp } from "../../runtime/warRoomWrites.js";
+import { warSettingsOf, warfareOf } from "../../runtime/warSettings.js";
 import { ADVISOR_SLIDE } from "./advisorSlide.js";
 import { placeName, playerFronts } from "./warRoomData.js";
+import { FleetsList, FleetsPlate } from "./warRoomFleets.jsx";
+import { FortifyPlate, LinesList } from "./warRoomFortify.jsx";
 import { WarRoomRail } from "./warRoomRail.jsx";
+import { WeatherAhead } from "./warRoomWeather.jsx";
+import { RehearsalTray } from "./warRoomRehearsal.jsx";
+import { supplyShading } from "../Map/warRoomCells.js";
+import { strategyNetOn } from "../AI/frontsGate.js";
+import { scheduleFrontsPrethink } from "../AI/frontPrethink.js";
+import { commanderOf } from "../../runtime/fronts/mind/commanders.js";
 import {
   AMBER,
   BONE,
@@ -148,6 +162,21 @@ const ProjectStatus = ({ status }) => {
   return null;
 };
 
+// What the other side's staff's plan is called (runtime/fronts/mind/planner.js PLAN_NAMES), as an agent reports it.
+const StaffPlanWord = ({ plan }) => {
+  if (plan === "push") return <>an attack along the whole line</>;
+  if (plan === "dig in") return <>to dig in along the whole line</>;
+  if (plan === "the weakest place") return <>a blow at the weakest point of your line</>;
+  if (plan === "the second weakest place" || plan === "the third weakest place") return <>a blow at a weak point of your line</>;
+  if (plan === "everyone on the weakest place") return <>everything at the weakest point of your line</>;
+  if (plan === "a pincer") return <>a pincer</>;
+  if (plan === "the towns") return <>to take the towns</>;
+  if (plan === "the walls") return <>to break through the walls</>;
+  if (plan === "net, digging in") return <>its own judgement troop by troop, digging in where it holds</>;
+  if (plan === "net, resting the worn") return <>its own judgement troop by troop, resting its worn troops</>;
+  return <>its own judgement, troop by troop</>;
+};
+
 // A heading stencilled on the plate, ruled off to the right.
 const Heading = ({ children, action = null, style = null }) => (
   <div style={{ alignItems: "center", display: "flex", gap: "0.55rem", ...style }}>
@@ -182,6 +211,15 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   const selected = useWarRoom((state) => state.selected);
   const highlight = useWarRoom((state) => state.highlight);
   const pointed = useWarRoom((state) => state.pointed);
+  // The fortified line drawn and waiting for its level, and the fleets' plate.
+  const draft = useWarRoom((state) => state.draft);
+  const level = useWarRoom((state) => state.level);
+  const fleetsOut = useWarRoom((state) => state.fleets);
+  // The supply map, shaded while the rail's Supply key is down.
+  const supplyOn = useWarRoom((state) => state.supply);
+  const pickedFleet = useWarRoom((state) => state.fleet);
+  const station = useWarRoom((state) => state.station);
+  const deployForm = useWarRoom((state) => state.deployForm);
 
   // ---- which battlefield ---------------------------------------------------------------
   const fronts = useMemo(() => playerFronts(world?.battlefields, game.country), [world?.battlefields, game.country]);
@@ -272,9 +310,47 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
     () => (record ? warRoomIntel({ world, game, record, side, cities, espionage }) : { plans: [], sources: [], lines: [], double: false }),
     [world, game, record, side, cities, espionage],
   );
+  // The other side's staff's plan, where it is found out (the record keeps it: runtime/fronts/engine.js
+  // noteStaffPlan): "Spies or air reconnaissance could reveal it" (the owner's list, 2026-10-16). An agent in one
+  // of their countries sends the plan itself; the player's aircraft over the front see the troops it sends.
+  const theirPlan = useMemo(() => {
+    const plan = side === 0 || side === 1 ? record?.brief?.carry?.staff?.[1 - side] : null;
+    if (!plan || typeof plan.plan !== "string") return null;
+    if (intel.sources.length > 0) return { ...plan, by: "agent" };
+    return Number(record?.brief?.air?.wings?.[side]) > 0 && plan.at && plan.n > 0 ? { ...plan, by: "air" } : null;
+  }, [record, side, intel]);
+  // Who leads them, where the game's difficulty says otherwise than the best there is (runtime/fronts/mind/trained.js).
+  const theirCommander = useMemo(() => {
+    if (!record || (side !== 0 && side !== 1) || !strategyNetOn()) return null;
+    const people = [...humanCountriesOf(game), ...(Array.isArray(game.humanCountries) ? game.humanCountries : [])];
+    const who = commanderOf({ sides: record.sides, side: 1 - side, difficulty: game.difficulty || "medium", players: people });
+    return who === "trained" ? null : who;
+  }, [record, side, game]);
+  // How well supplied the ground is (Map/warRoomCells.js), for the map while the Supply key is down.
+  const supplyShade = useMemo(() => (open && supplyOn && record ? supplyShading(record, side) : null), [open, supplyOn, record, side]);
   useEffect(() => {
-    if (open) setWarRoom({ plans, known: intel.plans });
-  }, [open, plans, intel]);
+    if (open) setWarRoom({ supplyShade: supplyShade?.data ?? null });
+  }, [open, supplyShade]);
+  // Where the player's new troops on this battlefield come in, where a line was drawn for them (runtime/fronts/deploy.js):
+  // drawn on the map with the plans.
+  const deployLine = useMemo(() => {
+    const country = String(game?.country ?? "").trim().toLowerCase();
+    return record && country ? deployLinesOf(record, side).find((line) => line.country.toLowerCase() === country) ?? null : null;
+  }, [record, side, game]);
+  useEffect(() => {
+    if (open) setWarRoom({ plans: deployLine ? [...plans, { id: "deploy", kind: "deploy", form: deployLine.form ?? "front", ways: [deployLine.way], picked: [], troops: 0 }] : plans, known: intel.plans });
+  }, [open, plans, intel, deployLine]);
+  // What the Deploy tool deploys when the room opens on a battlefield: as the player deployed there last, else as the
+  // scenario's wars are fought (runtime/warSettings.js warfareOf): along a front, or as a swarm.
+  const deployLineRef = useRef(deployLine);
+  deployLineRef.current = deployLine;
+  useEffect(() => {
+    if (!open || !record?.name) return;
+    const last = deployLineRef.current;
+    setWarRoom({ deployForm: last ? (last.form === "swarm" ? "swarm" : "front") : warfareOf(world, game.gameDate) });
+    // (Only as the room opens or turns to another battlefield: a choice made since stands.)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, record?.name]);
 
   // A route drawn into a country that is not in this war is an attack on it
   // (runtime/fronts/invade.js). The engine reads that when time passes; the
@@ -331,6 +407,14 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   useEffect(() => {
     if (open) setWarRoom({ transportWays });
   }, [open, transportWays]);
+
+  // ---- fortified lines and fleets ------------------------------------------------------------
+  // A line can be drawn where the scenario's wars have them (runtime/warSettings.js "walls").
+  const canFortify = useMemo(() => warSettingsOf({ warSettings: world?.warSettings }).mechanics.walls === true, [world?.warSettings]);
+  // The player's fleets, the countries they may blockade, and the convoys they may cover (runtime/naval/fleetOps.js).
+  const fleets = useMemo(() => fleetsOf({ units: world?.units, pendingUnitOrders: world?.pendingUnitOrders }, game.country), [world?.units, world?.pendingUnitOrders, game.country]);
+  const enemies = useMemo(() => enemiesOf({ wars: world?.wars }, game.country), [world?.wars, game.country]);
+  const convoys = useMemo(() => convoysOf({ transports: world?.transports }, game.country), [world?.transports, game.country]);
   // What the nearest town to a place on the map is called, if one is near: a
   // transporter is told where it is bound in words as well.
   const placeNear = (lng, lat) => {
@@ -353,6 +437,25 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
     setNotice("");
     try {
       await sendWarRoomOp(op, { turnRunning: isSimulationBusy });
+      // (New orders: the next period is thought through again with them, AI/frontPrethink.js.)
+      scheduleFrontsPrethink();
+      return true;
+    } catch (error) {
+      setNotice(String(error?.message || error));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+  // The fortified lines and the fleets have seams of their own (runtime/
+  // warRoomWrites.js sendFortifyOp, sendFleetOp): they are held to the map,
+  // which is read for them (AI/gameplay.js warRoomChart) only where this page
+  // writes the world itself.
+  const orderWith = useCallback(async (send, op) => {
+    setBusy(true);
+    setNotice("");
+    try {
+      await send(op, { turnRunning: isSimulationBusy, readChart: () => warRoomChart() });
       return true;
     } catch (error) {
       setNotice(String(error?.message || error));
@@ -379,15 +482,31 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
         if (await act({ op: "route", battlefield: name, troops: selectedRef.current, way })) setWarRoom({ selected: [] });
       } else if (drawn === "diversion") {
         await act({ op: "diversion", battlefield: name, way, troops: selectedRef.current.length || THRUST_TROOPS.spearhead });
+      } else if (drawn === "deploy") {
+        // Where the player's new troops here come in: one line, drawn again over the last; or a swarm's place.
+        if (await act({ op: "deploy", battlefield: name, way, ...(extra?.form === "swarm" ? { form: "swarm" } : {}) })) setWarRoom({ tool: "pan" });
       } else if (drawn === "replan" && extra?.replan) {
         await act({ op: "plan", battlefield: name, project: extra.replan, way });
       } else if (drawn === "transport" && extra?.medium && way[0]) {
         // The place that was clicked: the troops picked out are carried there, by what was chosen.
         const [lng, lat] = way[0];
         if (await act({ op: "transport", battlefield: name, troops: selectedRef.current, medium: extra.medium, to: [lng, lat], name: placeNearRef.current(lng, lat) })) setWarRoom({ selected: [] });
+      } else if (drawn === "fortify") {
+        // A fortified line: it waits beside the rail for the level it is to be built to (warRoomFortify.jsx).
+        setWarRoom({ draft: way });
+      } else if (drawn === "fleet" && extra?.fleet && way[0]) {
+        // The place clicked at sea: the fleet picked out sails there, or patrols it.
+        await orderWith(sendFleetOp, { op: "station", unit: extra.fleet, to: way[0], order: extra.station === "patrol" ? "patrol" : "move" });
       }
     });
-  }, [open, name, act]);
+  }, [open, name, act, orderWith]);
+
+  // A line drawn is built at the level picked for it, under the name given it, once confirmed.
+  const buildLine = async (title) => {
+    const { draft: points, level: height } = getWarRoom();
+    if (!points) return;
+    if (await orderWith(sendFortifyOp, { op: "fortify", points, level: height, name: title })) setWarRoom({ draft: null });
+  };
 
   const orderPicked = async (order) => {
     if (await act({ op: "order", battlefield: name, troops: selected, order })) setWarRoom({ selected: [] });
@@ -488,6 +607,29 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   // folding the panel down to its tools.
   const [folded, setFolded] = useState(false);
   const foldedNow = isMobile && folded;
+  // On a phone with the drawer folded down to show the map, how much of the screen's foot it still covers, in px:
+  // the rail ends above it (warRoomRail.jsx). Its lower keys were under the drawer, out of reach (found at 375 px,
+  // 2026-10-16).
+  const [foot, setFoot] = useState(0);
+  useEffect(() => {
+    if (!open || !foldedNow || !rootRef.current) return undefined;
+    const measure = () => setFoot(Math.max(0, Math.round(window.innerHeight - (rootRef.current?.getBoundingClientRect().top ?? window.innerHeight))));
+    measure();
+    if (typeof ResizeObserver !== "function") return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(rootRef.current);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [open, foldedNow]);
+  // A fleet picked out, in the drawer or on its plate: the plate comes out beside
+  // the rail, and on a phone the drawer folds down to the map it is beside.
+  const pickFleet = useCallback((id) => {
+    setWarRoom({ fleet: id, fleets: true });
+    if (isMobile) setFolded(true);
+  }, [isMobile]);
   const nameOf = (command) => generals.find((general) => general.command === command)?.name || "";
   const locked = turnRunning || busy;
   const other = record ? record.sides[1 - side] ?? [] : [];
@@ -584,7 +726,52 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
         onClear={() => setWarRoom({ selected: [] })}
         carriers={carriers}
         onCarrier={(medium) => takeTool("transport", { medium })}
+        canFortify={canFortify}
+        drafted={Boolean(draft)}
+        fleets={fleets.length}
+        fleetsOut={fleetsOut}
+        onFleets={() => setWarRoom({ fleets: !getWarRoom().fleets })}
+        station={station}
+        deployForm={deployForm}
+        onDeployForm={(form) => setWarRoom({ deployForm: form === "swarm" ? "swarm" : "front" })}
+        supply={supplyOn}
+        onSupply={() => setWarRoom({ supply: !getWarRoom().supply })}
+        supplyAreas={supplyShade?.areas ?? null}
+        foot={open && foldedNow ? foot : 0}
       />
+
+      {/* A fortified line drawn, waiting for its level and the word to build it; or else the fleets' plate. Both beside the rail. */}
+      {railShown && draft && (
+        <FortifyPlate
+          isMobile={isMobile}
+          draft={draft}
+          level={level}
+          world={world}
+          country={game.country}
+          gameDate={game.gameDate}
+          locked={locked}
+          onLevel={(value) => setWarRoom({ level: value })}
+          onConfirm={buildLine}
+          onRedraw={() => takeTool("fortify")}
+          onCancel={() => setWarRoom({ draft: null })}
+        />
+      )}
+      {railShown && !draft && fleetsOut && (
+        <FleetsPlate
+          isMobile={isMobile}
+          fleets={fleets}
+          picked={pickedFleet}
+          enemies={enemies}
+          convoys={convoys}
+          locked={locked}
+          tool={tool}
+          station={station}
+          onPick={pickFleet}
+          onOrder={(op) => orderWith(sendFleetOp, op)}
+          onPlace={(kind) => takeTool("fleet", { station: kind })}
+          onClose={() => setWarRoom({ fleets: false })}
+        />
+      )}
 
       {/* The frame of plate round the map: its bar says which battlefield this
           is and what day it is, now that the date widget is out of sight. */}
@@ -761,14 +948,49 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
                 </div>
               )}
 
+              {/* The weather of the days ahead (warRoomWeather.jsx): what will come, to time an offensive by. */}
+              {!foldedNow && Array.isArray(record.brief?.forecast) && record.brief.forecast.length > 0 && (
+                <div style={{ marginTop: "0.85rem" }}>
+                  <Heading>Weather ahead</Heading>
+                  <WeatherAhead forecast={record.brief.forecast} gameDate={game.gameDate} />
+                </div>
+              )}
+
               {/* Every movement meant and not yet made. */}
               {!foldedNow && (
                 <div onPointerLeave={() => setWarRoom({ pointed: "" })} style={{ marginTop: "0.85rem" }}>
                   <Heading>Planned movements</Heading>
+                  {/* The week ahead, fought ahead of time with these orders (warRoomRehearsal.jsx). */}
+                  <RehearsalTray record={record} side={side} gameDate={game.gameDate} locked={locked} />
                   {planned.length === 0 && (
                     <div style={{ ...softText, marginTop: "0.4rem" }}>None. A route you draw, an order a general takes, and an operation on your Board that sends troops at a place here all show on the map as arrows.</div>
                   )}
                   {planned.map(planRow)}
+                  {deployLine && (
+                    <div
+                      onPointerEnter={() => setWarRoom({ pointed: "deploy" })}
+                      style={{ ...trayStyle(pointed === "deploy"), display: "flex", gap: "0.55rem", marginTop: "0.3rem", padding: "0.4rem 0.5rem" }}
+                    >
+                      {deployLine.form === "swarm"
+                        ? <span aria-hidden="true" style={{ border: `2px solid ${PLAN_COLOURS.deploy}`, borderRadius: "50%", boxSizing: "border-box", flex: "0 0 auto", height: "0.8rem", marginTop: "0.2rem", width: "0.8rem" }} />
+                        : <span aria-hidden="true" style={{ background: PLAN_COLOURS.deploy, flex: "0 0 auto", height: "0.22rem", marginTop: "0.45rem", width: "0.95rem" }} />}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {deployLine.form === "swarm"
+                          ? <>
+                            <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>Swarm deployment</div>
+                            <div style={softText}>Your new troops here gather at this place as a swarm, under one general of their own: levies, drafts and reinforcements.</div>
+                          </>
+                          : <>
+                            <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>Deployment line</div>
+                            <div style={softText}>Your new troops here come in along it: levies, drafts and reinforcements.</div>
+                          </>}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginTop: "0.1rem" }}>
+                          <button type="button" disabled={locked} onClick={() => takeTool("deploy")} style={linkStyle}>{tool === "deploy" ? <>Cancel</> : <>Redraw</>}</button>
+                          <button type="button" disabled={locked} onClick={() => act({ op: "deploy", battlefield: name, way: [] })} style={linkStyle}>Remove</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {ownPlans.some((plan) => plan.kind === "diversion") && (
                     <div style={{ ...softText, color: intel.double ? AMBER : BONE_SOFT, marginTop: "0.35rem" }}>
                       {intel.double
@@ -856,13 +1078,38 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
                     </>
                   )}
 
+                  {/* The player's fleets, commanded from the plate beside the rail, and its fortified lines (warRoomFleets.jsx, warRoomFortify.jsx). */}
+                  <FleetsList fleets={fleets} picked={pickedFleet} onPick={pickFleet} />
+                  <LinesList world={world} country={game.country} gameDate={game.gameDate} locked={locked} onStop={(id) => orderWith(sendFortifyOp, { op: "unfortify", id })} />
+
                   <Heading style={{ marginTop: "0.8rem" }}>What is known of theirs</Heading>
                   {theirEdge && (
                     <div data-oh-war-room-edge="" style={{ ...softText, marginTop: "0.4rem" }}>
                       At this difficulty their troops here fight at {theirEdge.power}% of their strength and advance at {theirEdge.pace}% of their pace, with {theirEdge.reserves}% of the usual reserves.
                     </div>
                   )}
-                  {intel.plans.length === 0 && (
+                  {theirCommander && (
+                    <div data-oh-war-room-commander={theirCommander} style={{ ...softText, marginTop: "0.4rem" }}>
+                      {theirCommander === "plainer"
+                        ? <>At this difficulty their staff is a plainer one: it looks less far ahead and weighs fewer plans.</>
+                        : <>At this difficulty their staff weighs each of its plans against how you are likely to answer it.</>}
+                    </div>
+                  )}
+                  {theirPlan?.by === "agent" && (
+                    <div data-oh-war-room-their-plan="agent" style={{ ...trayStyle(false), marginTop: "0.4rem", padding: "0.4rem 0.5rem" }}>
+                      <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>Their staff's plan: <StaffPlanWord plan={theirPlan.plan} /></div>
+                      <div style={softText}>
+                        {theirPlan.at && <>Aimed at <span data-no-translate>{placeName(theirPlan.at)}</span>{theirPlan.n > 0 && <>, with about {theirPlan.n} formations sent forward</>}. </>}
+                        Decided on {formatGameDateReadable(theirPlan.since) || theirPlan.since}.
+                      </div>
+                    </div>
+                  )}
+                  {theirPlan?.by === "air" && (
+                    <div data-oh-war-room-their-plan="air" style={{ ...trayStyle(false), marginTop: "0.4rem", padding: "0.4rem 0.5rem" }}>
+                      <div style={softText}>Your aircraft over the front see about {theirPlan.n} of their formations on the move toward <span data-no-translate>{placeName(theirPlan.at)}</span>. An agent in one of their countries would tell you what their staff means by it.</div>
+                    </div>
+                  )}
+                  {intel.plans.length === 0 && !theirPlan && (
                     <div style={{ ...softText, marginTop: "0.4rem" }}>
                       {espionage
                         ? <>Nothing. An agent inside one of their countries would send their planned movements here.</>

@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { DETAILED_MAP_CONVERSION_MESSAGE, DETAILED_MAP_PROJECTION_MESSAGE, detailedMapFits, formatAspect, moveFeatureCoords, moveUnits, parseAspect, planBasemapChange, projectionChoice } from "./projectionConvert.js";
+import { DETAILED_MAP_CONVERSION_MESSAGE, DETAILED_MAP_PROJECTION_MESSAGE, detailedMapFits, formatAspect, moveFeatureCoords, moveUnits, moveWarShapes, parseAspect, planBasemapChange, projectionChoice } from "./projectionConvert.js";
 import { MAX_REDRAWN_WIDTH, redrawnSize, reprojectPixels } from "./projectionImage.js";
 import { convertDisplayPoint, geoToDisplay, sheetBounds } from "../../server/mapProjection.js";
 
@@ -82,6 +82,16 @@ test("cities, features and units go where their map goes", () => {
 
   const units = moveUnits([{ id: "u", lng: 10, lat: 60, strength: 5 }], "mercator", "equirectangular");
   assert.deepEqual(units, [{ id: "u", lng: 10, lat: geoToDisplay("equirectangular", 10, 60)[1], strength: 5 }]);
+});
+
+test("terrain, fortified lines and climate zones go where their map goes, every point of them", () => {
+  const at = (lon, lat) => convertDisplayPoint("mercator", "equirectangular", lon, lat);
+  const [area] = moveWarShapes([{ id: "alps", level: 8, rings: [[[6, 45], [11, 45], [11, 48], [6, 45]]] }], "mercator", "equirectangular");
+  assert.deepEqual(area, { id: "alps", level: 8, rings: [[at(6, 45), at(11, 45), at(11, 48), at(6, 45)]] });
+  const [wall] = moveWarShapes([{ id: "wall", level: 5, points: [[20, 60], [25, 62]], breaches: [[1, 2]] }], "mercator", "equirectangular");
+  assert.deepEqual(wall.points, [at(20, 60), at(25, 62)]);
+  assert.deepEqual(wall.breaches, [[1, 2]], "what is measured along the line is left as it is");
+  assert.deepEqual(moveWarShapes(null, "mercator", "miller"), []);
 });
 
 test("a shape is typed any of the usual ways and shown as a ratio", () => {

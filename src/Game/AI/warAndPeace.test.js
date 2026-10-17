@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { TREATY_BROKEN_REPUTATION } from "../../runtime/alliances.js";
 import { normalizeWorldState } from "../../runtime/gameState.js";
 import { PEACE_OFFER_WEARINESS, TERRITORY_AS_HELD, TERRITORY_RESTORED } from "../../runtime/peaceTerms.js";
-import { wearinessOf } from "../../runtime/warWeariness.js";
+import { WEARINESS_A_YEAR, wearinessOf } from "../../runtime/warWeariness.js";
 import { PUBLIC_WORLD_KEYS } from "../../multiplayer/host/projection.js";
 import {
   acceptPeaceOffer,
@@ -160,6 +160,21 @@ test("a turn moves weariness, and a country nobody plays that is weary enough of
   assert.equal(war(turn(world(), { players: ["Cisland"] })).status, "active");
   assert.equal(turnDays({ gameDate: "1915-01-02" }, { gameDate: "1915-02-01" }), 30);
   assert.equal(turnDays({}, { gameDate: "1915-02-01" }), 0);
+});
+
+test("a country goes to war as weary as its own military figures say, where the game holds none for it yet", () => {
+  const own = (extra = {}) => world({
+    polityOverrides: Object.fromEntries(["Aland", "Borduria", "Cisland"].map((name) => [name, { code: name, name, aliases: [], color: "", note: "", ...(name === "Borduria" ? { military: { weariness: 70 } } : {}) }])),
+    ...extra,
+  });
+  const month = (from) => Math.round((from + (WEARINESS_A_YEAR * 30) / 365) * 10) / 10;
+  assert.equal(wearinessOf(turn(own()).warWeariness, "Borduria"), month(70));
+  // The game's own figure, once it has one, is what counts.
+  assert.equal(wearinessOf(turn(own({ warWeariness: [{ country: "Borduria", value: 20 }] })).warWeariness, "Borduria"), month(20));
+  // A scenario that does not weigh its countries' military figures sends them to war fresh.
+  assert.equal(wearinessOf(turn(own({ warSettings: { mechanics: { military: false } } })).warWeariness, "Borduria"), month(0));
+  // And the land war weighs it from the period it goes to war in (frontTurn.js).
+  assert.ok(read("frontTurn.js").includes("for (const entry of wearinessGoingIn(world?.warWeariness, { wars: stages.flat(), startOf: mechanics?.military === true ? (name) => readers.militaryOf(name)?.weariness ?? null : null })) {"));
 });
 
 test("reparations are paid every turn: the payer owes more and the receiver less, until they have run", () => {

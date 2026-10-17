@@ -27,6 +27,11 @@ export const DOCUMENT_FIELDS = {
   units: array,
   groups: object,
   puppets: array,
+  // What the scenario draws on its map for war (src/runtime/warGeography.js).
+  terrainAreas: array,
+  fortifications: array,
+  climateZones: array,
+  freezingRegions: array,
   ownerSchema: (value) => Number(value || 1),
 };
 

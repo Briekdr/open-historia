@@ -6,7 +6,12 @@
 //   - with the Select tool, a box dragged over the player's troops picks them
 //     out (Shift adds to what is picked; a click picks the troop under it);
 //   - with a drawing tool, the pointer draws a way: for the troops picked out
-//     (Route), to be stolen (Diversion), or for a Board operation (Replan).
+//     (Route), to be stolen (Diversion), for a Board operation (Replan), or a
+//     fortified line to be built (Fortify);
+//   - with a placing tool, a click names a place: where the troops picked out
+//     are to be carried (Transport), where the fleet picked out is to sail or
+//     patrol (Fleet), or where the player's new troops gather as a swarm
+//     (Deploy, as a swarm). A drag moves the map and names nothing.
 //
 // While a tool is in hand a sheet lies over the map and takes the pointer, so
 // the map does not pan under a drag and a region is not opened by the click
@@ -24,6 +29,7 @@ import { ownTroopsOf } from "../../runtime/fronts/command.js";
 import { frameBounds, projectorOf, unwrapLng } from "../../runtime/fronts/frame.js";
 import { foldBattlefieldName, normalizeBattlefield } from "../../runtime/fronts/record.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
+import { lineColour } from "./warRoomMarks.js";
 import { getWarRoom, reportWarRoomWay, setWarRoom, takeTool, useWarRoom } from "./warRoomStore.js";
 
 const NONE = Object.freeze([]);
@@ -36,7 +42,7 @@ const WAY_LEAST_PX = 28;
 // pointer has gone this far from the last.
 const PICK_PX = 16;
 const WAY_STEP_PX = 6;
-const DRAW_COLOURS = Object.freeze({ route: ACCENT, replan: ACCENT, diversion: "#ffd24a" });
+const DRAW_COLOURS = Object.freeze({ route: ACCENT, replan: ACCENT, diversion: "#ffd24a", deploy: "#3ddc84" });
 
 // The record of the battlefield shown, read from the world as it stands.
 const useShownRecord = (name) => {
@@ -90,6 +96,9 @@ const WarRoomTools = () => {
   const tool = useWarRoom((state) => state.tool);
   const replan = useWarRoom((state) => state.replan);
   const medium = useWarRoom((state) => state.medium);
+  const deployForm = useWarRoom((state) => state.deployForm);
+  // (A fortified line is drawn in the colour of the level it is to be built to.)
+  const level = useWarRoom((state) => state.level);
   const cover = useWarRoom((state) => state.cover);
   const rail = useWarRoom((state) => state.rail);
   const fit = useWarRoom((state) => state.fit);
@@ -168,6 +177,8 @@ const WarRoomTools = () => {
   useEffect(() => {
     const sheet = sheetRef.current;
     if (!drawing || !sheet || !map) return undefined;
+    // The tools that name a place with a click, and move the map with a drag.
+    const placing = tool === "transport" || tool === "fleet" || (tool === "deploy" && deployForm === "swarm");
     let held = null;
     const at = (event) => {
       const box = sheet.getBoundingClientRect();
@@ -196,12 +207,12 @@ const WarRoomTools = () => {
       try { sheet.setPointerCapture(event.pointerId); } catch { /* optional */ }
       const point = at(event);
       held = { id: event.pointerId, from: point, way: [point], add: event.shiftKey };
-      setDraft(tool === "select" ? { x0: point[0], y0: point[1], x1: point[0], y1: point[1] } : tool === "transport" ? null : [point]);
+      setDraft(tool === "select" ? { x0: point[0], y0: point[1], x1: point[0], y1: point[1] } : placing ? null : [point]);
     };
     const move = (event) => {
       if (!held || event.pointerId !== held.id) return;
       const point = at(event);
-      if (tool === "transport") {
+      if (placing) {
         // The place may be far off: dragging moves the map under the pointer, and only a click names it.
         const last = held.way[held.way.length - 1];
         held.moved = (held.moved ?? 0) + Math.abs(point[0] - last[0]) + Math.abs(point[1] - last[1]);
@@ -255,6 +266,23 @@ const WarRoomTools = () => {
         reportWarRoomWay("transport", [[place.lng, place.lat]], { medium });
         return;
       }
+      if (tool === "deploy" && deployForm === "swarm") {
+        if ((done.moved ?? 0) >= CLICK_PX) return;
+        // The place the player's new troops are to gather at as a swarm, told in the battlefield's own longitudes.
+        const place = inFrame(map.unproject(point));
+        takeTool("pan");
+        reportWarRoomWay("deploy", [place], { form: "swarm" });
+        return;
+      }
+      if (tool === "fleet") {
+        if ((done.moved ?? 0) >= CLICK_PX) return;
+        const place = map.unproject(point);
+        // (Read from the store now: which fleet, and to sail there or patrol it.)
+        const { fleet, station } = getWarRoom();
+        takeTool("pan");
+        reportWarRoomWay("fleet", [[unwrapLng(place.lng, 0), place.lat]], { fleet, station });
+        return;
+      }
       let length = 0;
       for (let index = 1; index < done.way.length; index += 1) {
         const dx = done.way[index][0] - done.way[index - 1][0];
@@ -296,11 +324,11 @@ const WarRoomTools = () => {
       // A tool put down in the middle of a drag leaves nothing half drawn.
       setDraft(null);
     };
-  }, [drawing, map, tool, side, replan, medium]);
+  }, [drawing, map, tool, side, replan, medium, deployForm]);
 
   const container = map?.getContainer?.() ?? null;
   if (!drawing || !container) return null;
-  const colour = DRAW_COLOURS[tool] ?? ACCENT;
+  const colour = tool === "fortify" ? lineColour(level) : DRAW_COLOURS[tool] ?? ACCENT;
   return createPortal(
     <div
       ref={sheetRef}

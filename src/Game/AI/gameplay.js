@@ -22,8 +22,14 @@ import { PLAYER_GROUP_JUMP_RULE, describeGroupsForPrompt, describePlayerGroupFor
 import { effectiveCityPopulation } from "../../runtime/cityPopulation.js";
 import { hostingSharedGame, humanCountriesOf } from "../../runtime/humanPolities.js";
 import { withTurnSeaBattles } from "../../runtime/naval/record.js";
+import { withFrontFortifications } from "../../runtime/warGeography.js";
+import { zoneWeatherFor } from "../../runtime/zoneWeather.js";
+import { militaryLookup } from "../../runtime/militaryStats.js";
+import { warSettingsOf } from "../../runtime/warSettings.js";
 import { STATS_BACKEND_FIELD, conflictSheetTargets, hasStatsBackend, statsBackendInstruction, statsBackendOf, statsBackendPatch, statsBackendTurnRule } from "../../runtime/statsBackend.js";
 import { CONFLICT_BACKENDS_MOST, conflictBackendsRequest, readConflictBackends } from "./conflictBackends.js";
+import { MILITARY_BATCH_MOST, militaryRatingRequest, militaryTargets, ratedScaleOf, readMilitaryRatings, wantsRating } from "./militaryRating.js";
+import { peopleFor } from "../../runtime/militaryPower.js";
 import {
   createApplicationReceipt,
   firstComplaintLine,
@@ -198,8 +204,11 @@ import {
   withIntelligenceRating,
   withoutGroupOps,
 } from "./gameplaySchemas.js";
-import { frontsOn } from "./frontsGate.js";
-import { applyTurnFronts, citiesFollowCountries, withFrontManpower, withBlockadeEconomy, turnBlockades, regionHoldingsOf, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
+import { frontsOn, strategyNetOn } from "./frontsGate.js";
+import { engineerLines } from "../../runtime/fronts/engineer.js";
+import { foreseeFronts } from "./foreseenFronts.js";
+import { offPageAvailable } from "./frontWorkerClient.js";
+import { applyTurnFronts, citiesFollowCountries, withFrontManpower, withBlockadeEconomy, turnBlockades, regionHoldingsOf, forecastTurnFronts, frontsListBlock, frontPlansBlock, frontPowers, frontRegionTest, frontWarJoins, frontWarStarts, frontsLiveBlock, openScenarioFronts, routesIntoOthers, transportWaysFor, readFrontCities, scenarioFrontsPending, warRoomChartFor, warRoomIntelText, withFrontUnits, withoutFrontPowers } from "./frontApply.js";
 import { withTurnStrikes } from "../../runtime/strikes.js";
 import { playerDiplomacy, turnDays, turnWarAndPeace } from "./warAndPeace.js";
 import { PEACE_BLOCK_HEADING, buildPeaceBlock } from "./peacePrompt.js";
@@ -215,7 +224,8 @@ import { areaRegionsFor, buildAreaIndex, findArea, readAreaName } from "./namedA
 import { CAPTURE_REACH_KM, findNarratedCaptures, mayNarrateCapture } from "./narratedCapture.js";
 import { EVENT_PLACES_RULE, findEventPlace, findEventPlaces, readEventPlace } from "./eventPlaces.js";
 import { normalizeEventPlaces } from "../../runtime/eventPlaces.js";
-import { describeTravelPace, seaShareOf } from "../../runtime/unitMotion.js";
+import { describeTravelPace, eraOf, seaShareOf } from "../../runtime/unitMotion.js";
+import { eraSettingOf } from "../../runtime/warSettings.js";
 import { PLACEMENT_DIRECTIVE, describeApproximatePlacement, describeOtherKind, distanceKm as placementDistanceKm, hashText as placementHash, homeWaters, nearestInteriorPoint, nearestSea, pointInGeometry, regionWithinContainer, resolvePlacement, resolveRegionPlacement, seasForMap } from "./placement.js";
 import { loadWorldCities } from "./worldCities.js";
 import { FOOTPRINT_KM, obstaclesOf, spaceOut } from "../../runtime/featureSpacing.js";
@@ -291,7 +301,7 @@ import {
   renamePolityInGame,
 } from "../../../server/polityRename.js";
 import { renderTemplateCached, staticPrefixEndOf } from "./promptLayout.js";
-import { attachAttemptOutcome, finishAiRecord, normalizeParsedSummary } from "./telemetry.js";
+import { attachAttemptOutcome, attachSkipTiming, finishAiRecord, normalizeParsedSummary } from "./telemetry.js";
 import {
   JSON_URLS,
   getPrimedScenarioRegionCatalog,
@@ -2785,7 +2795,7 @@ ${pending}`);
   // the skip template used to carry, not a copy of it.
   blocks.push(`[Units and Structures on the Map]
 When an event raises, moves, reinforces or wears down a force, that event carries the unitOps that show it. When an event builds or establishes something that stands in one place, it carries a markerOps build at a place the map knows, with its country.
-${describeTravelPace(game?.gameDate)}`);
+${describeTravelPace(game?.gameDate, eraSettingOf(world))}`);
 
   // A folded skip keeps the board itself (projectsDirective.js); otherwise the
   // board is context, and its own pass moves it.
@@ -4661,6 +4671,9 @@ const afterJumpWritten = async (applied, { applyArgs, signal, phases = null, dat
   const phaseSummary = phases?.finish();
   if (phaseSummary?.phases?.length) {
     logDebugEvent("turn", `Time skip phases: ${formatSkipPhases(phaseSummary)}.`, phaseSummary);
+    // And on the skip's own generations, beside each request's time (the console's Generations): "it reports that
+    // the jump forward was 16.6 seconds but the time skip took much longer than that" (the owner, 2026-10-15).
+    attachSkipTiming(Date.now() - phaseSummary.totalMs - 50, phaseSummary);
   }
   return phaseSummary ? { ...applied, phases: phaseSummary } : applied;
 };
@@ -8985,6 +8998,9 @@ const applySimulationResult = async ({
   // (a held turn retried, a kept one written later, a round stopped part-way)
   // has the first run's operations taken out and is worked out afresh. Null
   // with fronts off: nothing is read, and the events are not touched.
+  // (A phase of its own, and then back to whatever this was a part of.)
+  const phaseBeforeWar = phases?.current ?? "";
+  phases?.enter("recordingWar");
   const turnFronts = await applyTurnFronts({
     baseGame,
     baseWorld,
@@ -9004,6 +9020,7 @@ const applySimulationResult = async ({
     warUpdates,
   });
   if (turnFronts) freshEvents.splice(0, freshEvents.length, ...turnFronts.events);
+  if (phaseBeforeWar) phases?.enter(phaseBeforeWar);
 
   const impactMerge = applyEventImpactsToWorld({
     colors: baseColors,
@@ -9027,6 +9044,13 @@ const applySimulationResult = async ({
       // And the battles its fleets fought, for the map to mark (runtime/naval/record.js); those of older turns are let go.
       ...(turnFronts ? { seaBattles: withTurnSeaBattles(baseWorld?.seaBattles, turnFronts.sea?.battles, nextGame.round) } : null),
       ...(turnFronts?.sea ? { naviesRaised: turnFronts.sea.raised } : null),
+      // And the walls as the fighting left them: their breaches and wear (runtime/fronts/walls.js).
+      ...(turnFronts?.fortifications?.length ? { fortifications: withFrontFortifications(baseWorld?.fortifications, turnFronts.fortifications) } : null),
+      // And the water frozen this turn, for the map to show as ice (runtime/fronts/climate.js).
+      ...(turnFronts ? { frozenRegions: normalizeArray(turnFronts.frozen) } : null),
+      // And each climate zone's weather on the day the turn lands, drawn from the campaign's own seed as the
+      // land war's is (runtime/zoneWeather.js): the same patches of weather on every screen of a shared game.
+      zoneWeather: zoneWeatherFor(baseWorld, { seed: campaignId, date: nextGame.gameDate }),
       // And the blockades that stand as the turn ends, each with the days it has stood (runtime/naval/blockade.js).
       ...(turnFronts ? { blockades: turnBlockades(baseWorld, turnFronts) } : null),
       // Whatever comes through here ends a scene: a skip is refused while one is
@@ -9069,6 +9093,21 @@ const applySimulationResult = async ({
   // `let`: a Project the board pass completes can recolour a polity too.
   let nextColors = impactMerge.colors;
   let impactedWorld = impactMerge.world;
+  // EXPERIMENT, in the lab: where the lab's own staff leads the land war (frontsGate.js strategyNetOn), the
+  // countries nobody plays have an engineer too (runtime/fronts/engineer.js): one outmatched on a battlefield has
+  // a fortified line built behind its front, by the very op a person's war room sends, on its own ground only.
+  if (turnFronts?.battlefields && strategyNetOn()) {
+    try {
+      const chart = await warRoomChartFor({ world: impactedWorld, game: nextGame, campaignId: activeCampaignId(), loadRegions: createRenderedRegionsReader() });
+      if (chart) {
+        const engineered = engineerLines(impactedWorld, { players: humanCountriesOf(nextGame), date: nextGame.gameDate, chart });
+        impactedWorld = engineered.world;
+        if (engineered.built.length) logDebugEvent("turn", `Fronts: ${engineered.built.map((line) => `${line.owner} began a level ${line.level} line of ${line.km} km before ${line.battlefield} (${line.days} days)`).join("; ")}.`, engineered.built);
+      }
+    } catch (error) {
+      console.warn("[fronts] no line could be planned for the countries nobody plays this turn.", error);
+    }
+  }
   // A polity renamed this turn — by an event's polityChanges, or a record whose
   // display name still differed from its key — is re-keyed everywhere the world
   // state does not carry: the game's own polity, the queued orders, the chats
@@ -12267,8 +12306,13 @@ const requestTrackedBaseline = (pending, game) => {
 const requestConflictSheets = (world, game, extra = []) => {
   if (!frontsOn()) return;
   const players = humanCountriesOf(game);
-  const names = conflictSheetTargets(world, players, { extra });
-  if (names.length > 0) void ensureConflictBackends(names.slice(0, CONFLICT_BACKENDS_MOST), { reason: "in conflict with the player" });
+  const names = conflictSheetTargets(world, players, { extra }).slice(0, CONFLICT_BACKENDS_MOST);
+  if (names.length > 0) void ensureConflictBackends(names, { reason: "in conflict with the player" });
+  // And every other country at war whose people or military figures nobody knows: rated against the others as the
+  // war first needs them, never weighed by the land it holds ("remove region count power entirely", the owner,
+  // 2026-10-16). Those in conflict with the player have theirs from the request above.
+  const others = militaryTargets(world, { skip: names });
+  if (others.length > 0) void ensureMilitaryFigures(others, { reason: "at war" });
 };
 
 const refreshTrackedCustomStatsIfDue = async ({ bundle, signal, definition, requests = null, replay = null } = {}) => {
@@ -13064,10 +13108,64 @@ export const warRoomRouteAttacks = ({ world, game, record } = {}) =>
     return found;
   });
 
+// The land war of the days ahead from where the game stands, fought ahead of
+// time with the orders as they stand: the period a skip of `days` would fight
+// before its story (frontApply.js forecastTurnFronts), in the land war's own
+// worker where the browser has one. Nothing is written and no model is asked.
+// It is kept: forecastTurnFronts keeps the last period it fought for a skip
+// that asks for the same, and the staff that looks ahead keeps each look it
+// made (runtime/fronts/mind/trained.js), so a skip that fights these days has
+// them again rather than thinking them through.
+const foreseeFrom = async ({ days, signal }) => {
+  const bundle = withDiplomaticLedgerMigration(await readGameStateBundle({ force: true }));
+  const fromDate = normalizeString(bundle.game.gameDate);
+  const span = Math.max(0, Number(days) || 0);
+  if (!(span >= 1)) return null;
+  const found = await forecastTurnFronts({
+    world: bundle.world,
+    game: bundle.game,
+    campaignId: activeCampaignId(),
+    toDate: jumpTargetDate(fromDate, span),
+    requestedDays: span,
+    loadRegions: createRenderedRegionsReader(),
+    signal,
+  });
+  return found ? { fromDate, toDate: found.toDate, days: found.days, battlefields: found.battlefields, news: found.news } : null;
+};
+
+// "Rehearse my plan" (GameUI/warRoomRehearsal.jsx): "It would run your drawn
+// orders a few days ahead on a copy of the battle, using the commander's own
+// machinery, and show the projected front as a faint overlay" (the owner's
+// list, 2026-10-16). { fromDate, toDate, days, battlefields, news } as the days
+// would leave them, or null where there is no war to fight.
+export const warRoomRehearse = ({ days = 7, signal = null } = {}) => {
+  if (isSimulationBusy()) throw new Error("A turn is being resolved: rehearse once it has landed.");
+  return foreseeFrom({ days, signal });
+};
+
+// The next period's land war, thought through while the player reads
+// (frontPrethink.js): "Near-instant skips: on desktop, the commander could
+// think ahead while you're reading" (the owner's list, 2026-10-16). Only in the
+// land war's own worker, where it costs the page nothing, and never while a
+// turn is being worked out.
+export const prethinkFronts = ({ days = 30, signal = null } = {}) => {
+  if (isSimulationBusy() || !offPageAvailable()) return null;
+  return foreseeFrom({ days, signal });
+};
+
 // The way each transporter deployed in the war room would take, before it has
 // set out (frontApply.js transportWaysFor): found from the map, with no request.
 export const warRoomTransportWays = ({ world, game } = {}) =>
   transportWaysFor({ world, game, campaignId: activeCampaignId(), loadRegions: createRenderedRegionsReader() });
+
+// What the war room's fortified lines and fleets are held to on the map
+// (frontApply.js warRoomChartFor): where the sea is, and whose the ground is.
+// Read from the map, with no request made; of the world as it stands when none
+// is handed over. (A shared game's host reads its own: multiplayer/host/engineMain.js.)
+export const warRoomChart = async ({ world = null, game = null } = {}) => {
+  const bundle = world && game ? { world, game } : await readGameStateBundle({ force: true });
+  return warRoomChartFor({ world: bundle.world, game: bundle.game, campaignId: activeCampaignId(), loadRegions: createRenderedRegionsReader() });
+};
 
 // What the player's generals answer when he speaks to them over one battlefield
 // (GameUI/warRoom.jsx). One request a message and no lookup functions: the
@@ -13699,11 +13797,21 @@ export const ensureConflictBackends = (targets, { reason = "" } = {}) => {
       ? normalizeCustomStatValues(normalizeCountryStatSheet(sheetOf(source, name))?.customStats, definition, { partial: true })
       : null);
     const currentDate = normalizeString(bundle.game?.gameDate || bundle.game?.startDate);
+    // Weighing countries' own military figures (runtime/warSettings.js), the same request rates those of a
+    // country that has none, from its author or its sheet (runtime/militaryStats.js).
+    const rateMilitary = warSettingsOf(world).mechanics.military;
+    const figuresOf = militaryLookup(world);
+    // (Rated against every country rated already: militaryRating.js.)
+    const scaleNames = new Map();
+    for (const source of [world.countryStats, world.polityOverrides, world.groups]) for (const key of Object.keys(source || {})) scaleNames.set(key.toLowerCase(), key);
+    const rated = rateMilitary ? ratedScaleOf([...scaleNames.values()].map((name) => ({ name, military: figuresOf(name), population: peopleFor(world, name) })), wanted) : [];
     const { systemPrompt, userMessage, asked } = conflictBackendsRequest({
       date: currentDate,
       rules: normalizeString(world.simulationRules),
       player: normalizeString(bundle.game?.country),
-      countries: wanted.map((name) => ({ name, population: Number(world.polityOverrides?.[name]?.population), values: ownSheet(world, name) })),
+      military: rateMilitary,
+      rated,
+      countries: wanted.map((name) => ({ name, population: Number(world.polityOverrides?.[name]?.population), values: ownSheet(world, name), rated: Boolean(figuresOf(name)) })),
       known: Object.entries(world.countryStats || {}).map(([name, sheet]) => ({ name, backend: statsBackendOf(sheet) })).filter((entry) => entry.backend),
       sheet: definition.custom ? { description: describeStatSheetDefinition(definition), keys } : null,
     });
@@ -13719,13 +13827,15 @@ export const ensureConflictBackends = (targets, { reason = "" } = {}) => {
     try {
       const kept = [];
       await mutateWorldState((latest) => {
-        for (const { name, backend, customStats } of read) {
+        for (const { name, backend, customStats, military } of read) {
           const key = canonicalStatsPolity(name, latest) || name;
           if (hasStatsBackend(latest.countryStats?.[key])) continue;
           // The scenario's own sheet with it, where the answer wrote the whole of one and the country has none.
           const values = definition.custom && customStats && !ownSheet(latest, name) ? normalizeCustomStatValues(customStats, definition) : null;
           const whole = values && keys.every((stat) => Object.prototype.hasOwnProperty.call(values, stat));
-          applyCountryStatPatchToWorld(latest, key, { ...(whole ? { customStats: values } : {}), ...statsBackendPatch(backend) }, whole
+          // Its military figures, where it was rated and has none of its own yet.
+          const rated = rateMilitary && military && !militaryLookup(latest)(name) ? { military } : {};
+          applyCountryStatPatchToWorld(latest, key, { ...(whole ? { customStats: values } : {}), ...statsBackendPatch(backend), ...rated }, whole
             ? { continuity: { assessedDate: currentDate, assessedRound: Math.max(0, Math.trunc(Number(bundle.game?.round) || 0)) } }
             : {});
           kept.push(key);
@@ -13737,6 +13847,103 @@ export const ensureConflictBackends = (targets, { reason = "" } = {}) => {
     } finally {
       endSimulation();
     }
+  });
+};
+
+// The figures of the countries the game needs and has none for, rated against
+// every other country's (militaryRating.js): "if it is not pregenerated, it
+// should just generate it whenever it is needed for the game for a country"
+// (the owner, 2026-10-16). A war's countries (requestConflictSheets), the
+// Military power ranking's and a country's own Military card (the Stats pane).
+// A first reading like the others (background AI, after whatever is running,
+// one at a time a campaign, silent when it fails): MILITARY_BATCH_MOST countries
+// to a request, every country asked for asked of once, what it is told kept on
+// each one's sheet: the figures it had none of, field by field, and its people
+// where nobody knew them. A scenario whose designer had every country rated
+// (GameUI/ScenarioMilitaryPanel.jsx) asks nothing here.
+// (A country is asked of once a sitting: one the AI left out is not asked of again every time the pane is drawn.)
+const militaryWanted = new Map();
+const militaryTried = new Set();
+const triedKey = (name) => `${activeCampaignId()}|${name.toLowerCase()}`;
+export const ensureMilitaryFigures = (targets, { reason = "" } = {}) => {
+  for (const target of normalizeArray(targets)) {
+    const name = normalizeString(target);
+    if (name && !militaryWanted.has(name.toLowerCase()) && !militaryTried.has(triedKey(name))) militaryWanted.set(name.toLowerCase(), name);
+  }
+  if (militaryWanted.size === 0) return Promise.resolve(null);
+  return firstReading("military figures", "the countries' military figures", reason, async () => {
+    const campaign = activeCampaignId();
+    const kept = [];
+    const asked = { has: (key) => militaryTried.has(`${campaign}|${key}`), add: (key) => militaryTried.add(`${campaign}|${key}`) };
+    while (militaryWanted.size > 0 && backgroundAiAllowance().allowed && activeCampaignId() === campaign) {
+      await waitForSimulationIdle();
+      const bundle = await readGameStateBundle({ force: true });
+      const world = normalizeWorldState(bundle.world);
+      const lookup = militaryLookup(world);
+      // (A group's are its scenario designer's: a group is no country with a sheet.)
+      const groupNames = new Set(Object.keys(world.groups || {}).map((key) => key.toLowerCase()));
+      const needs = (name) => !groupNames.has(name.toLowerCase()) && (wantsRating(lookup(name)) || !(peopleFor(world, name) > 0));
+      const wanted = [...militaryWanted.values()].filter((name) => !asked.has(name.toLowerCase()) && needs(name));
+      if (wanted.length === 0) {
+        militaryWanted.clear();
+        break;
+      }
+      // Every country with figures already: the scale. Where there is none, the strongest of those wanted first.
+      const everyone = new Map();
+      for (const source of [world.countryStats, world.polityOverrides, world.groups]) for (const key of Object.keys(source || {})) everyone.set(key.toLowerCase(), key);
+      const rated = ratedScaleOf([...everyone.values()].map((name) => ({ name, military: lookup(name), population: peopleFor(world, name) })), wanted);
+      const picking = rated.length === 0 && wanted.length > MILITARY_BATCH_MOST;
+      const batch = (picking ? wanted : wanted.slice(0, MILITARY_BATCH_MOST)).map((name) => ({ name, population: peopleFor(world, name) }));
+      const date = normalizeString(bundle.game?.gameDate || bundle.game?.startDate);
+      const { systemPrompt, userMessage, asked: names } = militaryRatingRequest({
+        ...(picking ? { pickFrom: batch } : { polities: batch }),
+        rated,
+        date,
+        era: eraOf(date, warSettingsOf(world).era),
+        rules: normalizeString(world.simulationRules),
+      });
+      if (!picking) for (const { name } of batch) {
+        asked.add(name.toLowerCase());
+        militaryWanted.delete(name.toLowerCase());
+      }
+      const response = await callAIWithTaskLimit(systemPrompt, [{ role: "user", parts: [{ text: userMessage }] }], {
+        reasoningEnabled: false,
+        taskKey: "countryStatSheet",
+        requestKind: BACKGROUND_REQUEST,
+      });
+      const rawText = typeof response === "string" ? response : normalizeString(response?.rawText);
+      const read = readMilitaryRatings(response?.toolInput ?? extractJsonPayload(rawText), names);
+      if (picking) {
+        for (const { name } of read) {
+          asked.add(name.toLowerCase());
+          militaryWanted.delete(name.toLowerCase());
+        }
+        if (read.length === 0) break;
+      }
+      if (read.length === 0) continue;
+      await beginStatsWrite(campaign);
+      try {
+        await mutateWorldState((latest) => {
+          const own = militaryLookup(latest);
+          let changed = false;
+          for (const { name, military, population } of read) {
+            const had = own(name) ?? {};
+            const missing = Object.fromEntries(Object.entries(military ?? {}).filter(([field]) => had[field] === undefined || had[field] === null));
+            const people = population > 0 && !(peopleFor(latest, name) > 0) ? { population: { total: population } } : {};
+            if (Object.keys(missing).length === 0 && !people.population) continue;
+            const key = canonicalStatsPolity(name, latest) || name;
+            applyCountryStatPatchToWorld(latest, key, { ...(Object.keys(missing).length > 0 ? { military: missing } : {}), ...people });
+            kept.push(key);
+            changed = true;
+          }
+          return changed ? latest : null;
+        }, { emitEvents: false });
+      } finally {
+        endSimulation();
+      }
+    }
+    if (kept.length > 0) logDebugEvent("turn", `Military figures for ${kept.length} countr${kept.length === 1 ? "y were" : "ies were"} rated against the others.`, { countries: kept });
+    return kept;
   });
 };
 
@@ -16112,6 +16319,7 @@ const frontOrderCall = (context) => {
       });
       if (!again) return "";
       Object.assign(forecast, again, { given });
+      foreseeFronts(forecast);
       return frontsListBlock(context.bundle.world, context.bundle.game, forecast);
     },
   };
@@ -17770,6 +17978,8 @@ export const simulateTimelineJump = async ({ days, mode = "jump", onEvents, onPr
   // reads the action, then calls a function with the order and the period is
   // fought again with it (frontOrderFunction.js, frontOrderCall below). (A
   // copy: what that function learns is this skip's, not the kept forecast's.)
+  // (A phase of its own: where there is a war, it is most of the time a skip takes before its request is sent.)
+  phases.enter("fighting");
   const foughtBefore = await forecastTurnFronts({
     world: bundle.world,
     game: bundle.game,
@@ -17779,6 +17989,9 @@ export const simulateTimelineJump = async ({ days, mode = "jump", onEvents, onPr
     loadRegions: createRenderedRegionsReader(),
     signal,
   });
+  phases.enter("reading");
+  // (For the map, which plays it at each event while the story is written: foreseenFronts.js.)
+  foreseeFronts(foughtBefore);
   const frontsForecast = foughtBefore ? { ...foughtBefore } : null;
   // Guarantee at least one event per queued action, so each planned action has a
   // slot to resolve into (bounded so a huge queue can't demand absurd counts).

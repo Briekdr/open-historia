@@ -24,20 +24,31 @@
 // engine and the map's regions are handed in (frontApply.js, for gameplay.js
 // applySimulationResult).
 
-import { diffGameDays, gameDateYear } from "../../runtime/gameDates.js";
-import { fundingFactor, middleFundingPerHead } from "../../runtime/militaryFunding.js";
-import { countryWeight } from "../../runtime/countryWeight.js";
+import { addGameDays, diffGameDays, gameDateYear } from "../../runtime/gameDates.js";
+import { yearInEra } from "../../runtime/unitMotion.js";
+import { militaryLookup } from "../../runtime/militaryStats.js";
+import { DEFAULT_MUSTER, musterTable } from "../../runtime/mustering.js";
+import { warSettingsOf } from "../../runtime/warSettings.js";
+import { normalizeClimateZones, normalizeFortifications, normalizeFreezingRegions, normalizeTerrainAreas, zoneWeightAt } from "../../runtime/warGeography.js";
+import { climateZonesOf, terrainAreasOf } from "../../runtime/worldGeographyDefaults.js";
+import { freezesAt } from "../../runtime/fronts/climate.js";
+import { hashKey } from "../../runtime/fronts/codec.js";
+import { forcesFunding, middleFundingPerHead } from "../../runtime/militaryFunding.js";
+import { countryWeight, middleWeight } from "../../runtime/countryWeight.js";
 import { populationFigureOf } from "../../runtime/populationFigure.js";
 import { arenaFor } from "../../runtime/fronts/arena.js";
 import { REINFORCE_ORDER, SCENARIO_MARK } from "../../runtime/fronts/constants.js";
+import { anyMechanic } from "../../runtime/fronts/mechanics.js";
 import { pointInFrame } from "../../runtime/fronts/frame.js";
 import { foldBattlefieldName, normalizeBattlefields } from "../../runtime/fronts/record.js";
 import { TRANSPORT_LOAD_USUAL, TRANSPORT_ORDERS, isUnderWay, normalizeTransports, orderTransport } from "../../runtime/fronts/transports.js";
 import { buildWorldGrid, distanceTo, seasOf, worldSheetKey } from "../../runtime/fronts/worldGrid.js";
 import { waterTypeIds } from "../../runtime/regionTypes.js";
+import { chooseFleetPostures } from "../../runtime/naval/admiral.js";
 import { runNaval } from "../../runtime/naval/engine.js";
 import { normalizeBlockades, shortageOfBlockade } from "../../runtime/naval/blockade.js";
-import { normalizeWarWeariness, shortagesTogether, wearyShortage } from "../../runtime/warWeariness.js";
+import { shortagesTogether, wearinessGoingIn, wearyShortage } from "../../runtime/warWeariness.js";
+import { normalizeWarResources, resourceShortage } from "../../runtime/warResources.js";
 import { STRIKES_PER_TURN_MOST, findStrikePlace, pickStrikeOrigin, seaLaunchPlace } from "../../runtime/strikes.js";
 
 export const FRONT_MARK = "front";
@@ -290,9 +301,8 @@ export const engineRegionsOf = (geojson, { nameOf = null } = {}) => {
 // engine day by day (planFrontMoments), never read from here.
 //   baseOwners   Map, region id -> who holds it on the map as drawn, for a
 //                region no event has moved yet
-//   regionIds    the regions of the map, to count what each country holds
 //   groups       false when groups are switched off for the game
-export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], groups = true } = {}) => {
+export const frontWorldReaders = (world, { baseOwners = null, groups = true } = {}) => {
   const control = isRecord(world?.regionOwnershipOverrides) ? world.regionOwnershipOverrides : {};
   const sovereignty = isRecord(world?.regionSovereigntyOverrides) ? world.regionSovereigntyOverrides : {};
   const groupAreas = groups && isRecord(world?.groupAreas) ? world.groupAreas : {};
@@ -301,21 +311,6 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
   const controllerOf = (id) => clean(Object.hasOwn(control, id) ? control[id] : base.get(id));
   const sovereignOf = (id) => clean(Object.hasOwn(sovereignty, id) ? sovereignty[id] : "") || controllerOf(id);
 
-  // The land each name holds: a country the regions it controls, a group the
-  // regions of its area. Counted once, the first time a weight is asked for.
-  let held = null;
-  const heldBy = (name) => {
-    if (!held) {
-      held = new Map();
-      const count = (owner) => {
-        const key = fold(owner);
-        if (key) held.set(key, (held.get(key) ?? 0) + 1);
-      };
-      for (const id of asArray(regionIds).length ? regionIds : Object.keys(control)) count(controllerOf(id));
-      for (const group of Object.values(groupAreas)) count(group);
-    }
-    return held.get(fold(name)) ?? 0;
-  };
   const sheets = isRecord(world?.countryStats) ? world.countryStats : {};
   let people = null;
   const peopleOf = (name) => {
@@ -340,15 +335,36 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
     }
     return people.get(fold(name));
   };
-  // What a country's economy does to its weight (runtime/militaryFunding.js):
-  // how its treasury stands, and how well funded it is against the others known.
-  let funded = null;
+  const military = militaryLookup(world);
+  const scenarioMuster = warSettingsOf(world).muster;
+  const curves = new Map();
+  // What a country's forces have to spend, as its weight takes it (runtime/militaryFunding.js forcesFunding): what
+  // it was rated at against the others where the scenario counts countries' figures, else what its economy pays for.
+  const counted = warSettingsOf(world).mechanics.military;
+  let middleFunding = null;
+  const sheetOf = (name) => {
+    const key = fold(name);
+    for (const [other, sheet] of Object.entries(sheets)) if (fold(other) === key) return sheet;
+    return null;
+  };
   const fundingOf = (name) => {
-    if (!funded) {
-      const middle = middleFundingPerHead(sheets);
-      funded = new Map(Object.entries(sheets).map(([key, sheet]) => [fold(key), fundingFactor(sheet, middle)]));
+    if (middleFunding === null) middleFunding = middleFundingPerHead(sheets);
+    return forcesFunding({ sheet: sheetOf(name), middle: middleFunding, military: counted ? military(name) : null });
+  };
+  // What a country weighs in a land war: its people and what its forces have to spend (runtime/countryWeight.js).
+  // One whose people nobody knows yet is counted as the middle of those known: never by the land it holds ("remove
+  // region count power entirely", the owner, 2026-10-16). The AI rates its people and figures against every other
+  // country's as the game first needs them (militaryRating.js), where its scenario's designer did not.
+  const weightOf = (name) => countryWeight({ population: peopleOf(name), funding: fundingOf(name) });
+  let unknownWeight = null;
+  const strengthOf = (name) => {
+    const weight = weightOf(name);
+    if (weight !== null) return weight;
+    if (unknownWeight === null) {
+      peopleOf("");
+      unknownWeight = middleWeight([...people.keys()].map(weightOf).filter((known) => known !== null));
     }
-    return funded.get(fold(name)) ?? 1;
+    return unknownWeight;
   };
 
   return {
@@ -356,13 +372,57 @@ export const frontWorldReaders = (world, { baseOwners = null, regionIds = [], gr
     sovereignOf,
     groupAreas,
     isGroup: (name) => groupNames.has(fold(name)),
-    strengthOf: (name) => countryWeight({ population: peopleOf(name), regions: heldBy(name), funding: fundingOf(name) }),
+    strengthOf,
+    // A country's own military figures, where its author or its sheet gives them (runtime/militaryStats.js;
+    // what they do: runtime/fronts/military.js).
+    militaryOf: military,
+    // How long it takes a country to call up its army (runtime/mustering.js), as the engine takes it:
+    // its own curve, else the scenario's, else the game's (runtime/fronts/muster.js).
+    musterOf: (name) => {
+      const points = military(name)?.muster ?? scenarioMuster ?? DEFAULT_MUSTER;
+      const key = JSON.stringify(points);
+      if (!curves.has(key)) curves.set(key, { table: musterTable(points), head: points[0][1] });
+      return curves.get(key);
+    },
     // A country's people, where its sheet says: what its troops are raised from (runtime/fronts/manpower.js).
     peopleOf: (name) => {
       const people = Number(peopleOf(name));
       return Number.isFinite(people) && people > 0 ? people : 0;
     },
   };
+};
+
+// The ground a scenario made harder to cross, as the engine's map carries it
+// (runtime/fronts/arena.js): { key, areas }, or null for none. Its own, or on
+// the built-in basemaps the real world's (runtime/worldGeographyDefaults.js).
+// Worked out once for the same list of areas.
+const terrains = new WeakMap();
+const terrainOf = (world) => {
+  const source = terrainAreasOf(world);
+  if (terrains.has(source)) return terrains.get(source);
+  const areas = normalizeTerrainAreas(source).filter((area) => area.level > 0);
+  const terrain = areas.length > 0 ? { key: hashKey(areas.map((area) => `${area.id}:${area.level}:${JSON.stringify(area.rings)}`)), areas } : null;
+  terrains.set(source, terrain);
+  return terrain;
+};
+
+// The water a scenario lets freeze that is frozen for a turn: by its climate
+// zones' winters (or the world's own, by latitude), on the turn's middle day,
+// at the middle of each such water's box (runtime/fronts/climate.js
+// freezesAt). [{ id, box }] where any is; [] otherwise.
+export const frozenFor = ({ world, regions, fromDate = "", days = 0 }) => {
+  const freezing = normalizeFreezingRegions(world?.freezingRegions);
+  if (freezing.length === 0 || !Array.isArray(regions)) return [];
+  const zones = normalizeClimateZones(climateZonesOf(world)).map((zone) => ({ zone, inside: (lng, lat) => zoneWeightAt(zone, lng, lat) }));
+  const middle = addGameDays(fromDate, Math.floor(Math.max(0, Number(days) || 0) / 2)) || fromDate;
+  const wanted = new Set(freezing);
+  const frozen = [];
+  for (const region of regions) {
+    if (!wanted.has(String(region?.id)) || !Array.isArray(region.bbox) || region.bbox.length < 4) continue;
+    const [west, south, east, north] = region.bbox;
+    if (freezesAt(zones, (west + east) / 2, (south + north) / 2, middle)) frozen.push({ id: String(region.id), box: [west, south, east, north] });
+  }
+  return frozen;
 };
 
 // ---- names ---------------------------------------------------------------------------
@@ -479,6 +539,31 @@ export const statedCaptures = ({ events = [], battlefields = [], arenaOf = () =>
   return stated;
 };
 
+// With the newer mechanics on (Wars and Fronts Pt.2) the ground of a battlefield
+// is its troops' to take: "how did these troops take this territory, its like
+// its forgetting to update the troop positions" (the owner, 2026-10-15, of a
+// region the story handed over far behind the line). A change of control the
+// events write for a region on a battlefield, from one of its sides to the
+// other (`stated`, statedCaptures), is left out of its event, so that neither
+// the engine nor the map is told it: the troops take the region or they do not.
+// Returns the events and the regions left out, by name.
+export const leaveCapturesToTroops = (events, stated) => {
+  const named = new Map(asArray(stated).map((order) => [clean(order?.id).slice(STATED_REF.length), clean(order?.objective).replace(/^region\s*:\s*/i, "")]));
+  if (named.size === 0) return { events: asArray(events), left: [] };
+  const left = [];
+  const next = asArray(events).map((event) => {
+    const ops = asArray(event?.impacts?.regionControlOps);
+    const kept = ops.filter((op) => {
+      const key = `${clean(event?.id)}:${clean(op?.regionId)}`;
+      if (op?.by === FRONT_MARK || fold(op?.op) !== "control" || !named.has(key)) return true;
+      left.push(named.get(key) || clean(op?.regionName));
+      return false;
+    });
+    return kept.length === ops.length ? event : { ...event, impacts: { ...event.impacts, regionControlOps: kept } };
+  });
+  return { events: next, left: [...new Set(left.filter(Boolean))] };
+};
+
 // A formation fighting on a battlefield is one of its side's troops there, and
 // the engine is what moves it. A move an event still writes for one (the model
 // remembered it from an earlier turn, a player ordered it by name) is left out,
@@ -552,15 +637,47 @@ export const battlefieldRegionTest = ({ battlefields = [], rows = [], readers = 
 //   input           everything but map.regions
 //   loadRegions     async () => the map's regions, or null when they cannot be read
 //   pause           async () => {} between chunks of days, so a long war does
-//                   not hold the page
+//                   not hold the page; and, where a staff thinks in steps
+//                   (runtime/fronts/mind/planner.js), whenever ENGINE_SLICE_MS
+//                   have gone by between them
 // null when the regions were needed and could not be had: the turn then goes on
 // without the engine, and the battlefields stay as they were.
+// How long the engine works on before the page is let draw. The staff that looks ahead thinks for seconds at a time,
+// and the page stood still while it did: "its SOO LAGGY while in war" (the owner, 2026-10-15).
+export const ENGINE_SLICE_MS = 16;
+const clock = () => (typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now());
+// Up to `days` more days of a run: a run that gives its days as steps is taken a step at a time and the page let draw
+// (pause) whenever ENGINE_SLICE_MS have gone by. True once the run is finished. A step that is something to wait for
+// ({ wait }: a staff's plans being fought on other cores, runtime/fronts/mind/rehearsers.js) is waited for, and what
+// it came to handed back to the run.
+const advanceIn = async (run, days, pause) => {
+  if (typeof run.steps !== "function" || typeof pause !== "function") return run.advance(days);
+  let since = clock();
+  const steps = run.steps(days);
+  let reply;
+  for (let step = steps.next(); !step.done; step = steps.next(reply)) {
+    reply = undefined;
+    if (typeof step.value?.wait === "function") {
+      try {
+        reply = await step.value.wait();
+      } catch {
+        reply = undefined;
+      }
+      continue;
+    }
+    if (clock() - since < ENGINE_SLICE_MS) continue;
+    await pause();
+    since = clock();
+  }
+  return run.finished();
+};
+
 export const runFrontTurn = async ({ createFrontRun, input, loadRegions = null, pause = null, chunkDays = 15 } = {}) => {
   if (typeof createFrontRun !== "function") return null;
   let regions = input?.map?.regions ?? null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const run = createFrontRun({ ...input, map: { ...input?.map, regions } });
-    while (!run.advance(chunkDays)) {
+    while (!(await advanceIn(run, chunkDays, pause))) {
       if (typeof pause === "function") await pause();
     }
     const result = run.finish();
@@ -702,6 +819,8 @@ const TRANSPORT_REFUSALS = {
   "not-yet": "nothing of that kind exists yet",
   "too-many": "too many transporters are out already",
   "nothing-aboard": "it was given nothing to carry",
+  "no-navy": "its sender has no navy to carry it by sea",
+  "no-air-force": "its sender has no air arm to carry it by air",
   incomplete: "its order is incomplete",
 };
 export const transportRefusal = (code) => TRANSPORT_REFUSALS[clean(code)] ?? "it could not set out";
@@ -736,7 +855,7 @@ const listed = (names, most = 3) => `${names.slice(0, most).join("; ")}${names.l
 //   map              { key, cities, flat, scale, structures }: all of the map
 //                    the engine is told but its shapes
 //   regionTypes      world.regionTypes
-//   baseOwners, regionIds, groups   frontWorldReaders
+//   baseOwners, groups   frontWorldReaders
 //   arenas           the Map the caller keeps the engine's arenas in
 //   readMap          async () => { map, baseOwners, regionIds, arenas }, for a
 //                    caller that has to read them: asked only once it is known
@@ -795,7 +914,6 @@ export const runTurnFronts = async ({
   map: givenMap = {},
   regionTypes = [],
   baseOwners: givenOwners = null,
-  regionIds: givenIds = [],
   groups = true,
   arenas: givenArenas = null,
   readMap = null,
@@ -807,6 +925,10 @@ export const runTurnFronts = async ({
   players = [],
   // false leaves every side nobody plays to the orders it is given (runtime/fronts/staff.js decides for it otherwise).
   staff = true,
+  // EXPERIMENT, in the lab (runtime/fronts/mind/policy.js): a staff of the caller's own, asked before the engine's.
+  staffPolicy = null,
+  // The cores such a staff's plans may be fought on together (runtime/fronts/mind/rehearsers.js), where the caller has them.
+  rehearsers = null,
   // How many troops are raised, of the usual: a factor, 1 unless a run says (runtime/fronts/troops.js troopsFactor).
   troops = 1,
   // false charges no country's people for the troops raised (runtime/fronts/manpower.js).
@@ -815,6 +937,19 @@ export const runTurnFronts = async ({
   naval = true,
   // The most formations a country and the world may have, for a fleet the war at sea commissions.
   unitCaps = null,
+  // The era the scenario set, 0 to 3, or null to read it off the date (runtime/warSettings.js).
+  era = null,
+  // Which of the engine's newer mechanics the scenario has on (runtime/warSettings.js; runtime/fronts/mechanics.js).
+  mechanics = null,
+  // How its wars' troops stand where nobody deploys them otherwise: "front", or "swarm" (runtime/fronts/swarms.js).
+  warfare = "",
+  // The men a counter stands for and the share of people who can fight, where the scenario set them (runtime/fronts/manpower.js).
+  menEach = null,
+  manpowerShare = null,
+  // When the game began: a war that began after it musters its levies (runtime/fronts/muster.js).
+  gameBegan = "",
+  // The campaign's own seed for its weather (runtime/fronts/weather.js): the same whatever the turn.
+  climateSeed = "",
   difficulty = "",
   narratesCombat = null,
   // The fronts a scenario begins with (runtime/fronts/scenarioFronts.js), on
@@ -828,7 +963,7 @@ export const runTurnFronts = async ({
   strikePlaces = null,
 } = {}) => {
   const cleared = withoutCommittedMoves(stripFrontOps(events), world?.units);
-  const list = cleared.events;
+  let list = cleared.events;
   const notes = [];
   if (cleared.ignored.length) {
     notes.push({
@@ -861,10 +996,9 @@ export const runTurnFronts = async ({
   const read = typeof readMap === "function" ? await readMap() : null;
   const map = read?.map ?? givenMap;
   const baseOwners = read?.baseOwners ?? givenOwners;
-  const regionIds = read?.regionIds ?? givenIds;
   const arenas = read?.arenas ?? givenArenas;
   const { days, dayOf } = frontRunSpan({ fromDate, toDate, requestedDays, events: list });
-  const readers = frontWorldReaders(world, { baseOwners, regionIds, groups });
+  const readers = frontWorldReaders(world, { baseOwners, groups });
   // The strikes the answer wrote, each with its places where they can be
   // found: among the places of the event that tells of it, the map's cities,
   // the world's structures and its formations, and then as the game finds any
@@ -967,6 +1101,19 @@ export const runTurnFronts = async ({
     if (fought.some((record) => !arenaOf(record))) await readRegions();
     stated = statedCaptures({ events: list, battlefields: fought, arenaOf, readers, nameOf });
   }
+  // With the newer mechanics on, what the events state of a battlefield's ground is left to its troops.
+  if (stated.length && anyMechanic(mechanics)) {
+    const kept = leaveCapturesToTroops(list, stated);
+    list = kept.events;
+    stated = [];
+    if (kept.left.length) {
+      notes.push({
+        kind: "dropped",
+        text: `Region control written for ground a battlefield is being fought over (${listed(kept.left)}) was left out: on a battlefield the troops take ground or they do not. `
+          + "Give a front order under [Fronts] to send them at it.",
+      });
+    }
+  }
 
   // An order that aims its side's troops at a place, on a battlefield nobody
   // has, is an attack on whoever holds the place (engine.js attackAtObjective).
@@ -995,10 +1142,23 @@ export const runTurnFronts = async ({
   // The countries under blockade as the period begins, and how short each is for it.
   const short = new Map(naval === false ? [] : normalizeBlockades(world?.blockades).map((record) => [fold(record.country), shortageOfBlockade(record)]).filter(([, lacks]) => lacks > 0));
   // And a country weary of its war keeps its armies up no better than one cut off (runtime/warWeariness.js): the two together.
-  for (const entry of normalizeWarWeariness(world?.warWeariness)) {
+  // One the game holds no weariness for yet goes to war as weary as its military figures say, where the scenario weighs them.
+  for (const entry of wearinessGoingIn(world?.warWeariness, { wars: stages.flat(), startOf: mechanics?.military === true ? (name) => readers.militaryOf(name)?.weariness ?? null : null })) {
     const weary = wearyShortage(entry.value);
     if (weary > 0) short.set(fold(entry.country), shortagesTogether(short.get(fold(entry.country)) ?? 0, weary));
   }
+  // And one that has spent its war resources advancing and building (runtime/warResources.js): all of them together.
+  if (mechanics?.supply === true) {
+    for (const entry of normalizeWarResources(world?.warResources)) {
+      const lacks = resourceShortage(entry.value);
+      if (lacks > 0) short.set(fold(entry.country), shortagesTogether(short.get(fold(entry.country)) ?? 0, lacks));
+    }
+  }
+  // The water a scenario lets freeze that is frozen this turn (runtime/fronts/climate.js): read from the map's
+  // shapes, only where it has any such water and seasons.
+  const frozen = mechanics?.weather === true && normalizeFreezingRegions(world?.freezingRegions).length > 0
+    ? frozenFor({ world, regions: await readRegions(), fromDate, days })
+    : [];
   const result = await runFrontTurn({
     createFrontRun,
     input: {
@@ -1014,7 +1174,9 @@ export const runTurnFronts = async ({
       isGroup: readers.isGroup,
       units: asArray(world?.units),
       transports: normalizeTransports(world?.transports),
-      map: { ...map, regions },
+      // (With the ground the scenario made harder to cross, where it weighs terrain: runtime/fronts/arena.js;
+      // and the water frozen this turn, where it has seasons and weather: runtime/fronts/climate.js.)
+      map: { ...map, regions, ...(mechanics?.terrain === true && terrainOf(world) ? { terrain: terrainOf(world) } : {}), ...(frozen.length > 0 ? { frozen: frozen.map((entry) => entry.id) } : {}) },
       regionTypes: asArray(regionTypes),
       strengthOf: readers.strengthOf,
       peopleOf: readers.peopleOf,
@@ -1023,10 +1185,29 @@ export const runTurnFronts = async ({
       // Who is played by a person: on a side of several countries nobody's order stands in for theirs.
       players: asArray(players).map(clean).filter(Boolean),
       difficulty: clean(difficulty),
+      ...(Number.isInteger(era) ? { era } : {}),
+      ...(mechanics && typeof mechanics === "object" ? { mechanics } : {}),
+      ...(warfare === "swarm" ? { warfare } : {}),
+      // A country with no aircraft on the map flies its air arm over its battlefields (runtime/fronts/air.js).
+      ...(mechanics?.air === true ? { airArms: true } : {}),
+      // Each country's own military figures, where the scenario weighs them (runtime/fronts/military.js).
+      ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
+      ...(Number(menEach) >= 1 ? { menEach: Number(menEach) } : {}),
+      // A scenario's own climate zones, where it has seasons and weather (runtime/fronts/climate.js).
+      // (Its own, or on the built-in basemaps the real world's: runtime/worldGeographyDefaults.js.)
+      ...(mechanics?.weather === true && climateZonesOf(world).length > 0 ? { climateZones: normalizeClimateZones(climateZonesOf(world)) } : {}),
+      // The walls the scenario drew and the War Room built, where it has them (runtime/fronts/walls.js).
+      ...(mechanics?.walls === true && normalizeFortifications(world?.fortifications).length > 0 ? { fortifications: normalizeFortifications(world?.fortifications) } : {}),
+      // The seasons and weather, where the scenario has them (runtime/fronts/weather.js).
+      ...(mechanics?.weather === true && clean(climateSeed) ? { climateSeed: clean(climateSeed) } : {}),
+      // Each country's mustering curve, where the scenario musters wars (runtime/fronts/muster.js).
+      ...(mechanics?.muster === true && clean(gameBegan) ? { musterOf: readers.musterOf, gameBegan: clean(gameBegan) } : {}),
+      ...(Number(manpowerShare) > 0 ? { manpowerShare: Number(manpowerShare) } : {}),
       // How short each country is of what comes by sea, by the blockades standing as the period begins
       // (runtime/naval/blockade.js): the side it fights on is weighed for it (runtime/fronts/handicap.js).
       ...(short.size > 0 ? { shortageOf: (name) => short.get(fold(name)) ?? 0 } : {}),
       ...(staff === false ? { staff: false } : {}),
+      ...(typeof staffPolicy === "function" ? { staffPolicy, ...(rehearsers ? { rehearsers } : {}) } : {}),
       ...(Number(troops) > 0 && Number(troops) !== 1 ? { troops: Number(troops) } : {}),
       pace,
       flipAllowance: frontFlipAllowance({ allowance, events: list }),
@@ -1036,6 +1217,9 @@ export const runTurnFronts = async ({
     },
     loadRegions: readRegions,
     pause,
+    // (A staff that looks every day weighs its plans on copies of the battle: a day at a time, so that the page
+    // is not held for the half month a chunk would be.)
+    ...(staffPolicy?.often === true ? { chunkDays: 1 } : {}),
   });
   // The map could not be read: the turn goes on without the engine.
   if (!result) return nothing(null);
@@ -1058,7 +1242,7 @@ export const runTurnFronts = async ({
         sheet = shapes ? buildWorldGrid(shapes, { flat: map?.flat === true, scale: map?.scale, water }) : null;
         if (sheet && clean(map?.key) && arenas) arenas.set(key, sheet);
       }
-      sea = runNaval({
+      const seaInput = {
         fromDate,
         days,
         seed: `${seed}|sea`,
@@ -1073,7 +1257,25 @@ export const runTurnFronts = async ({
         scale: map?.scale,
         caps: unitCaps ?? {},
         raised: asArray(world?.naviesRaised),
-      });
+        era: Number.isInteger(era) ? era : null,
+        ...(mechanics?.military === true ? { militaryOf: readers.militaryOf } : {}),
+        ...(mechanics?.weather === true && clean(climateSeed) ? { weatherSeed: clean(climateSeed) } : {}),
+        ...(frozen.length > 0 ? { iced: frozen.map((entry) => entry.box) } : {}),
+      };
+      // EXPERIMENT, in the lab: where the lab's own staff leads the land war (runtime/fronts/mind/trained.js), the
+      // countries nobody plays have an admiral too (runtime/naval/admiral.js), who chooses their fleets' postures
+      // by fighting the period out with each. A fleet the turn's story moved or ordered keeps what it was told.
+      const ordered = new Set(list.flatMap((event) => asArray(event?.impacts?.unitOps).map((op) => clean(op?.unit?.id ?? op?.unitId ?? op?.id)).filter(Boolean)));
+      const admiral = typeof staffPolicy === "function" ? chooseFleetPostures(seaInput, { players, kept: ordered }) : null;
+      sea = runNaval(admiral ? { ...seaInput, units: admiral.units } : seaInput);
+      // What the admiral chose is what the world keeps (unless the war at sea sank the fleet or broke it off).
+      if (admiral) {
+        for (const [unitId, posture] of admiral.chosen) {
+          const change = sea.unitChanges.find((entry) => entry.unitId === unitId);
+          if (!change) sea.unitChanges.push({ unitId, posture });
+          else if (!change.remove && !change.posture) change.posture = posture;
+        }
+      }
       // (How long the period was, for what its blockades cost: frontApply.js withBlockadeEconomy.)
       sea.days = days;
     } catch (error) {
@@ -1137,7 +1339,7 @@ export const runTurnFronts = async ({
     const mine = transports.find((entry) => entry.id === voyage?.id);
     if (voyage?.k === "refused" && mine && !mine.by) refused.push({ kind: "transport-refused", detail: `${clean(voyage.owner)} to ${clean(voyage.to) || "?"}: ${transportRefusal(voyage.why)}` });
   }
-  const year = gameDateYear(fromDate);
+  const year = yearInEra(gameDateYear(fromDate), Number.isInteger(era) ? era : null);
   for (const order of dispatches) {
     const owner = nameOf(withoutKind(order.side));
     // The battlefield it names is the one its landing opens: not one that is open already.
@@ -1184,5 +1386,13 @@ export const runTurnFronts = async ({
     starts: asArray(result.starts),
     // What recruitment drew from each country's people and what came home, in men: for frontApply.js withFrontManpower.
     manpower: asArray(result.manpower),
+    // How much each country's formations advanced, which its war resources pay for (runtime/warResources.js).
+    effort: asArray(result.effort),
+    // What the weather and being cut off took from each country, besides the fighting (runtime/fronts/attrition.js).
+    attrition: asArray(result.attrition),
+    // What the fighting did to the walls: their breaches and wear (runtime/fronts/walls.js).
+    fortifications: asArray(result.fortifications),
+    // The water frozen this turn (runtime/fronts/climate.js): for the map to show as ice.
+    frozen: frozen.map((entry) => entry.id),
   };
 };

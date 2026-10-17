@@ -30,7 +30,7 @@ import { setHostingSharedGame } from "../../runtime/humanPolities.js";
 import { discardHeldTurns } from "../../Game/AI/simulationStatus.js";
 import { getDebugLogEntries, logDebugEvent, setDebugLogPersistence, subscribeToDebugLog } from "../../runtime/debugLog.js";
 import { GENERATION_COMPLETE_EVENT } from "../../Game/AI/telemetry.js";
-import { generateCountryStatSheet, readCountryForPlayer, runChatActionBatch, simulateTimelineJump } from "../../Game/AI/gameplay.js";
+import { generateCountryStatSheet, readCountryForPlayer, runChatActionBatch, simulateTimelineJump, warRoomChart } from "../../Game/AI/gameplay.js";
 import { lendBoards, returnBoards } from "./seatBoards.js";
 import { createLoopbackEngineSide } from "../transport/loopback.js";
 import { createHostSession } from "../session/host.js";
@@ -38,8 +38,19 @@ import { probeNetwork } from "../transport/peer.js";
 import { createInvite, parseInvite } from "../invite.js";
 import { loadDeviceIdentity } from "../identity.js";
 import { PLAYER_REQUESTS, SHARED_GAME_VERSION } from "../game/messages.js";
-import { relayChannelFactory } from "../signaling/relays.js";
+import { relayChannelFactory, usesCustomRelays } from "../signaling/relays.js";
+import { describeClock, offsetClock, readSignalingClock } from "../client/clock.js";
 import { createGameHost } from "./gameHost.js";
+import { createInstitutionDesk } from "./institutions.js";
+import { commitInstitutionLifecycleCommand, ensureInstitutionLifecycleNegotiationChat } from "../../runtime/institutionLifecycle.js";
+import { ensureInstitutionalChannel } from "../../runtime/institutionalChannels.js";
+import {
+  commitInstitutionGovernanceCommand,
+  commitInstitutionalPlayerMessage,
+  commitInstitutionalPlayerProposal,
+  commitInstitutionalPlayerVoteRequest,
+} from "../../runtime/institutionalGovernance.js";
+import { commitWithVotingRuleBackfill } from "../../Game/AI/institutionGovernanceRetry.js";
 import { normalizeSettings } from "./settings.js";
 
 const SCREEN = "host-screen";
@@ -145,13 +156,13 @@ const rotateInvite = (campaign, identity) => {
 // The AI governments of a thread answer a person's message, as the chat panel's
 // own turn does, with that person as the player; the thread is then saved the
 // way the panel saves it.
-const replyTo = async ({ chatId, seat }) => {
-  const chats = await readChatsState({ force: true });
-  const chat = list(chats).find((entry) => clean(entry?.id) === clean(chatId));
-  if (!chat) return;
-  const lastLine = [...list(chat.messages)].reverse().find((message) => clean(message?.speaker || message?.code) === clean(seat));
-  const outcome = await runChatActionBatch({ chat, playerMessage: clean(lastLine?.text), playerCountry: seat, useCanonicalState: true });
-  if (!outcome || outcome.committed || !Array.isArray(outcome.events)) return;
+// One turn of a table for a seat: the AI governments at it answer (or a
+// Council or a hearing does its business, with the flags the chat panel's own
+// turn passes), and the thread is saved the way the panel saves it.
+const tableTurn = async ({ chat, seat, ...flags }) => {
+  const chatId = clean(chat?.id);
+  const outcome = await runChatActionBatch({ chat, playerCountry: seat, useCanonicalState: true, ...flags });
+  if (!outcome || outcome.committed || !Array.isArray(outcome.events)) return outcome;
   const projected = projectChatThread(outcome.events);
   await mutateChatsState((current) => list(current).map((entry) => (clean(entry?.id) === clean(chatId)
     ? {
@@ -163,6 +174,15 @@ const replyTo = async ({ chatId, seat }) => {
       demands: projected.demands ?? entry.demands,
     }
     : entry)));
+  return outcome;
+};
+
+const replyTo = async ({ chatId, seat }) => {
+  const chats = await readChatsState({ force: true });
+  const chat = list(chats).find((entry) => clean(entry?.id) === clean(chatId));
+  if (!chat) return;
+  const lastLine = [...list(chat.messages)].reverse().find((message) => clean(message?.speaker || message?.code) === clean(seat));
+  await tableTurn({ chat, seat, playerMessage: clean(lastLine?.text) });
 };
 
 const boot = async () => {
@@ -177,7 +197,7 @@ const boot = async () => {
   // being opened, and those the host answered whose connection never opened
   // (session/host.js report). The host's screen names them, because a lobby
   // nobody can get into otherwise looks like one nobody came to.
-  let people = { joining: [], unreachable: [] };
+  let people = { joining: [], unreachable: [], clockRefused: false };
   // What this computer's own network looks like to a player connecting in
   // (transport/peer.js probeNetwork): "" until it is known.
   let network = "";
@@ -231,6 +251,7 @@ const boot = async () => {
       choosing: players.filter((player) => player.id !== SCREEN && !player.seat).map((player) => clean(player.name)).filter(Boolean).slice(0, 64),
       joining: people.joining,
       unreachable: people.unreachable,
+      clockRefused: people.clockRefused === true,
       network,
     });
   };
@@ -310,17 +331,43 @@ const boot = async () => {
         if (fresh) await generateCountryStatSheet({ code: name, name, forceReassess: true });
         else await readCountryForPlayer(name);
       },
+      // The map as this game's own engine reads it, for the war room's lines and fleets.
+      readChart: () => warRoomChart(),
       replyTo,
+      // A player's institution business, run here for their country.
+      institution: createInstitutionDesk({
+        host,
+        game: {
+          lifecycle: (args) => commitInstitutionLifecycleCommand(args),
+          negotiation: (args) => ensureInstitutionLifecycleNegotiationChat(args),
+          channel: (args) => ensureInstitutionalChannel(args),
+          proposal: (args) => commitInstitutionalPlayerProposal(args),
+          voteRequest: (args) => commitWithVotingRuleBackfill(
+            () => commitInstitutionalPlayerVoteRequest(args),
+            { institutionId: args.institutionId, proposalId: args.proposalId },
+          ),
+          governance: (args) => commitInstitutionGovernanceCommand(args),
+          message: (args) => commitInstitutionalPlayerMessage(args),
+          chatTurn: (args) => tableTurn(args),
+          readChats: () => readChatsState({ force: true }),
+          updateChats: (fn) => mutateChatsState(fn),
+        },
+      }),
       onStatus: (status) => {
         hostStatus = status;
         report();
       },
       log: (level, text, detail) => console[level === "warn" ? "warn" : "info"](`[shared game] ${text}`, detail ?? ""),
     });
+    // The relays' time, which the lobby's signaling is stamped by
+    // (client/clock.js): a host whose clock is out cannot be found at all.
+    const clock = await readSignalingClock({ customRelays: usesCustomRelays() });
+    if (clock.offsetMs) logDebugEvent("shared game", describeClock(clock));
     session = createHostSession({
       invite,
       host: identity,
       channelFactory: relayChannelFactory,
+      now: offsetClock(clock.offsetMs),
       room: { name: settings.name, seats: settings.seats, version: SHARED_GAME_VERSION },
       appMessages: PLAYER_REQUESTS,
       // A connection closing after "stop" still reports its leaving.
@@ -332,6 +379,7 @@ const boot = async () => {
         people = {
           joining: list(status?.joining).map(clean).filter(Boolean).slice(0, 64),
           unreachable: list(status?.unreachable).map(clean).filter(Boolean).slice(0, 64),
+          clockRefused: status?.clockRefused === true,
         };
         report();
       },
@@ -342,7 +390,7 @@ const boot = async () => {
     });
     // From here this window is the game's host: the engine reads who people
     // play from the game (runtime/humanPolities.js), and nowhere else does.
-    setHostingSharedGame(true);
+    setHostingSharedGame(true, { host });
     gameHost.start();
     session.start();
     failure = "";

@@ -53,6 +53,10 @@ import StatsSheetEditor, { normalizeStatsEditorValue } from "./StatsSheetEditor.
 import InstitutionAuthoringPanel from "./InstitutionAuthoringPanel.jsx";
 import PrehistoryPanel from "./PrehistoryPanel.jsx";
 import ScenarioFrontsPanel from "./ScenarioFrontsPanel.jsx";
+import ScenarioWarSettings from "./ScenarioWarSettings.jsx";
+import ScenarioMilitaryPanel from "./ScenarioMilitaryPanel.jsx";
+import { compactWarSettings } from "./scenarioWarSettings.js";
+import { militaryDefaultsFor } from "../../Editor/militaryForm.js";
 import ScenarioMusicPanel, { ScenarioMusicCredits } from "./ScenarioMusicPanel.jsx";
 import { normalizeScenarioMusic } from "../../runtime/scenarioMusic.js";
 const PoliticalWorldAuthoringPanel = lazy(() => import("./PoliticalWorldAuthoringPanel.jsx"));
@@ -80,6 +84,7 @@ import { buildScenarioCountryOptions, isOfferedCountry, seededWorldOf, worldWith
 import { saveBlobToDisk } from "../../runtime/saveFile.js";
 import { acceptFor } from "../../runtime/fileAccept.js";
 import { playerCountryAfterSave, scenarioAfterWorkshopRenames } from "../../Editor/playerCountryAfterSave.js";
+import { warGeographyOf, warGeographyWorldPatch } from "../../Editor/warGeographyDoc.js";
 import { downloadHubScenario, fetchHubPosts, fetchPostComments, hubUpdateReason, readScenarioBundleBytes, refreshPublishedRecord } from "../../runtime/hubPosts.js";
 import { isBlockedContributor, missingBasemapOfBundle, scenarioCopyOfHubFile, withContributorBlocked } from "../../../server/hubProvenance.js";
 import { reconcileMapPolityAuthoringOps } from "../../../server/polityRename.js";
@@ -92,6 +97,7 @@ import {
   SuggestionsBanner,
   openSuggestionsOf,
 } from "./ScenarioSuggestions.jsx";
+import { CommunitySkeleton, LobbiesSkeleton, MenuCardSkeletons } from "./menuSkeleton.jsx";
 
 const UNIT_TYPE_LABELS = {
   infantry: "Infantry",
@@ -109,6 +115,8 @@ const CommunityPanel = lazy(() => import("./communityHub.jsx"));
 // Lobbies: join a private one by invite code, host one, and the public list
 // (multiplayer/).
 const LobbiesTab = lazy(() => import("../../multiplayer/ui/LobbiesTab.jsx"));
+// Every update to the game, on a timeline: opened from the menu's mark.
+const UpdateHistory = lazy(() => import("./updates/UpdateHistory.jsx"));
 // Lazy so OpenLayers only loads when the country picker map is opened.
 const CountryPickerMap = lazy(() => import("./CountryPickerMap.jsx"));
 
@@ -234,8 +242,8 @@ const ButtonIcon = ({ kind, size = 15, strokeWidth = 1.9 }) => {
     case "settings":
       return (
         <svg aria-hidden="true" {...common}>
-          <circle cx="12" cy="12" r="3.2" />
-          <path d="M12 2.7v2.1M12 19.2v2.1M4.7 12H2.6M21.4 12h-2.1M5.9 5.9l1.5 1.5M16.6 16.6l1.5 1.5M18.1 5.9l-1.5 1.5M7.4 16.6l-1.5 1.5" />
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
       );
     case "refresh":
@@ -390,7 +398,7 @@ const railButtonStyle = (active) => ({
 // The rail down the left of the main menu, on a screen wide enough for it: the
 // mark and the name, a rounded square for each page, and Settings at its
 // foot. A phone keeps the pages as a row across the top.
-const MenuRail = ({ activeTab, onTab, onOpenSettings }) => (
+const MenuRail = ({ activeTab, onTab, onOpenSettings, onOpenHistory }) => (
   <nav
     style={{
       alignItems: "center",
@@ -406,14 +414,23 @@ const MenuRail = ({ activeTab, onTab, onOpenSettings }) => (
       width: `calc(${MENU_RAIL_WIDTH} + ${SAFE_LEFT})`,
     }}
   >
-    <div style={{ alignItems: "center", display: "flex", flexDirection: "column", flexShrink: 0, gap: "0.45rem", marginBottom: "0.8rem" }}>
+    {/* The mark opens the history of the game's updates (updates/UpdateHistory.jsx). */}
+    <button
+      aria-label="Update history"
+      className="oh-tap"
+      onClick={onOpenHistory}
+      style={{ alignItems: "center", background: "none", border: "none", color: "inherit", cursor: "pointer", display: "flex", flexDirection: "column", flexShrink: 0, gap: "0.45rem", padding: 0 }}
+      title="Update history: every update to Open Historia"
+      type="button"
+    >
       <div style={{ alignItems: "center", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "999px", display: "flex", height: "3.15rem", justifyContent: "center", overflow: "hidden", width: "3.15rem" }}>
         <img alt="" src="/logo.png" style={{ height: "2.05rem", width: "2.05rem" }} />
       </div>
       <div style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 800, letterSpacing: "-0.01em", lineHeight: 1.15, textAlign: "center" }}>
         Open Historia
       </div>
-    </div>
+    </button>
+    <div style={{ flex: 1, minHeight: "0.6rem" }} />
     {MENU_TABS.map((tab) => (
       <button
         key={tab.id}
@@ -551,6 +568,9 @@ const buildScenarioEditorState = (details) => {
     simulationRules: world.simulationRules ?? "",
     startingTimelineText: world.startingTimelineText ?? "",
     subtitle: scenario.subtitle ?? "",
+    // How its wars are fought (the Fronts tab: ScenarioWarSettings.jsx), compact:
+    // null for a scenario that sets nothing (scenarioWarSettings.js).
+    warSettings: compactWarSettings(world.warSettings),
   };
 };
 
@@ -1982,6 +2002,28 @@ const EditorDrawer = ({
         />
       )}
 
+      {/* How its wars are fought (ScenarioWarSettings.jsx): part of the form,
+          which Save below writes. Then the fronts it begins with, which have
+          a Save of their own. */}
+      {editorSection === "fronts" && kind === "scenario" && (
+        <ScenarioWarSettings
+          value={formState.warSettings ?? null}
+          gameDate={formState.gameDate}
+          onChange={(next) => onChange("warSettings", next)}
+        />
+      )}
+
+      {/* Every country's military figures, rated by the AI against the others twenty to a request
+          (ScenarioMilitaryPanel.jsx): saved into the scenario batch by batch, as the Politics tab's are. */}
+      {editorSection === "fronts" && kind === "scenario" && (
+        <ScenarioMilitaryPanel
+          details={details}
+          onDetailsChange={onDetailsChange}
+          gameDate={formState.gameDate}
+          warSettings={formState.warSettings ?? null}
+        />
+      )}
+
       {editorSection === "fronts" && kind === "scenario" && (
         <ScenarioFrontsPanel
           details={details}
@@ -2237,6 +2279,8 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     selectedScenarioId,
   } = useLibraryState();
   const [activeTab, setActiveTab] = useState("games");
+  // The history of the game's updates, opened from the menu's mark (updates/UpdateHistory.jsx).
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [gameSearch, setGameSearch] = useState("");
   const [gameSort, setGameSort] = useState("recent");
   const [gameView, setGameView] = useState("active");
@@ -2934,6 +2978,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     try {
       const details = await loadScenarioDetails(scenarioId);
       openMapEditorFor(details.scenario, details.data?.world ?? {}, {
+        gameDate: details.data?.game?.gameDate ?? "",
         review: {
           suggestion,
           decisions: { accepted: [...decisions.accepted], rejected: [...decisions.rejected] },
@@ -3286,6 +3331,12 @@ const LibraryTopBar = ({ onOpenSettings }) => {
             language: editorState.language,
             simulationRules: editorState.simulationRules,
             startingTimelineText: editorState.startingTimelineText,
+            // How its wars are fought (runtime/warSettings.js). A scenario that
+            // never set any is written none; one whose author took every
+            // setting back has its old ones cleared.
+            ...(editorState.warSettings || currentWorld.warSettings !== undefined
+              ? { warSettings: compactWarSettings(editorState.warSettings) }
+              : {}),
           },
         });
         if (editorStatsFailed) {
@@ -3543,7 +3594,10 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   // palette) so it edits that map instead of the default world. Assets stream
   // in async; the editor hydrates the moment they arrive. `review` puts a
   // suggestion's map changes beside it (src/Editor/SuggestionReviewPanel.jsx).
-  const openMapEditorFor = (scenario, world = {}, { review = null } = {}) => {
+  // `gameDate` and `warSettings` are the scenario's as its editor holds them,
+  // saved or not (the world's settings where it holds none): what a country's
+  // military figures left empty stand for in the Workshop.
+  const openMapEditorFor = (scenario, world = {}, { review = null, gameDate = "", warSettings } = {}) => {
     const isCurrent = mapEditorRequest.begin();
     setMapEditorScenario(scenario);
     setMapEditorSeed(null);
@@ -3631,6 +3685,13 @@ const LibraryTopBar = ({ onOpenSettings }) => {
         // Its region types, for the Region Types panel; null for a scenario
         // saved before they were, which opens with the default Land and Coastal.
         regionTypes: Array.isArray(world.regionTypes) && world.regionTypes.length ? world.regionTypes : null,
+        // What a country's or a group's military figures left empty stand for
+        // here, for the Countries and Groups panels: the era its wars are
+        // fought in, and the scenario's own settings (militaryForm.js).
+        militaryDefaults: militaryDefaultsFor(warSettings === undefined ? world.warSettings : warSettings, gameDate, { rules: world.simulationRules }),
+        // What it draws on its map for war: terrain areas, fortified lines,
+        // climate zones and the water that can freeze, for the War map panel.
+        ...warGeographyOf(world),
       });
     }).catch((error) => {
       if (!isCurrent()) return;
@@ -3803,6 +3864,9 @@ const LibraryTopBar = ({ onOpenSettings }) => {
         ...(Array.isArray(seed.world?.puppets) ? { puppets: seed.world.puppets } : {}),
         // The region types, which the game draws and the AI's placement reads.
         ...(Array.isArray(seed.world?.regionTypes) ? { regionTypes: seed.world.regionTypes } : {}),
+        // What it draws on its map for war, opened with the world's own and so
+        // handed back whole (warGeographyDoc.js).
+        ...warGeographyWorldPatch(seed.world),
       },
       game: {
         ...currentGame,
@@ -4709,6 +4773,10 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                   scrollbarWidth: "none",
                 }}
               >
+                {/* On a phone too, the mark opens the history of the game's updates. */}
+                <button aria-label="Update history" className="oh-tap" onClick={() => setHistoryOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", flexShrink: 0, padding: "0 0.2rem" }} title="Update history: every update to Open Historia" type="button">
+                  <img alt="" src="/logo.png" style={{ display: "block", height: "1.7rem", width: "1.7rem" }} />
+                </button>
                 {MENU_TABS.map((tab) => (
                   <button
                     key={tab.id}
@@ -4730,7 +4798,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
               </div>
             </div>
           ) : (
-            <MenuRail activeTab={activeTab} onOpenSettings={onOpenSettings} onTab={setActiveTab} />
+            <MenuRail activeTab={activeTab} onOpenHistory={() => setHistoryOpen(true)} onOpenSettings={onOpenSettings} onTab={setActiveTab} />
           )}
 
           <div style={{ display: "flex", flex: 1, flexDirection: "column", minHeight: 0, minWidth: 0 }}>
@@ -4741,11 +4809,11 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                   alignItems: "center",
                   display: "flex",
                   gap: "0.9rem",
-                  height: `calc(${BAR_HEIGHT}px + ${SAFE_TOP})`,
                   justifyContent: "space-between",
                   margin: "0 auto",
                   maxWidth: APP_SHELL_MAX_WIDTH,
-                  padding: `${SAFE_TOP} calc(1.6rem + ${SAFE_RIGHT}) 0 1.6rem`,
+                  minHeight: `calc(${BAR_HEIGHT}px + ${SAFE_TOP})`,
+                  padding: `calc(0.85rem + ${SAFE_TOP}) calc(1.6rem + ${SAFE_RIGHT}) 0.85rem 1.6rem`,
                   width: "100%",
                 }}
               >
@@ -4787,24 +4855,18 @@ const LibraryTopBar = ({ onOpenSettings }) => {
             {activeTab !== "community" && activeTab !== "lobbies" && (
               <SuggestionsBanner scenarios={scenarios} onOpen={(scenario) => openScenarioEditor(scenario.id)} />
             )}
+            {/* While a page, or what it lists, is on its way: the outlines of
+                its cards with a glimmer over them, never the word "Loading"
+                (menuSkeleton.jsx). A screen reader is told in these words. */}
             {activeTab === "lobbies" ? (
-              <Suspense
-                fallback={
-                  <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.85rem", padding: "1rem 0" }}>
-                    Loading lobbies…
-                  </div>
-                }
-              >
+              <Suspense fallback={<LobbiesSkeleton label="Loading lobbies…" />}>
                 <LobbiesTab hosting={lobbyHosting} onHostingChange={setLobbyHosting} onEnterGame={enterActiveGame} />
               </Suspense>
             ) : activeTab === "community" ? (
-              <Suspense
-                fallback={
-                  <div style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.85rem", padding: "1rem 0" }}>
-                    Loading Community…
-                  </div>
-                }
-              >
+              // The Community tab's browse grid has the library's template
+              // (communityHub.jsx COMMUNITY_GRID_TEMPLATE), which cannot be
+              // read from here without loading the tab.
+              <Suspense fallback={<CommunitySkeleton count={isMobile ? 3 : 8} gridTemplate={LIBRARY_GRID_TEMPLATE} label="Loading Community…" withHeader />}>
                 <CommunityPanel fullPage onPlay={handleScenarioPlay} />
               </Suspense>
             ) : activeTab === "games" ? (
@@ -4853,9 +4915,13 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                       </div>
                     )}
                   >
-                    {browsedGames.map((game) => (
-                      <GameCard key={game.id} active={game.id === activeGameId} busy={isBusy} game={game} onActivate={handleGameActivate} onArchive={handleGameArchive} onClone={handleGameClone} onEdit={openGameEditor} onExport={handleGameExport} />
-                    ))}
+                    {/* Until the library has come, its cards' outlines: one
+                        child either way, so an empty view still says so. */}
+                    {loaded
+                      ? browsedGames.map((game) => (
+                        <GameCard key={game.id} active={game.id === activeGameId} busy={isBusy} game={game} onActivate={handleGameActivate} onArchive={handleGameArchive} onClone={handleGameClone} onEdit={openGameEditor} onExport={handleGameExport} />
+                      ))
+                      : <MenuCardSkeletons count={isMobile ? 3 : 8} kind="game" width={SHELF_CARD_WIDTH} />}
                   </LibraryCollection>
                 </>
               )}
@@ -4902,21 +4968,24 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                   )}
                 >
                   {(scenarioView === "all" || scenarioView === "yours") && !scenarioSearch.trim() ? <CreateScenarioTile busy={isBusy} onCreate={handleCreateScenario} /> : null}
-                  {browsedScenarios.map((scenario) => (
-                    <ScenarioCard
-                      key={scenario.id}
-                      onClone={handleScenarioClone}
-                      onEdit={openScenarioEditor}
-                      onPlay={handleScenarioPlay}
-                      onSelect={selectScenario}
-                      onUpdate={handleScenarioUpdate}
-                      scenario={scenario}
-                      selected={scenario.id === selectedScenarioId}
-                      updateReason={scenarioUpdateReason(scenario)}
-                      updateNote={scenarioUpdateNotes.get(scenario.id) ?? ""}
-                      updating={updatingScenarioIds.has(scenario.id)}
-                    />
-                  ))}
+                  {/* Until the library has come, its cards' outlines, after the + that is already there. */}
+                  {loaded
+                    ? browsedScenarios.map((scenario) => (
+                      <ScenarioCard
+                        key={scenario.id}
+                        onClone={handleScenarioClone}
+                        onEdit={openScenarioEditor}
+                        onPlay={handleScenarioPlay}
+                        onSelect={selectScenario}
+                        onUpdate={handleScenarioUpdate}
+                        scenario={scenario}
+                        selected={scenario.id === selectedScenarioId}
+                        updateReason={scenarioUpdateReason(scenario)}
+                        updateNote={scenarioUpdateNotes.get(scenario.id) ?? ""}
+                        updating={updatingScenarioIds.has(scenario.id)}
+                      />
+                    ))
+                    : <MenuCardSkeletons count={isMobile ? 3 : 7} kind="scenario" width={SHELF_CARD_WIDTH} />}
                 </LibraryCollection>
                 <RecentlyDeletedRow kind="scenario" onChanged={refreshTrash} trash={trash} />
               </>
@@ -4926,6 +4995,11 @@ const LibraryTopBar = ({ onOpenSettings }) => {
           </div>
         </div>
       </Presence>
+      {menuOpen && historyOpen && (
+        <Suspense fallback={null}>
+          <UpdateHistory onClose={() => setHistoryOpen(false)} />
+        </Suspense>
+      )}
 
       <EditorDrawer
         details={editorDetails}
@@ -4947,7 +5021,10 @@ const LibraryTopBar = ({ onOpenSettings }) => {
           setEditorDetails(nextDetails);
           setEditorState((current) => current ? { ...current } : current);
         }}
-        onOpenMapEditor={() => openMapEditorFor(editorDetails?.scenario || null, editorDetails?.data?.world ?? {})}
+        onOpenMapEditor={() => openMapEditorFor(editorDetails?.scenario || null, editorDetails?.data?.world ?? {}, {
+          gameDate: editorState?.gameDate ?? editorDetails?.data?.game?.gameDate ?? "",
+          warSettings: editorState?.warSettings,
+        })}
         communityCard={drawerScenario ? (
           <ScenarioCommunityCard
             scenario={drawerScenario}
@@ -4975,8 +5052,11 @@ const LibraryTopBar = ({ onOpenSettings }) => {
         onStatsChange={setEditorStats}
       />
 
+      {/* Until the library has come the Games and Scenarios tabs show their
+          cards' outlines (menuSkeleton.jsx), and nothing on the screen says
+          "Loading": this says it to a screen reader alone. */}
       {!loaded && (
-        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.82rem", position: "fixed", right: "1.25rem", top: "4.35rem", zIndex: 10028 }}>
+        <div className="oh-visually-hidden" role="status">
           Loading games and scenarios...
         </div>
       )}

@@ -22,6 +22,7 @@ import { populationByYearField } from "../runtime/cityPopulation.js";
 import { normalizeRegionTypes } from "../runtime/regionTypes.js";
 import { hasOwnMap } from "../runtime/assets.js";
 import { boundsFillSquare, normalizeImageBounds, normalizeProjection, projectionIsDefault } from "../../server/mapProjection.js";
+import { warGeographyForGame } from "./warGeographyDoc.js";
 
 // GADM ids contain a dot ("DEU.2_1", "Z01.14_1", "CHN.HKG"); regions drawn in the
 // editor use "reg_..." ids. Only the latter are custom geometry that tier-1 (stock
@@ -432,6 +433,10 @@ export const buildGameSeed = (doc, regionsFC, palette = {}, { playerCountry } = 
     // border and zoom range, and tells the AI its movement rules
     // (runtime/regionTypes.js). The Workshop opens with them again.
     regionTypes: normalizeRegionTypes(doc.types),
+    // What the scenario draws on its map for war (warGeographyDoc.js): terrain
+    // areas, fortified lines and climate zones as the Workshop drew them, and
+    // the water regions that can freeze, those still water on this map.
+    ...warGeographyForGame(doc, regionsFC),
     // A custom background replaces Earth, so it must also hide the stock modern
     // political overlay (country fills, borders, "Russia"/"France" labels) — those
     // are gated on customRegions in the game, so force it on whenever there's a

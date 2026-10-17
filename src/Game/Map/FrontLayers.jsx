@@ -30,7 +30,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Layer, Source, useMap } from "react-map-gl/maplibre";
 import { getNationColors } from "../../runtime/assets.js";
-import { reduceMotionEnabled } from "../../runtime/mapSettings.js";
+import { MAP_SETTING_KEYS, reduceMotionEnabled, useMapSettingValue } from "../../runtime/mapSettings.js";
+import { buildDiplomaticStanceMap, getDiplomaticOwnerColor } from "../../runtime/diplomaticStance.js";
+import { useActiveGameCountry } from "../../runtime/library.js";
 import { isTouchPrimary } from "../../runtime/mobileUi.js";
 import { TROOP_STATES } from "../../runtime/fronts/constants.js";
 import { latToY, projectorOf, yToLat } from "../../runtime/fronts/frame.js";
@@ -74,6 +76,8 @@ const PLAY_FRAMES_PER_SECOND_TOUCH = 12;
 // not need many frames.
 const SKIRMISH_FRAMES_PER_SECOND = 12;
 const SKIRMISH_FRAMES_PER_SECOND_TOUCH = 6;
+// Several battlefields in view skirmish at that rate divided among them, never slower than this many times over.
+const SKIRMISH_SLOWEST = 4;
 // The sources of the map whose regions give the land its shape.
 const MASK_SOURCES = ["custom-regions-source", "custom-regions-repair-source"];
 const NO_SKIRMISH = Object.freeze({ moves: [], cells: new Int32Array(0), states: new Uint8Array(0), turned: new Float32Array(0) });
@@ -242,7 +246,16 @@ const FrontLayers = () => {
   const [seenThrough, setSeenThrough] = useState(false);
   const picturesRef = useRef(pictures);
   picturesRef.current = pictures;
-  const { polityOverrides, groups, regionOwnershipOverrides } = useWorldState();
+  const { polityOverrides, groups, regionOwnershipOverrides, wars, relations, agreements, puppets } = useWorldState();
+  // On the diplomatic map the ground a side has taken is painted as the regions are (Nations.jsx): in the colour of
+  // where that side stands with the player, not in its own. "the drawn territory remains the same color on the
+  // diplomatic map making it not be the same color as your country" (the owner, 2026-10-15).
+  const playerCountry = useActiveGameCountry();
+  const mapMode = useMapSettingValue(MAP_SETTING_KEYS.mapMode, "political");
+  const stances = useMemo(
+    () => (mapMode === "diplomatic" ? buildDiplomaticStanceMap({ playerCountry, wars, agreements, relations, puppets }) : null),
+    [mapMode, playerCountry, wars, agreements, relations, puppets],
+  );
   // The war room's marks on the troops: the general whose troops are lit, and
   // the troops picked out (warRoomStore.js).
   const warRoomOpen = useWarRoom((state) => state.open);
@@ -257,6 +270,8 @@ const FrontLayers = () => {
     // A side is a country or a group; a group has a colour of its own.
     const colorOf = (name) => groups?.[name]?.color || ownerDisplayCss(resolveOwnerRgb, name, UNOWNED_COLOR);
     const rgbOf = (name) => parseColorToRgb(colorOf(name)) ?? UNOWNED_RGB;
+    // The colour its ground is painted in: its own, or on the diplomatic map its stance's.
+    const groundRgbOf = (name) => (stances ? parseColorToRgb(getDiplomaticOwnerColor(name, stances)) ?? UNOWNED_RGB : rgbOf(name));
     const arrows = new Map();
     const arrowColorsOf = (name) => {
       let made = arrows.get(name);
@@ -270,8 +285,8 @@ const FrontLayers = () => {
       }
       return made;
     };
-    return { colorOf, rgbOf, arrowColorsOf };
-  }, [colorMap, polityOverrides, groups]);
+    return { colorOf, rgbOf, groundRgbOf, arrowColorsOf };
+  }, [colorMap, polityOverrides, groups, stances]);
 
   // Everything the playing needs, kept out of React state so a frame costs
   // pixels and two setData calls and nothing else.
@@ -377,7 +392,7 @@ const FrontLayers = () => {
     const dress = (entry) => {
       const { palette, player } = entry.picture;
       player.names.forEach((name, index) => {
-        const [red, green, blue] = colorRef.current.rgbOf(name);
+        const [red, green, blue] = colorRef.current.groundRgbOf(name);
         palette.set([red, green, blue, 255], (index + 1) * 4);
       });
       entry.picture.stale = false;
@@ -728,11 +743,20 @@ const FrontLayers = () => {
       // test holds it at a moment of its choosing.
       if (rafRef.current || heldAt !== null) return;
       const now = performance.now();
-      if (now - skirmishedAt < skirmishMs) return;
+      // Each battlefield swayed hands the map its whole picture again, so several in view sway the less often: what
+      // they cost together is what one did ("each time next event is clicked there is major stuttering", the owner,
+      // 2026-10-14, with three in view).
+      let swayed = 0;
+      for (const entry of playRef.current.values()) if (entry.target.view.status === "active" && inView(entry)) swayed += 1;
+      if (now - skirmishedAt < skirmishMs * Math.min(SKIRMISH_SLOWEST, Math.max(1, swayed))) return;
       skirmishedAt = now;
       // Not for someone who has asked for less motion, not from so far off
-      // that no troop is drawn, and not while the map is being dragged.
-      const quiet = reduceMotionEnabled() || (mapInstance?.getZoom?.() ?? 0) < SKIRMISH_MIN_ZOOM
+      // that no troop is drawn, and not while the map is being dragged; nor
+      // while a turn is being revealed (a battlefield shown to an event's day,
+      // frontsController.js): each "next event" plays the days since the one
+      // before, and the page is the reveal's.
+      const revealing = [...playRef.current.values()].some((entry) => entry.target.from !== null && entry.target.from !== undefined);
+      const quiet = revealing || reduceMotionEnabled() || (mapInstance?.getZoom?.() ?? 0) < SKIRMISH_MIN_ZOOM
         || (typeof document !== "undefined" && document.visibilityState !== "visible") || mapInstance?.isMoving?.() === true;
       if (quiet && !swaying) return;
       skirmishOnce(now / 1000, quiet);

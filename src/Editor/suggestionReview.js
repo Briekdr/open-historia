@@ -17,7 +17,7 @@
 import { markerToFeature } from "./mapFeatures.js";
 import { newId } from "./useMapDocument.js";
 import { withoutPolities } from "./scenarioPuppets.js";
-import { canonicalJson, cityTierOf, detailedMapKey, detailedMapView, hashText, measureGeometry, ownDetailedBody, sameShape, sameValue } from "../runtime/scenarioChanges.js";
+import { canonicalJson, cityTierOf, detailedMapKey, detailedMapView, hashText, measureGeometry, ownDetailedBody, sameShape, sameValue, warMapListOf } from "../runtime/scenarioChanges.js";
 import { convertDisplayPoint, moveGeojson, normalizeProjection, sameProjection } from "../../server/mapProjection.js";
 import { DETAILED_MAP_CONVERSION_MESSAGE, DETAILED_MAP_PROJECTION_MESSAGE, detailedMapFits, hasDetailedMap, moveFeatureCoords, moveUnits } from "./projectionConvert.js";
 import { DETAILED_MAP_NEEDS_BASIC_MAP_MESSAGE } from "./exportPreset.js";
@@ -370,6 +370,12 @@ export const mapChangeStatus = (change, ctx, { renames = {}, cache = null } = {}
       const current = clean(ctx.doc?.metadata?.[mapFieldOf(change)]);
       if (current === clean(change.to)) return "applied";
       return current === clean(change.from) ? "open" : "conflict";
+    }
+    // The war map's lists (Wars and Fronts Pt.2), each taken whole.
+    case "war-map": {
+      const current = canonicalJson(warMapListOf(change.field, ctx.doc?.[change.field]));
+      if (current === canonicalJson(warMapListOf(change.field, change.to))) return "applied";
+      return current === canonicalJson(warMapListOf(change.field, change.from)) ? "open" : "conflict";
     }
     case "background": {
       const current = backgroundOf(ctx.doc?.metadata?.customBackground);
@@ -774,6 +780,13 @@ export const applyMapChange = (change, ctx, { renames = {} } = {}) => {
       const fromBounds = ctx.doc?.metadata?.customBackground?.bounds ?? null;
       ctx.convertProjection(from, change.to, change.bounds ?? null);
       return () => ctx.convertProjection(change.to, from, fromBounds);
+    }
+    case "war-map": {
+      const setter = { terrainAreas: d.setTerrainAreas, fortifications: d.setFortifications, climateZones: d.setClimateZones, freezingRegions: d.setFreezingRegions }[change.field];
+      if (typeof setter !== "function") return () => {};
+      const before = clone(ctx.doc?.[change.field] ?? []);
+      setter(clone(warMapListOf(change.field, change.to)));
+      return () => setter(before);
     }
     case "map-field": {
       const field = mapFieldOf(change);

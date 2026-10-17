@@ -24,7 +24,9 @@
 // and the writing are gameplay.js ensureConflictBackends. Pure, and loads in
 // plain Node.
 
+import { normalizeMilitaryStats } from "../../runtime/militaryStats.js";
 import { readStatsBackend } from "../../runtime/statsBackend.js";
+import { MILITARY_EXAMPLE, MILITARY_FIGURE_LINES, MILITARY_RELATIVE_LINE, describeMilitary } from "./militaryRating.js";
 
 // The most countries one such request asks of.
 export const CONFLICT_BACKENDS_MOST = 8;
@@ -46,16 +48,25 @@ const isRecord = (value) => Boolean(value) && typeof value === "object" && !Arra
 //   known       [{ name, backend }]: countries whose backends are already kept
 //   sheet       { description, keys } of the scenario's own sheet, or null for
 //               a scenario that shows the standard one
-export const conflictBackendsRequest = ({ date = "", rules = "", player = "", countries = [], known = [], sheet = null } = {}) => {
+//   military    whether to rate each polity's military figures too, where it has
+//               none (runtime/militaryStats.js: Wars and Fronts Pt.2); a polity
+//               marked `rated` in `countries` has its own already
+//   rated       [{ name, military, population? }]: the polities rated already, the
+//               scale the figures keep to (militaryRating.js ratedScaleOf): "when
+//               this stuff is generated, it should be relative to other
+//               countries" (the owner, 2026-10-16)
+export const conflictBackendsRequest = ({ date = "", rules = "", player = "", countries = [], known = [], sheet = null, military = false, rated = [] } = {}) => {
   const custom = isRecord(sheet) && list(sheet.keys).length > 0;
   const asked = list(countries)
-    .map((entry) => ({ name: clean(entry?.name), population: Number(entry?.population), values: custom && isRecord(entry?.values) && Object.keys(entry.values).length > 0 ? entry.values : null }))
+    .map((entry) => ({ name: clean(entry?.name), population: Number(entry?.population), values: custom && isRecord(entry?.values) && Object.keys(entry.values).length > 0 ? entry.values : null, rated: entry?.rated === true }))
     .filter((entry) => entry.name)
     .slice(0, CONFLICT_BACKENDS_MOST);
   const both = custom ? asked.filter((entry) => !entry.values) : [];
+  const rating = military && asked.some((entry) => !entry.rated);
+  const militaryExample = rating ? `,"military":${MILITARY_EXAMPLE}` : "";
   const example = both.length > 0
-    ? `{"countries":[{"country":"the exact name you were given","population":0,"gdp":0,"budgetBalance":0,"publicDebt":0,"customStats":{"${clean(sheet.keys[0])}":0}}]}`
-    : '{"countries":[{"country":"the exact name you were given","population":0,"gdp":0,"budgetBalance":0,"publicDebt":0}]}';
+    ? `{"countries":[{"country":"the exact name you were given","population":0,"gdp":0,"budgetBalance":0,"publicDebt":0,"customStats":{"${clean(sheet.keys[0])}":0}${militaryExample}}]}`
+    : `{"countries":[{"country":"the exact name you were given","population":0,"gdp":0,"budgetBalance":0,"publicDebt":0${militaryExample}}]}`;
   const systemPrompt = [
     "You are Open Historia's national-statistics estimator. For each polity you are given, estimate four figures the game's own arithmetic needs and no player sees:",
     "population: its people, as a plain count.",
@@ -73,16 +84,24 @@ export const conflictBackendsRequest = ({ date = "", rules = "", player = "", co
         ? "For a polity whose sheet is shown: its sheet stands as it is. Return its four figures only, agreeing with that sheet."
         : "",
     ].filter((line, index) => line || index === 0) : []),
+    ...(rating ? [
+      "",
+      "For a polity marked `and its military`, also rate how it makes war, in `military`, each a whole number from 0 to 100 where 50 is an ordinary army of its era.",
+      MILITARY_RELATIVE_LINE,
+      ...MILITARY_FIGURE_LINES,
+    ] : []),
     "",
     "Return exactly one JSON object and no markdown:",
     example,
     "One entry for every polity asked of, in the order given, each under the exact name given.",
   ].join("\n");
   const shown = list(known).filter((entry) => clean(entry?.name) && entry?.backend).slice(0, CONFLICT_BACKENDS_KNOWN_MOST);
+  const scale = rating ? list(rated).map((entry) => ({ name: clean(entry?.name), line: describeMilitary(entry?.military, entry?.population) })).filter((entry) => entry.name && entry.line) : [];
   const line = (entry) => {
     const said = entry.population >= 1 ? ` (its scenario gives its people as ${Math.round(entry.population)})` : "";
-    if (!custom) return `- ${entry.name}${said}`;
-    return entry.values ? `- ${entry.name}${said}; its sheet: ${JSON.stringify(entry.values)}` : `- ${entry.name}${said}; and its sheet`;
+    const armed = rating && !entry.rated ? "; and its military" : "";
+    if (!custom) return `- ${entry.name}${said}${armed}`;
+    return entry.values ? `- ${entry.name}${said}; its sheet: ${JSON.stringify(entry.values)}${armed}` : `- ${entry.name}${said}; and its sheet${armed}`;
   };
   const userMessage = [
     `Game date: ${clean(date) || "unknown"}`,
@@ -92,9 +111,10 @@ export const conflictBackendsRequest = ({ date = "", rules = "", player = "", co
     shown.length
       ? `ALREADY KNOWN (for the unit and the scale; do not return these):\n${shown.map((entry) => `- ${clean(entry.name)}: ${JSON.stringify(entry.backend)}`).join("\n")}`
       : "No polity's figures are known yet: choose one unit for gdp and use it for all of these.",
+    scale.length ? `MILITARIES ALREADY RATED (the scale every military you rate keeps to; do not return these):\n${scale.map((entry) => `- ${entry.name}: ${entry.line}`).join("\n")}` : "",
     `ESTIMATE THESE:\n${asked.map(line).join("\n")}`,
   ].filter(Boolean).join("\n\n");
-  return { systemPrompt, userMessage, asked: asked.map((entry) => entry.name), sheets: both.map((entry) => entry.name) };
+  return { systemPrompt, userMessage, asked: asked.map((entry) => entry.name), sheets: both.map((entry) => entry.name), rated: rating ? asked.filter((entry) => !entry.rated).map((entry) => entry.name) : [] };
 };
 
 // The answer, for each country that was asked of and answered usably:
@@ -112,7 +132,9 @@ export const readConflictBackends = (payload, asked) => {
     const backend = readStatsBackend(entry);
     if (!backend) continue;
     seen.add(key);
-    read.push({ name: wanted.get(key), backend, ...(isRecord(entry.customStats) ? { customStats: entry.customStats } : {}) });
+    // (And its military figures, where it was asked for them and gave any: runtime/militaryStats.js.)
+    const military = normalizeMilitaryStats(entry.military);
+    read.push({ name: wanted.get(key), backend, ...(isRecord(entry.customStats) ? { customStats: entry.customStats } : {}), ...(military ? { military } : {}) });
   }
   return read;
 };

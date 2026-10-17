@@ -172,22 +172,24 @@ const memberList = (value) => (Array.isArray(value) ? value : []).map((name) => 
 
 // Keeps a run as it is worked out, a day at a time, and hands back the replay.
 // One for each battlefield, each run. `sides` are the battlefield's two lists
-// of members; `cols` and `rows` its frame's.
-export const createReplayRecorder = ({ sides = [[], []], cols = 0, rows = 0 } = {}) => {
+// of members; `cols` and `rows` its frame's. (`from` is what another
+// recorder had recorded, carried onto this one's grid: carryOnto below.)
+export const createReplayRecorder = ({ sides = [[], []], cols = 0, rows = 0, from = null } = {}) => {
   const members = [memberList(sides[0]), memberList(sides[1])];
   const names = [...members[0], ...members[1]].slice(0, PAINT_NAMES_MAX);
   const cells = Math.max(0, Math.floor(cols) * Math.floor(rows));
-  // What each cell is painted as now, the same as it began, and the changes.
-  const painted = new Uint8Array(cells);
-  let began = null;
-  const changes = [];
-  let start = -1;
-  let lastDay = -1;
-  const tracks = [[], []];
+  // What each cell is painted as now, the same as it began (and as a list of states), and the changes.
+  const painted = from ? from.painted : new Uint8Array(cells);
+  let beganStates = from ? from.began : null;
+  let began = beganStates ? encodeStates(beganStates) : null;
+  const changes = from ? from.changes : [];
+  let start = from ? from.start : -1;
+  let lastDay = from ? from.lastDay : -1;
+  const tracks = from ? from.tracks : [[], []];
   // Whose each region is drawn as: as the run begins, now, and the changes.
-  const shownFirst = new Map();
-  const shownNow = new Map();
-  const turns = [];
+  const shownFirst = from ? from.shownFirst : new Map();
+  const shownNow = from ? from.shownNow : new Map();
+  const turns = from ? from.turns : [];
 
   const stateOf = (ground, cell) => {
     const holder = ground.holders[cell];
@@ -213,6 +215,7 @@ export const createReplayRecorder = ({ sides = [[], []], cols = 0, rows = 0 } = 
       if (ground?.holders && cells > 0) {
         if (began === null) {
           for (let cell = 0; cell < cells; cell += 1) painted[cell] = stateOf(ground, cell);
+          beganStates = Uint8Array.from(painted);
           began = encodeStates(painted);
         } else {
           const first = (at - 1) * PAINT_TICKS_PER_DAY;
@@ -265,6 +268,65 @@ export const createReplayRecorder = ({ sides = [[], []], cols = 0, rows = 0 } = 
       if (shownNow.get(id) === to || turns.length >= MAX_SHOWN_TURNS) return;
       turns.push([Math.max(0, Math.min(TRACK_DAY_MAX, Math.floor(Number(day) || 0))), id, to]);
       shownNow.set(id, to);
+    },
+
+    // The same recording carried onto a battlefield's larger frame (day.js
+    // growFrame), so that its replay goes on from the day it began rather than
+    // beginning again from the day the frame grew: a reveal shows the battle at
+    // every event of the run, and before the day it grew there was none to show.
+    //   cols, rows   the larger frame's
+    //   cellOf       a cell of this recorder's grid -> the larger grid's (-1 off it)
+    //   pointOf      a point in this grid's cells -> the larger grid's ([x, y])
+    //   ground       the ground as it is now, on the larger grid, as record() reads it
+    //   day          the day it grew (its changes since this recorder last
+    //                recorded are told as that day's)
+    // A new recorder; null when there is nothing to carry yet, or the sides have
+    // changed since this one began (a member joined): that one begins again.
+    carryOnto({ sides: now = [[], []], cols: toCols = 0, rows: toRows = 0, cellOf, pointOf, ground, day = 0 } = {}) {
+      if (beganStates === null || typeof cellOf !== "function" || typeof pointOf !== "function") return null;
+      const same = (a, b) => a.length === b.length && a.every((name, at) => name === b[at]);
+      if (!same(members[0], memberList(now[0])) || !same(members[1], memberList(now[1]))) return null;
+      const size = Math.max(0, Math.floor(toCols) * Math.floor(toRows));
+      // The ground now on the larger grid; what it began as, its own where this grid's reaches, and the changes onto it.
+      const nowStates = new Uint8Array(size);
+      for (let cell = 0; cell < size; cell += 1) nowStates[cell] = stateOf(ground, cell);
+      const beganThere = Uint8Array.from(nowStates);
+      const wasThere = Uint8Array.from(nowStates);
+      for (let cell = 0; cell < cells; cell += 1) {
+        const there = cellOf(cell);
+        if (there < 0 || there >= size) continue;
+        beganThere[there] = beganStates[cell];
+        wasThere[there] = painted[cell];
+      }
+      const carried = [];
+      for (const change of changes) {
+        const there = cellOf(change.cell);
+        if (there >= 0 && there < size) carried.push({ tick: change.tick, cell: there, state: change.state });
+      }
+      // Where the ground now differs from what the carried changes leave (the grid resampled), it changed that day.
+      const tick = Math.max(0, (Math.max(1, Math.floor(Number(day) || 0)) - 1) * PAINT_TICKS_PER_DAY);
+      for (let cell = 0; cell < size; cell += 1) if (wasThere[cell] !== nowStates[cell]) carried.push({ tick, cell, state: nowStates[cell] });
+      carried.sort((a, b) => a.tick - b.tick || a.cell - b.cell);
+      const carryTrack = (samples) => samples.map((sample) => {
+        const [x, y] = pointOf(sample.x, sample.y);
+        return { ...sample, x, y };
+      });
+      return createReplayRecorder({
+        sides: now,
+        cols: toCols,
+        rows: toRows,
+        from: {
+          painted: nowStates,
+          began: beganThere,
+          changes: carried,
+          start,
+          lastDay,
+          tracks: tracks.map((side) => side.map((samples) => (samples ? carryTrack(samples) : samples))),
+          shownFirst: new Map(shownFirst),
+          shownNow: new Map(shownNow),
+          turns: turns.map((turn) => [...turn]),
+        },
+      });
     },
 
     // The replay to save on the record. `date` is the date of the run's first

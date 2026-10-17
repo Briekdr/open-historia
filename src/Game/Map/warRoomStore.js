@@ -4,7 +4,8 @@
 // out and ways are drawn (WarRoomTools.jsx, WarRoomLayers.jsx). They are in
 // different parts of the tree, so what they share is kept here, outside React:
 // which battlefield is open, which tool is in hand, which troops are picked,
-// which general's troops are lit, and the plans to draw.
+// which general's troops are lit, the plans to draw, a fortified line drawn
+// and waiting to be ordered built, and the fleet picked out.
 //
 // Nothing here is saved, and nothing here writes the game: a way that has been
 // drawn is handed to whoever is listening (onWay), which is the panel.
@@ -17,7 +18,11 @@ import { useSyncExternalStore } from "react";
 //   diversion  draw a movement to be stolen and never made
 //   replan     draw a Board operation's arrow anew (`replan` holds which)
 //   transport  click where the troops picked out are to be carried (`medium` holds by what)
-export const WAR_ROOM_TOOLS = Object.freeze(["pan", "select", "route", "diversion", "replan", "transport"]);
+//   fortify    draw a fortified line to be built (it waits as `draft` for its level)
+//   fleet      click where the fleet picked out (`fleet`) is to sail, or to patrol (`station`)
+//   deploy     draw the line the player's new troops on the battlefield are to come in on (runtime/fronts/deploy.js),
+//              or, with `deployForm` "swarm", click the place they are to gather at as a swarm (runtime/fronts/swarms.js)
+export const WAR_ROOM_TOOLS = Object.freeze(["pan", "select", "route", "diversion", "replan", "transport", "fortify", "fleet", "deploy"]);
 
 const CLOSED = Object.freeze({
   open: false,
@@ -33,6 +38,20 @@ const CLOSED = Object.freeze({
   replan: "",
   // What the troops picked out are to be carried by ("sea", "land" or "air"), while that tool is in hand.
   medium: "",
+  // What the Deploy tool deploys: "front", a line the new troops come in along, or "swarm", a place they gather at
+  // as a swarm (runtime/fronts/swarms.js). The panel sets it as the room opens: as the player deployed there last,
+  // else as the scenario's wars are fought.
+  deployForm: "front",
+  // A fortified line drawn and not yet ordered built, as [lng, lat] points, or
+  // null; and the level it is to be built to (GameUI/warRoomFortify.jsx).
+  draft: null,
+  level: 5,
+  // Whether the fleets' plate is out beside the rail, the fleet picked out on
+  // it (its id), and what a click on the map orders for that fleet while the
+  // fleet tool is in hand ("move" or "patrol"): GameUI/warRoomFleets.jsx.
+  fleets: false,
+  fleet: "",
+  station: "",
   // The ways found for the player's transporters that have not set out, by
   // their ids: { way, km, days, from } or { error, from } (AI/frontApply.js transportWaysFor).
   transportWays: null,
@@ -49,6 +68,12 @@ const CLOSED = Object.freeze({
   rail: 0,
   // Raised whenever the panel wants the battlefield fitted on the map again.
   fit: 0,
+  // The ground shaded on the map (warRoomCells.js): whether its supply is shown (the rail's Supply key) and what of
+  // it is shaded, and what a rehearsal of the days ahead would gain and lose (GameUI/warRoomRehearsal.jsx).
+  // GeoJSON, or null.
+  supply: false,
+  supplyShade: null,
+  rehearsalShade: null,
 });
 
 let state = CLOSED;
@@ -91,14 +116,19 @@ export const closeWarRoom = () => {
 // Which battlefield is shown: what was picked out on the last one is put down.
 export const showBattlefield = (battlefield, side) => {
   if (state.battlefield === battlefield && state.side === side) return;
-  setWarRoom({ battlefield, side, tool: "pan", selected: [], highlight: -1, replan: "", pointed: "", plans: [], known: [], fit: state.fit + 1 });
+  setWarRoom({ battlefield, side, tool: "pan", selected: [], highlight: -1, replan: "", pointed: "", plans: [], known: [], rehearsalShade: null, fit: state.fit + 1 });
 };
 
 // The tool in hand. Taking up the one already in hand puts it down.
-export const takeTool = (tool, { replan = "", medium = "" } = {}) => {
+export const takeTool = (tool, { replan = "", medium = "", station = "" } = {}) => {
   if (!WAR_ROOM_TOOLS.includes(tool)) return;
-  const same = state.tool === tool && (tool !== "replan" || state.replan === replan) && (tool !== "transport" || state.medium === medium);
-  setWarRoom({ tool: same ? "pan" : tool, replan: !same && tool === "replan" ? replan : "", medium: !same && tool === "transport" ? medium : "" });
+  const same = state.tool === tool && (tool !== "replan" || state.replan === replan) && (tool !== "transport" || state.medium === medium) && (tool !== "fleet" || state.station === station);
+  setWarRoom({
+    tool: same ? "pan" : tool,
+    replan: !same && tool === "replan" ? replan : "",
+    medium: !same && tool === "transport" ? medium : "",
+    station: !same && tool === "fleet" ? station : "",
+  });
 };
 
 export const useWarRoom = (select = (value) => value) => useSyncExternalStore(subscribeWarRoom, () => select(state), () => select(CLOSED));

@@ -15,7 +15,7 @@
 
 import { zipBundle, unzipBundle, looksLikeZip } from "./bundleZip.js";
 import { SCENARIO_LICENSE_FILE, SCENARIO_LICENSE_TEXT, scenarioLicense } from "./scenarioLicense.js";
-import { countChanges, isDetailFieldPath, POLITICS_FIELDS, summarizeChangesForComment } from "./scenarioChanges.js";
+import { countChanges, isDetailFieldPath, POLITICS_FIELDS, summarizeChangesForComment, WAR_MAP_FIELDS } from "./scenarioChanges.js";
 import { SUGGESTION_MARKER } from "./hubPosts.js";
 
 export const SUGGESTION_SCHEMA = "open-historia-scenario-suggestion/1";
@@ -51,7 +51,7 @@ export const KNOWN_KINDS = new Set([
   "unit-add", "unit-remove", "unit-change",
   "marker-add", "marker-remove", "marker-change",
   "puppet-add", "puppet-remove", "puppet-change",
-  "map-field", "background", "projection",
+  "map-field", "background", "projection", "war-map",
   "allowed-basemaps", "own-basemap-add", "own-basemap-remove", "own-basemap-change", "detailed-map",
 ]);
 const isRecord = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -84,6 +84,7 @@ const validChange = (change) => isRecord(change)
   && (change.kind !== "music" || ((change.to ?? null) === null || isRecord(change.to)))
   && (change.kind !== "borders" || Array.isArray(change.regions))
   && (change.kind !== "projection" || (isRecord(change.to) && typeof change.to.type === "string"))
+  && (change.kind !== "war-map" || (WAR_MAP_FIELDS.includes(change.field) && Array.isArray(change.to)))
   && (!OWN_BASEMAP_KINDS.has(change.kind) || validOwnBasemapKey(change.key))
   && (change.kind !== "allowed-basemaps" || change.to === null || (Array.isArray(change.to) && change.to.every((id) => typeof id === "string")))
   && (change.kind !== "detailed-map" || change.to === null || isRecord(change.to));

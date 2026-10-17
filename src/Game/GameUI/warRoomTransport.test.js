@@ -78,7 +78,7 @@ test("the drawer sends the op, lists the transporters, and shows the way found f
   // Every write still goes through the war room's one seam, and a transporter's op changes the world's transporters.
   assert.doesNotMatch(panel, /mutateWorldState|writeWorldState/);
   const writes = read("../../runtime/warRoomWrites.js");
-  assert.match(writes, /transports: world\?\.transports \}\);/);
+  assert.match(writes, /transports: world\?\.transports, era: eraSettingOf\(world\) \}\);/);
   assert.match(writes, /\.\.\.\(result\.transports \? \{ transports: result\.transports \} : null\) \};/);
   assert.match(read("../../multiplayer/host/gameHost.js"), /\.\.\.\(result\.transports \? \{ transports: result\.transports \} : null\) \} \};/);
 });
