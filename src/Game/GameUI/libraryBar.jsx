@@ -943,155 +943,191 @@ const ScenarioCard = ({ onClone, onEdit, onPlay, onSelect, onUpdate, scenario, s
     <div
       style={{
         ...surfaceStyle,
-        borderColor: selected ? `${scenario.accentColor}66` : "rgba(255,255,255,0.08)",
-        borderRadius: "24px",
+        background: "#12141a",
+        borderColor: selected ? `${scenario.accentColor}88` : "rgba(255,255,255,0.09)",
+        borderRadius: "20px",
+        boxShadow: selected ? `0 0 0 1px ${scenario.accentColor}66, 0 16px 38px rgba(0,0,0,0.55)` : "0 14px 32px rgba(0,0,0,0.45)",
+        display: "flex",
         flex: `0 0 ${SHELF_CARD_WIDTH}`,
-        minHeight: "15rem",
+        flexDirection: "column",
+        minHeight: "22rem",
         overflow: "hidden",
         position: "relative",
+        transition: "border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease",
       }}
     >
-      <button
-        onClick={() => onSelect(scenario.id)}
-        style={{
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          inset: 0,
-          padding: 0,
-          position: "absolute",
-          zIndex: 1,
-        }}
-        type="button"
-      />
+      {/* ── Top Half: Artwork Cover Banner ── */}
       <div
         style={{
-          background:
-            `url("${cardImageUrl}") center/cover, ` +
-            `url("${DEFAULT_SCENARIO_COVER}") center/cover`,
-          boxShadow: COVER_TINT,
-          inset: 0,
-          opacity: 0.96,
-          position: "absolute",
+          height: "9.6rem",
+          overflow: "hidden",
+          position: "relative",
+          width: "100%",
         }}
-      />
-      <div aria-hidden="true" style={accentGlowStyle(scenario.accentColor, { at: "14% 18%", alpha: "b8", reach: "34%" })} />
+      >
+        <button
+          onClick={() => onSelect(scenario.id)}
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            inset: 0,
+            padding: 0,
+            position: "absolute",
+            zIndex: 1,
+          }}
+          title={`Select ${scenario.name}`}
+          type="button"
+        />
+        <div
+          style={{
+            background:
+              `url("${cardImageUrl}") center/cover, ` +
+              `url("${DEFAULT_SCENARIO_COVER}") center/cover`,
+            boxShadow: COVER_TINT,
+            inset: 0,
+            opacity: 0.98,
+            position: "absolute",
+          }}
+        />
+        <div aria-hidden="true" style={accentGlowStyle(scenario.accentColor, { at: "14% 18%", alpha: "b8", reach: "34%" })} />
+
+        {/* Floating Badges over Cover */}
+        <div
+          style={{
+            alignItems: "flex-start",
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "0.8rem 0.9rem",
+            position: "relative",
+            width: "100%",
+            zIndex: 2,
+          }}
+        >
+          <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+            <span
+              style={{
+                backdropFilter: "blur(8px)",
+                background: selected ? `${scenario.accentColor}88` : "rgba(10,12,18,0.72)",
+                border: "1px solid rgba(255,255,255,0.18)",
+                borderRadius: "999px",
+                color: "rgba(248,248,250,0.96)",
+                display: "inline-flex",
+                fontSize: "0.68rem",
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                padding: "0.22rem 0.55rem",
+                textShadow: SCENARIO_CARD_TEXT_SHADOW,
+                textTransform: "uppercase",
+              }}
+            >
+              {scenario.eyebrow || "Scenario"}
+            </span>
+            {isBuiltIn && (
+              <span
+                style={{
+                  backdropFilter: "blur(8px)",
+                  background: "rgba(10,12,18,0.72)",
+                  border: "1px solid rgba(255,255,255,0.22)",
+                  borderRadius: "999px",
+                  color: "#fff",
+                  display: "inline-flex",
+                  fontSize: "0.68rem",
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  padding: "0.22rem 0.55rem",
+                  textShadow: SCENARIO_CARD_TEXT_SHADOW,
+                  textTransform: "uppercase",
+                }}
+              >
+                Built-In
+              </span>
+            )}
+          </div>
+          <span style={{ alignItems: "center", display: "inline-flex", gap: "0.4rem" }}>
+            <SuggestionCountBadge count={openSuggestionsOf(scenario).length} onClick={() => onEdit(scenario.id)} />
+            <span
+              style={{
+                backdropFilter: "blur(8px)",
+                background: "rgba(10,12,18,0.72)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: "999px",
+                color: "rgba(255,255,255,0.85)",
+                fontSize: "0.69rem",
+                fontWeight: 600,
+                padding: "0.2rem 0.55rem",
+              }}
+            >
+              {scenario.gameCount} game{scenario.gameCount === 1 ? "" : "s"}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      {/* ── Bottom Half: Sleek Dark Cockpit Panel (#12141a) ── */}
       <div
         style={{
+          borderTop: "1px solid rgba(255,255,255,0.08)",
           display: "flex",
+          flex: 1,
           flexDirection: "column",
-          height: "100%",
+          gap: "0.55rem",
           justifyContent: "space-between",
-          padding: "1.2rem",
+          padding: "1rem 1.05rem",
           position: "relative",
           zIndex: 2,
         }}
       >
         <div>
-          <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between" }}>
-            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: "0.45rem" }}>
-              <span
-                style={{
-                  background: selected ? `${scenario.accentColor}66` : "rgba(255,255,255,0.12)",
-                  border: "1px solid rgba(255,255,255,0.15)",
-                  borderRadius: "999px",
-                  color: "rgba(248,250,252,0.96)",
-                  display: "inline-flex",
-                  fontSize: "0.69rem",
-                  fontWeight: 700,
-                  letterSpacing: "0.08em",
-                  padding: "0.35rem 0.6rem",
-                  textTransform: "uppercase",
-                }}
-              >
-                {scenario.eyebrow || "Scenario"}
-              </span>
-              {isBuiltIn && (
-                <span
-                  style={{
-                    background: "rgba(255,255,255,0.18)",
-                    border: "1px solid rgba(255,255,255,0.22)",
-                    borderRadius: "999px",
-                    color: "#fff",
-                    display: "inline-flex",
-                    fontSize: "0.69rem",
-                    fontWeight: 700,
-                    letterSpacing: "0.08em",
-                    padding: "0.35rem 0.6rem",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  Built-In
-                </span>
-              )}
-            </div>
-            <span style={{ alignItems: "center", display: "inline-flex", gap: "0.45rem" }}>
-              {/* Changes people suggested on the hub post the player made of
-                  this scenario: the editor's Community card lists them. */}
-              <SuggestionCountBadge count={openSuggestionsOf(scenario).length} onClick={() => onEdit(scenario.id)} />
-              <span style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.74rem" }}>
-                {scenario.gameCount} game{scenario.gameCount === 1 ? "" : "s"}
-              </span>
-            </span>
+          <div
+            style={{
+              color: "#fff",
+              fontSize: "1.32rem",
+              fontWeight: 800,
+              letterSpacing: "-0.025em",
+              lineHeight: 1.2,
+              marginBottom: "0.4rem",
+            }}
+          >
+            {scenario.heroTitle || scenario.name}
           </div>
-          <div style={{ marginTop: "4rem" }}>
-            <div
-              style={{
-                color: "#fff",
-                fontSize: "2rem",
-                fontWeight: 800,
-                letterSpacing: "-0.03em",
-                lineHeight: 1,
-                textShadow: SCENARIO_CARD_TEXT_SHADOW,
-              }}
-            >
-              {scenario.heroTitle || scenario.name}
-            </div>
-            <div
-              style={{
-                color: "rgba(248,248,250,0.96)",
-                textShadow: SCENARIO_CARD_TEXT_SHADOW,
-                display: "-webkit-box",
-                fontSize: "0.92rem",
-                lineHeight: 1.45,
-                marginTop: "0.65rem",
-                maxWidth: "16rem",
-                overflow: "hidden",
-                WebkitBoxOrient: "vertical",
-                WebkitLineClamp: 6,
-              }}
-              title={scenario.heroSubtitle || scenario.description || scenario.subtitle || undefined}
-            >
-              {scenario.heroSubtitle || scenario.description || scenario.subtitle}
-            </div>
+          <div
+            style={{
+              color: "rgba(228,228,235,0.78)",
+              display: "-webkit-box",
+              fontSize: "0.82rem",
+              lineHeight: 1.45,
+              overflow: "hidden",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: 3,
+            }}
+            title={scenario.heroSubtitle || scenario.description || scenario.subtitle || undefined}
+          >
+            {scenario.heroSubtitle || scenario.description || scenario.subtitle}
           </div>
         </div>
 
         <div>
-          <div
-            style={{
-              color: "rgba(255,255,255,0.92)",
-              textShadow: SCENARIO_CARD_TEXT_SHADOW,
-              display: "-webkit-box",
-              fontSize: "0.8rem",
-              marginBottom: "0.7rem",
-              overflow: "hidden",
-              WebkitBoxOrient: "vertical",
-              WebkitLineClamp: 2,
-            }}
-            title={scenario.subtitle || undefined}
-          >
-            {scenario.subtitle}
-          </div>
+          {scenario.subtitle && scenario.subtitle !== (scenario.heroSubtitle || scenario.description) && (
+            <div
+              style={{
+                color: "rgba(255,255,255,0.5)",
+                display: "-webkit-box",
+                fontSize: "0.75rem",
+                marginBottom: "0.45rem",
+                overflow: "hidden",
+                WebkitBoxOrient: "vertical",
+                WebkitLineClamp: 1,
+              }}
+              title={scenario.subtitle || undefined}
+            >
+              {scenario.subtitle}
+            </div>
+          )}
           <AssetBadgeRow badges={assetBadges} />
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.55rem" }}>
-            {/* A hub-imported, unmodified scenario whose post has a newer bundle
-                (or whose own file was never checked by the hub) swaps its
-                primary action for Update; everyone else starts games.
-                Updating downloads the post's file and replaces the copy, which
-                takes a few seconds and showed nothing: the button now turns a
-                ring and says so until it is done, and takes no second press
-                (which would download and replace it all again). */}
+
+          {/* Action Bar */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", marginTop: "0.6rem" }}>
             <button
               aria-busy={updating || undefined}
               className="oh-tap-row"
@@ -1099,11 +1135,16 @@ const ScenarioCard = ({ onClone, onEdit, onPlay, onSelect, onUpdate, scenario, s
               onClick={() => (updateIsPrimary ? onUpdate(scenario) : onPlay(scenario))}
               style={touchFit({
                 ...actionButtonStyle,
-                background: updating || updateIsPrimary ? "#1d7f4ccc" : `${scenario.accentColor}cc`,
-                borderColor: updating || updateIsPrimary ? "#27a663dd" : `${scenario.accentColor}dd`,
+                background: updating || updateIsPrimary ? "#1d7f4ccc" : `${scenario.accentColor}`,
+                borderColor: updating || updateIsPrimary ? "#27a663dd" : `${scenario.accentColor}`,
+                borderRadius: "11px",
+                boxShadow: `0 3px 12px ${scenario.accentColor}33`,
                 color: "#fff",
                 cursor: updating ? "progress" : "pointer",
-                flex: 1,
+                fontSize: "0.88rem",
+                fontWeight: 700,
+                minHeight: "2.35rem",
+                width: "100%",
               }, touch)}
               title={updating || updateIsPrimary
                 ? (updateReason === "unchecked" ? UPDATE_UNCHECKED_NOTE : UPDATE_NEWER_TITLE)
@@ -1114,12 +1155,42 @@ const ScenarioCard = ({ onClone, onEdit, onPlay, onSelect, onUpdate, scenario, s
                 ? <><ButtonIcon kind="working" /> Updating…</>
                 : updateIsPrimary ? <><ButtonIcon kind="update" /> Update</> : <><ButtonIcon kind="play" /> New Game</>}
             </button>
-            <button className="oh-tap-row" onClick={() => onEdit(scenario.id)} style={touchFit({ ...actionButtonStyle, flex: 1 }, touch)} type="button">
-              <ButtonIcon kind="edit" /> Edit
-            </button>
-            <button className="oh-tap-row" onClick={() => onClone(scenario)} style={touchFit({ ...actionButtonStyle, flexBasis: "100%" }, touch)} type="button">
-              <ButtonIcon kind="clone" /> Clone Scenario
-            </button>
+            <div style={{ display: "flex", gap: "0.45rem" }}>
+              <button
+                className="oh-tap-row"
+                onClick={() => onEdit(scenario.id)}
+                style={touchFit({
+                  ...actionButtonStyle,
+                  background: "rgba(255,255,255,0.06)",
+                  borderColor: "rgba(255,255,255,0.12)",
+                  borderRadius: "9px",
+                  flex: 1,
+                  fontSize: "0.78rem",
+                  minHeight: "2rem",
+                  padding: "0 0.6rem",
+                }, touch)}
+                type="button"
+              >
+                <ButtonIcon kind="edit" /> Edit
+              </button>
+              <button
+                className="oh-tap-row"
+                onClick={() => onClone(scenario)}
+                style={touchFit({
+                  ...actionButtonStyle,
+                  background: "rgba(255,255,255,0.06)",
+                  borderColor: "rgba(255,255,255,0.12)",
+                  borderRadius: "9px",
+                  flex: 1.3,
+                  fontSize: "0.78rem",
+                  minHeight: "2rem",
+                  padding: "0 0.6rem",
+                }, touch)}
+                type="button"
+              >
+                <ButtonIcon kind="clone" /> Clone Scenario
+              </button>
+            </div>
           </div>
           {/* An old link, said in the open: why the copy should be updated,
               and for a copy the player has edited the Update itself (New Game
