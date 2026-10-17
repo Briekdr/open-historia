@@ -18,10 +18,14 @@
 //
 // The next run finds each order with the troops it was given to and puts it to
 // them (engine.js assignStanding): until then nothing on the map has moved.
+//
+// A SWARM (swarms.js) has a general of its own: its troops are his alone, and
+// they are never shared out among the line's generals.
 
 import { decodeTroops } from "./codec.js";
 import {
   COMMAND_TROOPS,
+  FRONT_COMMANDS_MOST,
   FRONT_ORDERS,
   GENERAL_NAME_MAX,
   HOLDER_SIDE_A,
@@ -42,11 +46,11 @@ const AXES = Object.freeze([[0, -1], [1, 0], [DIAGONAL, -DIAGONAL], [DIAGONAL, D
 const live = (troop) => troop.strength > 0;
 const clean = (value, most) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, most).trim();
 
-// How many generals a side with this many troops has.
+// How many generals the line of a side with this many troops has.
 export const commandCount = (troops) => {
   let count = 1;
   for (const limit of COMMAND_TROOPS) if (troops >= limit) count += 1;
-  return Math.min(MAX_COMMANDS, count);
+  return Math.min(FRONT_COMMANDS_MOST, count);
 };
 
 // ---- in a run --------------------------------------------------------------------
@@ -55,24 +59,32 @@ export const commandCount = (troops) => {
 // countries each has generals of its own: no general commands two countries'
 // troops (the commands are dealt out among them by how many troops each has,
 // every country with troops getting at least one while there are any left).
-const shareOut = (troops) => {
+// `swarms`: the commands that are swarms' (swarms.js). Their troops are their
+// own generals' and are left as they are; the line's generals are numbered
+// with the first FRONT_COMMANDS_MOST numbers no swarm has, and nobody new is
+// put under a swarm's general here.
+const shareOut = (troops, swarms = null) => {
+  const held = swarms && swarms.size > 0 ? swarms : null;
+  const lined = troops.map((troop, index) => index).filter((index) => !(held && troops[index].command >= 0 && held.has(troops[index].command)));
+  const numbers = [];
+  for (let command = 0; command < MAX_COMMANDS && numbers.length < FRONT_COMMANDS_MOST; command += 1) if (!held || !held.has(command)) numbers.push(command);
   const owners = [];
-  for (const troop of troops) if (live(troop) && !owners.includes(troop.owner ?? 0)) owners.push(troop.owner ?? 0);
+  for (const index of lined) if (live(troops[index]) && !owners.includes(troops[index].owner ?? 0)) owners.push(troops[index].owner ?? 0);
   if (owners.length <= 1) {
-    shareAmong(troops, troops.map((troop, index) => index), 0, MAX_COMMANDS);
+    shareAmong(troops, lined, 0, FRONT_COMMANDS_MOST, null, numbers);
     return;
   }
   owners.sort((a, b) => a - b);
   // The commands each country has already (a battle that is being fought keeps them), and those nobody has.
   const taken = new Map(owners.map((owner) => [owner, new Set()]));
-  troops.forEach((troop) => {
+  for (const index of lined) {
+    const troop = troops[index];
     if (live(troop) && troop.command >= 0) taken.get(troop.owner ?? 0).add(troop.command);
-  });
+  }
   const used = new Set([...taken.values()].flatMap((commands) => [...commands]));
-  const free = [];
-  for (let command = 0; command < MAX_COMMANDS; command += 1) if (!used.has(command)) free.push(command);
+  const free = numbers.filter((command) => !used.has(command));
   // Those with none yet get theirs: the larger first, as many as their troops call for while any are left.
-  const count = (owner) => troops.reduce((sum, troop) => sum + (live(troop) && (troop.owner ?? 0) === owner ? 1 : 0), 0);
+  const count = (owner) => lined.reduce((sum, index) => sum + (live(troops[index]) && (troops[index].owner ?? 0) === owner ? 1 : 0), 0);
   const waiting = owners.filter((owner) => taken.get(owner).size === 0).sort((a, b) => count(b) - count(a) || a - b);
   waiting.forEach((owner, at) => {
     const left = waiting.length - at - 1;
@@ -80,10 +92,10 @@ const shareOut = (troops) => {
     for (let given = 0; given < wanted && free.length > 0; given += 1) taken.get(owner).add(free.shift());
   });
   for (const owner of owners) {
-    const mine = troops.map((troop, index) => index).filter((index) => (troops[index].owner ?? 0) === owner);
+    const mine = lined.filter((index) => (troops[index].owner ?? 0) === owner);
     const commands = [...taken.get(owner)].sort((a, b) => a - b);
     // (No command left for it: it shares the nearest general of its side, as a newcomer does.)
-    if (commands.length === 0) shareAmong(troops, troops.map((troop, index) => index), 0, MAX_COMMANDS, mine);
+    if (commands.length === 0) shareAmong(troops, lined, 0, FRONT_COMMANDS_MOST, mine, numbers);
     else shareAmong(troops, mine, commands[0], commands.length, null, commands);
   }
 };
@@ -146,7 +158,7 @@ const shareAmong = (troops, indexes, first, most, only = null, listed = null) =>
 
 // Every living troop of a battle under a general, both sides.
 export const assignCommands = (battle) => {
-  for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) shareOut(battle.troops[side]);
+  for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) shareOut(battle.troops[side], battle.swarms?.[side] ?? null);
 };
 
 // The names a record carries for its generals, a list a side: read on the way in.
@@ -182,6 +194,13 @@ export const commandTitle = (command) => `${ORDINALS[command] ?? `${Number(comma
 
 const carryOf = (record) => (record?.brief && typeof record.brief.carry === "object" && record.brief.carry ? record.brief.carry : {});
 
+// The commands of a record's side that are swarms' (swarms.js readSwarms, read here as the record keeps them).
+const swarmCommandsOf = (record, side) => {
+  const saved = carryOf(record).swarms;
+  const list = Array.isArray(saved) && Array.isArray(saved[side]) ? saved[side] : [];
+  return new Set(list.map(Number).filter((command) => Number.isInteger(command) && command >= 0 && command < MAX_COMMANDS));
+};
+
 // Which general each troop of a record is under, a list a side, as long as its
 // troops: -1 for the dead and for a record that was never shared out.
 // A side that was never shared out (a battlefield saved before there were
@@ -196,7 +215,7 @@ const commandsIn = (record, troops) => {
     });
     if (commands.some((command) => command >= 0) || !list.some(live)) return commands;
     const fresh = list.map((troop) => ({ x: troop.x, y: troop.y, strength: troop.strength, owner: troop.owner, command: -1 }));
-    shareOut(fresh);
+    shareOut(fresh, swarmCommandsOf(record, side));
     return fresh.map((troop) => (live(troop) ? troop.command : -1));
   });
 };

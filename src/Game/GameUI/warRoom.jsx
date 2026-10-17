@@ -53,7 +53,7 @@ import { useIsMobile } from "../../runtime/useIsMobile.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
 import { convoysOf, enemiesOf, fleetsOf } from "../../runtime/naval/fleetOps.js";
 import { sendFleetOp, sendFortifyOp, sendWarRoomOp } from "../../runtime/warRoomWrites.js";
-import { warSettingsOf } from "../../runtime/warSettings.js";
+import { warSettingsOf, warfareOf } from "../../runtime/warSettings.js";
 import { ADVISOR_SLIDE } from "./advisorSlide.js";
 import { placeName, playerFronts } from "./warRoomData.js";
 import { FleetsList, FleetsPlate } from "./warRoomFleets.jsx";
@@ -219,6 +219,7 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
   const supplyOn = useWarRoom((state) => state.supply);
   const pickedFleet = useWarRoom((state) => state.fleet);
   const station = useWarRoom((state) => state.station);
+  const deployForm = useWarRoom((state) => state.deployForm);
 
   // ---- which battlefield ---------------------------------------------------------------
   const fronts = useMemo(() => playerFronts(world?.battlefields, game.country), [world?.battlefields, game.country]);
@@ -337,8 +338,19 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
     return record && country ? deployLinesOf(record, side).find((line) => line.country.toLowerCase() === country) ?? null : null;
   }, [record, side, game]);
   useEffect(() => {
-    if (open) setWarRoom({ plans: deployLine ? [...plans, { id: "deploy", kind: "deploy", ways: [deployLine.way], picked: [], troops: 0 }] : plans, known: intel.plans });
+    if (open) setWarRoom({ plans: deployLine ? [...plans, { id: "deploy", kind: "deploy", form: deployLine.form ?? "front", ways: [deployLine.way], picked: [], troops: 0 }] : plans, known: intel.plans });
   }, [open, plans, intel, deployLine]);
+  // What the Deploy tool deploys when the room opens on a battlefield: as the player deployed there last, else as the
+  // scenario's wars are fought (runtime/warSettings.js warfareOf): along a front, or as a swarm.
+  const deployLineRef = useRef(deployLine);
+  deployLineRef.current = deployLine;
+  useEffect(() => {
+    if (!open || !record?.name) return;
+    const last = deployLineRef.current;
+    setWarRoom({ deployForm: last ? (last.form === "swarm" ? "swarm" : "front") : warfareOf(world, game.gameDate) });
+    // (Only as the room opens or turns to another battlefield: a choice made since stands.)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, record?.name]);
 
   // A route drawn into a country that is not in this war is an attack on it
   // (runtime/fronts/invade.js). The engine reads that when time passes; the
@@ -471,8 +483,8 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
       } else if (drawn === "diversion") {
         await act({ op: "diversion", battlefield: name, way, troops: selectedRef.current.length || THRUST_TROOPS.spearhead });
       } else if (drawn === "deploy") {
-        // Where the player's new troops here come in: one line, drawn again over the last.
-        if (await act({ op: "deploy", battlefield: name, way })) setWarRoom({ tool: "pan" });
+        // Where the player's new troops here come in: one line, drawn again over the last; or a swarm's place.
+        if (await act({ op: "deploy", battlefield: name, way, ...(extra?.form === "swarm" ? { form: "swarm" } : {}) })) setWarRoom({ tool: "pan" });
       } else if (drawn === "replan" && extra?.replan) {
         await act({ op: "plan", battlefield: name, project: extra.replan, way });
       } else if (drawn === "transport" && extra?.medium && way[0]) {
@@ -720,6 +732,8 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
         fleetsOut={fleetsOut}
         onFleets={() => setWarRoom({ fleets: !getWarRoom().fleets })}
         station={station}
+        deployForm={deployForm}
+        onDeployForm={(form) => setWarRoom({ deployForm: form === "swarm" ? "swarm" : "front" })}
         supply={supplyOn}
         onSupply={() => setWarRoom({ supply: !getWarRoom().supply })}
         supplyAreas={supplyShade?.areas ?? null}
@@ -957,10 +971,19 @@ const WarRoomPanel = ({ open, onClose, width, onResize, onResizeEnd }) => {
                       onPointerEnter={() => setWarRoom({ pointed: "deploy" })}
                       style={{ ...trayStyle(pointed === "deploy"), display: "flex", gap: "0.55rem", marginTop: "0.3rem", padding: "0.4rem 0.5rem" }}
                     >
-                      <span aria-hidden="true" style={{ background: PLAN_COLOURS.deploy, flex: "0 0 auto", height: "0.22rem", marginTop: "0.45rem", width: "0.95rem" }} />
+                      {deployLine.form === "swarm"
+                        ? <span aria-hidden="true" style={{ border: `2px solid ${PLAN_COLOURS.deploy}`, borderRadius: "50%", boxSizing: "border-box", flex: "0 0 auto", height: "0.8rem", marginTop: "0.2rem", width: "0.8rem" }} />
+                        : <span aria-hidden="true" style={{ background: PLAN_COLOURS.deploy, flex: "0 0 auto", height: "0.22rem", marginTop: "0.45rem", width: "0.95rem" }} />}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>Deployment line</div>
-                        <div style={softText}>Your new troops here come in along it: levies, drafts and reinforcements.</div>
+                        {deployLine.form === "swarm"
+                          ? <>
+                            <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>Swarm deployment</div>
+                            <div style={softText}>Your new troops here gather at this place as a swarm, under one general of their own: levies, drafts and reinforcements.</div>
+                          </>
+                          : <>
+                            <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>Deployment line</div>
+                            <div style={softText}>Your new troops here come in along it: levies, drafts and reinforcements.</div>
+                          </>}
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginTop: "0.1rem" }}>
                           <button type="button" disabled={locked} onClick={() => takeTool("deploy")} style={linkStyle}>{tool === "deploy" ? <>Cancel</> : <>Redraw</>}</button>
                           <button type="button" disabled={locked} onClick={() => act({ op: "deploy", battlefield: name, way: [] })} style={linkStyle}>Remove</button>

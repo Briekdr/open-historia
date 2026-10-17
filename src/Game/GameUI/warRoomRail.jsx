@@ -128,10 +128,11 @@ const Rule = () => <div aria-hidden="true" style={{ background: STEEL.seam, boxS
 //   fleets       how many fleets the player has; fleetsOut, the fleets' plate is out (warRoomFleets.jsx)
 //   onFleets     the fleets' plate is put out, or away
 //   station      what a click orders for the fleet picked out, while the fleet tool is in hand
+//   deployForm   what the Deploy tool deploys, "front" or "swarm" (runtime/fronts/swarms.js); onDeployForm, chosen
 //   supply       the map shades how well supplied the ground is (Map/warRoomCells.js); onSupply, shown or not;
 //                supplyAreas, how much of it is stretched and cut off, in km²
 //   foot         how much of the screen's foot the drawer covers, in px (a phone's folded drawer): the rail ends above it
-const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning, notice, carriers = [], own = 0, away = false, onTool, onOrder, onRelease, onClear, onCarrier, onWithdraw, onReturn, canFortify = false, drafted = false, fleets = 0, fleetsOut = false, onFleets = () => {}, station = "", supply = false, onSupply = () => {}, supplyAreas = null, foot = 0 }) => {
+const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning, notice, carriers = [], own = 0, away = false, onTool, onOrder, onRelease, onClear, onCarrier, onWithdraw, onReturn, canFortify = false, drafted = false, fleets = 0, fleetsOut = false, onFleets = () => {}, station = "", deployForm = "front", onDeployForm = () => {}, supply = false, onSupply = () => {}, supplyAreas = null, foot = 0 }) => {
   const none = selected.length === 0;
   const drawing = tool !== "pan";
   // The choice of carrier, open beside the rail.
@@ -235,7 +236,7 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
         {/* Carried to where their side holds no land: by ship, rail or air, then a click on the map for where. */}
         <RailKey label="Transport" title="Transport: carry these troops by ship, rail or air to a place your side has no border with" on={tool === "transport" || choice} disabled={locked || none} onClick={() => (tool === "transport" ? onTool("pan") : setChoosing((value) => !value))}><ShipIcon /></RailKey>
         <RailKey label="Diversion" title="Draw a diversion: a movement you want the other side to believe" on={tool === "diversion"} disabled={locked} onClick={() => onTool("diversion")}><DiversionIcon /></RailKey>
-        <RailKey label="Deploy" title="Deployment line: draw where your new troops on this battlefield are to come in" on={tool === "deploy"} disabled={locked} onClick={() => onTool("deploy")}><DeployIcon /></RailKey>
+        <RailKey label="Deploy" title="Deploy: choose where your new troops on this battlefield come in, along a front or as a swarm" on={tool === "deploy"} disabled={locked} onClick={() => onTool("deploy")}><DeployIcon /></RailKey>
         <Rule />
         {/* What is built and what sails: a fortified line drawn on the map (its level is chosen once it is drawn), and the fleets. */}
         <RailKey label="Fortify" title="Fortify: draw a line to be built, then choose how strong it is to be" on={tool === "fortify" || drafted} disabled={locked || !canFortify} onClick={() => onTool("fortify")}><FortifyIcon /></RailKey>
@@ -366,7 +367,28 @@ const WarRoomRail = ({ shown, top, isMobile, tool, selected, locked, turnRunning
           {!turnRunning && tool === "select" && <>Drag a box round your troops on the map. Hold Shift to add to those picked.{selected.length > 0 && <> {selected.length} picked out.</>}</>}
           {!turnRunning && tool === "route" && <>Draw the way for the {selected.length} picked out. They follow it as the ground and the enemy allow.</>}
           {!turnRunning && tool === "diversion" && <>Draw the movement you want the other side to believe.</>}
-          {!turnRunning && tool === "deploy" && <>Draw the line your new troops here are to come in on: levies, drafts and reinforcements. They stand on ground your side holds along it.</>}
+          {!turnRunning && tool === "deploy" && (
+            <>
+              {/* Deployed along a front, or as a swarm: a group under a general of its own (runtime/fronts/swarms.js). */}
+              <div role="radiogroup" aria-label="Deploy as" style={{ display: "flex", gap: "0.3rem", marginBottom: "0.35rem" }}>
+                {[["front", "Front"], ["swarm", "Swarm"]].map(([form, word]) => (
+                  <button
+                    key={form}
+                    type="button"
+                    role="radio"
+                    className="oh-tap"
+                    aria-checked={(deployForm === "swarm") === (form === "swarm")}
+                    data-oh-war-room-deploy-form={form}
+                    onClick={() => onDeployForm(form)}
+                    style={{ ...keyLook((deployForm === "swarm") === (form === "swarm"), false), flexDirection: "row", fontSize: "0.72rem", height: "auto", padding: "0.28rem 0.7rem", width: "auto" }}
+                  >{form === "swarm" ? <>Swarm</> : <>Front</>}</button>
+                ))}
+              </div>
+              {deployForm === "swarm"
+                ? <>Click the place your new troops here are to gather at: levies, drafts and reinforcements come in there as a swarm, under one general of their own, and each moves and fights as troops on a front do. Drag to move the map.</>
+                : <>Draw the line your new troops here are to come in on: levies, drafts and reinforcements. They stand on ground your side holds along it.</>}
+            </>
+          )}
           {!turnRunning && tool === "replan" && <>Draw the operation’s way anew.</>}
           {!turnRunning && tool === "transport" && <>Click the place the {selected.length} picked out are to be carried to. Drag to move the map. They board when time next passes.</>}
           {!turnRunning && tool === "fortify" && <>Draw the fortified line on the map. You choose how strong it is to be once it is drawn.</>}

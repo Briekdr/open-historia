@@ -84,6 +84,7 @@ import { foldBattlefieldName, normalizeBattlefields } from "./record.js";
 import { authoredName } from "./scenarioFronts.js";
 import { breakthroughAnswer, sideIsPlayed, staffDecision, staffMayOrder, staffStanding } from "./staff.js";
 import { findPockets } from "./supply.js";
+import { SWARM_FORM, gatherNewcomers } from "./swarms.js";
 import { TRANSPORT_ENDED, boundFor, interceptionOf, loadOf, moveOn, normalizeTransports, setOut, struck, transportChance } from "./transports.js";
 import { describePoint, findPlace, inSector, resolveSector } from "./sectors.js";
 import { STATE_HOLDING, createTroop, isLive, kindsFor, liveCount, troopsCap, troopsFactor, troopsLeast, troopsWanted } from "./troops.js";
@@ -120,6 +121,9 @@ const createRun = (input) => {
     era,
     // Which of the newer mechanics this run uses (mechanics.js): none unless the input turns them on.
     mech: readMechanics(input?.mechanics),
+    // How its wars are fought where nobody chose otherwise (swarms.js; runtime/warSettings.js warfare): along a front
+    // unless the input says in swarms.
+    warfare: input?.warfare === SWARM_FORM ? SWARM_FORM : "front",
     seed: String(input?.seed ?? ""),
     // How many troops are raised, of the usual (troops.js troopsFactor).
     troops: troopsFactor(input?.troops),
@@ -437,6 +441,7 @@ const raiseFor = (battle, run, side, owner) => {
   if (cells.length === 0) return;
   const kinds = military ? kindsFor(count, run.era, mixOf(run.militaryOf(member))) : null;
   let men = 0;
+  const first = battle.troops[side].length;
   for (let index = 0; index < count; index += 1) {
     const cell = cells[Math.min(cells.length - 1, Math.floor(((index + 0.5) * cells.length) / count))];
     // (Its last men, fewer than a counter's: a counter at part strength.)
@@ -446,6 +451,8 @@ const raiseFor = (battle, run, side, owner) => {
   }
   draw(run, member, military ? men : count * run.menEach);
   battle.pool[side] += count * POOL_PER_TROOP * battle.edge[side].reserves;
+  // (Where they come as a swarm they stand as one: swarms.js.)
+  gatherNewcomers(battle, side, owner, first, run.warfare);
 };
 
 // A side's new troops, from `first` on in its list, come under what their
@@ -509,6 +516,8 @@ const musterDay = (run, battle, day) => {
       draw(run, member, men);
       battle.pool[side] += due * POOL_PER_TROOP * battle.edge[side].reserves;
       entry.r += due;
+      // (Where they come as a swarm they stand as one first: swarms.js.)
+      gatherNewcomers(battle, side, entry.o, first, run.warfare);
       putUnderStanding(run, battle, side, first, today, day);
       battle.touched = true;
       battle.planKey = "";
@@ -1012,6 +1021,8 @@ const reinforceOnFront = (run, battle, moment, day) => {
   });
   draw(run, drafted, military ? called : count * run.menEach);
   battle.pool[side] += count * POOL_PER_TROOP * battle.edge[side].reserves;
+  // (Where they come as a swarm they stand as one first: swarms.js.)
+  gatherNewcomers(battle, side, owner, first, run.warfare);
   putUnderStanding(run, battle, side, first, today, day);
   // (Troops come back to a battlefield their side had left.)
   if (battle.away[side]) comeBack(run, battle, day);

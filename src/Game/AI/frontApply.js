@@ -35,7 +35,7 @@ import { projectorOf } from "../../runtime/fronts/frame.js";
 import { othersOnWay } from "../../runtime/fronts/invade.js";
 import { gameDateYear } from "../../runtime/gameDates.js";
 import { yearInEra } from "../../runtime/unitMotion.js";
-import { eraSettingOf, warSettingsOf } from "../../runtime/warSettings.js";
+import { eraSettingOf, warSettingsOf, warfareOf } from "../../runtime/warSettings.js";
 import { normalizeBattlefields } from "../../runtime/fronts/record.js";
 import { isUnderWay, normalizeTransports } from "../../runtime/fronts/transports.js";
 import { findWay } from "../../runtime/fronts/wayfinder.js";
@@ -235,6 +235,8 @@ const turnRunInput = ({ world, game, campaignId, loadRegions, signal, round, fro
     era: eraSettingOf(world),
     // Which of the engine's newer mechanics it has on: all of them unless it turned one off.
     mechanics: warSettingsOf(world).mechanics,
+    // How its wars' troops stand where nobody deploys them otherwise: along fronts, or as swarms (runtime/fronts/swarms.js).
+    warfare: warfareOf(world, fromDate),
     // The men a counter stands for and the share of people who can fight, where it set them.
     menEach: warSettingsOf(world).menPerCounter,
     manpowerShare: warSettingsOf(world).manpowerShare,
@@ -793,6 +795,8 @@ export const openScenarioFronts = async ({ world = {}, game = {}, campaignId = "
     loadRegions: typeof loadRegions === "function"
       ? async () => engineRegionsOf(await loadRegions(), { nameOf: (id) => front?.names.get(id) })
       : null,
+    // (Its fronts' troops stand as the scenario's wars are fought, where a front does not say: runtime/fronts/swarms.js.)
+    warfare: warfareOf(world, clean(game?.gameDate || game?.startDate)),
     pace: frontsPace(),
     seed: `${clean(campaignId)}|1|${clean(game?.gameDate || game?.startDate)}`,
     players: humanCountriesOf(game),

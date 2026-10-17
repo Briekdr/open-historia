@@ -941,6 +941,8 @@ export const runTurnFronts = async ({
   era = null,
   // Which of the engine's newer mechanics the scenario has on (runtime/warSettings.js; runtime/fronts/mechanics.js).
   mechanics = null,
+  // How its wars' troops stand where nobody deploys them otherwise: "front", or "swarm" (runtime/fronts/swarms.js).
+  warfare = "",
   // The men a counter stands for and the share of people who can fight, where the scenario set them (runtime/fronts/manpower.js).
   menEach = null,
   manpowerShare = null,
@@ -1185,6 +1187,7 @@ export const runTurnFronts = async ({
       difficulty: clean(difficulty),
       ...(Number.isInteger(era) ? { era } : {}),
       ...(mechanics && typeof mechanics === "object" ? { mechanics } : {}),
+      ...(warfare === "swarm" ? { warfare } : {}),
       // A country with no aircraft on the map flies its air arm over its battlefields (runtime/fronts/air.js).
       ...(mechanics?.air === true ? { airArms: true } : {}),
       // Each country's own military figures, where the scenario weighs them (runtime/fronts/military.js).

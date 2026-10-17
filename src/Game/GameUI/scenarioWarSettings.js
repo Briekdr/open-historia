@@ -4,7 +4,8 @@
 // (ScenarioWarSettings.jsx) and saved with the rest of the editor's form
 // (libraryBar.jsx buildScenarioEditorState, handleSave): its era, the men a
 // counter stands for, the share of people who can fight, its default mustering
-// curve and which of the engine's newer mechanics are on.
+// curve, which of the engine's newer mechanics are on, and whether its wars'
+// troops come along fronts or as swarms (runtime/fronts/swarms.js).
 //
 // The form holds them COMPACT: as normalizeWarSettings keeps them, but with a
 // mechanic that is on left out (one the scenario says nothing of is on), and
@@ -18,7 +19,7 @@
 import { MEN_PER_COUNTER_MOST, normalizeWarSettings } from "../../runtime/warSettings.js";
 import { formatPopulationFigure, readPopulationFigure } from "../../runtime/populationFigure.js";
 
-const EMPTY = Object.freeze({ mechanics: {}, era: null, menPerCounter: null, manpowerShare: null, muster: null });
+const EMPTY = Object.freeze({ mechanics: {}, era: null, menPerCounter: null, manpowerShare: null, muster: null, warfare: null });
 const within = (value, least, most) => Math.min(most, Math.max(least, value));
 
 // The settings as the form holds them: null where they say nothing.
@@ -26,8 +27,8 @@ export const compactWarSettings = (value) => {
   const kept = normalizeWarSettings(value);
   if (!kept) return null;
   const mechanics = Object.fromEntries(Object.entries(kept.mechanics).filter(([, on]) => on === false));
-  const compact = { mechanics, era: kept.era, menPerCounter: kept.menPerCounter, manpowerShare: kept.manpowerShare, muster: kept.muster, ...(kept.outcomes ? { outcomes: kept.outcomes } : {}) };
-  const empty = Object.keys(mechanics).length === 0 && ["era", "menPerCounter", "manpowerShare", "muster"].every((key) => compact[key] === null) && !compact.outcomes;
+  const compact = { mechanics, era: kept.era, menPerCounter: kept.menPerCounter, manpowerShare: kept.manpowerShare, muster: kept.muster, ...(kept.outcomes ? { outcomes: kept.outcomes } : {}), ...(kept.warfare ? { warfare: kept.warfare } : {}) };
+  const empty = Object.keys(mechanics).length === 0 && ["era", "menPerCounter", "manpowerShare", "muster"].every((key) => compact[key] === null) && !compact.outcomes && !compact.warfare;
   return empty ? null : compact;
 };
 

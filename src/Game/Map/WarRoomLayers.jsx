@@ -16,6 +16,7 @@ const SOURCE = "warroom-plans-source";
 const IS_WAY = ["==", ["get", "what"], "way"];
 const IS_HEAD = ["==", ["get", "what"], "head"];
 const IS_NAME = ["==", ["get", "what"], "name"];
+const IS_SPOT = ["==", ["get", "what"], "spot"];
 const DECOY = ["==", ["get", "decoy"], true];
 const DEPLOY = ["==", ["get", "deploy"], true];
 const WIDTH = ["interpolate", ["linear"], ["zoom"], 3, ["case", ["get", "pointed"], 3.2, 2], 8, ["case", ["get", "pointed"], 6, 4]];
@@ -99,6 +100,19 @@ const WarRoomLayers = () => {
         filter={["all", IS_WAY, DEPLOY]}
         layout={{ "line-cap": "round", "line-join": "round" }}
         paint={{ "line-color": ["get", "colour"], "line-width": WIDTH }}
+      />
+      {/* Where the player's new troops come in as a swarm: a dot, as the line a front's come in on is a line. */}
+      <Layer
+        id="warroom-plans-spot"
+        type="circle"
+        filter={IS_SPOT}
+        paint={{
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, ["case", ["get", "pointed"], 6, 4.5], 8, ["case", ["get", "pointed"], 9, 7]],
+          "circle-color": ["get", "colour"],
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": "rgba(5, 8, 13, 0.82)",
+          "circle-pitch-alignment": "map",
+        }}
       />
       <Layer
         id="warroom-plans-head"

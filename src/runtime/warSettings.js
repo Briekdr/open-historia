@@ -22,15 +22,25 @@
 //                   (mustering.js), or null for the game's own
 //   outcomes        wars meant to end one way: [{ winner, loser }], in any war
 //                   between the two (warOutcomes.js); kept only where there are some
+//   warfare         how its wars' troops stand where nobody deploys them otherwise
+//                   (fronts/swarms.js): "front", along the line where the two
+//                   sides meet, or "swarm", in groups each under a general of its
+//                   own; null to go by the date (warfareOf): swarms before
+//                   FRONTS_FROM_YEAR, fronts from then on
 //
 // A country may say otherwise for itself: its military stats (militaryStats.js).
 
+import { gameDateYear } from "./gameDates.js";
 import { normalizeWarOutcomes } from "./warOutcomes.js";
 
 export const WAR_MECHANICS = Object.freeze(["fatigue", "weather", "terrain", "walls", "muster", "military", "air", "supply", "attrition"]);
 export const ERA_LABELS = Object.freeze(["Before 1500", "1500 to 1850", "1850 to 1945", "From 1945"]);
 export const MEN_PER_COUNTER_MOST = 1000000;
 export const MUSTER_DAYS_MOST = 3650;
+// "war fronts havent always existed" (the owner, 2026-10-16): the year the game's wars are fought along fronts from,
+// where a scenario does not say. Before it a war's troops come as swarms.
+export const FRONTS_FROM_YEAR = 1900;
+export const WARFARE_FORMS = Object.freeze(["front", "swarm"]);
 
 const numberIn = (value, least, most) => {
   if (value === null || value === undefined || value === "") return null;
@@ -55,6 +65,9 @@ export const normalizeMusterPoints = (value) => {
   return points.map(([share, days]) => [Math.round(share * 1000) / 1000, Math.round(days * 10) / 10]);
 };
 
+// How a scenario's wars are fought as it keeps it: "front", "swarm", or null for "by the date".
+export const normalizeWarfare = (value) => (WARFARE_FORMS.includes(value) ? value : null);
+
 // The settings as they are kept: null where a scenario set nothing at all.
 export const normalizeWarSettings = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -70,6 +83,7 @@ export const normalizeWarSettings = (value) => {
     manpowerShare: share === null ? null : Math.round(share * 10) / 10,
     muster: normalizeMusterPoints(value.muster),
     ...(outcomes.length > 0 ? { outcomes } : {}),
+    ...(normalizeWarfare(value.warfare) ? { warfare: normalizeWarfare(value.warfare) } : {}),
   };
 };
 
@@ -81,3 +95,14 @@ export const warSettingsOf = (world) => {
 
 // The era a scenario set, 0 to 3, or null: for whatever reads the era off a date (unitMotion.js eraOf).
 export const eraSettingOf = (world) => normalizeWarSettings(world?.warSettings)?.era ?? null;
+
+// How a game's wars are fought on a date: as its scenario says; where it says nothing, in swarms before
+// FRONTS_FROM_YEAR and along fronts from then on. A calendar of its own, with no year to read, goes by the era the
+// scenario set (swarms before 1850), and with none set either is the present's: fronts.
+export const warfareOf = (world, date) => {
+  const kept = normalizeWarSettings(world?.warSettings);
+  if (kept?.warfare) return kept.warfare;
+  const year = gameDateYear(date);
+  if (Number.isFinite(year)) return year < FRONTS_FROM_YEAR ? "swarm" : "front";
+  return kept?.era !== null && kept?.era !== undefined && kept.era < 2 ? "swarm" : "front";
+};

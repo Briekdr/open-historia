@@ -89,6 +89,9 @@ const SideEditor = ({ front, side, countries, onChange, touch }) => {
   const setMembers = (next) => onChange({ ...front, sides: front.sides.map((list, index) => (index === side ? next : list)) });
   const setAt = (key, value) => onChange({ ...front, [key]: front[key].map((entry, index) => (index === side ? value : entry)) });
   const stances = front.war ? ["hold", "dig in", "advance"] : ["hold", "dig in"];
+  // How the side's troops stand there (runtime/fronts/swarms.js): "" as the scenario's wars are fought, "front", or "swarm".
+  const forms = Array.isArray(front.forms) ? front.forms : ["", ""];
+  const setForm = (form) => onChange({ ...front, forms: forms.map((entry, index) => (index === side ? form : entry)) });
   return (
     <div style={{ flex: "1 1 15rem", minWidth: 0 }}>
       <label style={labelStyle}>{side === 0 ? <>One side</> : <>The other side</>}</label>
@@ -141,6 +144,14 @@ const SideEditor = ({ front, side, countries, onChange, touch }) => {
             ))}
           </div>
         </div>
+      </div>
+      <label style={{ ...labelStyle, marginTop: "0.55rem" }}>Deployed as</label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem" }}>
+        {["", "front", "swarm"].map((form) => (
+          <button className="oh-tap" data-oh-front-form={form || "auto"} key={form || "auto"} onClick={() => setForm(form)} style={touchFit(choiceStyle((forms[side] || "") === form), touch)} type="button">
+            {form === "swarm" ? <>Swarms</> : form === "front" ? <>A front</> : <>As its wars are fought</>}
+          </button>
+        ))}
       </div>
       <label style={{ ...labelStyle, marginTop: "0.55rem" }}>Generals</label>
       <input

@@ -30,10 +30,12 @@ export const MAX_ORDERS_PER_SIDE = 16;
 
 // A side's troops on a battlefield are under its GENERALS, each with a body of
 // them: one general under the first of these counts, two under the second, and
-// so on to the most there are. A route drawn for troops to follow is kept to
-// this many points.
+// so on to the most the line has (FRONT_COMMANDS_MOST). A side has at most
+// MAX_COMMANDS generals, a swarm's among them (swarms.js): each swarm has a
+// general of its own. A route drawn for troops to follow is kept to this many points.
 export const COMMAND_TROOPS = Object.freeze([12, 40, 110, 220]);
-export const MAX_COMMANDS = 5;
+export const FRONT_COMMANDS_MOST = 5;
+export const MAX_COMMANDS = 8;
 export const MAX_WAY_POINTS = 12;
 export const GENERAL_NAME_MAX = 60;
 // What was said in a side's war room is kept with the battlefield: the last
@@ -843,3 +845,18 @@ export const ASSAULT_WEAR = 2.5;
 
 // A border fortified in peace is given up after this many quiet days at token effort.
 export const STANDING_QUIET_DAYS = 30;
+
+// SWARMS (swarms.js): a general's body of troops deployed as a group and not
+// along the line. When it comes its troops stand as a block, this many of their
+// side's brushes apart; after that each moves by itself, as the line's do.
+export const SWARM_SPACING_BRUSHES = 0.9;
+// New troops join a swarm of their country's whose middle stands within this of
+// where they come in; with none there they gather as a new swarm.
+export const SWARM_JOIN_KM = 60;
+// A place of a block on ground that is not its side's is moved to the nearest
+// that is, within this far.
+export const SWARM_PLACE_KM = 40;
+// Raised as swarms when a war begins (warfare "swarm"): about this many troops a
+// swarm, each gathered this far behind the stretch of line it was raised along.
+export const SWARM_TROOPS_EACH = 24;
+export const SWARM_REAR_KM = 30;

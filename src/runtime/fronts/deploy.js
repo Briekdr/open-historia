@@ -14,9 +14,18 @@
 // holds none along it they come in on their own stretch of the front, as a
 // country with no line does.
 //
+// "using the deploy tool should give the option to do a front or swarm" (the
+// owner, 2026-10-16). A deployment may instead be a SWARM's: one place, kept as
+// { country, way: [[lng, lat]], form: "swarm" }. Its country's new troops come
+// in there as a swarm under a general of their own, and join the swarm that
+// gathered there before while it is still near (swarms.js gatherNewcomers).
+//
 // Only + - * / and comparisons.
 
 import { HOLDER_SIDE_A, HOLDER_SIDE_B, MAX_WAY_POINTS } from "./constants.js";
+
+// (A deployment's form, as swarms.js names it: a line unless it says a swarm.)
+const SWARM = "swarm";
 
 // How far from the line drawn a new troop may stand, and the most points a line keeps.
 export const DEPLOY_REACH_KM = 40;
@@ -41,16 +50,18 @@ const readWay = (value) => {
   return kept;
 };
 
-// The deployment lines of a record's carry, a list a side, checked: a country once a side.
+// The deployments of a record's carry, a list a side, checked: a country once a side. A line has two points or
+// more; a swarm's place is one, and says so.
 export const readDeploy = (value) => [HOLDER_SIDE_A, HOLDER_SIDE_B].map((side) => {
   const kept = [];
   const seen = new Set();
   for (const raw of Array.isArray(value) && Array.isArray(value[side]) ? value[side] : []) {
     const country = clean(raw?.country, 120);
-    const way = readWay(raw?.way);
-    if (!country || seen.has(fold(country)) || way.length < 2) continue;
+    const swarm = raw?.form === SWARM;
+    const way = swarm ? readWay(raw?.way).slice(0, 1) : readWay(raw?.way);
+    if (!country || seen.has(fold(country)) || way.length < (swarm ? 1 : 2)) continue;
     seen.add(fold(country));
-    kept.push({ country, way });
+    kept.push(swarm ? { country, way, form: SWARM } : { country, way });
   }
   return kept;
 });
@@ -63,14 +74,16 @@ const carryOf = (record) => (record?.brief && typeof record.brief.carry === "obj
 // A side's deployment lines on a record.
 export const deployLinesOf = (record, side) => (isSide(side) ? readDeploy(carryOf(record).deploy)[side] : []);
 
-// A record with a country's deployment line drawn (or, with a way of fewer than two points, taken off).
-export const withDeployLine = (record, side, { country, way } = {}) => {
+// A record with a country's deployment line drawn (or, with a way of fewer than two points, taken off). With
+// `form: "swarm"`, its swarm's place: the first point of the way (none takes it off).
+export const withDeployLine = (record, side, { country, way, form = "" } = {}) => {
   const name = clean(country, 120);
   if (!record || !isSide(side) || !name) return record;
   const deploy = readDeploy(carryOf(record).deploy);
-  const line = readWay(way);
+  const swarm = form === SWARM;
+  const line = swarm ? readWay(way).slice(0, 1) : readWay(way);
   const others = deploy[side].filter((entry) => fold(entry.country) !== fold(name));
-  deploy[side] = line.length >= 2 ? [...others, { country: name, way: line }] : others;
+  deploy[side] = line.length >= (swarm ? 1 : 2) ? [...others, swarm ? { country: name, way: line, form: SWARM } : { country: name, way: line }] : others;
   const carry = { ...carryOf(record) };
   if (hasDeploy(deploy)) carry.deploy = deploy;
   else delete carry.deploy;
@@ -81,7 +94,8 @@ export const withDeployLine = (record, side, { country, way } = {}) => {
 // as cells in order from one end of the line to the other; otherwise `cells` as they were.
 export const deployCells = (battle, side, member, cells) => {
   const lines = Array.isArray(battle.deploy) && Array.isArray(battle.deploy[side]) ? battle.deploy[side] : [];
-  const line = lines.find((entry) => fold(entry.country) === fold(member));
+  // (A swarm's place is no line: its troops come in as any do, and gather there, swarms.js gatherNewcomers.)
+  const line = lines.find((entry) => fold(entry.country) === fold(member) && entry.form !== SWARM);
   if (!line) return cells;
   const { field, place } = battle;
   const { cols, rows } = field;

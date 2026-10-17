@@ -5,8 +5,10 @@
 // Fronts tab: "an explicit era setting per scenario", the men a counter stands
 // for, the share of people who can fight, "a scenario default mobilisation
 // time" (a mustering curve through two points, drawn: Editor/MusterChart.jsx),
-// and which of the front engine's newer mechanics are on. Every one of them
-// left alone is what the game did before.
+// which of the front engine's newer mechanics are on, and its warfare: whether
+// a war's troops come along fronts or as swarms (runtime/fronts/swarms.js), "war
+// fronts havent always existed" (the owner, 2026-10-16). Every one of them left
+// alone is what the game did before, but for the warfare, read off the date.
 //
 // Part of the editor's form, as the Music tab is: the drawer's Save writes
 // them with the rest (libraryBar.jsx handleSave). The form holds them compact
@@ -20,7 +22,7 @@ import { MEN_PER_FORMATION_BY_ERA } from "../../runtime/fronts/constants.js";
 import { DEFAULT_MUSTER } from "../../runtime/mustering.js";
 import { formatPopulationFigure } from "../../runtime/populationFigure.js";
 import { eraOf } from "../../runtime/unitMotion.js";
-import { ERA_LABELS, WAR_MECHANICS, normalizeWarSettings } from "../../runtime/warSettings.js";
+import { ERA_LABELS, FRONTS_FROM_YEAR, WAR_MECHANICS, normalizeWarSettings, warfareOf } from "../../runtime/warSettings.js";
 import MusterChart from "../../Editor/MusterChart.jsx";
 import { warNumberText, withWarMechanic, withWarNumber, withWarOutcome, withWarSettings, withoutWarOutcome } from "./scenarioWarSettings.js";
 
@@ -155,6 +157,8 @@ const ScenarioWarSettings = ({ value, gameDate = "", onChange }) => {
   const settings = normalizeWarSettings(value) ?? { mechanics: {}, era: null, menPerCounter: null, manpowerShare: null, muster: null };
   const dateEra = eraOf(gameDate, null);
   const era = settings.era ?? dateEra;
+  // How its wars' troops come when nobody deploys them otherwise, as the date (and era) would have it.
+  const dateWarfare = warfareOf({ warSettings: { ...settings, warfare: null } }, gameDate);
   const typed = (key) => (text, input) => {
     const { settings: next, ok } = withWarNumber(value, key, text);
     if (input) input.value = warNumberText(ok ? next : value, key);
@@ -182,6 +186,25 @@ const ScenarioWarSettings = ({ value, gameDate = "", onChange }) => {
           </select>
           <div style={{ ...hintStyle, marginTop: "0.3rem" }}>
             Read off the game date: <span>{ERA_LABELS[dateEra]}</span>
+          </div>
+        </div>
+        <div>
+          <label style={labelStyle}>Warfare</label>
+          <select
+            aria-label="Warfare"
+            onChange={(event) => onChange(withWarSettings(value, { warfare: event.target.value === "" ? null : event.target.value }))}
+            style={{ ...inputStyle, appearance: "auto" }}
+            value={settings.warfare ?? ""}
+          >
+            <option value="">Automatic (read off the date)</option>
+            <option value="front">Fronts</option>
+            <option value="swarm">Swarms</option>
+          </select>
+          <div style={{ ...hintStyle, marginTop: "0.3rem" }}>
+            Read off the game date: <span>{dateWarfare === "swarm" ? <>Swarms</> : <>Fronts</>}</span>
+          </div>
+          <div style={{ ...hintStyle, marginTop: "0.3rem" }}>
+            Before {FRONTS_FROM_YEAR} a war&apos;s troops come as swarms: groups, each under a general of its own, not a line where the two sides meet. Each troop still moves and fights as it would on a front, and players can deploy either way in the war room.
           </div>
         </div>
         <div>

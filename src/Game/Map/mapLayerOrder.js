@@ -148,6 +148,7 @@ export const MAP_LAYER_ORDER = [
   "warroom-plans",
   "warroom-plans-decoy",
   "warroom-plans-deploy",
+  "warroom-plans-spot",
   "warroom-plans-head",
   "warroom-plans-label",
   "fronts-sides-lit",

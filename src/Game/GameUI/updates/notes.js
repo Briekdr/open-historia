@@ -53,6 +53,56 @@ import { PAST_UPDATES } from "./notesPast.js";
 // make UPDATES, newest first by date.
 const NEW_UPDATES = [
   {
+    // "make it so you can also deploy "armies" which are just groups of troops not arranged in a front", "a group
+    // should also be run by a single general. using the deploy tool should give the option to do a front or swarm",
+    // "troops should move independantly like they do in fronts", "JUST MAKE IT DEPLOY IN A GROUPED FORMATION TO
+    // START. what happens after they are deployed is UP TO THE ENGINE AND THE PLAYERS ORDERS" (the owner, 2026-10-16).
+    id: "2026-10-swarms",
+    kind: "major",
+    date: "2026-10-16",
+    banners: [
+      {
+        theme: "swarms",
+        title: "Swarms",
+        subtitle: "Armies before there were fronts",
+        lead: "Fronts have not always existed. Troops can now be deployed as a swarm: grouped together at one place under a general of their own, instead of strung along the border.",
+        sections: [
+          {
+            heading: "A front or a swarm",
+            icon: "flag",
+            items: [
+              "In the War Room the Deploy tool asks which: draw a line for a front, or click a place for a swarm.",
+              "Your levies, drafts and reinforcements come in there grouped together, and join the swarm while it is near; once it has marched on, the next ones come in as a new swarm.",
+            ],
+          },
+          {
+            heading: "One general",
+            icon: "people",
+            items: [
+              "Every swarm comes under a general of its own, who commands it as any general does: talk to him, light up his troops or pick them out.",
+            ],
+          },
+          {
+            heading: "Fought like any troops",
+            icon: "swords",
+            items: [
+              "Once deployed, a swarm's troops are troops like any other: they move and fight one by one, as your orders and the battle decide.",
+            ],
+          },
+          {
+            heading: "Through the ages",
+            icon: "book",
+            items: [
+              "In games set before 1900 a war's troops come as swarms; from 1900 on, along fronts.",
+              "Scenario designers choose how their scenario's wars are fought, and how each side of a front it begins with is deployed.",
+            ],
+          },
+        ],
+        button: "To the field",
+      },
+    ],
+  },
+  {
     // Beta's PR #884 (Briekdr), and alpha's last two, brought into the lab on 2026-10-15. A minor update
     // ("diplomatic map should be marked a minor update", the owner).
     id: "2026-10-diplomatic-map",

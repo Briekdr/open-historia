@@ -66,7 +66,8 @@ test("the tools are in the store, with what a click orders for the fleet, and pu
 });
 
 test("on the map: a line is a stroke in its level's colour, and a fleet's place a click that a drag does not make", () => {
-  assert.match(tools, /const placing = tool === "transport" \|\| tool === "fleet";/);
+  // (And a swarm's place: runtime/fronts/swarms.js.)
+  assert.match(tools, /const placing = tool === "transport" \|\| tool === "fleet" \|\| \(tool === "deploy" && deployForm === "swarm"\);/);
   assert.match(tools, /if \(placing\) \{[\s\S]*?map\.panBy\(\[last\[0\] - point\[0\], last\[1\] - point\[1\]\], \{ duration: 0 \}\);/);
   assert.match(tools, /if \(tool === "fleet"\) \{\s*if \(\(done\.moved \?\? 0\) >= CLICK_PX\) return;\s*const place = map\.unproject\(point\);[\s\S]*?const \{ fleet, station \} = getWarRoom\(\);\s*takeTool\("pan"\);\s*reportWarRoomWay\("fleet", \[\[unwrapLng\(place\.lng, 0\), place\.lat\]\], \{ fleet, station \}\);/);
   assert.match(tools, /const colour = tool === "fortify" \? lineColour\(level\) : DRAW_COLOURS\[tool\] \?\? ACCENT;/);

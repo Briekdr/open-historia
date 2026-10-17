@@ -55,7 +55,8 @@ import { draw, formationsLeft, menOf, partLeft, sideFormationsLeft } from "./man
 import { landWorth, mixOf } from "./military.js";
 import { headStartOf, levyOwed, levyPending, musterShare, mustersFor, readLevy, spreadPick } from "./muster.js";
 import { hasDeploy, readDeploy } from "./deploy.js";
-import { authoredTroops } from "./scenarioFronts.js";
+import { authoredForms, authoredTroops } from "./scenarioFronts.js";
+import { SWARM_FORM, raiseSwarms, readSwarms, swarmsKept } from "./swarms.js";
 import { projectorOf } from "./frame.js";
 import { drawLine, measureLine } from "./line.js";
 import { nearestOwner } from "./supply.js";
@@ -265,6 +266,8 @@ const createBattle = (run, { name, warId, sides, frame, arena, openedDate, opene
   served: false,
   // What its generals are called, a list a side in the order of their commands (command.js).
   generals: [[], []],
+  // Which of its generals' commands are swarms (swarms.js), a set a side.
+  swarms: [new Set(), new Set()],
   // What was said in each side's war room: kept with the battlefield, and nothing here reads it.
   talk: [[], []],
   // A side whose troops have all withdrawn from here, and the formations of
@@ -453,6 +456,8 @@ export const raiseTroops = (battle, run, only = -1) => {
   // A scenario may say how many each side of a front begins with
   // (scenarioFronts.js): only while a new game's fronts are being built.
   const said = authoredTroops(run.input?.authored, battle.sides);
+  // And how they stand there: along the line, or in swarms (swarms.js). Where it does not say, as the run's wars are fought.
+  const forms = authoredForms(run.input?.authored, battle.sides);
   if (said) for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) if (said[side] > 0) counts[side] = said[side];
   battle.quality = quality.map((value, side) => (only >= 0 && side !== only ? battle.quality[side] : round3(value)));
   for (const side of [HOLDER_SIDE_A, HOLDER_SIDE_B]) {
@@ -557,6 +562,8 @@ export const raiseTroops = (battle, run, only = -1) => {
         for (const entry of owed) if (entry.r < entry.t) battle.levy[side].push({ o: entry.o, t: entry.t, r: entry.r, f: entry.f });
       }
     }
+    // Where the side fights in swarms they gather behind the line, each swarm under a general of its own (swarms.js).
+    if ((forms?.[side] || run.warfare) === SWARM_FORM) raiseSwarms(battle, side, present);
     // Each is drawn from the people of the country it is.
     for (const troop of present) draw(run, battle.sides[side][troop.owner], military ? (troop.strength / 100) * menOf(run, battle.sides[side][troop.owner]) : run.menEach);
   }
@@ -687,6 +694,8 @@ export const loadBattle = (run, record, arena) => {
   }
   battle.generals = readGenerals(carry.generals);
   battle.talk = readTalk(carry.talk);
+  // Which generals' troops are swarms (swarms.js).
+  battle.swarms = readSwarms(carry.swarms).map((list) => new Set(list));
   // The plans a side keeps (plans.js) are not the engine's: it hands them on.
   battle.plans = Array.isArray(carry.plans) ? carry.plans : null;
   // Where a side's countries' new troops come in (deploy.js): drawn in the war room, handed on.
@@ -911,6 +920,7 @@ export const saveBattle = (battle, run, day, changes, brief) => {
     disputed = disputed.filter((region) => largest.has(region));
   }
   const contested = disputed.map((region) => [arena.ids[region], battle.shown.get(arena.ids[region])]);
+  const swarms = swarmsKept(battle);
   // Which standing order each troop is carrying out. An order given to troops
   // picked out that none of them is carrying out any more has been done, or
   // its troops are gone: it is not kept. (An order for a stretch of line
@@ -983,6 +993,8 @@ export const saveBattle = (battle, run, day, changes, brief) => {
         // Which general each troop is under, and what the generals are called.
         command: battle.troops.map((list) => list.map((troop) => (isLive(troop) ? troop.command : -1))),
         ...(battle.generals.some((names) => names.some(Boolean)) ? { generals: battle.generals } : {}),
+        // Which generals' troops are swarms (swarms.js): those with troops left.
+        ...(swarms.some((list) => list.length > 0) ? { swarms } : {}),
         // What each member is still owed of its levy (muster.js), by its place in the side's list as saved.
         ...(levyOwed(battle.levy)
           ? { levy: battle.levy.map((list, side) => list.filter((entry) => entry.r < entry.t && !battle.gone[side].has(entry.o)).map((entry) => [owners[side][entry.o], entry.t, entry.r, entry.f])) }

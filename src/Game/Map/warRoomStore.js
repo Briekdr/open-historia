@@ -20,7 +20,8 @@ import { useSyncExternalStore } from "react";
 //   transport  click where the troops picked out are to be carried (`medium` holds by what)
 //   fortify    draw a fortified line to be built (it waits as `draft` for its level)
 //   fleet      click where the fleet picked out (`fleet`) is to sail, or to patrol (`station`)
-//   deploy     draw the line the player's new troops on the battlefield are to come in on (runtime/fronts/deploy.js)
+//   deploy     draw the line the player's new troops on the battlefield are to come in on (runtime/fronts/deploy.js),
+//              or, with `deployForm` "swarm", click the place they are to gather at as a swarm (runtime/fronts/swarms.js)
 export const WAR_ROOM_TOOLS = Object.freeze(["pan", "select", "route", "diversion", "replan", "transport", "fortify", "fleet", "deploy"]);
 
 const CLOSED = Object.freeze({
@@ -37,6 +38,10 @@ const CLOSED = Object.freeze({
   replan: "",
   // What the troops picked out are to be carried by ("sea", "land" or "air"), while that tool is in hand.
   medium: "",
+  // What the Deploy tool deploys: "front", a line the new troops come in along, or "swarm", a place they gather at
+  // as a swarm (runtime/fronts/swarms.js). The panel sets it as the room opens: as the player deployed there last,
+  // else as the scenario's wars are fought.
+  deployForm: "front",
   // A fortified line drawn and not yet ordered built, as [lng, lat] points, or
   // null; and the level it is to be built to (GameUI/warRoomFortify.jsx).
   draft: null,

@@ -5,7 +5,7 @@
 // with the scenario's world as `scenarioFronts`:
 //
 //   { name, sides: [[names], [names]], war, troops: [n, n], stance: [word, word],
-//     generals: [[names], [names]] }
+//     generals: [[names], [names]], forms?: [form, form] }
 //
 //   war       true: the two sides are at war there from the first day (a war
 //             between them is written into the ledger if there is none);
@@ -15,6 +15,10 @@
 //   stance    what each side's troops are told from the first day
 //   generals  what each side's generals are called, in the order of their
 //             commands (the northernmost or westernmost body first)
+//   forms     how each side's troops stand there (swarms.js): "front" along
+//             the line, "swarm" in swarms behind it, each under a general of its
+//             own; "" (or none at all) as the scenario's wars are fought
+//             (runtime/warSettings.js warfare)
 //
 // The line itself is not drawn by the author: it runs where the two sides'
 // ground meets on the scenario's map, which is where the engine opens a
@@ -25,6 +29,7 @@
 // Pure, and runs in bare node.
 
 import { nameGenerals } from "./command.js";
+import { DEPLOY_FORMS } from "./swarms.js";
 import {
   BATTLEFIELD_NAME_MAX,
   GENERAL_NAME_MAX,
@@ -74,6 +79,7 @@ const normalizeFront = (raw, { draft = false } = {}) => {
     if (!SCENARIO_STANCES.includes(word)) return "hold";
     return !war && word === "advance" ? "hold" : word;
   });
+  const forms = SIDES.map((side) => (DEPLOY_FORMS.includes(fold(raw.forms?.[side])) ? fold(raw.forms[side]) : ""));
   return {
     name: clean(raw.name, BATTLEFIELD_NAME_MAX),
     sides,
@@ -81,6 +87,8 @@ const normalizeFront = (raw, { draft = false } = {}) => {
     troops: SIDES.map((side) => Math.max(0, Math.min(MAX_TROOPS_PER_SIDE, Math.round(Number(raw.troops?.[side]) || 0)))),
     stance,
     generals: SIDES.map((side) => list(raw.generals?.[side]).slice(0, MAX_COMMANDS).map((name) => clean(name, GENERAL_NAME_MAX))),
+    // (Kept only where a side is laid out otherwise than the scenario's wars are fought.)
+    ...(forms.some(Boolean) ? { forms } : {}),
   };
 };
 
@@ -181,6 +189,24 @@ export const authoredTroops = (fronts, sides) => {
     const same = (one, two) => one.some((name) => two.includes(name));
     if (same(a, left) && same(b, right)) return front.troops.slice();
     if (same(a, right) && same(b, left)) return [front.troops[1], front.troops[0]];
+  }
+  return null;
+};
+
+// How each side of a battle stands where a scenario says (swarms.js), as the
+// engine asks while it raises its troops (battle.js raiseTroops): [a, b] in the
+// battle's own order of sides, each "front", "swarm" or "" for a side the
+// scenario leaves to how its wars are fought; null for a battle no front speaks of.
+export const authoredForms = (fronts, sides) => {
+  const left = list(sides?.[0]).map(fold);
+  const right = list(sides?.[1]).map(fold);
+  const formsOf = (front) => (Array.isArray(front.forms) ? front.forms : ["", ""]);
+  for (const front of list(fronts)) {
+    const a = front.sides[0].map(fold);
+    const b = front.sides[1].map(fold);
+    const same = (one, two) => one.some((name) => two.includes(name));
+    if (same(a, left) && same(b, right)) return formsOf(front).slice();
+    if (same(a, right) && same(b, left)) return [formsOf(front)[1], formsOf(front)[0]];
   }
   return null;
 };

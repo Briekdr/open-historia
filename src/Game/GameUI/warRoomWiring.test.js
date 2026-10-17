@@ -121,7 +121,7 @@ test("on the map at large a troop has its counter only from close in; in the war
 
 test("the war room's layers have their place on the map: plans under the troops, marks among them", () => {
   const index = (id) => MAP_LAYER_ORDER.indexOf(id);
-  const plans = ["warroom-plans-casing", "warroom-plans", "warroom-plans-decoy", "warroom-plans-deploy", "warroom-plans-head", "warroom-plans-label"];
+  const plans = ["warroom-plans-casing", "warroom-plans", "warroom-plans-decoy", "warroom-plans-deploy", "warroom-plans-spot", "warroom-plans-head", "warroom-plans-label"];
   for (const id of [...plans, "fronts-sides-lit", "fronts-troops-lit", "fronts-troops-picked"]) assert.ok(index(id) >= 0, `${id} is missing from the map's order`);
   assert.deepEqual([...plans].sort((a, b) => index(a) - index(b)), plans);
   for (const id of plans) {

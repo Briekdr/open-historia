@@ -11,7 +11,8 @@
 //   decoy    a diversion: dotted, to be stolen
 //   known    what the player's agents and Board have of the other side's
 //   deploy   the line the player's new troops come in on (runtime/fronts/deploy.js):
-//            a line and no head, since nothing moves along it
+//            a line and no head, since nothing moves along it; or, for a swarm
+//            (runtime/fronts/swarms.js), the place they gather at: a spot
 //
 // Pure: it takes the plans and gives GeoJSON, so it is tested without a map.
 
@@ -126,6 +127,14 @@ export const planFeatures = ({ plans = [], known = [], pointed = "", labelOf = (
   const add = (plan, theirs) => {
     const tone = planTone(plan, { theirs });
     const properties = { plan: plan.id, tone, colour: PLAN_COLOURS[tone], pointed: plan.id === pointed, decoy: tone === "decoy", deploy: tone === "deploy" };
+    // A swarm's deployment is a place, not a line.
+    if (tone === "deploy" && plan.form === "swarm") {
+      const spot = Array.isArray(plan.ways?.[0]?.[0]) ? plan.ways[0][0] : null;
+      if (spot && Number.isFinite(Number(spot[0])) && Number.isFinite(Number(spot[1]))) {
+        features.push({ type: "Feature", geometry: { type: "Point", coordinates: [Number(spot[0]), Number(spot[1])] }, properties: { ...properties, what: "spot" } });
+      }
+      return;
+    }
     let named = false;
     for (const raw of Array.isArray(plan.ways) ? plan.ways : []) {
       if (!Array.isArray(raw) || raw.length < 2) continue;
