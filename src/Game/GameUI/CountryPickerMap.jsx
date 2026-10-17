@@ -373,16 +373,22 @@ const CountryPickerMap = ({
         const id = regionIdOf(feature);
         const isSelected = id != null && selectedRegionsRef.current.has(String(id));
         const isHovered = id != null && String(id) === hoveredRegionRef.current;
+        if (isSelected) {
+          return new Style({
+            fill: new Fill({ color: withAlpha(selectionColorRef.current, 0.9) }),
+            stroke: new Stroke({ color: "rgba(255, 255, 255, 0.9)", width: 1.6 }),
+          });
+        }
+        const regionOwner = feature.get("owner") || feature.get("gid0");
+        const ownerName = regionOwner ? toCountryName(regionOwner) || regionOwner : null;
+        const ownerPalette = ownerName ? colorPaletteRef.current?.[ownerName] : null;
+        const ownerFill = !ownerName
+          ? "rgba(20, 25, 35, 0.65)"
+          : ownerPalette
+            ? `rgba(${ownerPalette[0]}, ${ownerPalette[1]}, ${ownerPalette[2]}, 0.82)`
+            : fallbackColorFromCode(ownerName);
         return new Style({
-          fill: new Fill({
-            color: isSelected
-              ? withAlpha(selectionColorRef.current, 0.6)
-              : isHovered ? "rgba(255,255,255,0.28)" : "rgba(66,66,70,0.3)",
-          }),
-          stroke: new Stroke({
-            color: isSelected ? withAlpha(selectionColorRef.current, 0.95) : "rgba(150,155,170,0.4)",
-            width: isSelected ? 1.6 : isHovered ? 1.4 : 0.6,
-          }),
+          fill: new Fill({ color: isHovered ? "rgba(255, 255, 255, 0.48)" : ownerFill }),
         });
       }
 
@@ -582,8 +588,8 @@ const CountryPickerMap = ({
             // leaves after them, between 150 and the usual 320 px. The screen
             // height, not the visible one, which shrinks with the keyboard and
             // took the map down to 150 px with it.
-            height: isMobile ? `clamp(150px, calc(${SCREEN_HEIGHT} - 28rem), 320px)` : regionMode ? "clamp(320px, 58vh, 560px)" : "100%",
-            minHeight: isMobile || regionMode ? undefined : "480px",
+            height: isMobile ? `clamp(150px, calc(${SCREEN_HEIGHT} - 28rem), 320px)` : regionMode ? "480px" : "100%",
+            minHeight: isMobile ? undefined : "480px",
             borderRadius: 14,
             overflow: "hidden",
             border: "1px solid rgba(255,255,255,0.12)",

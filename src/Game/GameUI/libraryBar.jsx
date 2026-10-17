@@ -4963,6 +4963,9 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                     <FactionCreator
                       mode="group"
                       regionsGeojson={customRegionData}
+                      ownerOverrides={pickerOwnerOverrides}
+                      customBackground={pickerBackground}
+                      colors={pickerColors}
                       busy={isBusy}
                       onCreate={(created) => pickGroup({ ...created, existing: false })}
                       onCancel={() => { closeCountryPicker(); setPickerTab("country"); }}
@@ -4972,6 +4975,9 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                   <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
                     <FactionCreator
                       regionsGeojson={customRegionData}
+                      ownerOverrides={pickerOwnerOverrides}
+                      customBackground={pickerBackground}
+                      colors={pickerColors}
                       busy={isBusy}
                       onCreate={(faction) => pickFaction(faction)}
                       onCancel={() => { closeCountryPicker(); setPickerTab("country"); }}
