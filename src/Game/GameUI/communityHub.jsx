@@ -295,7 +295,7 @@ const ScenarioCard = ({ post, busy, onImport, onSelect, touch, isMobile, status,
       style={{
         alignItems: "center",
         display: "flex",
-        flexWrap: "nowrap",
+        flexWrap: "wrap",
         gap: "0.45rem",
         justifyContent: "space-between",
         marginTop: "auto",
@@ -310,7 +310,7 @@ const ScenarioCard = ({ post, busy, onImport, onSelect, touch, isMobile, status,
         <span title="Liked (👍 reactions on the hub post)" style={{ alignItems: "center", color: "rgba(255,255,255,0.65)", display: "inline-flex", fontSize: "0.76rem", gap: "0.2rem", lineHeight: 1 }}>👍 {post.upvotes}</span>
         <span title="Comments on the hub post" style={{ alignItems: "center", color: "rgba(255,255,255,0.65)", display: "inline-flex", fontSize: "0.76rem", gap: "0.2rem", lineHeight: 1 }}>💬 {post.comments}</span>
       </div>
-      <div style={{ alignItems: "center", display: "inline-flex", flexShrink: 0, gap: "0.35rem", whiteSpace: "nowrap" }}>
+      <div style={{ alignItems: "center", display: "inline-flex", flexShrink: 0, gap: "0.35rem", marginLeft: "auto", whiteSpace: "nowrap" }}>
         <a
           href={post.url}
           target="_blank"
