@@ -97,17 +97,14 @@ export const MAP_SETTING_KEYS = {
     // getMapSettingDefaultOn. Settings → General → Sound. (The chat's chime
     // has a switch of its own, in the chat.)
     soundEffects: "audio_sound_effects",
-    // The vault door the app opens on (GameUI/VaultDoor.jsx). ON by default —
-    // read with getMapSettingDefaultOn (vaultDoorEnabled). Off, the app opens
-    // straight onto the main menu (the owner, 2026-10-14: "make a setting to
-    // turn off the opening doors animation"). Settings → General → Display.
-    vaultDoor: "vault_door_at_start",
-    // With the door on, whether it shows every time the game opens. OFF by
-    // default — read with getMapSetting (vaultDoorAlways): off, the door shows
-    // the first time the game opens after an update (runtime/vaultDoorDue.js;
-    // the owner, 2026-10-14: "vault door by default only after a new update,
-    // setting to make it always when opening game"). Settings → General →
-    // Display, under the door's own switch.
+    // Whether the vault door the app opens on (GameUI/VaultDoor.jsx) shows every
+    // time the game opens. OFF by default — read with getMapSetting
+    // (vaultDoorAlways): off, the door shows the first time the game opens
+    // after an update (runtime/vaultDoorDue.js; the owner, 2026-10-14: "vault
+    // door by default only after a new update, setting to make it always when
+    // opening game"). Settings → General → Display. It is the door's only
+    // switch: "remove the Vault door at start setting, just have the Every
+    // time the game opens setting" (the owner, 2026-10-16).
     vaultDoorAlways: "vault_door_every_time",
     // The seasons and the weather on the map (Map/SeasonLayers.jsx,
     // FrontWeatherLayers.jsx): the season's tint over the whole map and the
@@ -156,22 +153,13 @@ export function getMapSetting(key) {
 // "1" !== null, i.e. off — so every consumer of such a key must come through here.
 //
 // lookupFunctions, liveSkipEvents, discordPresence, ambientMusic,
-// soundEffects, vaultDoor, seasonsWeather and weatherEffects ship on;
+// soundEffects, seasonsWeather and weatherEffects ship on;
 // limitAiGeneration and chunkLongJumps, which used to, went default-off in the
 // beta.
 export function getMapSettingDefaultOn(key) {
     if (typeof localStorage === "undefined") return true;
     return localStorage.getItem(key) !== "0";
 }
-
-// Whether the app opens on the vault door (on unless the player turned it off).
-export const vaultDoorEnabled = () => {
-    try {
-        return getMapSettingDefaultOn(MAP_SETTING_KEYS.vaultDoor);
-    } catch {
-        return true;
-    }
-};
 
 // Whether the door shows every time the game opens rather than the first time
 // after an update (off unless the player turned it on).
@@ -199,9 +187,8 @@ const SETTING_LABELS = {
     [MAP_SETTING_KEYS.discordPresence]: "Show what I am playing on Discord",
     [MAP_SETTING_KEYS.ambientMusic]: "Music",
     [MAP_SETTING_KEYS.soundEffects]: "Sound effects",
-    [MAP_SETTING_KEYS.vaultDoor]: "Vault door at start",
-    // "Every time the game opens" in the panel, under the door's switch; named
-    // in full here, where the log line stands alone.
+    // "Every time the game opens" in the panel; named in full here, where the
+    // log line stands alone.
     [MAP_SETTING_KEYS.vaultDoorAlways]: "Vault door every time the game opens",
     [MAP_SETTING_KEYS.seasonsWeather]: "Seasons and weather",
     [MAP_SETTING_KEYS.weatherEffects]: "Weather effects",

@@ -2,10 +2,10 @@
 // The vault door the app opens on (GameUI/VaultDoor.jsx, mounted by App.jsx)
 // shows the first time the game opens after an update, and at every opening
 // only when the player asks: "vault door by default only after a new update,
-// setting to make it always when opening game" (the owner, 2026-10-14). Two
-// switches in Settings → General → Display: Vault door at start (on by default)
-// turns the door off altogether; Every time the game opens (off by default)
-// shows it whenever the game opens.
+// setting to make it always when opening game" (the owner, 2026-10-14). One
+// switch, in Settings → General → Display: Every time the game opens (off by
+// default) shows it whenever the game opens. (The door cannot be turned off:
+// "remove the Vault door at start setting", the owner, 2026-10-16.)
 //
 // "After an update" is a build the door has not been shown for on this device:
 // the build that is running (runtime/buildId.js) against the one the door last
@@ -21,12 +21,10 @@ export const VAULT_DOOR_BUILD_KEY = "oh-vault-door-build";
 export const UNKNOWN_BUILD = "unknown";
 
 // Whether this opening shows the door. Pure.
-//   enabled   — Vault door at start;
 //   always    — Every time the game opens;
 //   build     — the running build's id ("" when it could not be learnt);
 //   lastBuild — the build the door last opened for on this device (null: never).
-export const vaultDoorDue = ({ enabled = true, always = false, build = "", lastBuild = null } = {}) => {
-  if (!enabled) return false;
+export const vaultDoorDue = ({ always = false, build = "", lastBuild = null } = {}) => {
   if (always) return true;
   if (!lastBuild) return true;
   if (!build) return false;
@@ -61,19 +59,17 @@ export const rememberVaultDoorBuild = (build, storage = browserStorage()) => {
 };
 
 // Whether this opening shows the door, and the build it would be shown for:
-// { show, build }. Never rejects; with the door off nothing is asked.
+// { show, build }. Never rejects.
 export const decideVaultDoor = async ({
-  enabled = true,
   always = false,
   resolveBuild = async () => "",
   storage = browserStorage(),
 } = {}) => {
-  if (!enabled) return { show: false, build: "" };
   let build = "";
   try {
     build = String((await resolveBuild()) || "");
   } catch {
     build = "";
   }
-  return { show: vaultDoorDue({ enabled, always, build, lastBuild: readVaultDoorBuild(storage) }), build };
+  return { show: vaultDoorDue({ always, build, lastBuild: readVaultDoorBuild(storage) }), build };
 };

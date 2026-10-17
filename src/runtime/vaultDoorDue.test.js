@@ -33,7 +33,7 @@ const brokenStorage = {
 };
 
 test("the door shows once per build: the first opening after an update, not the ones after it", () => {
-  const due = (build, lastBuild) => vaultDoorDue({ enabled: true, always: false, build, lastBuild });
+  const due = (build, lastBuild) => vaultDoorDue({ always: false, build, lastBuild });
   // The same build it last opened for: not again.
   assert.equal(due("desktop-2", "desktop-2"), false);
   // Another build: an update (or a different app's id), so it shows.
@@ -51,15 +51,13 @@ test("the door shows once per build: the first opening after an update, not the 
   assert.equal(due("desktop-2", UNKNOWN_BUILD), true);
 });
 
-test("Every time the game opens shows it at every opening; the door's own switch off shows it never", () => {
+test("Every time the game opens shows it at every opening", () => {
   for (const build of ["desktop-2", ""]) {
     for (const lastBuild of ["desktop-2", "desktop-1", null]) {
-      assert.equal(vaultDoorDue({ enabled: true, always: true, build, lastBuild }), true, `${build} after ${lastBuild}`);
-      assert.equal(vaultDoorDue({ enabled: false, always: true, build, lastBuild }), false);
-      assert.equal(vaultDoorDue({ enabled: false, always: false, build, lastBuild }), false);
+      assert.equal(vaultDoorDue({ always: true, build, lastBuild }), true, `${build} after ${lastBuild}`);
     }
   }
-  // The shipped defaults: the door on, not every time.
+  // The shipped default: not every time.
   assert.equal(vaultDoorDue({ build: "desktop-2", lastBuild: "desktop-2" }), false);
   assert.equal(vaultDoorDue({ build: "desktop-3", lastBuild: "desktop-2" }), true);
 });
@@ -83,7 +81,7 @@ test("the build the door opened for is kept, and storage that refuses is no open
   assert.doesNotThrow(() => rememberVaultDoorBuild("desktop-2"));
 });
 
-test("deciding an opening: the running build against the kept one, and nothing asked with the door off", async () => {
+test("deciding an opening: the running build against the kept one", async () => {
   const storage = memoryStorage({ [VAULT_DOOR_BUILD_KEY]: "desktop-2" });
   const asked = [];
   const resolveBuild = (build) => async () => {
@@ -97,9 +95,6 @@ test("deciding an opening: the running build against the kept one, and nothing a
   // A first opening.
   assert.deepEqual(await decideVaultDoor({ resolveBuild: resolveBuild("desktop-2"), storage: memoryStorage() }), { show: true, build: "desktop-2" });
   assert.deepEqual(asked, ["desktop-2", "desktop-3", "desktop-2", "desktop-2"]);
-  // The door off: no door, and no build asked for.
-  assert.deepEqual(await decideVaultDoor({ enabled: false, always: true, resolveBuild: resolveBuild("desktop-9"), storage }), { show: false, build: "" });
-  assert.equal(asked.length, 4);
   // A build that cannot be learnt, even by a lookup that throws: decided all the same.
   const failing = async () => { throw new Error("offline"); };
   assert.deepEqual(await decideVaultDoor({ resolveBuild: failing, storage }), { show: false, build: "" });

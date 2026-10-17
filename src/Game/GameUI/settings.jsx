@@ -2793,19 +2793,12 @@ const SettingsWorkspace = ({
                 </SettingsSection>
                 <SettingsSection title="Display" description="Window and presentation preferences that apply to the game client.">
                     <Toggle label="Fullscreen" enabled={isFullscreenEnabled} onToggle={onToggleFullscreen} />
-                    <Toggle
-                    label="Vault door at start"
-                    enabled={mapSettings.vaultDoor}
-                    onToggle={() => updateMapSetting("vaultDoor", MAP_SETTING_KEYS.vaultDoor, !mapSettings.vaultDoor)}
-                    />
-                    <div style={{ ...helperStyle, marginTop: "-0.6rem", marginBottom: "0.6rem" }}>{"Off, the game opens straight onto the main menu."}</div>
-                    {/* The door shows the first time the game opens after an
+                    {/* The vault door shows the first time the game opens after an
                         update (runtime/vaultDoorDue.js); this shows it at every
-                        opening. Held where it is while the door itself is off. */}
+                        opening. */}
                     <Toggle
                     label="Every time the game opens"
                     enabled={mapSettings.vaultDoorAlways}
-                    disabled={!mapSettings.vaultDoor}
                     onToggle={() => updateMapSetting("vaultDoorAlways", MAP_SETTING_KEYS.vaultDoorAlways, !mapSettings.vaultDoorAlways)}
                     />
                     <div style={{ ...helperStyle, marginTop: "-0.6rem", marginBottom: "0.6rem" }}>{"Off, the door shows only the first time the game opens after an update."}</div>
@@ -3204,10 +3197,8 @@ const SettingsMenu = ({
         ambientMusic: getMapSettingDefaultOn(MAP_SETTING_KEYS.ambientMusic),
         // And the sound effects (the vault door's; General → Sound).
         soundEffects: getMapSettingDefaultOn(MAP_SETTING_KEYS.soundEffects),
-        // And the vault door the app opens on (General → Display).
-        vaultDoor: getMapSettingDefaultOn(MAP_SETTING_KEYS.vaultDoor),
-        // Off by default: the door shows the first time the game opens after
-        // an update, unless this asks for every time.
+        // Off by default: the vault door shows the first time the game opens
+        // after an update, unless this asks for every time (General → Display).
         vaultDoorAlways: getMapSetting(MAP_SETTING_KEYS.vaultDoorAlways),
         // And the seasons and weather on the map (Map → Map presentation),
         // and the weather's patterns among them.

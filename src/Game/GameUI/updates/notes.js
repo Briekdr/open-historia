@@ -97,6 +97,13 @@ const NEW_UPDATES = [
               "Scenario designers choose how their scenario's wars are fought, and how each side of a front it begins with is deployed.",
             ],
           },
+          {
+            heading: "The vault door",
+            icon: "gear",
+            items: [
+              "The vault door now always opens the first game after an update. Its one setting, Every time the game opens, shows it at every start.",
+            ],
+          },
         ],
         button: "To the field",
       },

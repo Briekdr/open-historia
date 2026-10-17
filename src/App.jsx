@@ -25,7 +25,7 @@ import { ensureLibraryCatalog, useLibraryState } from "./runtime/library.js";
 import { hasEnteredGame, useGameEntered } from "./runtime/gameEntry.js";
 import { VaultDoor } from "./Game/GameUI/VaultDoor.jsx";
 import { holdMusicBehindDoor } from "./runtime/ambientMusic.js";
-import { vaultDoorAlways, vaultDoorEnabled } from "./runtime/mapSettings.js";
+import { vaultDoorAlways } from "./runtime/mapSettings.js";
 import { decideVaultDoor, rememberVaultDoorBuild } from "./runtime/vaultDoorDue.js";
 import { pendingUpdates, previewedUpdates, rememberUpdate } from "./Game/GameUI/updates/updateNotices.js";
 import { appBuildId } from "./runtime/buildId.js";
@@ -83,11 +83,8 @@ function GameApp() {
   // opening with Every time the game opens on (runtime/vaultDoorDue.js), so
   // whether this opening is one is decided first ("deciding"): the running
   // build is asked of the desktop app's own server (runtime/buildId.js), and
-  // the music is held meanwhile. The player may turn the door off altogether
-  // (Settings → General → Display): then the app opens straight onto the menu
-  // and its music is not held.
+  // the music is held meanwhile.
   const [door, setDoor] = useState(() => {
-    if (!vaultDoorEnabled()) return "open";
     holdMusicBehindDoor(true);
     return "deciding";
   });
