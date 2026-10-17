@@ -4852,7 +4852,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                       </span>
                     </div>
                     <div style={{ fontWeight: 800, fontSize: isMobile ? "1.1rem" : "1.3rem", marginTop: "0.2rem", letterSpacing: "-0.01em" }}>
-                      {pickerTab === "faction" ? "Create your faction" : pickerTab === "group" && pickerOffersGroups ? "Play as a group" : "Choose your country"}
+                      {pickerTab === "group" ? "Play as a group" : "Choose your country"}
                     </div>
                   </div>
 
@@ -4888,39 +4888,20 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                       <button
                         type="button"
                         className="oh-tap-row"
-                        onClick={() => setPickerTab("faction")}
+                        onClick={() => setPickerTab("group")}
                         style={touchFit({
                           ...themeButtonStyle,
                           border: "none",
                           borderRadius: 7,
                           fontSize: "0.8rem",
                           fontWeight: 700,
-                          background: pickerTab === "faction" ? "rgba(255,255,255,0.14)" : "transparent",
-                          color: pickerTab === "faction" ? "#fff" : "rgba(255,255,255,0.6)",
+                          background: pickerTab === "group" ? "rgba(255,255,255,0.14)" : "transparent",
+                          color: pickerTab === "group" ? "#fff" : "rgba(255,255,255,0.6)",
                           padding: "0.4rem 0.85rem",
                         }, touch)}
                       >
-                        Create a faction
+                        Play as a group
                       </button>
-                      {pickerOffersGroups && (
-                        <button
-                          type="button"
-                          className="oh-tap-row"
-                          onClick={() => setPickerTab("group")}
-                          style={touchFit({
-                            ...themeButtonStyle,
-                            border: "none",
-                            borderRadius: 7,
-                            fontSize: "0.8rem",
-                            fontWeight: 700,
-                            background: pickerTab === "group" ? "rgba(255,255,255,0.14)" : "transparent",
-                            color: pickerTab === "group" ? "#fff" : "rgba(255,255,255,0.6)",
-                            padding: "0.4rem 0.85rem",
-                          }, touch)}
-                        >
-                          Play as a group
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>
@@ -4971,9 +4952,10 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                       onCancel={() => { closeCountryPicker(); setPickerTab("country"); }}
                     />
                   </div>
-                ) : pickerTab === "faction" && !playGameId ? (
+                ) : pickerTab === "group" && !playGameId ? (
                   <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
                     <FactionCreator
+                      mode="group"
                       regionsGeojson={customRegionData}
                       ownerOverrides={pickerOwnerOverrides}
                       customBackground={pickerBackground}

@@ -53,6 +53,22 @@ import { PAST_UPDATES } from "./notesPast.js";
 // make UPDATES, newest first by date.
 const NEW_UPDATES = [
   {
+    id: "2026-10-games-and-groups",
+    kind: "minor",
+    date: "2026-10-17",
+    banners: [
+      {
+        title: "Games and groups",
+        items: [
+          "Archiving or deleting the game you have open takes you back to the menu instead of opening another game.",
+          "An archived game can be deleted from its card: Delete is beside Unarchive.",
+          "Create a faction is now part of Play as a group: name it, give it a colour, a flag and an area, or start with none.",
+          "The map shows again when choosing a group's area, in the same colours as the country picker.",
+        ],
+      },
+    ],
+  },
+  {
     id: "2026-10-country-picker-cards",
     kind: "minor",
     date: "2026-10-17",
