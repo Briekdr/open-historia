@@ -582,8 +582,8 @@ const CountryPickerMap = ({
             // leaves after them, between 150 and the usual 320 px. The screen
             // height, not the visible one, which shrinks with the keyboard and
             // took the map down to 150 px with it.
-            height: isMobile ? `clamp(150px, calc(${SCREEN_HEIGHT} - 28rem), 320px)` : "100%",
-            minHeight: isMobile ? undefined : "480px",
+            height: isMobile ? `clamp(150px, calc(${SCREEN_HEIGHT} - 28rem), 320px)` : regionMode ? "clamp(320px, 58vh, 560px)" : "100%",
+            minHeight: isMobile || regionMode ? undefined : "480px",
             borderRadius: 14,
             overflow: "hidden",
             border: "1px solid rgba(255,255,255,0.12)",
