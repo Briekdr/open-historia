@@ -64,6 +64,8 @@ const NEW_UPDATES = [
           "An archived game can be deleted from its card: Delete is beside Unarchive.",
           "Create a faction is now part of Play as a group: name it, give it a colour, a flag and an area, or start with none.",
           "The map shows again when choosing a group's area, in the same colours as the country picker.",
+          "Emptying Recently deleted asks in the menu itself, so it works everywhere.",
+          "The map editor's Region panel is laid out in sections, with nothing cut off at the side.",
         ],
       },
     ],
