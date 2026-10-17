@@ -82,9 +82,9 @@ const resolveCountryColor = (option, palette) => {
 const resolveCountryFlag = (option) => {
   if (!option) return null;
   const direct = flagImageUrlFromGid(option.code) || (option.name ? flagImageUrlFromGid(option.name) : null);
-  if (direct) return bundledFlagUrl(direct);
+  if (direct) return direct;
   const byAlpha2 = gidToAlpha2(option.code) || (option.name ? gidToAlpha2(option.name) : null);
-  if (byAlpha2) return bundledFlagUrl(`https://flagcdn.com/${byAlpha2}.svg`);
+  if (byAlpha2) return `https://flagcdn.com/${byAlpha2}.svg`;
   return null;
 };
 
@@ -747,7 +747,7 @@ const CountryPickerMap = ({
                 >
                   {resolveCountryFlag(c) ? (
                     <img
-                      src={resolveCountryFlag(c)}
+                      src={bundledFlagUrl(resolveCountryFlag(c))}
                       alt=""
                       loading="lazy"
                       style={{ display: "block", height: "100%", objectFit: "cover", width: "100%" }}

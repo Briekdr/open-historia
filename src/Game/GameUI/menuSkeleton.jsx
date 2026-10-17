@@ -78,7 +78,7 @@ export const GameCardSkeleton = ({ width = "100%" }) => (
 // A scenario's card: the pill and its count of games; its title and what it
 // is about; its subtitle, New Game and Edit, and Clone Scenario under them.
 export const ScenarioCardSkeleton = ({ width = "100%" }) => (
-  <div aria-hidden="true" className="oh-skeleton" style={libraryCard({ minHeight: "15rem", width })}>
+  <div aria-hidden="true" className="oh-skeleton" style={libraryCard({ minHeight: "22rem", width })}>
     <div style={libraryCardBody}>
       <div>
         <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between" }}>

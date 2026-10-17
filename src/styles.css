@@ -634,6 +634,10 @@ button:active:not(:disabled) {
 
 /* OpenLayers controls inside country picker and editors */
 .ol-zoom {
+  position: absolute !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: auto !important;
   top: 0.75rem !important;
   left: 0.75rem !important;
   background: rgba(18, 20, 26, 0.75) !important;

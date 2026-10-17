@@ -945,7 +945,7 @@ const ScenarioCard = ({ onClone, onEdit, onPlay, onSelect, onUpdate, scenario, s
         ...surfaceStyle,
         background: "#12141a",
         borderColor: selected ? `${scenario.accentColor}88` : "rgba(255,255,255,0.09)",
-        borderRadius: "20px",
+        borderRadius: "24px",
         boxShadow: selected ? `0 0 0 1px ${scenario.accentColor}66, 0 16px 38px rgba(0,0,0,0.55)` : "0 14px 32px rgba(0,0,0,0.45)",
         display: "flex",
         flex: `0 0 ${SHELF_CARD_WIDTH}`,
@@ -4502,13 +4502,13 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                   How hard should the world fight back?
                 </div>
                 {selectedCountryOption && (() => {
-                  const flagUrl = bundledFlagUrl(flagImageUrlFromGid(selectedCountryOption.code) || flagImageUrlFromGid(selectedCountryOption.name))
+                  const flagUrl = flagImageUrlFromGid(selectedCountryOption.code) || flagImageUrlFromGid(selectedCountryOption.name)
                     || (gidToAlpha2(selectedCountryOption.code) ? bundledFlagUrl(`https://flagcdn.com/${gidToAlpha2(selectedCountryOption.code)}.svg`) : null);
                   return (
                     <div style={{ alignItems: "center", display: "flex", fontSize: "0.95rem", fontWeight: 700, gap: "0.6rem", marginBottom: "0.85rem", padding: "0.6rem 0.85rem", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10 }}>
                       {flagUrl ? (
                         <img
-                          src={flagUrl}
+                          src={bundledFlagUrl(flagUrl)}
                           alt=""
                           style={{ borderRadius: 3, boxShadow: "0 1px 3px rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.2)", display: "block", flexShrink: 0, height: "1.2rem", objectFit: "cover", width: "1.75rem" }}
                         />
