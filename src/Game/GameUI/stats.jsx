@@ -116,12 +116,22 @@ const storeTrackingSettingsFallback = (gameKey, value, playerCountry = "") => {
     }
 };
 
+// A sheet as the model's schema (gameplaySchemas.js countryStatSheet) knows it: without the military figures the
+// game keeps on it in the backend (runtime/militaryStats.js), which the schema does not list. Checked with them, every
+// sheet that had them "failed validation: $.military is not allowed" and the Economy tab could not open.
+const withoutBackendFields = (sheet) => {
+    if (!sheet || typeof sheet !== "object" || !("military" in sheet)) return sheet;
+    const checked = { ...sheet };
+    delete checked.military;
+    return checked;
+};
+
 const isValidStatSheet = (value, definition) => {
     const sheet = finalizeCountryStatSheet(value);
     if (definition?.custom) {
         return isCompleteCustomCountryStatSheet(sheet, statSheetKeys(definition));
     }
-    return isCompleteCountryStatSheet(sheet) && validateGameplayPayload("countryStatSheet", sheet).valid;
+    return isCompleteCountryStatSheet(sheet) && validateGameplayPayload("countryStatSheet", withoutBackendFields(sheet)).valid;
 };
 
 // 8B.2.16 compatibility repair: one older Stats path could plan >64 live-map
@@ -2305,7 +2315,7 @@ const StatsPaneBody = ({ active, mapRef, requestedTarget = "", onConsumeTarget }
                     throw new Error("The scenario-defined stat sheet was incomplete.");
                 }
             } else {
-                const validation = validateGameplayPayload("countryStatSheet", generated);
+                const validation = validateGameplayPayload("countryStatSheet", withoutBackendFields(generated));
                 if (!validation.valid) throw new Error(`The stat sheet failed validation: ${validation.error}`);
             }
             // generateCountryStatSheet already receives the previous persistent sheet as

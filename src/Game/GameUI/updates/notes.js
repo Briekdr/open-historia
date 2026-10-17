@@ -102,6 +102,7 @@ const NEW_UPDATES = [
             icon: "gear",
             items: [
               "The vault door now always opens the first game after an update. Its one setting, Every time the game opens, shows it at every start.",
+              "The Economy tab opens again for every country: it no longer stops on a stat sheet error.",
             ],
           },
         ],
