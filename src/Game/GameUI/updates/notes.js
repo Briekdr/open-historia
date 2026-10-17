@@ -53,6 +53,23 @@ import { PAST_UPDATES } from "./notesPast.js";
 // make UPDATES, newest first by date.
 const NEW_UPDATES = [
   {
+    id: "2026-10-country-picker-cards",
+    kind: "minor",
+    date: "2026-10-17",
+    banners: [
+      {
+        title: "A bigger country picker",
+        items: [
+          "Choosing a country opens a larger picker: the map beside a list of the countries you can play.",
+          "Each country in the list shows its flag where one is known, and its colour on the map.",
+          "The map and the list use the scenario's own country colours.",
+          "Scenario cards show their cover whole, with the name and description below it.",
+          "Community cards line up, with their counts and buttons on one line at the bottom.",
+        ],
+      },
+    ],
+  },
+  {
     // "make it so you can also deploy "armies" which are just groups of troops not arranged in a front", "a group
     // should also be run by a single general. using the deploy tool should give the option to do a front or swarm",
     // "troops should move independantly like they do in fronts", "JUST MAKE IT DEPLOY IN A GROUPED FORMATION TO
@@ -103,14 +120,6 @@ const NEW_UPDATES = [
             items: [
               "The vault door now always opens the first game after an update. Its one setting, Every time the game opens, shows it at every start.",
               "The Economy tab opens again for every country: it no longer stops on a stat sheet error.",
-            ],
-          },
-          {
-            heading: "Country picker and flags",
-            icon: "map",
-            items: [
-              "The country picker now opens in an expansive command center with a detailed world relief map.",
-              "Every nation displays its official high-resolution vector flag and national map color.",
             ],
           },
         ],

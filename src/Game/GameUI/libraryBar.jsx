@@ -218,6 +218,19 @@ const actionButtonStyle = {
   transition: "background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease",
 };
 
+const editorButtonStyle = {
+  ...actionButtonStyle,
+  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: "9px",
+  boxShadow: "none",
+};
+
+const editorSurfaceStyle = {
+  background: "#12141a",
+  border: "1px solid rgba(255,255,255,0.09)",
+  boxShadow: "0 14px 32px rgba(0,0,0,0.45)",
+};
+
 const APP_SHELL_MAX_WIDTH = "3000px";
 // Let the library rail follow the available shell width instead of targeting
 // one desktop class. auto-fill adds/removes columns as room changes, while the
@@ -700,7 +713,7 @@ const PromptSectionEditor = ({
     && edits[segment.id].trim() !== (defaults[segment.id] ?? "").trim()
     && edits[segment.id].trim() !== (englishDefaults[segment.id] ?? "").trim();
   const editedCount = segments.filter(isEdited).length;
-  const smallButtonStyle = { ...actionButtonStyle, fontSize: "0.72rem", minHeight: "1.7rem", padding: "0 0.6rem" };
+  const smallButtonStyle = { ...editorButtonStyle, fontSize: "0.72rem", minHeight: "1.7rem", padding: "0 0.6rem" };
 
   const handlePromptImportFile = async (event) => {
     const [file] = Array.from(event.target.files ?? []);
@@ -761,7 +774,7 @@ const PromptSectionEditor = ({
               <button
                 className="oh-tap-row"
                 onClick={handlePromptExport}
-                style={touchFit({ ...actionButtonStyle, minHeight: "2rem", padding: "0 0.8rem" }, touch)}
+                style={touchFit({ ...editorButtonStyle, minHeight: "2rem", padding: "0 0.8rem" }, touch)}
                 type="button"
               >
                 Export all prompts
@@ -772,7 +785,7 @@ const PromptSectionEditor = ({
                 <button
                   className="oh-tap-row"
                   onClick={() => promptFileInputRef.current?.click()}
-                  style={touchFit({ ...actionButtonStyle, minHeight: "2rem", padding: "0 0.8rem" }, touch)}
+                  style={touchFit({ ...editorButtonStyle, minHeight: "2rem", padding: "0 0.8rem" }, touch)}
                   type="button"
                 >
                   Import all prompts
@@ -831,7 +844,7 @@ const PromptSectionEditor = ({
             className="oh-tap-row"
             onClick={() => setPromptSectionKey(section.key)}
             style={touchFit({
-              ...actionButtonStyle,
+              ...editorButtonStyle,
               background:
                 section.key === currentSection.key ? "rgba(0,0,0,0.42)" : "rgba(255,255,255,0.05)",
               borderColor:
@@ -1792,7 +1805,7 @@ const SectionTabs = ({ badges = {}, currentSection, sections, setSection, touch 
         className="oh-tap-row"
         onClick={() => setSection(sectionKey)}
         style={touchFit({
-          ...actionButtonStyle,
+          ...editorButtonStyle,
           background:
             currentSection === sectionKey ? "rgba(0,0,0,0.42)" : "rgba(255,255,255,0.05)",
           borderColor:
@@ -1874,7 +1887,7 @@ const EditorDrawer = ({
   return (
     <div
       style={{
-        ...surfaceStyle,
+        ...editorSurfaceStyle,
         borderRadius: "26px",
         // Every edge keeps clear of the status bar, the home indicator and a
         // notch at the side in landscape (the SAFE_* insets, 0 on a desktop);
@@ -1906,7 +1919,7 @@ const EditorDrawer = ({
           aria-label={`Close the ${kind === "scenario" ? "scenario" : "game"} editor`}
           className="oh-tap"
           onClick={onClose}
-          style={touchFit({ ...actionButtonStyle, background: "rgba(255,255,255,0.04)", minWidth: "2.35rem", padding: 0 }, touch, { icon: true })}
+          style={touchFit({ ...editorButtonStyle, background: "rgba(255,255,255,0.04)", minWidth: "2.35rem", padding: 0 }, touch, { icon: true })}
           type="button"
         >
           X
@@ -1999,7 +2012,7 @@ const EditorDrawer = ({
                           onChange("allowedUnitTypes", UNIT_TYPES.filter((t) => set.has(t)));
                         }}
                         style={touchFit({
-                          ...actionButtonStyle,
+                          ...editorButtonStyle,
                           background: checked ? "rgba(0,0,0,0.42)" : "rgba(255,255,255,0.04)",
                           borderColor: checked ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.1)",
                           minHeight: "2rem",
@@ -2153,7 +2166,7 @@ const EditorDrawer = ({
           scenarioFeatures={kind === "scenario" ? formState.features : formState.scenarioFeatures}
           world={details?.data?.world ?? {}}
           onChange={(next) => onChange("features", next)}
-          styles={{ actionButtonStyle, fieldLabelStyle, inputStyle }}
+          styles={{ actionButtonStyle: editorButtonStyle, fieldLabelStyle, inputStyle }}
           currentDate={formState.gameDate}
           firstSkipAhead={kind === "scenario" || !(details?.data?.world?.simulationHistory?.length > 0)}
         />
@@ -2222,14 +2235,14 @@ const EditorDrawer = ({
                     )}
                   </div>
                   <div style={{ display: "flex", gap: "0.45rem" }}>
-                    <button className="oh-tap-row" onClick={() => onOpenFileDialog(assetKey)} style={touchFit(actionButtonStyle, touch)} type="button">
+                    <button className="oh-tap-row" onClick={() => onOpenFileDialog(assetKey)} style={touchFit(editorButtonStyle, touch)} type="button">
                       Upload
                     </button>
                     <button
                       className="oh-tap-row"
                       onClick={() => onClearAsset(assetKey)}
                       style={touchFit({
-                        ...actionButtonStyle,
+                        ...editorButtonStyle,
                         background: "rgba(255,255,255,0.03)",
                         color: hasOwnAsset ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.35)",
                       }, touch)}
@@ -2275,10 +2288,10 @@ const EditorDrawer = ({
             <a href={SCENARIO_LICENSE_URL} target="_blank" rel="noopener noreferrer" style={{ color: "rgba(255,255,255,0.88)" }}>About CC BY 4.0 ↗</a>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.55rem" }}>
-            <button className="oh-tap-row" onClick={() => onExportBundle("zip")} style={touchFit(actionButtonStyle, touch)} type="button">
+            <button className="oh-tap-row" onClick={() => onExportBundle("zip")} style={touchFit(editorButtonStyle, touch)} type="button">
               Download .zip
             </button>
-            <button className="oh-tap-row" onClick={() => onExportBundle("json")} style={touchFit(actionButtonStyle, touch)} type="button">
+            <button className="oh-tap-row" onClick={() => onExportBundle("json")} style={touchFit(editorButtonStyle, touch)} type="button">
               Download JSON
             </button>
           </div>
@@ -2295,7 +2308,7 @@ const EditorDrawer = ({
         <button
           className="oh-tap-row"
           onClick={onSave}
-          style={touchFit({ ...actionButtonStyle, background: `${record.accentColor}cc`, borderColor: `${record.accentColor}dd`, color: "#fff", minWidth: "7.2rem" }, touch)}
+          style={touchFit({ ...editorButtonStyle, background: record.accentColor, borderColor: record.accentColor, borderRadius: "11px", boxShadow: `0 3px 12px ${record.accentColor}33`, color: "#fff", fontWeight: 700, minWidth: "7.2rem" }, touch)}
           type="button"
         >
           {isBusy ? "Saving..." : "Save"}
@@ -2304,7 +2317,7 @@ const EditorDrawer = ({
           <button
             className="oh-tap-row"
             onClick={onOpenMapEditor}
-            style={touchFit({ ...actionButtonStyle, background: "rgba(255,255,255,0.12)", borderColor: "rgba(255,255,255,0.19)", color: "#fff", minWidth: "9rem" }, touch)}
+            style={touchFit({ ...editorButtonStyle, background: "rgba(255,255,255,0.12)", borderColor: "rgba(255,255,255,0.19)", color: "#fff", minWidth: "9rem" }, touch)}
             type="button"
           >
             🗺️ Open Map Editor
@@ -2315,7 +2328,7 @@ const EditorDrawer = ({
             className="oh-tap-row"
             onClick={onSuggestChanges}
             title="Send your changes to this community scenario's author, who can accept or reject each one."
-            style={touchFit({ ...actionButtonStyle, background: "rgba(43,193,243,0.18)", borderColor: "rgba(43,193,243,0.45)", color: "#fff" }, touch)}
+            style={touchFit({ ...editorButtonStyle, background: "rgba(43,193,243,0.18)", borderColor: "rgba(43,193,243,0.45)", color: "#fff" }, touch)}
             type="button"
           >
             Suggest changes
@@ -2325,7 +2338,7 @@ const EditorDrawer = ({
           <button
             className="oh-tap-row"
             onClick={onDelete}
-            style={touchFit({ ...actionButtonStyle, background: "rgba(127,29,29,0.34)", borderColor: "rgba(248,113,113,0.28)", color: "#fecaca" }, touch)}
+            style={touchFit({ ...editorButtonStyle, background: "rgba(127,29,29,0.34)", borderColor: "rgba(248,113,113,0.28)", color: "#fecaca" }, touch)}
             type="button"
           >
             Delete
@@ -2556,7 +2569,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   // the player chose in the two-step picker, and go straight into it.
   const startGameForCountry = async (scenario, countryCode, difficulty) => {
     setCountryPicker(null);
-    setCustomRegionData(null); setPickerOwnerOverrides(null); setPickerBackground(null);
+    setCustomRegionData(null); setPickerOwnerOverrides(null); setPickerColors(null); setPickerBackground(null);
     setEditorError(null);
     setIsBusy(true);
     // Before the await: createGame({setActive}) remounts the UI mid-flight and
@@ -2596,7 +2609,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   // scenario only for what it doesn't set, so the scenario is never touched.
   const startGameForFaction = async (scenario, faction, difficulty) => {
     setCountryPicker(null);
-    setCustomRegionData(null); setPickerOwnerOverrides(null); setPickerBackground(null);
+    setCustomRegionData(null); setPickerOwnerOverrides(null); setPickerColors(null); setPickerBackground(null);
     setEditorError(null);
     setIsBusy(true);
     setMenuOpen(false);
@@ -2667,7 +2680,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   // into the game's own world, like a faction, so the scenario is never touched.
   const startGameForGroup = async (scenario, group, difficulty) => {
     setCountryPicker(null);
-    setCustomRegionData(null); setPickerOwnerOverrides(null); setPickerBackground(null);
+    setCustomRegionData(null); setPickerOwnerOverrides(null); setPickerColors(null); setPickerBackground(null);
     setEditorError(null);
     setIsBusy(true);
     setMenuOpen(false);
@@ -2739,7 +2752,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     const isCurrent = pickerRequest.begin();
     setCountryQuery("");
     setCountryOptions([]);
-    setCustomRegionData(null); setPickerOwnerOverrides(null); setPickerBackground(null);
+    setCustomRegionData(null); setPickerOwnerOverrides(null); setPickerColors(null); setPickerBackground(null);
     setPlayGameId(null);
     setPickerTab("country");
     setPickerGroups([]);
@@ -2761,6 +2774,9 @@ const LibraryTopBar = ({ onOpenSettings }) => {
         // stock seed is repainted in this scenario's owners, without it the picker
         // shows modern countries the scenario does not contain.
         setPickerOwnerOverrides(details?.data?.world?.regionOwnershipOverrides ?? null);
+        downloadScenarioJsonAsset(scenario.id, "colors")
+          .then((colors) => { if (colors && typeof colors === "object" && isCurrent()) setPickerColors(colors); })
+          .catch(() => {});
         setPickerGroups(scenarioGroupsFor(details?.data?.world));
         // Load custom region geometry so the map renders the scenario's actual
         // boundaries instead of the stock world seed.
@@ -3787,6 +3803,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   // world seed with its GADM owners — present-day Europe inside a scenario that
   // has none of it. See applyOwnerOverrides in CountryPickerMap.
   const [pickerOwnerOverrides, setPickerOwnerOverrides] = useState(null);
+  const [pickerColors, setPickerColors] = useState(null);
   // The scenario's own basemap for the picker, when it has one (CountryPickerMap
   // customBackground); null draws the picker on ESRI as it always has.
   const [pickerBackground, setPickerBackground] = useState(null);
@@ -3813,6 +3830,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     setDifficultyPick(null);
     setCustomRegionData(null);
     setPickerOwnerOverrides(null);
+    setPickerColors(null);
     setPickerBackground(null);
   };
 
@@ -4094,7 +4112,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     setPlayGameId(gameId);
     setCountryQuery("");
     setCountryOptions([]);
-    setCustomRegionData(null); setPickerOwnerOverrides(null); setPickerBackground(null);
+    setCustomRegionData(null); setPickerOwnerOverrides(null); setPickerColors(null); setPickerBackground(null);
     setCountryPicker(scenario);
     loadCountryNames().catch(() => [])
       .then((allCountries) => {
@@ -4105,6 +4123,9 @@ const LibraryTopBar = ({ onOpenSettings }) => {
           scenario.countryNameOverrides,
         ));
         setPickerOwnerOverrides(seedWorld.regionOwnershipOverrides ?? null);
+        downloadScenarioJsonAsset(scenario.id, "colors")
+          .then((colors) => { if (colors && typeof colors === "object" && isCurrent()) setPickerColors(colors); })
+          .catch(() => {});
         // The map editor just saved custom region geometry — load it so the
         // country picker renders the scenario's actual map, not the stock seed.
         downloadScenarioJsonAsset(scenario.id, "regionsGeojson", { coarse: true })
@@ -4142,7 +4163,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
   const choosePlayCountry = async (countryCode, difficulty) => {
     const gid = playGameId;
     setCountryPicker(null);
-    setCustomRegionData(null); setPickerOwnerOverrides(null); setPickerBackground(null);
+    setCustomRegionData(null); setPickerOwnerOverrides(null); setPickerColors(null); setPickerBackground(null);
     setPlayGameId(null);
     if (!gid) return;
     setMenuOpen(false);
@@ -4713,6 +4734,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
                           regionsGeojson={customRegionData}
                           ownerOverrides={pickerOwnerOverrides}
                           customBackground={pickerBackground}
+                          colors={pickerColors}
                           onPickCountry={(code) => pickCountry(code)}
                           onPickDefault={() => pickCountry("")}
                           playGameId={playGameId}

@@ -214,6 +214,7 @@ const CountryPickerMap = ({
   // Null means the scenario draws on ESRI, and so does this map.
   customBackground = null,
   onPickDefault = null,
+  colors = null,
   playGameId = null,
 }) => {
   const containerRef = useRef(null);
@@ -230,13 +231,21 @@ const CountryPickerMap = ({
   const hoveredRegionRef = useRef(null);
   const playableCodesRef = useRef(new Set());
   const colorPaletteRef = useRef(null);
+  const stockPaletteRef = useRef(null);
+  const scenarioColorsRef = useRef(colors);
+  useEffect(() => {
+    scenarioColorsRef.current = colors;
+    colorPaletteRef.current = { ...(stockPaletteRef.current || {}), ...(colors || {}) };
+    layerRef.current?.changed();
+  }, [colors]);
   useEffect(() => {
     let cancelled = false;
     fetch("/assets/colors.json")
       .then((r) => r.json())
       .then((data) => {
         if (!cancelled && data && typeof data === "object") {
-          colorPaletteRef.current = data;
+          stockPaletteRef.current = data;
+          colorPaletteRef.current = { ...data, ...(scenarioColorsRef.current || {}) };
           layerRef.current?.changed();
         }
       })
