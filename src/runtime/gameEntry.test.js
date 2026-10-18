@@ -79,8 +79,23 @@ test("it is kept in the page and nowhere else, so every page load starts on the 
   const source = read("./gameEntry.js").replace(/^\s*\/\/.*$/gm, "");
   assert.doesNotMatch(source, /localStorage|sessionStorage|indexedDB|document\.cookie/);
   assert.match(source, /let entered = false;/);
-  // Nothing takes it back: only the test's own reset assigns false.
-  assert.equal(source.match(/entered = false/g).length, 2);
+  // Only leaving the open game (archived or deleted) and the test's own reset take it back.
+  assert.equal(source.match(/entered = false/g).length, 3);
+  assert.match(source, /export const leaveGame = \(\) => \{\s+if \(!entered\) return;\s+entered = false;/);
+});
+
+// "when you archive or delete your current game it shouldnt auto open the next on the list";
+// "make a button to delete your game when it is archived next to the unarchive button" (the owner).
+test("archiving or deleting the open game leaves it, and an archived game's card can delete it", () => {
+  const bar = read("../Game/GameUI/libraryBar.jsx");
+  assert.match(bar, /await saveGame\(game\.id, \{ archived: !game\.archived \}\);\s+if \(!game\.archived && game\.id === activeGameId && hasEnteredGame\(\)\) leaveGame\(\);/);
+  assert.match(bar, /const wasOpen = record\.id === activeGameId && hasEnteredGame\(\);\s+await removeGame\(record\.id\);\s+if \(wasOpen\) leaveGame\(\);/);
+  assert.match(bar, /const handleGameDelete = async \(game\) => \{[\s\S]+?const wasOpen = game\.id === activeGameId && hasEnteredGame\(\);\s+await removeGame\(game\.id\);\s+if \(wasOpen\) leaveGame\(\);/);
+  assert.match(bar, /\{game\.archived && onDelete && game\.canDelete && \(\s+<button[\s\S]+?onClick=\{\(\) => onDelete\(game\)\}/);
+  assert.match(bar, /const handleGameDelete = async \(game\) => \{\s+if \(!game\?\.canDelete\) return;/);
+  assert.equal(bar.match(/onDelete=\{handleGameDelete\}/g).length, 2);
+  assert.match(bar, /const handleEmpty = \(\) => \{\s+setConfirmEmpty\(false\);\s+run\(\(\) => emptyTrash\(kind\)\);\s+\};/);
+  assert.match(bar, /action=\{confirmEmpty \? \([\s\S]+?onClick=\{\(\) => setConfirmEmpty\(false\)\}[\s\S]+?onClick=\{handleEmpty\}[\s\S]+?onClick=\{\(\) => setConfirmEmpty\(true\)\}[\s\S]+?description=\{confirmEmpty \? question : description\}/);
 });
 
 // ---- the library enters the game it opens -------------------------------------------
