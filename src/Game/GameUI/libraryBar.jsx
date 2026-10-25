@@ -1101,7 +1101,7 @@ const ScenarioCard = ({ onClone, onEdit, onPlay, onSelect, onUpdate, scenario, s
           flexDirection: "column",
           gap: "0.55rem",
           justifyContent: "space-between",
-          padding: "0.85rem 1.05rem 1rem",
+          padding: "1rem 1.05rem",
           position: "relative",
           zIndex: 2,
         }}
@@ -1526,7 +1526,7 @@ const GameCard = ({ active, busy, game, onActivate, onArchive, onClone, onEdit, 
           flexDirection: "column",
           gap: "0.55rem",
           justifyContent: "space-between",
-          padding: "0.85rem 1.05rem 1rem",
+          padding: "1rem 1.05rem",
           position: "relative",
           zIndex: 2,
         }}
