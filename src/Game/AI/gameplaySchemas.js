@@ -62,7 +62,7 @@ const createdChatSchema = {
       minItems: 1,
       items: nonEmptyTextSchema("A polity's FULL name (\"Spain\"), never a code."),
     },
-    openingMessage: nonEmptyTextSchema("The initiator's first message, in its leader's voice and its own first person, written TO the player: never the player's words, never addressed to the initiator's own government, capital or leader."),
+    openingMessage: nonEmptyTextSchema("The initiator's own first message, in its leader's voice, TO the player: never the player's words."),
     speaker: nonEmptyTextSchema("The polity sending the opening message. Never the player's."),
     linkedEventId: textSchema("The event that caused it, when one did."),
   },
