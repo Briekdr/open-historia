@@ -185,11 +185,8 @@ const DEFAULT_SCENARIO_COVER = "/scenario-placeholder.webp";
 const COVER_TINT = "inset 0 0 0 100vmax rgba(4,6,12,0.56)";
 const CARD_COVER_FADE_STYLE = {
   bottom: 0,
-  boxShadow:
-    "inset 0 -1.6rem 1.2rem 0 #12141a, " +
-    "inset 0 -3.6rem 2.4rem -0.4rem rgba(18,20,26,0.92), " +
-    "inset 0 -5.6rem 3.2rem -1rem rgba(18,20,26,0.5)",
-  height: "5.6rem",
+  boxShadow: "inset 0 -0.8rem 0.5rem 0 #12141a",
+  height: "1.2rem",
   inset: "auto 0 0 0",
   pointerEvents: "none",
   position: "absolute",
