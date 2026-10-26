@@ -231,6 +231,23 @@ const NEW_UPDATES = [
     ],
   },
   {
+    // Every time skip event was shown to every player of a shared game, so a covert order's outcome reached its
+    // targets and rivals (Discord spike, 2026-10-26).
+    id: "2026-10-shared-secrets",
+    kind: "minor",
+    date: "2026-10-26",
+    banners: [
+      {
+        title: "Secrets stay secret in shared games",
+        items: [
+          "When several people play, what your government does in secret is now told to you alone: the other players no longer read the outcome of your covert orders.",
+          "Anyone in on the secret, or who uncovers it, is told too.",
+          "What others could see happen, such as ships sailing or a minister dismissed, can still reach them as news of its own.",
+        ],
+      },
+    ],
+  },
+  {
     // A player at war with Ireland had no War Room: the war was kept as Britain and Ireland against "1" and "2"
     // (battle-of-europe-session-2, 2026-10-25).
     id: "2026-10-war-sides",

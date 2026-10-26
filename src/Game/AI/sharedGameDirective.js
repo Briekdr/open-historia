@@ -27,6 +27,8 @@ export const buildSharedGameDirective = (game) => {
     "- The world acts on every player's polity as on any other — pressure, incidents, reactions, attacks — and never decides a player polity's own reply.",
     "- A player polity's choice with no order or message of its own behind it is withdrawn by the engine: write each player's outcomes from their own orders.",
     "- Share the period between the players: every player's orders get their outcomes, and no one player's polity is the whole story.",
+    // Each player is shown only the events they may read (multiplayer/host/projection.js readableBy).
+    "- Each player sees only the events their government would know of. An event that is secret - a covert order's outcome, a hidden meeting, a plot not yet found out - lists in its audience the polities that know of it (the one that acted, and anyone in on it or who uncovered it); everyone else is never shown it. Leave audience out of anything public. What others can observe of a secret act (ships sailing, a minister dismissed) may be its own public event, without the secret.",
     "- On the Projects board, an entry owned by one of these polities is that player's own work, lent to this board for the period: advance it, miss its milestones or finish it by what happens, exactly as you do the first player's own. It is never something another government has found out, and an entry marked secret or covert is known to its own government alone: no event may reveal it to the others.",
   ].join("\n");
 };

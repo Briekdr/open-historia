@@ -1178,6 +1178,14 @@ const eventSchema = {
       type: "boolean",
       description: "Whether it directly concerns the player polity.",
     },
+    // Who may read it in a shared game (multiplayer/host/projection.js
+    // readableBy); absent, as on everything public, it is everybody's.
+    audience: {
+      type: "array",
+      description: "Secret only: the polities that know it.",
+      maxItems: 6,
+      items: { type: "string" },
+    },
     warId: textSchema(
       "Canonical world.wars id for this event when it declares/joins/ends a war or depicts actual combat. Blank for non-war events.",
     ),

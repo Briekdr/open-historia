@@ -104,4 +104,8 @@ test("the simulator is told who plays only when several people do", async () => 
   assert.match(directive, /^\[Shared Game/);
   assert.match(directive, /one each: France; Germany\./);
   assert.match(directive, /never make another player's polity choose/);
+  // A secret's outcome is marked for those who know of it, and the answer's events can carry that mark.
+  assert.match(directive, /lists in its audience the polities that know of it/);
+  const { JUMP_FORWARD_TOOL } = await import("./gameplaySchemas.js");
+  assert.equal(JUMP_FORWARD_TOOL.schema.properties.events.items.properties.audience.type, "array");
 });
