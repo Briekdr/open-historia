@@ -214,6 +214,23 @@ const NEW_UPDATES = [
     ],
   },
   {
+    // Claude Opus 5.5 and Sonnet 5.5 refused forced tool choice and temperature; the map's edge and its cities at
+    // every zoom (test sessions, 2026-10-26).
+    id: "2026-10-newer-claude",
+    kind: "minor",
+    date: "2026-10-26",
+    banners: [
+      {
+        title: "Newer Claude models, a clearer map",
+        items: [
+          "Claude Opus 5.5 and Sonnet 5.5 now answer every task: time skips and country sheets no longer fail when they turn down settings older models took.",
+          "Past the edge of the world the map is now plain black.",
+          "Every town and city stays on the map however far out you zoom, and their names and markers grow much larger as you zoom in.",
+        ],
+      },
+    ],
+  },
+  {
     // A player at war with Ireland had no War Room: the war was kept as Britain and Ireland against "1" and "2"
     // (battle-of-europe-session-2, 2026-10-25).
     id: "2026-10-war-sides",
