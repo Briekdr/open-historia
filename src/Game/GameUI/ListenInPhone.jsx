@@ -469,8 +469,8 @@ const ListenInPhone = () => {
       {/* A region's phone can turn to the whole country and back. */}
       {country && (
         <div role="tablist" style={{ borderBottom: `1px solid ${LINE}`, display: "flex", flex: "0 0 auto" }}>
-          <button type="button" role="tab" aria-selected={!nationwide} className="oh-tap-row" onClick={() => setNationwide(false)} style={tabStyle(!nationwide)}>{target.regionName}</button>
           <button type="button" role="tab" aria-selected={nationwide} className="oh-tap-row" onClick={() => setNationwide(true)} style={tabStyle(nationwide)}>{country.polity}</button>
+          <button type="button" role="tab" aria-selected={!nationwide} className="oh-tap-row" onClick={() => setNationwide(false)} style={tabStyle(!nationwide)}>{target.regionName}</button>
         </div>
       )}
 
