@@ -281,7 +281,7 @@ const ListenInPhone = () => {
   // The place the phone was opened on, and whether it shows that place or, for
   // a region, the country it is in.
   const [target, setTarget] = useState(null);
-  const [nationwide, setNationwide] = useState(false);
+  const [nationwide, setNationwide] = useState(true);
   const [session, setSession] = useState(null);
   const [store, setStore] = useState(null);
   // By request key: what this opening has asked for, what is being written,
@@ -311,7 +311,7 @@ const ListenInPhone = () => {
     const next = listenInPlace(place);
     if (!next || !enabled) return;
     setTarget(next);
-    setNationwide(false);
+    setNationwide(true);
     setSession(null);
     setStore(null);
     setAsked({});

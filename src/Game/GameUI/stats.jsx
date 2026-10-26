@@ -956,7 +956,7 @@ const DiplomacySection = ({ world, identity, targetCountry, viewerPolity }) => {
                     </button>
                 ) : null}
                 {/* How weary each side is, and, in a war of the player's own, terms of their own (warAndPeace.jsx). */}
-                <PeaceControls war={war} world={world} viewer={viewer} />
+                <PeaceControls war={war} world={world} viewer={viewerPolity} />
                 </div>
                 <span style={statusBadgeStyle(tone)}>{prettyToken(war.status || "active")}</span>
                 </div>
@@ -969,7 +969,7 @@ const DiplomacySection = ({ world, identity, targetCountry, viewerPolity }) => {
         )}
         </div>
         {/* The reports of the wars it fought on battlefields that have closed, to read again (afterAction.jsx). */}
-        <WarReportsList world={world} country={viewer} style={{ ...cardStyle, marginTop: "0.55rem", padding: 0, overflow: "hidden" }} />
+        <WarReportsList world={world} country={viewerPolity} style={{ ...cardStyle, marginTop: "0.55rem", padding: 0, overflow: "hidden" }} />
         <ReparationsNote world={world} target={targetCountry} />
         </>
     );
