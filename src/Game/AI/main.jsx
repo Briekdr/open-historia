@@ -84,6 +84,7 @@ import { ANSWER_SENTINEL_DIRECTIVE } from "./jsonSalvage.js";
 import { unmarkedEndVerdict } from "./toolResponsePayload.js";
 import { createModeObserver, nextStructuredMode, startingStructuredMode } from "./structuredMode.js";
 import { createTemperatureMemory, temperatureBody, temperatureRefusalKey } from "./sampling.js";
+import { isForcedToolChoiceRefusal, refusesForcedToolChoice, structuredToolChoice, toolCallReminder, withToolCallReminder } from "./anthropicToolChoice.js";
 import { nativeHttpAvailable, nativeHttpFetch } from "../../runtime/native/http.js";
 import { createRelayOnlyOrigins } from "./relayOrigins.js";
 import { createFirstByteTimer, createStreamUsage, normalizeUsage, sumUsage } from "./usageStats.js";
@@ -1503,6 +1504,14 @@ const REASONING_HEADROOM_TOKENS = 8192;
 // that starts accepting it again should get it back after a reload.
 const streamingRefusals = new Set();
 const streamingRefusalKey = (samplingKey, withTools) => `${samplingKey}|${withTools ? "tools" : "plain"}`;
+// Anthropic models that refused a forced tool_choice, for the session, keyed like
+// the temperature refusals. The known ones never send it (anthropicToolChoice.js);
+// these are the ones learned from their first 400.
+const forcedToolChoiceRefusals = new Set();
+const forcesToolChoice = (model, refusalKey) => !refusesForcedToolChoice(model) && !forcedToolChoiceRefusals.has(refusalKey);
+// Custom parameters that turn thinking on ({"thinking": {"type": "adaptive"}}):
+// the Messages API then refuses any temperature but 1, so none is sent.
+const customParamsThink = (customParams) => ["enabled", "adaptive"].includes(String(customParams?.thinking?.type ?? "").trim().toLowerCase());
 
 async function callOpenAIStyleChatCompletions({
     endpoint,
@@ -2180,10 +2189,8 @@ async function callAnthropic(systemPrompt, history, {
         signal,
     });
     onModel?.(model);
-    const streamingKey = streamingRefusalKey(
-        temperatureRefusalKey({ provider: "Anthropic", endpoint: ANTHROPIC_API_ENDPOINT, model }),
-        Boolean(tool) || isLookupChat(tool, onChunk, lookupTools),
-    );
+    const samplingKey = temperatureRefusalKey({ provider: "Anthropic", endpoint: ANTHROPIC_API_ENDPOINT, model });
+    const streamingKey = streamingRefusalKey(samplingKey, Boolean(tool) || isLookupChat(tool, onChunk, lookupTools));
     streamingDisabled = streamingRefusals.has(streamingKey);
 
     const headers = {
@@ -2203,6 +2210,9 @@ async function callAnthropic(systemPrompt, history, {
         ? Number(maxTokens)
         : Math.max(Number(customParams.max_tokens) || 0, anthropicModelMax.get(model) || ANTHROPIC_MAX_OUTPUT);
     delete customParams.max_tokens;
+    // A temperature goes only to a model that takes one: never beside thinking
+    // the custom parameters turn on, and never to one that refused it before.
+    let temperatureRefused = customParamsThink(customParams) || temperatureRefusals.refuses(samplingKey);
 
     let chatToolsRefused = false;
     for (let attempt = 1; attempt <= retries; attempt++) {
@@ -2224,12 +2234,16 @@ async function callAnthropic(systemPrompt, history, {
         // no thinking blocks.
         const chatTools = chatLookupsFor(tool, onChunk, lookupTools, chatToolsRefused);
         const thinks = reasoning && !tool && !chatTools.length;
+        // A model that refuses a forced tool_choice is asked for the call in words.
+        const forceTool = forcesToolChoice(model, samplingKey);
+        const lookupsAllowed = lookupDeclarations.length > 0 && !requireOutputTool;
+        const messages = toAnthropicMessages(chatToolsRefused ? flattenLookupRounds(history) : history);
         const body = {
             model,
             system: buildAnthropicSystemContent(systemPrompt, staticPrefixEnd),
             max_tokens: requestedMaxTokens,
             ...(thinks ? { thinking: { type: "enabled", budget_tokens: 4096 } } : {}),
-            ...temperatureBody(taskKey, { enabled: !thinks }),
+            ...temperatureBody(taskKey, { enabled: !thinks && !temperatureRefused }),
             // Streamed for BOTH the advisor (onChunk, tokens to the UI) and tool
             // calls. A tool call must stream because the Messages API refuses a
             // non-streaming request whose max_tokens implies a long generation —
@@ -2237,7 +2251,9 @@ async function callAnthropic(systemPrompt, history, {
             // purpose — so a timeline jump could be rejected before generating a
             // single token. readAnthropicStreamedResponse rebuilds the envelope.
             ...(streamThisRequest ? { stream: true } : {}),
-            messages: toAnthropicMessages(chatToolsRefused ? flattenLookupRounds(history) : history),
+            messages: tool && !forceTool
+                ? withToolCallReminder(messages, toolCallReminder({ toolName: tool.name, lookupsAllowed }))
+                : messages,
             ...customParams,
             ...(chatTools.length ? {
                 tools: chatTools.map((entry) => ({ name: entry.name, description: entry.description, input_schema: entry.schema })),
@@ -2251,7 +2267,7 @@ async function callAnthropic(systemPrompt, history, {
                 ],
                 // "any" while lookups are allowed (the model picks a lookup or
                 // the answer); the answer alone once the round budget is spent.
-                tool_choice: lookupDeclarations.length && !requireOutputTool ? { type: "any" } : { type: "tool", name: tool.name },
+                tool_choice: structuredToolChoice({ forced: forceTool, toolName: tool.name, lookupsAllowed }),
             } : {}),
         };
         // The request goes out now: the skip's progress row starts its count
@@ -2286,6 +2302,22 @@ async function callAnthropic(systemPrompt, history, {
                 && Number(capMatch[1]) < requestedMaxTokens && attempt < retries) {
                 anthropicModelMax.set(model, Number(capMatch[1]));
                 requestedMaxTokens = Number(capMatch[1]);
+                continue;
+            }
+            // A model this game did not know refuses forced tool calls: ask with
+            // "auto" and the reminder, now and for the rest of the session.
+            if (response.status === 400 && tool && forceTool && isForcedToolChoiceRefusal(message) && attempt < retries) {
+                forcedToolChoiceRefusals.add(samplingKey);
+                console.warn(`[ai] Anthropic: ${model} refuses a forced tool_choice; asking with "auto" from now on.`);
+                continue;
+            }
+            // The model takes no temperature (or none beside thinking): ask at its
+            // own, and remember, as the OpenAI-compatible path does.
+            if (response.status === 400 && !temperatureRefused && body.temperature !== undefined && customParams.temperature === undefined
+                && isTemperatureRefusal(message) && attempt < retries) {
+                temperatureRefused = true;
+                temperatureRefusals.learn(samplingKey);
+                console.warn(`[ai] Anthropic: ${model} refused the requested temperature; retrying at the model's own, and remembering.`);
                 continue;
             }
             // The OTHER max_tokens complaint, and the one that used to cost a
@@ -2443,10 +2475,8 @@ async function callAnthropicCompatible(systemPrompt, history, {
         signal,
     });
     onModel?.(model);
-    const streamingKey = streamingRefusalKey(
-        temperatureRefusalKey({ provider: "Anthropic Compatible", endpoint, model }),
-        Boolean(tool) || isLookupChat(tool, onChunk, lookupTools),
-    );
+    const samplingKey = temperatureRefusalKey({ provider: "Anthropic Compatible", endpoint, model });
+    const streamingKey = streamingRefusalKey(samplingKey, Boolean(tool) || isLookupChat(tool, onChunk, lookupTools));
     streamingDisabled = streamingRefusals.has(streamingKey);
 
     // Self-hosted proxy: tried directly first, falling back to the local relay
@@ -2466,6 +2496,8 @@ async function callAnthropicCompatible(systemPrompt, history, {
         ? Number(maxTokens)
         : Math.max(Number(customParams.max_tokens) || 0, anthropicModelMax.get(model) || ANTHROPIC_MAX_OUTPUT);
     delete customParams.max_tokens;
+    // A temperature goes only to a model that takes one (see callAnthropic).
+    let temperatureRefused = customParamsThink(customParams) || temperatureRefusals.refuses(samplingKey);
 
     // This is a SELF-HOSTED PROXY, not Anthropic — the same risk the
     // OpenAI-compatible path carries, and the reason both exist as separate
@@ -2513,12 +2545,16 @@ async function callAnthropicCompatible(systemPrompt, history, {
         // it renders tokens and therefore streamed. Nothing downstream changes: the
         // readers reassemble the provider's normal envelope.
         const streamThisRequest = !streamingDisabled;
+        // A model that refuses a forced tool_choice is asked for the call in words.
+        const forceTool = forcesToolChoice(model, samplingKey);
+        const lookupsAllowed = lookupDeclarations.length > 0 && !requireOutputTool;
+        const messages = toAnthropicMessages(chatToolsRefused ? flattenLookupRounds(history) : history);
         const body = {
             model,
             system: buildAnthropicSystemContent(requestSystemPrompt, staticPrefixEnd),
             max_tokens: requestedMaxTokens,
             ...(thinks ? { thinking: { type: "enabled", budget_tokens: 4096 } } : {}),
-            ...temperatureBody(taskKey, { enabled: !thinks }),
+            ...temperatureBody(taskKey, { enabled: !thinks && !temperatureRefused }),
             // Streamed for BOTH the advisor (onChunk, tokens to the UI) and tool
             // calls. A tool call must stream because the Messages API refuses a
             // non-streaming request whose max_tokens implies a long generation —
@@ -2526,7 +2562,9 @@ async function callAnthropicCompatible(systemPrompt, history, {
             // purpose — so a timeline jump could be rejected before generating a
             // single token. readAnthropicStreamedResponse rebuilds the envelope.
             ...(streamThisRequest ? { stream: true } : {}),
-            messages: toAnthropicMessages(chatToolsRefused ? flattenLookupRounds(history) : history),
+            messages: useToolChannel && !forceTool
+                ? withToolCallReminder(messages, toolCallReminder({ toolName: tool.name, lookupsAllowed }))
+                : messages,
             ...customParams,
             ...(chatTools.length ? {
                 tools: chatTools.map((entry) => ({ name: entry.name, description: entry.description, input_schema: entry.schema })),
@@ -2538,7 +2576,7 @@ async function callAnthropicCompatible(systemPrompt, history, {
                     { name: tool.name, description: tool.description, input_schema: tool.schema },
                     ...lookupDeclarations.map((entry) => ({ name: entry.name, description: entry.description, input_schema: entry.schema })),
                 ],
-                tool_choice: lookupDeclarations.length && !requireOutputTool ? { type: "any" } : { type: "tool", name: tool.name },
+                tool_choice: structuredToolChoice({ forced: forceTool, toolName: tool.name, lookupsAllowed }),
             } : {}),
         };
         // The request goes out now: the skip's progress row starts its count
@@ -2565,6 +2603,20 @@ async function callAnthropicCompatible(systemPrompt, history, {
                 && Number(capMatch[1]) < requestedMaxTokens && attempt < retries) {
                 anthropicModelMax.set(model, Number(capMatch[1]));
                 requestedMaxTokens = Number(capMatch[1]);
+                continue;
+            }
+            // A model this game did not know refuses forced tool calls: ask with
+            // "auto" and the reminder, now and for the rest of the session.
+            if (response.status === 400 && useToolChannel && forceTool && isForcedToolChoiceRefusal(message) && attempt < retries) {
+                forcedToolChoiceRefusals.add(samplingKey);
+                console.warn(`[ai] Anthropic-compatible: ${model} refuses a forced tool_choice; asking with "auto" from now on.`);
+                continue;
+            }
+            if (response.status === 400 && !temperatureRefused && body.temperature !== undefined && customParams.temperature === undefined
+                && isTemperatureRefusal(message) && attempt < retries) {
+                temperatureRefused = true;
+                temperatureRefusals.learn(samplingKey);
+                console.warn(`[ai] Anthropic-compatible: ${model} refused the requested temperature; retrying at the model's own, and remembering.`);
                 continue;
             }
             // The OTHER max_tokens complaint, and the one that used to cost a
@@ -4322,15 +4374,20 @@ export async function submitAIBatch({ customId, systemPrompt, history, taskKey, 
 
     // The synchronous tool call's parameters minus the interactive knobs
     // (streaming, thinking, the learned-ceiling retry) that need a round trip.
+    const samplingKey = temperatureRefusalKey({ provider: "Anthropic", endpoint: ANTHROPIC_API_ENDPOINT, model });
+    const forceTool = forcesToolChoice(model, samplingKey);
+    const messages = toAnthropicMessages(history);
     const params = {
         model,
         max_tokens: Math.max(anthropicModelMax.get(model) || ANTHROPIC_MAX_OUTPUT, 1024),
-        messages: toAnthropicMessages(history),
+        messages: tool && !forceTool
+            ? withToolCallReminder(messages, toolCallReminder({ toolName: tool.name, lookupsAllowed: false }))
+            : messages,
         system: systemPrompt,
-        ...temperatureBody(taskKey),
+        ...temperatureBody(taskKey, { enabled: !temperatureRefusals.refuses(samplingKey) }),
         ...(tool ? {
             tools: [{ name: tool.name, description: tool.description, input_schema: tool.schema }],
-            tool_choice: { type: "tool", name: tool.name },
+            tool_choice: structuredToolChoice({ forced: forceTool, toolName: tool.name, lookupsAllowed: false }),
         } : {}),
     };
 
