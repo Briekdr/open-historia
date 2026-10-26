@@ -7,7 +7,7 @@ import { buildMilitaryFeasibilityText } from "./militaryFeasibility.js";
 import { looksLikeChatRequest } from "./chatHints.js";
 import { FALLBACK_SUGGESTION_TOPICS, fallbackTurnText } from "../../runtime/fallbackTurnText.js";
 import { describePuppetBriefing, puppetBriefingFor } from "../../runtime/puppets.js";
-import { regionTypeRules, regionTypesHaveRules } from "../../runtime/regionTypes.js";
+import { regionTypeRules, regionTypesHaveRules, waterTypeIds } from "../../runtime/regionTypes.js";
 import { answerableDemandOf, demandCheckContext, demandCheckPrompt, interpretDemandCheck, openDemandOf } from "../../runtime/demandCheck.js";
 import { NATIVE_GAME_MASTER_PROMPT, normalizePromptPack } from "./gameplayPrompts.js";
 import {
@@ -1738,13 +1738,19 @@ function lazyLookupContext(bundle, { audience = SIMULATION_AUDIENCE, renderedReg
             readJson(JSON_URLS.citiesGeojson, { defaultValue: null }).catch(() => null),
           ]);
         const geometryById = new Map();
+        // And each drawn region's type, which the catalog does not keep: the
+        // placer tells a scenario's water regions from its land by it.
+        const typeById = new Map();
         for (const feature of normalizeArray(renderedGeojson?.features)) {
           const props = feature?.properties ?? {};
           const id = normalizeString(props.id ?? props.GID_1 ?? props.gid_1 ?? props.HASC_1 ?? feature?.id);
           if (id && feature?.geometry) geometryById.set(id, feature.geometry);
+          if (id && normalizeString(props.typeId)) typeById.set(id, normalizeString(props.typeId));
         }
         const catalog = filterToRenderedRegions(catalogRows, world).map((region) => (
-          geometryById.has(region.id) ? { ...region, geometry: geometryById.get(region.id) } : region
+          geometryById.has(region.id)
+            ? { ...region, geometry: geometryById.get(region.id), ...(typeById.has(region.id) ? { typeId: typeById.get(region.id) } : {}) }
+            : region
         ));
         const cities = normalizeArray(citiesGeojson?.features).map((feature) => {
           const props = feature?.properties ?? {};
@@ -1915,6 +1921,14 @@ const buildPlacementGazetteer = (context, world) => {
   const units = normalizeArray(world?.units).filter((unit) => Number.isFinite(unit?.lng) && Number.isFinite(unit?.lat));
   const markers = normalizeArray(world?.markers).filter((marker) => Number.isFinite(marker?.lng) && Number.isFinite(marker?.lat));
   const withGeometry = context.rows.filter((row) => row.geometry && row.bbox);
+  // Water a scenario draws as regions of its own (a type marked water,
+  // regionTypes.js) is sea here, as the open sea between regions is: a fleet is
+  // put in it and an army ashore out of it. On a map whose oceans are all
+  // regions, "where no region is" was only past the map's edge, and a new fleet
+  // at the Greyport yards was put there, below the bottom of the map (a fantasy
+  // scenario's Discord game, 2026-10-26). Its regions are still found by name.
+  const water = waterTypeIds(world?.regionTypes);
+  const landRows = water.size ? withGeometry.filter((row) => !water.has(normalizeString(row.typeId))) : withGeometry;
   const asRegion = (row) => ({ id: row.id, name: row.name, owner: row.owner, geometry: row.geometry });
 
   // Which country a token names, as this map knows it: the owner label its
@@ -2110,7 +2124,7 @@ const buildPlacementGazetteer = (context, world) => {
   };
 
   const regionAt = (point) => {
-    const row = withGeometry.find((candidate) => point[0] >= candidate.bbox[0] && point[0] <= candidate.bbox[2]
+    const row = landRows.find((candidate) => point[0] >= candidate.bbox[0] && point[0] <= candidate.bbox[2]
       && point[1] >= candidate.bbox[1] && point[1] <= candidate.bbox[3]
       && pointInGeometry(point, candidate.geometry));
     return row ? asRegion(row) : null;
@@ -2124,7 +2138,7 @@ const buildPlacementGazetteer = (context, world) => {
     // another's coast, and ranking by it put a division ashore on the far side.
     // Of the regions whose bbox is in reach, the one whose land is nearest wins.
     let best = null; let bestKm = maxKm;
-    for (const row of withGeometry) {
+    for (const row of landRows) {
       const clamped = [Math.min(Math.max(point[0], row.bbox[0]), row.bbox[2]), Math.min(Math.max(point[1], row.bbox[1]), row.bbox[3])];
       if (placementDistanceKm(point, clamped) >= bestKm) continue;
       const ashore = nearestInteriorPoint(row.geometry, point);

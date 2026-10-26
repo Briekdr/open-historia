@@ -248,6 +248,22 @@ const NEW_UPDATES = [
     ],
   },
   {
+    // A scenario whose oceans are regions of their own put a new fleet past the map's bottom edge: the placer took
+    // the sea for "where no region is" (Discord spike, fantasy scenario, 2026-10-26).
+    id: "2026-10-fleets-at-sea",
+    kind: "minor",
+    date: "2026-10-26",
+    banners: [
+      {
+        title: "Fleets set sail on the right water",
+        items: [
+          "On maps where the seas are drawn as regions of their own, a new or moved fleet could be put past the edge of the map, where no one could see it.",
+          "Fleets now go to the water off their coast, inside the map, and sea regions count as sea when the game places ships and armies.",
+        ],
+      },
+    ],
+  },
+  {
     // A player at war with Ireland had no War Room: the war was kept as Britain and Ireland against "1" and "2"
     // (battle-of-europe-session-2, 2026-10-25).
     id: "2026-10-war-sides",
