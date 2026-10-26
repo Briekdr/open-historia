@@ -285,3 +285,34 @@ test("a war under an armistice can still be settled, and the ground it leaves ea
   assert.notEqual(put.reason, "no-war");
   assert.equal(proposePeace(world({ wars: [{ ...WAR, status: "ended" }] }), { warId: "war-1", from: "Aland", terms: { territory: TERRITORY_AS_HELD } }).reason, "no-war");
 });
+
+test("a peace made closes battlefields and lapses open calls to arms, and aliases match countries in diplomacy", () => {
+  const warId = "war-us-es";
+  const warRecord = { id: warId, status: "active", title: "Spanish-American War", sideA: ["United States"], sideB: ["Spain"] };
+  const battlefield = { name: "Cuba Front", warId, status: "active", sides: [["United States"], ["Spain"]], frame: { lng0: 0, lat0: 0, cell: 0.1, cols: 10, rows: 10, km: 10 } };
+  const call = { id: "call:war-us-es:uk", warId, ally: "United Kingdom", defender: "United States", status: "open", round: 1 };
+  const base = world({
+    wars: [warRecord],
+    battlefields: [battlefield],
+    callsToArms: [call],
+    peaceOffers: [{ id: "off-1", warId, from: "Spain", to: "United States", status: "open", terms: { territory: "restored", reparations: null } }],
+    warWeariness: [{ country: "Spain", value: 80 }],
+  });
+
+  // 1. makePeace closes battlefields and lapses calls to arms
+  const peace = makePeace(base, { warId, from: "Spain", to: "United States", date: "1898-08-12", round: 2 });
+  assert.equal(peace.battlefields.find((b) => b.name === "Cuba Front")?.status, "closed");
+  assert.equal(peace.battlefields.find((b) => b.name === "Cuba Front")?.closedDate, "1898-08-12");
+  assert.equal(peace.callsToArms.find((c) => c.id === "call:war-us-es:uk")?.status, "lapsed");
+  assert.equal(peace.peaceOffers.find((o) => o.id === "off-1")?.status, "lapsed");
+
+  // 2. proposePeace and playerDiplomacy recognize country aliases (e.g. USA for United States)
+  const put = proposePeace(base, { warId, from: "USA", terms: { territory: "restored", reparations: null }, players: ["USA"], date: "1898-08-12", round: 2 });
+  assert.equal(put.reason, "");
+  assert.equal(put.accepted, true);
+
+  // 3. playerDiplomacy accepts offer using alias
+  const acted = playerDiplomacy(base, { op: "accept", ref: "off-1", country: "USA", date: "1898-08-12", round: 2 });
+  assert.equal(acted.error, "");
+  assert.equal(acted.accepted, true);
+});

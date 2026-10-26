@@ -25,7 +25,8 @@ import { openCallsFor, TREATY_BROKEN_REPUTATION } from "../../runtime/alliances.
 import { useIsMobile } from "../../runtime/useIsMobile.js";
 import { TERRITORY_AS_HELD, TERRITORY_RESTORED, normalizeReparations, openOffersFor } from "../../runtime/peaceTerms.js";
 import { useRuntimeState } from "../../runtime/useRuntimeState.js";
-import { wearinessOf } from "../../runtime/warWeariness.js";
+import { wearinessOf, wearinessWord } from "../../runtime/warWeariness.js";
+import { toCountryName } from "../../runtime/ownerNames.js";
 import { inSharedGame, requestFromHost } from "../../multiplayer/client/sharedGameBridge.js";
 import { answerDiplomacy } from "../AI/gameplayLazy.js";
 import { TURN_RUNNING_NOTE, isSimulationBusy } from "../AI/simulationStatus.js";
@@ -33,6 +34,15 @@ import { TURN_RUNNING_NOTE, isSimulationBusy } from "../AI/simulationStatus.js";
 const NONE = Object.freeze([]);
 const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 const fold = (value) => clean(value).toLowerCase();
+const sameCountry = (a, b) => {
+  const fa = fold(a);
+  const fb = fold(b);
+  if (!fa || !fb) return false;
+  if (fa === fb) return true;
+  const ca = fold(toCountryName(a));
+  const cb = fold(toCountryName(b));
+  return Boolean(ca === cb || (ca && ca === fb) || (cb && cb === fa));
+};
 const selectCountry = (game) => clean(game?.country);
 const selectOffers = (world) => (Array.isArray(world?.peaceOffers) ? world.peaceOffers : NONE);
 const selectCalls = (world) => (Array.isArray(world?.callsToArms) ? world.callsToArms : NONE);
@@ -130,8 +140,8 @@ export const WarAndPeaceCards = () => {
   const calls = useRuntimeState("world", selectCalls);
   const isMobile = useIsMobile();
   const [folded, setFolded] = useState(false);
-  const mine = country ? openOffersFor(offers, country) : NONE;
-  const called = country ? openCallsFor(calls, country) : NONE;
+  const mine = country ? offers.filter((offer) => offer?.status === "open" && sameCountry(offer.to, country)) : NONE;
+  const called = country ? calls.filter((call) => call?.status === "open" && sameCountry(call.ally, country)) : NONE;
   const waiting = mine.length + called.length;
   if (waiting === 0) return null;
   const place = isMobile
@@ -209,10 +219,16 @@ export const PeaceControls = ({ war, world, viewer }) => {
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState("");
   const sides = [Array.isArray(war?.sideA) ? war.sideA : NONE, Array.isArray(war?.sideB) ? war.sideB : NONE];
-  const mine = sides.findIndex((members) => members.some((member) => fold(member) === fold(viewer)));
+  const mine = sides.findIndex((members) => members.some((member) => sameCountry(member, viewer)));
   const leads = [clean(sides[0][0]), clean(sides[1][0])].filter(Boolean);
-  const weary = leads.map((name) => ({ name, value: Math.round(wearinessOf(world?.warWeariness, name)) })).filter((entry) => entry.value > 0);
   const theirs = mine >= 0 ? clean(sides[1 - mine][0]) : "";
+  const displayed = mine >= 0 ? [clean(viewer), theirs].filter(Boolean) : leads;
+  const weary = displayed
+    .map((name) => {
+      const val = Math.round(wearinessOf(world?.warWeariness, name));
+      return { name, value: val, word: wearinessWord(val) };
+    })
+    .filter((entry) => entry.value > 0);
   const fought = ["active", "ceasefire"].includes(fold(war?.status || "active"));
   const propose = async () => {
     if (busy) return;
@@ -229,7 +245,9 @@ export const PeaceControls = ({ war, world, viewer }) => {
       {weary.length > 0 ? (
         <div style={{ color: "rgba(255,255,255,0.58)", fontSize: "0.61rem" }}>
           <span>War weariness: </span>
-          <span data-no-translate>{weary.map((entry) => `${entry.name} ${entry.value}`).join(" · ")}</span>
+          <span data-no-translate>
+            {weary.map((entry) => `${entry.name} ${entry.value}${entry.word ? ` (${entry.word})` : ""}`).join(" · ")}
+          </span>
         </div>
       ) : null}
       {mine >= 0 && fought && theirs ? (

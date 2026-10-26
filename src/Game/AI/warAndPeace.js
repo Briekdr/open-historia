@@ -56,10 +56,20 @@ import { economyRate, withTurnResources } from "../../runtime/warResources.js";
 import { withTurnAttrition } from "../../runtime/attrition.js";
 import { middleFundingPerHead } from "../../runtime/militaryFunding.js";
 import { warSettingsOf } from "../../runtime/warSettings.js";
+import { toCountryName } from "../../runtime/ownerNames.js";
 import { applyWarUpdates } from "./nativeWarLedger.js";
 
 const clean = (value, most = 160) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, most).trim();
 const fold = (value) => clean(value).toLowerCase();
+const sameCountry = (a, b) => {
+  const fa = fold(a);
+  const fb = fold(b);
+  if (!fa || !fb) return false;
+  if (fa === fb) return true;
+  const ca = fold(toCountryName(a));
+  const cb = fold(toCountryName(b));
+  return Boolean(ca === cb || (ca && ca === fb) || (cb && cb === fa));
+};
 const list = (value) => (Array.isArray(value) ? value : []);
 const record = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
 const figure = (value) => {
@@ -249,12 +259,20 @@ export const makePeace = (world, { warId = "", from = "", to = "", terms = null,
   }).world;
   const [sideA, sideB] = sidesOf(war);
   const treaty = { id: `treaty:${clean(warId)}:${clean(date)}`, warId: clean(warId), title: clean(war.title) || clean(warId), date: clean(date), round: turn, from: clean(from), to: clean(to), sides: [sideA, sideB], terms: read, by: ["offer", "proposal", "settled"].includes(by) ? by : "offer" };
+  const closedBattlefields = list(next.battlefields).map((battlefield) => {
+    if (clean(battlefield?.warId) === clean(warId) && battlefield?.status !== "closed") {
+      return { ...battlefield, status: "closed", closedDate: clean(date) };
+    }
+    return battlefield;
+  });
   return {
     ...next,
+    battlefields: closedBattlefields,
     reparations: normalizeReparations([...list(next.reparations), ...reparationsOf(read, { warId, date })]),
     peaceTreaties: normalizePeaceTreaties([...list(next.peaceTreaties).filter((entry) => entry?.id !== treaty.id), treaty]),
-    // Whatever was offered in that war is answered by its ending.
+    // Whatever was offered or called in that war is answered by its ending.
     peaceOffers: normalizePeaceOffers(list(next.peaceOffers).map((offer) => (clean(offer?.warId) === clean(warId) && offer.status === "open" ? { ...offer, status: "lapsed", answeredRound: turn } : offer))),
+    callsToArms: normalizeCallsToArms(list(next.callsToArms).map((call) => (clean(call?.warId) === clean(warId) && call.status === "open" ? { ...call, status: "lapsed", answeredRound: turn } : call))),
   };
 };
 
@@ -422,11 +440,11 @@ export const proposePeace = (world, { warId = "", from = "", terms = null, playe
   const war = list(world?.wars).find((entry) => clean(entry?.id) === clean(warId));
   if (!war || !settleable(war)) return { world, accepted: false, to: "", reason: "no-war" };
   const sides = sidesOf(war);
-  const mine = sides.findIndex((members) => members.some((member) => fold(member) === fold(from)));
+  const mine = sides.findIndex((members) => members.some((member) => sameCountry(member, from)));
   if (mine < 0) return { world, accepted: false, to: "", reason: "not-in-war" };
   const to = sides[1 - mine][0];
   const played = new Set(list(players).map(fold));
-  if (!to || sides[1 - mine].some((member) => played.has(fold(member)))) return { world, accepted: false, to: to ?? "", reason: "played" };
+  if (!to || sides[1 - mine].some((member) => played.has(fold(member)) || played.has(fold(toCountryName(member))))) return { world, accepted: false, to: to ?? "", reason: "played" };
   const read = normalizeTerms(terms);
   const ground = groundReader(world, held)(warId, to);
   const accepted = wouldAccept({ terms: read, country: to, standing: standingOf(ground), weariness: wearinessOf(world?.warWeariness, to) });
@@ -446,7 +464,7 @@ export const answerCallToArms = (world, callId, honour, { date = "", round = 0 }
   if (!honour) return { ...withTreatyBroken(world, call, { date, round: turn }), callsToArms: answered("refused") };
   const war = list(world?.wars).find((entry) => clean(entry?.id) === call.warId);
   if (!war || !active(war)) return { ...world, callsToArms: answered("lapsed") };
-  const side = sidesOf(war)[0].some((member) => fold(member) === fold(call.defender)) ? "join-a" : "join-b";
+  const side = sidesOf(war)[0].some((member) => sameCountry(member, call.defender)) ? "join-a" : "join-b";
   const joined = applyWarUpdates({
     world,
     updates: [{ id: call.warId, op: side, actors: [call.ally], opponents: [], eventIds: [], baselineDate: clean(date) }],
@@ -472,14 +490,14 @@ export const playerDiplomacy = (world, { op = "", ref = "", terms = null, countr
   if (op === "accept" || op === "decline") {
     const offer = normalizePeaceOffers(world?.peaceOffers).find((entry) => entry.id === clean(ref, 80));
     if (!offer || offer.status !== "open") return nothing("not-open");
-    if (fold(offer.to) !== who) return nothing("not-yours");
+    if (!sameCountry(offer.to, country)) return nothing("not-yours");
     const next = op === "accept" ? acceptPeaceOffer(world, offer.id, { date, round }) : declinePeaceOffer(world, offer.id, { round });
     return next === world ? nothing("not-open") : { world: next, error: "", accepted: op === "accept", to: offer.from };
   }
   if (op === "honour" || op === "refuse") {
     const call = normalizeCallsToArms(world?.callsToArms).find((entry) => entry.id === clean(ref, 120));
     if (!call || call.status !== "open") return nothing("not-open");
-    if (fold(call.ally) !== who) return nothing("not-yours");
+    if (!sameCountry(call.ally, country)) return nothing("not-yours");
     return { world: answerCallToArms(world, call.id, op === "honour", { date, round }), error: "", accepted: op === "honour", to: call.defender };
   }
   if (op === "propose") {
