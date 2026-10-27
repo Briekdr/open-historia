@@ -234,6 +234,24 @@ const NEW_UPDATES = [
     ],
   },
   {
+    // The Workshop's selection gained a Fit to background slider: the selected regions' coasts are pulled onto
+    // the shore the background picture, reference image or basemap shows (2026-10-27).
+    id: "2026-10-fit-to-background",
+    kind: "minor",
+    date: "2026-10-27",
+    banners: [
+      {
+        title: "Coasts that follow the map",
+        items: [
+          "In the map editor, select regions and slide Fit to background: their coasts move onto the shoreline your background picture shows.",
+          "It works on your own map picture and the reference image you trace, and on the built-in basemaps where your regions already cover the land.",
+          "The further you slide, the further a coast may move to find the shore. Slide back to Off to put it back, or undo it like any edit.",
+          "Only coasts move: a border between two land regions keeps its line, and only its end slides onto the shore, so neighbours still meet.",
+        ],
+      },
+    ],
+  },
+  {
     id: "2026-10-peace-and-weariness",
     kind: "minor",
     date: "2026-10-26",
