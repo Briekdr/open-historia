@@ -34,7 +34,7 @@ import {
 } from "./contextWindow.js";
 import { endpointIsLocal, isLocalHostname } from "./localEndpoint.js";
 import { createKoboldCppMemory, endpointOriginOf, isKoboldCppModelName, saysKoboldCpp } from "./koboldCpp.js";
-import { splitSystemPromptForCache } from "./promptLayout.js";
+import { MIN_CACHEABLE_PREFIX_CHARS, splitSystemPromptForCache } from "./promptLayout.js";
 import { looksLikeModelFilePath, resolveServedModelId } from "./modelIds.js";
 import { RELAY_CUT_OFF_MESSAGE, isRelayRefusal, isRelayUnreachable, relayUnreachableReason, withRelayCutoffHint } from "./relayResponse.js";
 import { attachLookupRound, attachCallMetrics, attachRequestOutcome, finishAiRecord, isTelemetryEnabled, startAiRecord  } from "./telemetry.js";
@@ -2138,14 +2138,26 @@ const anthropicModelMax = new Map(); // model -> learned output ceiling
 // cache_control breakpoint, and the per-turn tail uncached. Within an
 // auto-jump chain or a retry the prefix is byte-identical, so every
 // consecutive call reads it from the cache at a fraction of the input price.
-// One breakpoint is enough (the API allows four); a prompt with no usable
-// boundary goes out as the plain string it always was.
-function buildAnthropicSystemContent(systemPrompt, staticPrefixEnd) {
+// A prompt with no usable boundary goes out as the plain string it always was.
+//
+// `followUp`: the request offers a function that answers back (a time skip's
+// order_troops, frontOrderFunction.js; the advisor's lookups), so a second call
+// with this same system prompt is likely within minutes, its history one round
+// longer. Then the tail is pinned too (a second breakpoint; the API allows
+// four), and that call reads the WHOLE prompt from the cache instead of paying
+// full price for the per-turn tail again: on a time skip that is most of it,
+// some 70,000 tokens on a long campaign (a Discord test game, 2026-10-27). A
+// request with no such function is answered in one call, and writing its tail
+// to the cache would only cost more.
+function buildAnthropicSystemContent(systemPrompt, staticPrefixEnd, { followUp = false } = {}) {
     const split = splitSystemPromptForCache(systemPrompt, staticPrefixEnd);
-    if (!split) return systemPrompt;
+    const pinned = followUp ? { cache_control: { type: "ephemeral" } } : {};
+    if (!split) return followUp && String(systemPrompt ?? "").length >= MIN_CACHEABLE_PREFIX_CHARS
+        ? [{ type: "text", text: systemPrompt, ...pinned }]
+        : systemPrompt;
     return [
         { type: "text", text: split.prefix, cache_control: { type: "ephemeral" } },
-        { type: "text", text: split.tail },
+        { type: "text", text: split.tail, ...pinned },
     ];
 }
 
@@ -2244,7 +2256,7 @@ async function callAnthropic(systemPrompt, history, {
         const messages = toAnthropicMessages(chatToolsRefused ? flattenLookupRounds(history) : history);
         const body = {
             model,
-            system: buildAnthropicSystemContent(systemPrompt, staticPrefixEnd),
+            system: buildAnthropicSystemContent(systemPrompt, staticPrefixEnd, { followUp: lookupsAllowed || chatTools.length > 0 }),
             max_tokens: requestedMaxTokens,
             ...(thinks ? { thinking: thinkingFor({ adaptive: thinksAdaptive(model) || adaptiveThinkingLearned.has(samplingKey) }) } : {}),
             ...temperatureBody(taskKey, { enabled: !thinks && !temperatureRefused }),
@@ -2562,7 +2574,7 @@ async function callAnthropicCompatible(systemPrompt, history, {
         const messages = toAnthropicMessages(chatToolsRefused ? flattenLookupRounds(history) : history);
         const body = {
             model,
-            system: buildAnthropicSystemContent(requestSystemPrompt, staticPrefixEnd),
+            system: buildAnthropicSystemContent(requestSystemPrompt, staticPrefixEnd, { followUp: lookupsAllowed || chatTools.length > 0 }),
             max_tokens: requestedMaxTokens,
             ...(thinks ? { thinking: thinkingFor({ adaptive: thinksAdaptive(model) || adaptiveThinkingLearned.has(samplingKey) }) } : {}),
             ...temperatureBody(taskKey, { enabled: !thinks && !temperatureRefused }),
