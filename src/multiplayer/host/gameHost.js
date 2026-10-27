@@ -19,6 +19,7 @@
 
 import { createRoundMachine } from "./round.js";
 import { SEAT_STATUS, createSeatBook } from "./seats.js";
+import { seatFoundings, withSeatMoved } from "./foundings.js";
 import { roundSettingsOf } from "./settings.js";
 import { projectForViewer } from "./projection.js";
 import { ORDER_MAX_CHARS } from "../game/messages.js";
@@ -92,6 +93,9 @@ export const createGameHost = ({
     throw new Error("Institutions are not run here.");
   },
   onStatus = () => {},
+  // Seats that followed their people to a country they founded
+  // (host/foundings.js): [{ from, to, host }], `host` when it was the host's own.
+  onSeatsMoved = () => {},
   log = () => {},
   now = () => Date.now(),
   timers = globalThis,
@@ -103,7 +107,9 @@ export const createGameHost = ({
     allowMidGameJoin: settings.allowMidGameJoin,
     now,
   });
-  const hostCountry = clean(hostSeat.country);
+  // The host's own country: the campaign's (game.country), until the host's
+  // people found one of their own.
+  let hostCountry = clean(hostSeat.country);
   if (hostCountry && hostSeat.device) seats.claim(hostCountry, { device: hostSeat.device, name: hostSeat.name });
   // playerId → { id, device, name, sent: Map(key → json), rev, seen: string[] }
   const connections = new Map();
@@ -208,10 +214,51 @@ export const createGameHost = ({
     },
     onResolve: async ({ round: number }) => {
       await recordHumans();
+      const start = await store.read();
+      const before = { eventIds: new Set(list(start.events).map((event) => clean(event?.id))), areas: { ...(start.world?.groupAreas ?? {}) } };
       await resolveRound({ round: number, humanCountries: seats.humanCountries(), daysPerRound: settings.daysPerRound });
+      await followFoundings(before).catch((error) => log("warn", "a founded country's seat did not follow", { error: String(error?.message || error) }));
       await pushViews();
     },
   });
+
+  // A player's people founded a country this round and gave it their land:
+  // the seat goes with them (host/foundings.js), and with it their queued
+  // orders, their board, their agents and their threads; the game remembers
+  // the old name (game.seatFoundings), so what that government knew is still
+  // theirs to read (host/projection.js). `before`: the event ids and the
+  // groups' areas the round started with.
+  const followFoundings = async (before) => {
+    const docs = await store.read();
+    const moves = seatFoundings({
+      events: list(docs.events).filter((event) => !before.eventIds.has(clean(event?.id))),
+      actions: docs.actions,
+      seated: seats.humanCountries(),
+      host: hostCountry,
+      areas: before.areas,
+    }).filter((move) => seats.move(move.from, move.to));
+    if (!moves.length) return;
+    for (const move of moves) {
+      move.host = same(move.from, hostCountry);
+      if (move.host) hostCountry = move.to;
+      await store.updateGame((game) => ({
+        ...game,
+        ...(move.host ? { country: move.to } : {}),
+        seatFoundings: [...list(game?.seatFoundings), { from: move.from, to: move.to }],
+      }));
+      await store.updateActions((actions) => withSeatMoved({ actions }, move).actions);
+      await store.updateWorld((world) => withSeatMoved({ world }, move).world);
+      await store.updateChats((chats) => withSeatMoved({ chats }, move).chats);
+      log("info", "a seat followed its people to the country they founded", { from: move.from, to: move.to });
+      // Told to the player whose seat moved; everyone sees the lobby change.
+      const device = seats.list().find((seat) => same(seat.country, move.to))?.device;
+      for (const connection of connections.values()) {
+        if (device && connection.device === device) send(connection, { t: "notice", level: "info", text: `${move.from} has founded ${move.to}: you now play ${move.to}.` });
+      }
+    }
+    onSeatsMoved(moves.map(({ from, to, host }) => ({ from, to, host })));
+    await seatsChanged();
+  };
 
   const seatsChanged = async () => {
     // A connection closing after the game stopped changes nothing.
