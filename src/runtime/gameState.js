@@ -3526,10 +3526,13 @@ const normalizeCreatedChat = (entry, index) => {
   if (!chat) return null;
   const openingMessage = normalizeOptionalString(entry?.openingMessage);
   const speaker = normalizeOptionalString(entry?.speaker);
+  // A shared game's letter names the person it is written to (AI/sharedLetters.js).
+  const to = normalizeOptionalString(entry?.to);
   return {
     ...chat,
     ...(openingMessage ? { openingMessage } : {}),
     ...(speaker ? { speaker } : {}),
+    ...(to ? { to } : {}),
   };
 };
 

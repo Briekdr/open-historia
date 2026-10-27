@@ -181,6 +181,7 @@ import { eventReactionAfterFailure, reactionSpeakerWithContext } from "./eventRe
 import { formalAgendaProposals } from "./formalAgenda.js";
 import { abandonWorkerJob, createWorkerFailureStreak } from "./statsWorkerJobs.js";
 import { chatParticipantKey, foldGeneratedChatsIntoStorage, isLifecycleNegotiationChat, logGeneratedChat } from "./chatFold.js";
+import { sharedLetterOf } from "./sharedLetters.js";
 import { extractJsonPayload, parseWithoutTrailingFields, unwrapMimickedToolCall } from "./jsonSalvage.js";
 import { OUTPUT_LIMIT_MESSAGE, REASONING_ONLY_MESSAGE, REASONING_ONLY_NOTE, isUnreachableError } from "./providerErrors.js";
 import { isCancelAllAbort } from "./aiRequestControl.js";
@@ -9946,26 +9947,23 @@ const applySimulationResult = async ({
   const lastTurnEventId = normalizeString(normalizeArray(worldWithImpacts.simulationHistory?.[0]?.eventIds).at(-1));
 
   // In a shared game (runtime/humanPolities.js) a thread the turn opens is
-  // written to the host's own player, and its opening lines are the AI's. A
-  // country another person plays is never one of the governments speaking in
-  // it: that person writes their own lines, in a thread they open themselves.
-  const otherPeople = new Set(humanCountriesOf(baseGame).map(regionKey).filter((key) => key !== regionKey(baseGame.country)));
-  const withoutOtherPeople = (chatLike) => {
-    if (!otherPeople.size) return chatLike;
-    const countries = normalizeArray(chatLike?.countries)
-      .filter((country) => !otherPeople.has(regionKey(normalizeString(typeof country === "string" ? country : country?.name || country?.code))));
-    return countries.length ? { ...chatLike, countries } : null;
+  // written to one of the people, and its opening lines are the AI's
+  // (sharedLetterOf): the person it names in `to`, the host's own player when it
+  // names none. A country a person plays is never one of the governments
+  // speaking in it: that person writes their own lines.
+  const people = humanCountriesOf(baseGame);
+  const routed = (chatLike) => sharedLetterOf(chatLike, { people, host: baseGame.country });
+  const opening = async (chatLike, linkEventId, options) => {
+    const letter = routed(chatLike);
+    if (!letter) return null;
+    const built = await buildGeneratedChat(letter.chat, linkEventId, worldWithImpacts, { ...options, playerName: letter.to });
+    // A thread names its owner when it is not the host's (multiplayer/host/projection.js).
+    return built && letter.owner ? { ...built, player: letter.owner } : built;
   };
 
   for (const event of freshEvents) {
     for (const createdChat of event.impacts.createdChats) {
-      const opened = withoutOtherPeople(createdChat);
-      if (!opened) continue;
-      const nextChat = await buildGeneratedChat(opened, event.id, worldWithImpacts, {
-        fallbackTitle: event.title,
-        playerName: baseGame.country,
-        revealWith: event.id,
-      });
+      const nextChat = await opening(createdChat, event.id, { fallbackTitle: event.title, revealWith: event.id });
       if (nextChat) { nextChats.unshift(nextChat); generatedChats.push(nextChat); }
     }
   }
@@ -9973,11 +9971,8 @@ const applySimulationResult = async ({
   // Unprompted outreach: polities reaching out on their own initiative during
   // the simulated period, not tied to any event (treaty feelers, summit
   // invitations). Same chat machinery, no linked event.
-  for (const chatLike of normalizeArray(result.outreach).map(withoutOtherPeople).filter(Boolean)) {
-    const nextChat = await buildGeneratedChat({ ...chatLike, source: "outreach" }, "", worldWithImpacts, {
-      playerName: baseGame.country,
-      revealWith: lastTurnEventId,
-    });
+  for (const chatLike of normalizeArray(result.outreach)) {
+    const nextChat = await opening({ ...chatLike, source: "outreach" }, "", { revealWith: lastTurnEventId });
     if (nextChat) { nextChats.unshift(nextChat); generatedChats.unshift(nextChat); }
   }
 

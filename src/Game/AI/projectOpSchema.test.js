@@ -209,7 +209,10 @@ test("the board no longer costs the jump anything", () => {
   // polities that would plant an agent in the player, which asks nothing more.
   // The Discord spike raised it by 100 for events[].audience: a covert act's outcome
   // is shown only to the polities that know of it, not to every player of a shared game.
-  assert.ok(jumpChars < 28400, `the jump schema grew back to ${jumpChars} chars`);
+  // Shared games' letters raised it by about 230 for a chat's `to` (in createdChats
+  // and diplomaticOutreach alike): each letter reaches the player it was written
+  // to, where every one used to go to the host's.
+  assert.ok(jumpChars < 28650, `the jump schema grew back to ${jumpChars} chars`);
 
   // ...and the game master, which has no second pass to hand the board to, keeps
   // it on its authored events (the provider sees a shallow transport; the

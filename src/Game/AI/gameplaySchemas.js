@@ -64,6 +64,7 @@ const createdChatSchema = {
     },
     openingMessage: nonEmptyTextSchema("The initiator's own first message, in its leader's voice, TO the player: never the player's words."),
     speaker: nonEmptyTextSchema("The polity sending the opening message. Never the player's."),
+    to: textSchema("When several people play: the player polity it is written to. Otherwise empty."),
     linkedEventId: textSchema("The event that caused it, when one did."),
   },
   required: ["countries", "title", "speaker", "openingMessage"],

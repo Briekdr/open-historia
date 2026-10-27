@@ -24,7 +24,7 @@ import { buildTerritoryIndex } from "./territoryOutlines.js";
 import { compareGameDates, compareGameDatesNewestFirst, diffGameDays, formatGameDateReadable, isGameDate } from "../../runtime/gameDates.js";
 import { difficultyPassage } from "../../runtime/difficulty.js";
 import { worldFileUrl } from "../../runtime/worldFiles.js";
-import { humanCountriesOf } from "../../runtime/humanPolities.js";
+import { hostingSharedGame, humanCountriesOf, sharedGameHostCountry } from "../../runtime/humanPolities.js";
 import { SHARED_WORLD_TASKS, buildSharedGameDirective } from "./sharedGameDirective.js";
 import { unitsOffBattlefields } from "./frontsGate.js";
 
@@ -807,7 +807,9 @@ export const buildDetailedChatHistoryText = (
   }
 
   const rendered = normalizedChats.slice(0, limit).map((chat, index) => {
-    const header = `Chat ${index + 1}: ${chat.countries.map((country) => country.name).join(", ")}`;
+    // A shared game's thread is one person's: say whose (AI/sharedLetters.js).
+    const owner = hostingSharedGame() ? normalizeString(chat.player) || sharedGameHostCountry() : "";
+    const header = `Chat ${index + 1}: ${chat.countries.map((country) => country.name).join(", ")}${owner ? ` (with ${owner})` : ""}`;
     return `${header}\n${buildSingleChatHistoryText(chat, { messageLimit })}`;
   });
 
