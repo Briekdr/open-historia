@@ -85,6 +85,7 @@ import { unmarkedEndVerdict } from "./toolResponsePayload.js";
 import { createModeObserver, nextStructuredMode, startingStructuredMode } from "./structuredMode.js";
 import { createTemperatureMemory, temperatureBody, temperatureRefusalKey } from "./sampling.js";
 import { isForcedToolChoiceRefusal, refusesForcedToolChoice, structuredToolChoice, toolCallReminder, withToolCallReminder } from "./anthropicToolChoice.js";
+import { isEnabledThinkingRefusal, thinkingFor, thinksAdaptive } from "./anthropicThinking.js";
 import { nativeHttpAvailable, nativeHttpFetch } from "../../runtime/native/http.js";
 import { createRelayOnlyOrigins } from "./relayOrigins.js";
 import { createFirstByteTimer, createStreamUsage, normalizeUsage, sumUsage } from "./usageStats.js";
@@ -1508,6 +1509,9 @@ const streamingRefusalKey = (samplingKey, withTools) => `${samplingKey}|${withTo
 // the temperature refusals. The known ones never send it (anthropicToolChoice.js);
 // these are the ones learned from their first 400.
 const forcedToolChoiceRefusals = new Set();
+// The models that refused a thinking budget this session (anthropicThinking.js):
+// asked to think "adaptive" from then on.
+const adaptiveThinkingLearned = new Set();
 const forcesToolChoice = (model, refusalKey) => !refusesForcedToolChoice(model) && !forcedToolChoiceRefusals.has(refusalKey);
 // Custom parameters that turn thinking on ({"thinking": {"type": "adaptive"}}):
 // the Messages API then refuses any temperature but 1, so none is sent.
@@ -2242,7 +2246,7 @@ async function callAnthropic(systemPrompt, history, {
             model,
             system: buildAnthropicSystemContent(systemPrompt, staticPrefixEnd),
             max_tokens: requestedMaxTokens,
-            ...(thinks ? { thinking: { type: "enabled", budget_tokens: 4096 } } : {}),
+            ...(thinks ? { thinking: thinkingFor({ adaptive: thinksAdaptive(model) || adaptiveThinkingLearned.has(samplingKey) }) } : {}),
             ...temperatureBody(taskKey, { enabled: !thinks && !temperatureRefused }),
             // Streamed for BOTH the advisor (onChunk, tokens to the UI) and tool
             // calls. A tool call must stream because the Messages API refuses a
@@ -2309,6 +2313,13 @@ async function callAnthropic(systemPrompt, history, {
             if (response.status === 400 && tool && forceTool && isForcedToolChoiceRefusal(message) && attempt < retries) {
                 forcedToolChoiceRefusals.add(samplingKey);
                 console.warn(`[ai] Anthropic: ${model} refuses a forced tool_choice; asking with "auto" from now on.`);
+                continue;
+            }
+            // The model takes no thinking budget: it thinks "adaptive". Ask so,
+            // now and for the rest of the session (anthropicThinking.js).
+            if (response.status === 400 && body.thinking?.type === "enabled" && isEnabledThinkingRefusal(message) && attempt < retries) {
+                adaptiveThinkingLearned.add(samplingKey);
+                console.warn(`[ai] Anthropic: ${model} refuses a thinking budget; asking it to think adaptively from now on.`);
                 continue;
             }
             // The model takes no temperature (or none beside thinking): ask at its
@@ -2553,7 +2564,7 @@ async function callAnthropicCompatible(systemPrompt, history, {
             model,
             system: buildAnthropicSystemContent(requestSystemPrompt, staticPrefixEnd),
             max_tokens: requestedMaxTokens,
-            ...(thinks ? { thinking: { type: "enabled", budget_tokens: 4096 } } : {}),
+            ...(thinks ? { thinking: thinkingFor({ adaptive: thinksAdaptive(model) || adaptiveThinkingLearned.has(samplingKey) }) } : {}),
             ...temperatureBody(taskKey, { enabled: !thinks && !temperatureRefused }),
             // Streamed for BOTH the advisor (onChunk, tokens to the UI) and tool
             // calls. A tool call must stream because the Messages API refuses a
@@ -2610,6 +2621,13 @@ async function callAnthropicCompatible(systemPrompt, history, {
             if (response.status === 400 && useToolChannel && forceTool && isForcedToolChoiceRefusal(message) && attempt < retries) {
                 forcedToolChoiceRefusals.add(samplingKey);
                 console.warn(`[ai] Anthropic-compatible: ${model} refuses a forced tool_choice; asking with "auto" from now on.`);
+                continue;
+            }
+            // The model takes no thinking budget: it thinks "adaptive". Ask so,
+            // now and for the rest of the session (anthropicThinking.js).
+            if (response.status === 400 && body.thinking?.type === "enabled" && isEnabledThinkingRefusal(message) && attempt < retries) {
+                adaptiveThinkingLearned.add(samplingKey);
+                console.warn(`[ai] Anthropic-compatible: ${model} refuses a thinking budget; asking it to think adaptively from now on.`);
                 continue;
             }
             if (response.status === 400 && !temperatureRefused && body.temperature !== undefined && customParams.temperature === undefined
