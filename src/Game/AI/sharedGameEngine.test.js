@@ -83,8 +83,8 @@ test("single player's orders read exactly as they always have; a shared game's n
   assert.equal(buildActionHistoryText(owned), "- (action, France) Talks: Open talks with Spain\n- (action, Germany) Fleet: Send the fleet to Kiel");
   assert.equal(formatActionsForPrompt(owned), "- (France) Talks: Open talks with Spain\n- (Germany) Fleet: Send the fleet to Kiel");
   assert.equal(joinPolityNames(["France"]), "France");
-  assert.equal(joinPolityNames(["France", "Germany"]), "France and Germany");
-  assert.equal(joinPolityNames(["France", "Germany", "Italy"]), "France, Germany and Italy");
+  assert.equal(joinPolityNames(["France", "Germany"]), "France or Germany");
+  assert.equal(joinPolityNames(["France", "Germany", "Italy"]), "France, Germany or Italy");
 });
 
 test("the player's focus lists every person's orders under the polity that gave them", async () => {

@@ -200,7 +200,8 @@ const NEW_UPDATES = [
   {
     // A shared game's players whose groups founded countries stayed seated on the groups, so the AI played the new
     // countries' armies and wars and their secrets reached no one; every AI letter went to the host's seat; and a
-    // capital a country named was never starred on the map (Discord spike, 2026-10-27).
+    // capital a country named was never starred on the map; and the time skip's prompt named every player's
+    // polity together as if one ("Northreach and Eastwatch is played by a human") (Discord spike, 2026-10-27).
     id: "2026-10-founded-countries",
     kind: "minor",
     date: "2026-10-27",
@@ -213,6 +214,7 @@ const NEW_UPDATES = [
           "The new country's leader, government and goals are written from your story, as for any country the world founds.",
           "In a shared game, each letter a government writes now reaches the player it was written to. Before, every letter went to the host.",
           "A city a country makes its capital now gets the capital's gold star on the map.",
+          "In a shared game, the AI now treats each player's country as a country of its own, with its own aims, even when two players are at war. Before, it could read them as one.",
         ],
       },
     ],

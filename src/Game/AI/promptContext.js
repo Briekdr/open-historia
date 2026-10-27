@@ -25,7 +25,7 @@ import { compareGameDates, compareGameDatesNewestFirst, diffGameDays, formatGame
 import { difficultyPassage } from "../../runtime/difficulty.js";
 import { worldFileUrl } from "../../runtime/worldFiles.js";
 import { hostingSharedGame, humanCountriesOf, sharedGameHostCountry } from "../../runtime/humanPolities.js";
-import { SHARED_WORLD_TASKS, buildSharedGameDirective } from "./sharedGameDirective.js";
+import { SHARED_WORLD_TASKS, buildSharedGameDirective, joinPolityNames } from "./sharedGameDirective.js";
 import { unitsOffBattlefields } from "./frontsGate.js";
 
 const normalizeString = (value) => String(value ?? "").trim();
@@ -901,11 +901,8 @@ export const buildAdvisorHistoryText = (messages, { limit = 18 } = {}) => {
 // longEventLimit); actions simply never were. Matching longEventLimit here.
 export const ACTION_HISTORY_LIMIT = 24;
 
-// "France", "France and Spain", "France, Spain and Italy".
-export const joinPolityNames = (names) => {
-  const list = normalizeArray(names).map(normalizeString).filter(Boolean);
-  return list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list.at(-1)}` : list[0] || "";
-};
+// The several polities people play, as one name (sharedGameDirective.js).
+export { joinPolityNames };
 
 // `includePlanned: false` leaves this round's orders out of a full history:
 // the resolvedActions variable, for a label that says the orders listed were
@@ -2122,7 +2119,10 @@ export const buildPromptContext = async (bundle, {
   // speaks to the one polity in bundle.game.country.
   const people = SHARED_WORLD_TASKS.has(taskKey) ? humanCountriesOf(bundle.game) : [];
   put("playerPolity", people.length > 1 ? joinPolityNames(people) : bundle.game.country || "Unknown polity");
-  if (people.length > 1) result.sharedGameDirective = buildSharedGameDirective(bundle.game);
+  if (people.length > 1) {
+    result.sharedGameDirective = buildSharedGameDirective(bundle.game);
+    result.sharedPolities = people.join("; ");
+  }
   if (wants("playerPolityRegions")) {
     result.playerPolityRegions = await buildPlayerPolityRegionsText(
       bundle,

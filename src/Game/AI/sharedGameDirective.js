@@ -17,12 +17,23 @@ import { humanCountriesOf } from "../../runtime/humanPolities.js";
 // reply, the advisor, a stat sheet) and keeps the single player's wording.
 export const SHARED_WORLD_TASKS = new Set(["jumpForward", "autoJumpForward", "worldMotionRepair", "worldBreadthRepair"]);
 
+// "France", "France or Spain", "France, Spain or Italy": the several polities
+// people play, filled into a prompt written for one. Joined with "and" they
+// read as one polity ("France and Spain is played by a human", "Always call the
+// player's polity France and Spain"); with "or" each sentence holds for each of
+// them alone, as the shared game's directive says it does.
+export const joinPolityNames = (names) => {
+  const list = (Array.isArray(names) ? names : []).map((name) => String(name ?? "").trim()).filter(Boolean);
+  return list.length > 1 ? `${list.slice(0, -1).join(", ")} or ${list.at(-1)}` : list[0] || "";
+};
+
 export const buildSharedGameDirective = (game) => {
   const people = humanCountriesOf(game);
   if (people.length < 2) return "";
   return [
     "[Shared Game — several people play]",
     `People play these polities, one each: ${people.join("; ")}. Everything this prompt says about "the player" holds for each of them separately. Every other polity is yours to simulate.`,
+    `- Where this prompt names them together ("${joinPolityNames(people)}"), it means each of them on its own. They are separate polities with separate governments, territories, armies and aims, played by different people; they may be friends, rivals or at war with each other.`,
     "- Every queued order is marked with the polity that gave it, and speaks only for that polity's own government. An order can never make another player's polity choose, agree, sign, pay, cede or reply: what one player asks of another is a proposal, answered only by that player's own orders or messages.",
     "- The world acts on every player's polity as on any other — pressure, incidents, reactions, attacks — and never decides a player polity's own reply.",
     "- A player polity's choice with no order or message of its own behind it is withdrawn by the engine: write each player's outcomes from their own orders.",

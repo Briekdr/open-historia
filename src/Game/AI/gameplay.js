@@ -3449,6 +3449,14 @@ This live instruction supersedes older frozen country-stat prompts and all earli
   if (SHARED_WORLD_TASKS.has(taskKey)) {
     const sharedDirective = normalizeString(variables?.sharedGameDirective);
     if (sharedDirective) systemPrompt = `${systemPrompt}\n\n${sharedDirective}`;
+    // The prompt's role line, written for one player, says from its first
+    // words that several people play; the rest of the prompt names them
+    // together (joinPolityNames), as the directive explains.
+    const together = normalizeString(variables?.playerPolity);
+    const polities = normalizeString(variables?.sharedPolities);
+    if (sharedDirective && together && polities) {
+      systemPrompt = systemPrompt.replace(`The player is playing as the polity of ${together}.`, `Several people play this game, one polity each: ${polities}.`);
+    }
   }
 
   // The scenario author's priority rules (worldDirection.js), for every task

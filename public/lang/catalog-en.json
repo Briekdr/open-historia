@@ -5051,6 +5051,7 @@
  "In Your Pocket",
  "In a shared game the host's timer ends each round, or enough players pressing Ready on the round bar at the top.",
  "In a shared game, each letter a government writes now reaches the player it was written to. Before, every letter went to the host.",
+ "In a shared game, the AI now treats each player's country as a country of its own, with its own aims, even when two players are at war. Before, it could read them as one.",
  "In a shared game, when your people found a country of their own and hand it their land, you now play that new country from then on.",
  "In colour: its own figures. In grey: what every country has. The mark on a bar is where every country stands.",
  "In the air and at sea",
