@@ -5948,15 +5948,12 @@ export const applyEventImpactsToWorld = ({
         eventId: event.id,
         gameDate: event.date || "",
       });
-      // A rename that matched no existing structure is a STOCK-map city rename (stock
-      // cities live in PMTiles, not world.markers) — record it as an override layer so
-      // the label layer can show the new name (see Cities.jsx / cityRenames).
+      // A rename updates cityRenames override for every city and marker, so the
+      // city label layer immediately shows the new name (see Cities.jsx / cityRenames).
       for (const raw of normalizeArray(event.impacts.markerOps)) {
         const op = normalizeMarkerOp(raw);
         if (!op || !op.name) continue;
-        const matched = before.some((m) =>
-          op.markerId ? m.id === op.markerId : m.name.toLowerCase() === op.name.toLowerCase());
-        if (op.op === "rename" && !matched) {
+        if (op.op === "rename") {
           nextWorld.cityRenames = { ...(nextWorld.cityRenames || {}), [op.name.toLowerCase()]: op.newName };
         }
         // Population is recorded in the override for EVERY city, matched or not.
