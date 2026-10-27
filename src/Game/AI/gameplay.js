@@ -166,7 +166,7 @@ import {
   planJumpSegments,
   segmentEventRange,
 } from "./jumpSegments.js";
-import { collapseRepeatedWorldContext, templateAlreadySays } from "./promptDedupe.js";
+import { collapseRepeatedWorldContext, collapseRepeatsInsideJob, templateAlreadySays } from "./promptDedupe.js";
 import {
   HIGH_PRIORITY_ASSESSMENT_MARKER,
   HIGH_PRIORITY_ASSESSMENT_RULE,
@@ -294,6 +294,7 @@ import {
   HISTORY_CONSOLIDATION,
   applyHistoryDocumentUpdate,
   buildHistoryDocumentDirective,
+  HISTORY_JOB_FENCES,
   buildSkipHistoryJob,
   countWords,
   deferredConsolidationStillDue,
@@ -3425,6 +3426,9 @@ This live instruction supersedes older frozen country-stat prompts and all earli
   // reach them ONLY through the world summary - removing them there would take
   // them from those tasks entirely.
   systemPrompt = collapseRepeatedWorldContext(systemPrompt, variables);
+  // A skip carrying the history fold: what the fold's brief repeats of the
+  // skip's own event history and document is given once (promptDedupe.js).
+  if (jumpTask) systemPrompt = collapseRepeatsInsideJob(systemPrompt, HISTORY_JOB_FENCES);
 
   // Lookup functions: tell the model they exist and what they are for. Last,
   // so it stands next to the output contract rather than under the campaign.
