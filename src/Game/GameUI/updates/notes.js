@@ -218,6 +218,22 @@ const NEW_UPDATES = [
     ],
   },
   {
+    // A few panels showed a game date as stored (0354-02-19), and the time skip's troop orders with a mistyped year
+    // (2354 for 0354) were moved to the week's first day (Discord spike, 2026-10-27).
+    id: "2026-10-dates-and-orders",
+    kind: "minor",
+    date: "2026-10-27",
+    banners: [
+      {
+        title: "Dates as you read them",
+        items: [
+          "Dates in the institutions, projects, unit, place and country panels now read as 19 February 354, as the rest of the game writes them.",
+          "A troop order given for a day of the week is now carried out on that day, even when its year came out wrong in the order.",
+        ],
+      },
+    ],
+  },
+  {
     id: "2026-10-peace-and-weariness",
     kind: "minor",
     date: "2026-10-26",
