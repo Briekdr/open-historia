@@ -112,153 +112,63 @@ const textShadow = "0 2px 14px rgba(0,0,0,0.7)";
 // The scenario's cover, full bleed, with the logo turning in the bottom corner
 // and the name and status beside it on a flat dark strip: the picture is the
 // screen, and the strip stays legible whatever the picture is.
-// Ultra-clean cinematic layout: no heavy cards or chunky boxes.
-// Floats majestic typography, subtle status, and the turning emblem in the lower third,
-// letting the scenario artwork take center stage.
-export const GameLoadingScreen = ({ gameName = "", scenarioName = "", countryName = "", coverUrl = "", phase = "world" }) => {
-  const currentPhaseText = PHASES[phase] ?? PHASES.world;
-  const progressPercent = phase === "world" ? 30 : phase === "polities" ? 65 : phase === "settling" ? 90 : 100;
-  const title = gameName || scenarioName || "Open Historia";
-  const subtitle = scenarioName && countryName && gameName !== scenarioName ? `${scenarioName} · ${countryName}` : countryName || scenarioName;
-
-  return (
+export const GameLoadingScreen = ({ gameName = "", scenarioName = "", countryName = "", coverUrl = "", phase = "world" }) => (
+  <div
+    className="oh-loading-screen"
+    role="status"
+    aria-live="polite"
+    style={{
+      background: "#0c0c0e",
+      color: "white",
+      fontFamily: "sans-serif",
+      inset: 0,
+      overflow: "hidden",
+      position: "fixed",
+      // Above the settings workspace portal (2147483000): the globe is switched
+      // from Settings → Map, and the redraw screen has to cover that too.
+      zIndex: 2147483200,
+    }}
+  >
     <div
-      className="oh-loading-screen"
-      role="status"
-      aria-live="polite"
+      aria-hidden="true"
       style={{
-        background: "#08080a",
-        color: "white",
-        fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        background: `url("${String(coverUrl || DEFAULT_COVER).replaceAll('"', "%22")}") center/cover no-repeat, `
+          + `url("${DEFAULT_COVER}") center/cover no-repeat #0c0c0e`,
         inset: 0,
-        overflow: "hidden",
-        position: "fixed",
-        zIndex: 2147483200,
+        position: "absolute",
+      }}
+    />
+    <div
+      style={{
+        alignItems: "flex-end",
+        background: "rgba(8,8,10,0.8)",
+        bottom: 0,
+        display: "flex",
+        gap: "1.5rem",
+        justifyContent: "space-between",
+        left: 0,
+        // Clear of a phone's home indicator, and of the notch when it is
+        // turned sideways (all 0 on a desktop).
+        padding: `1.25rem calc(2rem + ${SAFE_RIGHT}) calc(1.5rem + ${SAFE_BOTTOM}) calc(2rem + ${SAFE_LEFT})`,
+        position: "absolute",
+        right: 0,
       }}
     >
-      {/* Background artwork full bleed */}
-      <div
-        aria-hidden="true"
-        style={{
-          background: `url("${String(coverUrl || DEFAULT_COVER).replaceAll('"', "%22")}") center/cover no-repeat, `
-            + `url("${DEFAULT_COVER}") center/cover no-repeat #08080a`,
-          filter: "brightness(0.85) contrast(1.05)",
-          inset: 0,
-          position: "absolute",
-        }}
-      />
-
-      {/* Soft ambient tint to ensure legibility across any artwork without gradients */}
-      <div
-        aria-hidden="true"
-        style={{
-          background: "rgba(5, 5, 8, 0.45)",
-          inset: 0,
-          position: "absolute",
-        }}
-      />
-
-      {/* Centered Cinematic Presentation in lower third */}
-      <div
-        style={{
-          alignItems: "center",
-          bottom: `calc(3rem + ${SAFE_BOTTOM})`,
-          display: "flex",
-          flexDirection: "column",
-          left: `calc(1rem + ${SAFE_LEFT})`,
-          position: "absolute",
-          right: `calc(1rem + ${SAFE_RIGHT})`,
-          textAlign: "center",
-          zIndex: 2,
-        }}
-      >
-        {/* Emblem */}
-        <div style={{ marginBottom: "1.25rem", position: "relative" }}>
-          <img
-            className="oh-loading-logo"
-            src="/logo.png"
-            alt=""
-            style={{
-              display: "block",
-              filter: "drop-shadow(0 10px 30px rgba(0,0,0,0.8))",
-              height: "3.75rem",
-              width: "3.75rem",
-            }}
-          />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: "1.35rem", fontWeight: 900, letterSpacing: "0.02em", textShadow }}>
+          {gameName || scenarioName || "Open Historia"}
         </div>
-
-        {/* Title */}
-        <div
-          style={{
-            color: "#ffffff",
-            fontSize: "1.75rem",
-            fontWeight: 800,
-            letterSpacing: "0.06em",
-            lineHeight: 1.2,
-            maxWidth: "90vw",
-            textShadow: "0 4px 20px rgba(0,0,0,0.9)",
-            textTransform: "uppercase",
-          }}
-        >
-          {title}
-        </div>
-
-        {/* Subtitle / Faction */}
-        {subtitle && (
-          <div
-            style={{
-              color: "rgba(255, 255, 255, 0.72)",
-              fontSize: "0.95rem",
-              fontWeight: 500,
-              letterSpacing: "0.04em",
-              marginTop: "0.4rem",
-              textShadow: "0 2px 10px rgba(0,0,0,0.9)",
-            }}
-          >
-            {subtitle}
+        {(scenarioName || countryName) && (
+          <div style={{ color: "rgba(255,255,255,0.72)", fontSize: "0.85rem", marginTop: "0.3rem", textShadow }}>
+            {[scenarioName, countryName].filter(Boolean).join(" · ")}
           </div>
         )}
-
-        {/* Razor-thin elegant progress line */}
-        <div
-          style={{
-            background: "rgba(255, 255, 255, 0.15)",
-            borderRadius: "999px",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.6)",
-            height: "2px",
-            margin: "1.5rem auto 0.9rem",
-            maxWidth: "380px",
-            overflow: "hidden",
-            width: "70vw",
-          }}
-        >
-          <div
-            style={{
-              background: "#f5bd4f",
-              boxShadow: "0 0 10px rgba(245, 189, 79, 0.7)",
-              height: "100%",
-              transition: "width 0.4s ease-out",
-              width: `${progressPercent}%`,
-            }}
-          />
-        </div>
-
-        {/* Status Phase text */}
-        <div
-          style={{
-            color: "rgba(255, 255, 255, 0.6)",
-            fontSize: "0.72rem",
-            fontWeight: 600,
-            letterSpacing: "0.22em",
-            textShadow: "0 2px 8px rgba(0,0,0,0.9)",
-            textTransform: "uppercase",
-          }}
-        >
-          {currentPhaseText}
-        </div>
+        <div style={{ color: "rgba(255,255,255,0.58)", fontSize: "0.7rem", letterSpacing: "0.1em", marginTop: "0.9rem", textShadow, textTransform: "uppercase" }}>
+          {PHASES[phase] ?? PHASES.world}        </div>
       </div>
+      <img className="oh-loading-logo" src="/logo.png" alt="" style={{ flexShrink: 0, height: "4rem", width: "4rem" }} />
     </div>
-  );
-};
+  </div>
+);
 
 export default GameLoadingScreen;

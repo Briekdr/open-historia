@@ -28,64 +28,6 @@ import { directGeneratedStructureOps, orderBuildsStructure } from "./nativeStruc
 const asArray = (value) => (Array.isArray(value) ? value : []);
 const text = (value) => String(value ?? "").trim();
 
-const cleanCityName = (val) => {
-    let s = String(val ?? "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
-    s = s.replace(/\s+(?:following|which|after|as|and|with|by|due|the|a|an|in\s+an?).*$/i, "").trim();
-    if (!s) return "";
-    if (s === s.toUpperCase() && s.length > 2) {
-        return s.split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-    }
-    return s;
-};
-
-const RENAME_PATTERNS = [
-    /\b(?:renaming|rename|renamed|renames)\s+(?:of\s+)?["']?([A-Za-z0-9\s'-]{2,40}?)["']?\s+(?:in?to)\s+["']?([A-Za-z0-9\s'-]{2,40}?)["']?(?:[\.,;\n]|$)/i,
-    /\brenam(?:e|es|ed|ing)\b.*?\bfrom\s+["']?([A-Za-z0-9\s'-]{2,40}?)["']?\s+(?:in)?to\s+["']?([A-Za-z0-9\s'-]{2,40}?)["']?(?:[\.,;\n]|$)/i,
-    /\b(?:change|changes|changed|changing)\s+(?:the\s+)?name\s+of\s+["']?([A-Za-z0-9\s'-]{2,40}?)["']?\s+to\s+["']?([A-Za-z0-9\s'-]{2,40}?)["']?(?:[\.,;\n]|$)/i,
-];
-
-export const recoverNarratedRenames = (events) => asArray(events).map((event) => {
-    if (!event || typeof event !== "object") return event;
-    const title = text(event.title);
-    const desc = text(event.description);
-    const corpus = `${title}. ${desc}`;
-    if (!/renam|name\s+of/i.test(corpus)) return event;
-
-    const existingOps = asArray(event.impacts?.markerOps);
-    const existingFroms = new Set(
-        existingOps
-            .filter((op) => text(op?.op).toLowerCase() === "rename" && text(op?.name))
-            .map((op) => text(op.name).toLowerCase())
-    );
-
-    const additions = [];
-    for (const pattern of RENAME_PATTERNS) {
-        const match = title.match(pattern) || desc.match(pattern);
-        if (match && match[1] && match[2]) {
-            const from = cleanCityName(match[1]);
-            const to = cleanCityName(match[2]);
-            if (from && to && from.toLowerCase() !== to.toLowerCase() && !existingFroms.has(from.toLowerCase())) {
-                existingFroms.add(from.toLowerCase());
-                additions.push({
-                    op: "rename",
-                    name: from,
-                    newName: to,
-                    note: "Narrated city/place renaming decree",
-                });
-            }
-        }
-    }
-
-    if (!additions.length) return event;
-    return {
-        ...event,
-        impacts: {
-            ...(event.impacts || {}),
-            markerOps: [...existingOps, ...additions],
-        },
-    };
-});
-
 // An event that answers the player's order to raise forces or build something is
 // the Directors' to read, however it is worded. Seen in the same game: the player
 // ordered things raised and built, and the events that answered were worded so the
@@ -93,12 +35,11 @@ export const recoverNarratedRenames = (events) => asArray(events).map((event) =>
 // turn is being made; applyMapConsequences takes it off again.
 export const markOrderedEvents = (events, actions) => {
     const byId = new Map(asArray(actions).filter((action) => text(action?.id)).map((action) => [text(action.id), action]));
-    const marked = asArray(events).map((event) => {
+    return asArray(events).map((event) => {
         const orders = asArray(event?.impacts?.actionIds).map((id) => byId.get(text(id))).filter(Boolean);
         if (!orders.length) return event;
         return markedBy(event, orders.map((action) => `${text(action.title)} ${text(action.text)}`));
     });
-    return recoverNarratedRenames(marked);
 };
 
 // A Scene's beats are the player's choices and what came of them: they mark the
@@ -135,7 +76,7 @@ export const applyMapConsequences = async ({
     battlefieldRegions = null,
     signal = null,
 } = {}) => {
-    let current = recoverNarratedRenames(asArray(events));
+    let current = asArray(events);
     // A cancelled turn stops; any other failure costs only that Director's changes.
     // Each Director is handed the signal as well: it catches every failure of its
     // own analysis and carries on with the events as written, and without the

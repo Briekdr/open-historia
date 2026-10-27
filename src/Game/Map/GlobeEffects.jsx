@@ -90,6 +90,7 @@ const GlobeEffects = ({ active }) => {
     let lastCelestialDraw = -Infinity;
     let starsVisible = false;
     let lightingVisible = false;
+    let autoRotationActive = false;
     let lastSunCalculation = -Infinity;
     const activeCelestialFrameMs = isConstrainedDevice()
       ? 1000 / 18
