@@ -64,6 +64,8 @@ const NEW_UPDATES = [
           "Calls to arms in a war that has ended lapse, so leaving one unanswered no longer costs you reputation.",
           "Peace terms show your own country's war weariness beside your enemy's, with a word for how weary each is.",
           "Listening in on a region now opens on its country's feed first.",
+          "Renaming a city or landmark now updates its name live on the world map and in place popups.",
+          "Globe rotation and celestial star rendering run smoother with fewer frame drops.",
         ],
       },
     ],
