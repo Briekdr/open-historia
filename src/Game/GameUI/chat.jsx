@@ -5287,3 +5287,21 @@ const Toolbar = memo(({ onOpenAdvisor, activePanel, onTogglePanel, mapRef }) => 
 });
 
 export { Toolbar };
+// The panel alone, for a page that shows it inside its own frame (the Discord
+// bot's world page, spikes/discord-bot/panel).
+export { ChatPanel };
+
+// The dock's unread badge for such a page: how many open conversations have
+// messages the player has not read, by the same baseline the panel keeps
+// (SEEN_KEY, isChatUnread). As the dock does, a first look with no baseline at
+// all takes what is there as read rather than announcing every old letter.
+export const unreadConversationCount = (chats) => {
+    const open = (Array.isArray(chats) ? chats : []).filter((chat) =>
+        chat?.status !== "closed" && Array.isArray(chat?.countries) && chat.countries.length > 0);
+    const seen = readSeen();
+    if (seen === null) {
+        writeSeen(seenTotals(open));
+        return 0;
+    }
+    return open.filter((chat) => isChatUnread(chat, seen)).length;
+};
