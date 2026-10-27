@@ -198,6 +198,26 @@ const NEW_UPDATES = [
     ],
   },
   {
+    // A shared game's players whose groups founded countries stayed seated on the groups, so the AI played the new
+    // countries' armies and wars and their secrets reached no one; every AI letter went to the host's seat; and a
+    // capital a country named was never starred on the map (Discord spike, 2026-10-27).
+    id: "2026-10-founded-countries",
+    kind: "minor",
+    date: "2026-10-27",
+    banners: [
+      {
+        title: "Your country, your mail",
+        items: [
+          "In a shared game, when your people found a country of their own and hand it their land, you now play that new country from then on.",
+          "Its armies, its wars and what only its government knows are yours, along with your queued orders and conversations. Before, the AI took the new country over.",
+          "The new country's leader, government and goals are written from your story, as for any country the world founds.",
+          "In a shared game, each letter a government writes now reaches the player it was written to. Before, every letter went to the host.",
+          "A city a country makes its capital now gets the capital's gold star on the map.",
+        ],
+      },
+    ],
+  },
+  {
     id: "2026-10-peace-and-weariness",
     kind: "minor",
     date: "2026-10-26",
