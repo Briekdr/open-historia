@@ -39,7 +39,7 @@ test("normalizeWorldState preserves and normalizes regionRenames", () => {
   });
 });
 
-test("applyEventImpactsToWorld records regionRenames from markerOps and impacts.regionRenames", () => {
+test("a region rename is recorded only from a markerOps rename of a region: name, and a city rename renames no region", () => {
   const initialWorld = normalizeWorldState({
     regionRenames: {},
     markers: [],
@@ -54,9 +54,6 @@ test("applyEventImpactsToWorld records regionRenames from markerOps and impacts.
         { op: "rename", name: "region: Flanders", newName: "South Netherlands" },
         { op: "rename", name: "Wallonia", newName: "Southern Belgium" },
       ],
-      regionRenames: [
-        { name: "region: Alsace-Lorraine", newName: "Elsass-Lothringen" },
-      ],
     },
   };
 
@@ -67,6 +64,6 @@ test("applyEventImpactsToWorld records regionRenames from markerOps and impacts.
   const nextWorld = outcome.world;
 
   assert.equal(nextWorld.regionRenames["flanders"], "South Netherlands");
-  assert.equal(nextWorld.regionRenames["wallonia"], "Southern Belgium");
-  assert.equal(nextWorld.regionRenames["alsace-lorraine"], "Elsass-Lothringen");
+  assert.equal(nextWorld.regionRenames["wallonia"], undefined);
+  assert.equal(nextWorld.cityRenames["wallonia"], "Southern Belgium");
 });

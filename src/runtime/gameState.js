@@ -559,6 +559,8 @@ export const normalizeActionEntry = (entry, index = 0) => {
     text: text || rawInput || title,
     title: title || rawInput || text,
     ...(unitRevert ? { unitRevert } : {}),
+    // The round a skip carried the order out in (AI/playerFocus.js settleOrders).
+    ...(Number.isInteger(entry.resolvedRound) ? { resolvedRound: entry.resolvedRound } : {}),
     // Carried over unanswered from the last time skip (AI/playerFocus.js
     // settleOrders): the next skip answers it first.
     ...(entry.overdue === true ? { overdue: true } : {}),
@@ -1112,18 +1114,6 @@ const normalizeRegionTransfer = (entry) => {
   };
 };
 
-const normalizeRegionRenameOp = (entry) => {
-  if (!entry || typeof entry !== "object") return null;
-  const name = normalizeOptionalString(entry.name || entry.from || entry.regionId || entry.region);
-  const newName = normalizeOptionalString(entry.newName || entry.to);
-  if (!name || !newName) return null;
-  return {
-    name,
-    newName,
-    note: normalizeOptionalString(entry.note),
-  };
-};
-
 // One polity asserting a claim over a region it does not hold — an irredentist
 // declaration, a proclaimed union, a contested border, a government-in-exile's
 // title. The middle state the world model was missing.
@@ -1341,6 +1331,11 @@ export const normalizeUnitEntry = (entry, index = 0) => {
     // here keeps its name and what it is, and takes its place and strength back
     // when the battlefield closes. Absent on every other unit.
     ...(normalizeOptionalString(entry.committedTo) ? { committedTo: normalizeOptionalString(entry.committedTo) } : {}),
+    // A ship the player's story turns on (a hired cog carrying a stolen egg), not
+    // a warship: shown while it sails and taken off the map at expiresRound
+    // (AI/nativeUnitDirector.js pruneWarUnits) if no arrival removes it first.
+    ...(entry.storyVessel === true ? { storyVessel: true } : {}),
+    ...(Number.isInteger(entry.expiresRound) ? { expiresRound: entry.expiresRound } : {}),
     source: UNIT_SOURCE_SET.has(source) ? source : "scenario",
     orderId: normalizeOptionalString(entry.orderId),
     createdAt: normalizeOptionalString(entry.createdAt) || timestamp,
@@ -2990,6 +2985,9 @@ export const resumeStandingOrders = (world, { round = 0, previousSystem = "" } =
 // context: { markers, gameDate, elapsedDays, round, extraAnchors, eventId }
 //   elapsedDays === null | undefined  ->  no travel clamp (the old behaviour, and
 //   what a non-Gregorian scenario date must fall back to).
+// How many rounds a story ship stays on the map when no arrival removes it.
+export const STORY_VESSEL_ROUNDS = 10;
+
 export const applyUnitOpBatch = (units, orders, ops, context = {}) => {
   const {
     gameDate = "", elapsedDays = null, round = 0, extraAnchors = [], eventId = "", era = null,
@@ -3019,6 +3017,13 @@ export const applyUnitOpBatch = (units, orders, ops, context = {}) => {
       if (spawnId && next.some((unit) => unit.id === spawnId)) continue;
 
       const unit = { ...op.unit };
+      // A story ship is a ship whatever the model called it, unlisted because
+      // nothing guards it, and kept for STORY_VESSEL_ROUNDS at most.
+      if (unit.storyVessel) {
+        unit.type = "naval";
+        unit.covert = true;
+        unit.expiresRound = (Number(round) || 0) + STORY_VESSEL_ROUNDS;
+      }
       const anchors = buildOwnerFootprint({ units: next, markers }, unit.ownerCode, extraAnchors);
       // Reach/supply feasibility: a spawn its owner could not support where the
       // model put it is downgraded rather than dropped.
@@ -3557,7 +3562,6 @@ const normalizeEventImpacts = (value, event = null) => {
       projectOps: [],
       regionClaims: [],
       regionControlOps: [],
-      regionRenames: [],
       regionTransfers: [],
       reports: [],
       spyOps: [],
@@ -3578,7 +3582,6 @@ const normalizeEventImpacts = (value, event = null) => {
     projectOps: normalizeArray(value.projectOps).map(normalizeProjectOp).filter(Boolean),
     regionClaims: normalizeArray(value.regionClaims).map(normalizeRegionClaim).filter(Boolean),
     regionControlOps: normalizeArray(value.regionControlOps).map(normalizeRegionControlOp).filter(Boolean),
-    regionRenames: normalizeArray(value.regionRenames).map(normalizeRegionRenameOp).filter(Boolean),
     regionTransfers: normalizeArray(value.regionTransfers).map(normalizeRegionTransfer).filter(Boolean),
     // Documents the event writes or widens (runtime/reports.js).
     reports: normalizeArray(value.reports).map(normalizeReportOp).filter(Boolean),
@@ -5986,7 +5989,6 @@ export const applyEventImpactsToWorld = ({
             nextWorld.regionRenames = { ...(nextWorld.regionRenames || {}), [cleanName]: op.newName };
           } else {
             nextWorld.cityRenames = { ...(nextWorld.cityRenames || {}), [cleanName]: op.newName };
-            nextWorld.regionRenames = { ...(nextWorld.regionRenames || {}), [cleanName]: op.newName };
           }
         }
         // Population is recorded in the override for EVERY city, matched or not.
@@ -5998,17 +6000,6 @@ export const applyEventImpactsToWorld = ({
             ...(nextWorld.cityPopulations || {}),
             [op.name.toLowerCase()]: op.population,
           };
-        }
-      }
-    }
-
-    if (event.impacts.regionRenames?.length) {
-      for (const raw of normalizeArray(event.impacts.regionRenames)) {
-        if (!raw || typeof raw !== "object") continue;
-        const from = normalizeOptionalString(raw.name || raw.from || raw.regionId || raw.region)?.replace(/^region:\s*/i, "")?.trim();
-        const to = normalizeOptionalString(raw.newName || raw.to)?.trim();
-        if (from && to) {
-          nextWorld.regionRenames = { ...(nextWorld.regionRenames || {}), [from.toLowerCase()]: to };
         }
       }
     }

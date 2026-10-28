@@ -53,16 +53,30 @@ import { PAST_UPDATES } from "./notesPast.js";
 // make UPDATES, newest first by date.
 const NEW_UPDATES = [
   {
-    id: "2026-10-region-renames",
+    id: "2026-10-renamed-regions",
     kind: "minor",
     date: "2026-10-28",
     channel: "beta",
     banners: [
       {
-        title: "Renaming regions",
+        title: "Renamed regions and a tidier top bar",
         items: [
-          "Regions and provinces can now be renamed through events, actions and decrees.",
-          "A renamed region shows its new name on the map, on its inspection card, and in country territory lists.",
+          "A region renamed by an event shows its new name on its place card and in each country's list of territory, for every player in a shared game.",
+          "On a computer, the menu button at the top left is now the same height as the game's name and the Exit Game button beside it.",
+        ],
+      },
+    ],
+  },
+  {
+    id: "2026-10-spies-with-reason",
+    kind: "minor",
+    date: "2026-10-28",
+    banners: [
+      {
+        title: "Spies with a reason",
+        items: [
+          "Foreign agents in your country now come from those with a reason to send them: your enemies and rivals, and powers with a real stake in your affairs.",
+          "A country with no interest in you, or no spy service to speak of, no longer plants agents in your country.",
         ],
       },
     ],
