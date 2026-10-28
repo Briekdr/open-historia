@@ -631,6 +631,19 @@ app.post("/api/presence", jsonParser, (req, res) => {
   res.status(204).end();
 });
 
+// A shared game a friend invited this player to on Discord, and requests from
+// Discord to join this player's shared game (server/discordPresence.js). This
+// computer's player only.
+app.get("/api/presence/inbox", (req, res) => {
+  if (!isLoopbackAddress(req.socket?.remoteAddress)) return res.json({ join: null, requests: [] });
+  res.json(discordPresence.takeInbox?.() ?? { join: null, requests: [] });
+});
+app.post("/api/presence/answer", jsonParser, (req, res) => {
+  if (!isLoopbackAddress(req.socket?.remoteAddress)) return res.status(204).end();
+  const sent = discordPresence.answer?.(req.body?.userId, req.body?.accept === true) ?? false;
+  res.json({ sent });
+});
+
 // Which application this is: the desktop app (and whether it is the stable one,
 // the beta or the multiplayer build) or the server started by hand. Asked once by
 // the page's visit counter (src/runtime/visitCount.js), which counts each apart.

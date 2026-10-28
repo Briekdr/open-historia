@@ -143,6 +143,12 @@ let _openLibraryTab = null;
 export const openLibraryTab = (tab) => {
   _openLibraryTab?.(tab);
 };
+// And lets them close it onto the game, as joining a shared game from the
+// Lobbies tab does (multiplayer/ui/DiscordInvites.jsx).
+let _enterActiveGame = null;
+export const enterActiveGameFromOutside = () => {
+  _enterActiveGame?.();
+};
 
 // Whether the main menu is showing. Lives at module scope because the whole UI
 // tree (this component included) remounts whenever the active game changes —
@@ -2661,6 +2667,7 @@ const LibraryTopBar = ({ onOpenSettings }) => {
     enterGame();
     setMenuOpen(false);
   };
+  _enterActiveGame = enterActiveGame;
   // Bridge for outside callers: open the main menu on a library tab.
   _openLibraryTab = (tab) => {
     setActiveTab(tab);
