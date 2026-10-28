@@ -222,7 +222,7 @@ import { buildOwnerAliasMap, canonicalOwnerName, toCountryName } from "../../run
 import { countryGidFromIdentity } from "../../runtime/countryFlags.js";
 import { editDistance, foldRegionKey, matchRegionName, stripRegionAffixes } from "./regionMatch.js";
 import { describeUndeployedPost, isMilitaryPost, postWantsFormation } from "./militaryPosts.js";
-import { findUnitByRef, readNameRef, stripKindTags } from "./nameRefs.js";
+import { findUnitByRef, newestTwinByRef, readNameRef, stripKindTags } from "./nameRefs.js";
 import { areaRegionsFor, buildAreaIndex, findArea, readAreaName } from "./namedAreas.js";
 import { CAPTURE_REACH_KM, findNarratedCaptures, mayNarrateCapture } from "./narratedCapture.js";
 import { EVENT_PLACES_RULE, findEventPlace, findEventPlaces, readEventPlace } from "./eventPlaces.js";
@@ -2238,7 +2238,9 @@ const canonicalizeNamedThings = (containers, world) => {
         || normalizeString(op.unitName)
         || normalizeString(op.name);
       if (!written || unitIds.has(written)) continue;
-      const unit = findUnitByRef(written, units, { owner: normalizeString(op.ownerCode ?? op.owner), context });
+      const removes = normalizeString(op.op).toLowerCase() === "remove" || (normalizeString(op.op).toLowerCase() === "strength" && Number(op.strength) === 0);
+      const unit = findUnitByRef(written, units, { owner: normalizeString(op.ownerCode ?? op.owner), context })
+        || (removes ? newestTwinByRef(written, units) : null);
       if (!unit) continue;
       op.unitId = unit.id;
       named += 1;
