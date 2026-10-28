@@ -2813,6 +2813,13 @@ ${pending}`);
 When an event raises, moves, reinforces or wears down a force, that event carries the unitOps that show it. When an event builds or establishes something that stands in one place, it carries a markerOps build at a place the map knows, with its country.
 ${describeTravelPace(game?.gameDate, eraSettingOf(world))}`);
 
+  // "make sure the simulation ai is able to say that a region is taken by an army which causes the nearest troops to
+  // move accordingly so when that event happens, the region has been taken" (the owner, 2026-10-28). The map follows:
+  // on a battlefield the taker's nearest troops stand in it and the other side's fall back (fronts/engine.js
+  // marchInto); off one, its nearest formation marches in (marchCapturersIn).
+  blocks.push(`[Taking Ground]
+An army may take a region in this period wherever what has led up to it makes that likely, or where history took it at this time and nothing in this game has turned that aside. Tell it in the event that takes it, and put the region in the taker's hands on that event: a regionControlOps control entry, basis occupation, the region by name. Move the formation that took it there in the same event when it has one on the map. From that event's date the map follows: the taker's nearest troops stand in the region, and the other side's fall back out of it.`);
+
   // A folded skip keeps the board itself (projectsDirective.js); otherwise the
   // board is context, and its own pass moves it.
   const foldedSkip = Boolean(variables.foldedSkip);
@@ -7500,6 +7507,91 @@ const completeNarratedCaptures = async (containers, world, { receipt = null, ren
   return added;
 };
 
+// A REGION AN EVENT SAYS WAS TAKEN, AND NO TROOPS SENT. "make sure the
+// simulation ai is able to say that a region is taken by an army which causes
+// the nearest troops to move accordingly so when that event happens, the region
+// has been taken" (the owner, 2026-10-28). An event with a control operation
+// that gives a region to a power, and that moves or raises none of that power's
+// land formations into it, has the power's nearest land formation (not a
+// garrison, not covert, not fighting on a battlefield: the front engine moves
+// those, engine.js marchInto) march into it, within STORY_MARCH_KM. Mutates the
+// events' impacts; returns how many were moved.
+const STORY_MARCH_KM = 800;
+const STORY_MARCHERS = new Set(["infantry", "armor", "artillery"]);
+const marchCapturersIn = async (containers, world, { receipt = null, renderedRegions = null, lookupContext = null } = {}) => {
+  const worldState = normalizeWorldState(world);
+  const units = normalizeArray(worldState.units);
+  const pending = normalizeArray(containers).filter(({ impacts }) => normalizeArray(impacts?.regionControlOps)
+    .some((op) => normalizeString(op?.op).toLowerCase() === "control" && op?.wholeCountry !== true && normalizeString(op?.regionId) && normalizeString(op?.toCode)));
+  if (!pending.length || !units.length) return 0;
+  let context;
+  try {
+    context = await (lookupContext ?? lazyLookupContext({ world }, { renderedRegions }))();
+  } catch (error) {
+    console.warn("[story capture] the map could not be read; no formation was moved.", error);
+    return 0;
+  }
+  const rowById = new Map(context.rows.filter((row) => row.geometry).map((row) => [normalizeString(row.id), row]));
+  const labelOf = (name) => context.resolveOwner(name) || normalizeString(name);
+  const samePower = (a, b) => Boolean(foldRegionKey(labelOf(a))) && foldRegionKey(labelOf(a)) === foldRegionKey(labelOf(b));
+  const pointOf = (unit) => (Number.isFinite(Number(unit?.lng)) && Number.isFinite(Number(unit?.lat)) && !(Number(unit.lng) === 0 && Number(unit.lat) === 0)
+    ? [Number(unit.lng), Number(unit.lat)] : null);
+  const inside = (row, point) => Boolean(point) && point[0] >= row.bbox[0] && point[0] <= row.bbox[2] && point[1] >= row.bbox[1] && point[1] <= row.bbox[3]
+    && pointInGeometry(point, row.geometry);
+  const sent = new Set();
+  let moved = 0;
+  for (const { event, impacts, path } of pending) {
+    const ownMoves = normalizeArray(impacts.unitOps).map((op) => {
+      const kind = normalizeString(op?.op).toLowerCase();
+      if (kind === "move") {
+        const unit = units.find((entry) => entry.id === normalizeString(op.unitId));
+        return unit ? { unit, point: pointOf({ lng: op.toLng, lat: op.toLat }) } : null;
+      }
+      if (kind === "spawn") {
+        const unit = op.unit && typeof op.unit === "object" ? op.unit : op;
+        return { unit: { ...unit, ownerCode: unit.ownerCode ?? unit.owner ?? op.ownerCode }, point: pointOf(unit) };
+      }
+      return null;
+    }).filter(Boolean);
+    for (const op of normalizeArray(impacts.regionControlOps)) {
+      if (normalizeString(op?.op).toLowerCase() !== "control" || op?.wholeCountry === true) continue;
+      const row = rowById.get(normalizeString(op.regionId));
+      const taker = normalizeString(op.toCode);
+      if (!row || !taker) continue;
+      if (ownMoves.some(({ unit, point }) => samePower(unit.ownerCode, taker) && LAND_UNIT_TYPES.has(normalizeString(unit.type).toLowerCase()) && inside(row, point))) continue;
+      if (units.some((unit) => samePower(unit.ownerCode, taker) && STORY_MARCHERS.has(unit.type) && inside(row, pointOf(unit)))) continue;
+      const centre = nearestInteriorPoint(row.geometry, row.centroid ?? [(row.bbox[0] + row.bbox[2]) / 2, (row.bbox[1] + row.bbox[3]) / 2]);
+      if (!centre) continue;
+      let best = null;
+      let bestKm = STORY_MARCH_KM;
+      for (const unit of units) {
+        if (sent.has(unit.id) || !STORY_MARCHERS.has(unit.type) || unit.covert || normalizeString(unit.committedTo) || !samePower(unit.ownerCode, taker)) continue;
+        if (ownMoves.some((entry) => entry.unit?.id === unit.id)) continue;
+        const from = pointOf(unit);
+        const km = from ? placementDistanceKm(from, centre) : Infinity;
+        if (km < bestKm) {
+          bestKm = km;
+          best = { unit, from };
+        }
+      }
+      if (!best) continue;
+      const to = nearestInteriorPoint(row.geometry, best.from) ?? centre;
+      sent.add(best.unit.id);
+      impacts.unitOps = [...normalizeArray(impacts.unitOps), {
+        op: "move", unitId: best.unit.id, toLng: to[0], toLat: to[1],
+        note: `Into ${row.name}, which it took.`,
+      }];
+      moved += 1;
+      const title = normalizeString(event?.title);
+      noteReceipt(receipt, "adjusted",
+        `${title ? `Event "${title}": ` : ""}${row.name} was taken by ${labelOf(taker)} and none of its forces went there, `
+        + `so its nearest formation, ${best.unit.name}, marched in (${Math.round(bestKm)} km). Move the formation that takes a place in the event that takes it.`);
+      console.info(`[story capture] ${path}: ${best.unit.name} (${labelOf(taker)}) into ${row.name}, ${Math.round(bestKm)} km.`);
+    }
+  }
+  return moved;
+};
+
 // Where the places a turn's strikes name are (runtime/strikes.js), found on the
 // map as an event's own places are (a country at its capital, a region at its
 // middle), and then as any phrase that places a thing is read, with the world's
@@ -7821,6 +7913,11 @@ export const validateGeneratedWorldChanges = async (candidate, world, {
   // the reluctance guard below.
   if (!strict && captureGuard && !resolvedRegionIdsOnly && Array.isArray(candidate?.events)) {
     await completeNarratedCaptures(containers, world, { receipt, renderedRegions, lookupContext });
+  }
+  // And the other way round: a region an event gives a power, with none of its
+  // formations sent there, has the nearest of them march in (marchCapturersIn).
+  if (!strict && !resolvedRegionIdsOnly && Array.isArray(candidate?.events)) {
+    await marchCapturersIn(containers, world, { receipt, renderedRegions, lookupContext });
   }
   // The places each event says it is about, found on the map as the kind each
   // was given (eventPlaces.js). What a card links to and where the camera
