@@ -8096,6 +8096,7 @@
  "Optional separate region metadata JSON",
  "Optional. If this event fires, the game picks exactly one outcome and remembers it permanently. Outcomes inherit the event wording mode above.",
  "Optional. Merged into every request this connection sends — e.g. to limit reasoning budget/effort. An entry can override them. Invalid JSON is ignored.",
+ "Options",
  "Opuwo",
  "Or make a new group",
  "Or offer an alternative…",

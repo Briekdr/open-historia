@@ -620,18 +620,6 @@ const PolitiesPanel = ({
             <TagField value={tags?.[current.key] || []} suggestions={TAG_SUGGESTIONS} onChange={(next) => setTags?.(current.key, next)} />
           </div>
 
-          <label
-            title="This country sends no spies in the game, and any agents it already has are withdrawn. Others can still spy on it."
-            style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, cursor: "pointer" }}
-          >
-            <input
-              type="checkbox"
-              checked={current.record?.noSpies === true}
-              onChange={(e) => upsertPolity?.(current.key, { noSpies: e.target.checked })}
-            />
-            Can&apos;t run spies
-          </label>
-
           <PuppetFields
             polity={current.key}
             regionCount={current.regionCount}
@@ -639,6 +627,21 @@ const PolitiesPanel = ({
             puppets={puppets}
             setPuppets={setPuppets}
           />
+
+          <div>
+            <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.48)", marginBottom: 4 }}>Options</div>
+            <label
+              title="This country sends no spies in the game, and any agents it already has are withdrawn. Others can still spy on it."
+              style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, cursor: "pointer" }}
+            >
+              <input
+                type="checkbox"
+                checked={current.record?.noSpies === true}
+                onChange={(e) => upsertPolity?.(current.key, { noSpies: e.target.checked })}
+              />
+              Can&apos;t run spies
+            </label>
+          </div>
 
           {current.record && (
             <div>
