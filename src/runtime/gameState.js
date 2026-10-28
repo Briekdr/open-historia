@@ -5652,7 +5652,11 @@ const applyPolityAndTerritoryImpacts = ({
       ...(aliases.length > 0 || change.aliases?.length > 0 ? { aliases } : {}),
       ...(change.color ? { color: change.color } : {}),
       name: code,
-      ...(change.note ? { note: change.note } : {}),
+      // A change's note is its REASON (polityChangeSchema: "Brief reason."). It
+      // is the description of a polity that has none yet, a new breakaway, and
+      // never replaces one it has: a week's "Provision sent to the Order" wiped
+      // a scenario's whole description of Brightdale.
+      ...(change.note && !normalizeOptionalString(current.note) ? { note: change.note } : {}),
     };
 
     if (change.color) {

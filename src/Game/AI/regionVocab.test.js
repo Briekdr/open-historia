@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildRegionOwnershipText,
+  buildUnruledBordersText,
   regionOwnerName,
   FOCUS_INTRO,
   ROSTER_INTRO,
@@ -424,4 +425,36 @@ test("a power that is listed is listed whole: no limit of 120 regions a power", 
   assert.match(text, /Region 000/);
   assert.match(text, /Region 284/);
   assert.equal(text.includes("more)"), false, "nothing is left out of a listed power");
+});
+
+// A hand-drawn world with wild land between its realms (a fantasy scenario,
+// 2026-10-28): "Try to take Rustmoor Coast" failed because the unruled region
+// next door was named nowhere in the prompt.
+const box = (w, s, e, n) => [[w, s], [e, n]];
+const WILD = [
+  { id: "a", name: "Corvale", bounds: box(0, 0, 10, 10) },
+  { id: "b", name: "Rustmoor Coast", typeId: "coastal", bounds: box(10, 0, 20, 10) },
+  { id: "c", name: "Tollgard", bounds: box(0, -10, 10, 0), adjacencies: ["a"] },
+  { id: "d", name: "Far Moor", bounds: box(50, 50, 60, 60) },
+  { id: "e", name: "The Pale Sea", typeId: "ocean", bounds: box(-10, 0, 0, 10) },
+];
+
+test("unruled land is listed beside the powers it borders, water and the far wild left out", () => {
+  const text = buildUnruledBordersText(WILD, { a: "Brightdale" }, { waterTypes: new Set(["ocean"]) });
+  assert.match(text, /^Land no power rules \(3 regions\)/);
+  assert.match(text, /^- Brightdale: Rustmoor Coast, Tollgard$/m, "by touching boxes, and by the map's own adjacency");
+  assert.equal(text.includes("Far Moor"), false, "a region touching no power is not anybody's neighbour");
+  assert.equal(text.includes("Pale Sea"), false, "water is not land to take");
+});
+
+test("a world with no unruled land says nothing", () => {
+  assert.equal(buildUnruledBordersText(CATALOG, {}), "");
+  assert.equal(buildUnruledBordersText(WILD, { a: "Brightdale", b: "Brightdale", c: "Brightdale", d: "Larkmere" }, { waterTypes: new Set(["ocean"]) }), "");
+});
+
+test("a power's unruled neighbours are capped, and the cut says how many", () => {
+  const many = [{ id: "home", name: "Home", bounds: box(0, 0, 100, 100) },
+    ...Array.from({ length: 5 }, (_, i) => ({ id: `w${i}`, name: `Wild ${i}`, bounds: box(100, i, 110, i + 1) }))];
+  const text = buildUnruledBordersText(many, { home: "Brightdale" }, { perOwnerCap: 3 });
+  assert.match(text, /^- Brightdale: Wild 0, Wild 1, Wild 2, \(\+2 more\)$/m);
 });

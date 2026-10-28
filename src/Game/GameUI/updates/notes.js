@@ -149,6 +149,23 @@ const NEW_UPDATES = [
     ],
   },
   {
+    // The time skip was never shown the regions nobody rules, so an order to take the wild land next door could not
+    // be carried out; and a week's reason for a change to a country replaced that country's whole description
+    // (Discord spike, 2026-10-28).
+    id: "2026-10-unruled-land",
+    kind: "minor",
+    date: "2026-10-28",
+    banners: [
+      {
+        title: "Wild land within reach",
+        items: [
+          "On maps with land no country rules, the story now knows which of it lies beside each country, so an order to settle or take the wild land next door can be carried out.",
+          "A country's description from the scenario now stays as written when the story changes something about it, instead of being replaced by a one-line note.",
+        ],
+      },
+    ],
+  },
+  {
     id: "2026-10-zoom-keys",
     kind: "minor",
     date: "2026-10-27",

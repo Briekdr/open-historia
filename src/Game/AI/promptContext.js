@@ -1,5 +1,5 @@
 import dayjs from "dayjs";
-import { JSON_URLS, getNationTags, loadRegionCatalog, readJson } from "../../runtime/assets.js";
+import { JSON_URLS, getNationTags, loadRegionCatalog, loadScenarioRegionCatalog, readJson } from "../../runtime/assets.js";
 import { resolveAllCountryTags, resolveCountryTags } from "../../runtime/countryTags.js";
 import { buildOwnerAliasMap, canonicalOwnerName, toCountryName } from "../../runtime/ownerNames.js";
 import {
@@ -12,7 +12,8 @@ import {
   normalizeEvents,
   normalizeWorldState,
 } from "../../runtime/gameState.js";
-import { buildRegionOwnershipText, regionOwnerName } from "./regionVocab.js";
+import { buildRegionOwnershipText, buildUnruledBordersText, regionOwnerName } from "./regionVocab.js";
+import { waterTypeIds } from "../../runtime/regionTypes.js";
 import { isPendingAction, selectFocusPowers } from "./regionFocus.js";
 import { filterChatsVisibleTo } from "./chatVisibility.js";
 import { buildForcePostureText } from "./forcePosture.js";
@@ -1762,6 +1763,16 @@ export const buildWorldSummary = async (bundle, regionCatalog = null, {
         ...(regionListsViaTools ? { focusTotalCap: 0, rosterCap: 120 } : {}),
       });
 
+  // The wild land beside each power (regionVocab.js): the lists above name only
+  // what powers hold. A conversation is about its powers, not the map's edges.
+  // Read from the scenario's own region rows: the prompt catalog above keeps a
+  // region's name and owner only, and without its box, adjacencies and type
+  // no wild region was anybody's neighbour, so the list was never written
+  // (a five-month Discord game, 2026-10-28).
+  const unruledBorders = conversation
+    ? ""
+    : buildUnruledBordersText(await loadScenarioRegionCatalog().catch(() => null) ?? regions, world.regionOwnershipOverrides, { waterTypes: waterTypeIds(world.regionTypes) });
+
   return [
     `Player polity: ${bundle.game.country || "Unknown polity"}${playerTags.length ? ` (${playerTags.join(", ")})` : ""}`,
     `Current round: ${bundle.game.round || 1}`,
@@ -1781,6 +1792,7 @@ export const buildWorldSummary = async (bundle, regionCatalog = null, {
       : "Map ownership (this IS the comma-separated region list referenced above — the "
         + "region vocabulary for regionTransfers):",
     regionOwnershipCatalog,
+    ...(unruledBorders ? ["", unruledBorders] : []),
     "",
     "Dynamic polity overrides:",
     politySummary,

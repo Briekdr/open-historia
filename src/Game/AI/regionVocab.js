@@ -131,6 +131,62 @@ export const ROSTER_INTRO =
 //     for a caller that is not a model's prompt. Names alone are the default.
 //   options.focusIntro / rosterIntro: the section headers, for a task that is
 //     not writing regionTransfers (FOCUS_INTRO and ROSTER_INTRO speak to one).
+// The land no power rules, by the powers it borders. The lists above are of
+// what powers hold, so on a hand-drawn world with wild land between its realms
+// a model told to take the unruled region next door was never shown its name:
+// "Try to take Rustmoor Coast" came back as a column that could find Rustmoor
+// Coast on no boundary roll (a fantasy scenario, 2026-10-28). Neighbours are
+// the map's declared adjacencies, else touching boxes (which can only add a
+// diagonal neighbour, never drop a real one). Water is left out. "" when no
+// land is unruled, as on the built-in world.
+//   waterTypes   the ids of the region types that are water (regionTypes.js waterTypeIds)
+//   perOwnerCap  how many a power is listed with at most
+export const buildUnruledBordersText = (regionCatalog, overrides, { waterTypes = new Set(), perOwnerCap = 30 } = {}) => {
+  const catalog = (Array.isArray(regionCatalog) ? regionCatalog : []).filter((region) => norm(region?.id));
+  const water = (region) => waterTypes.has(norm(region.typeId)) || waterTypes.has(norm(region.type));
+  const unruled = catalog.filter((region) => !regionOwnerName(region, overrides) && !water(region));
+  if (!unruled.length) return "";
+  const box = (region) => (Array.isArray(region.bounds) && region.bounds.length === 2 ? region.bounds : null);
+  const touch = (a, b) => {
+    const p = box(a), q = box(b);
+    return Boolean(p && q) && p[0][0] <= q[1][0] && q[0][0] <= p[1][0] && p[0][1] <= q[1][1] && q[0][1] <= p[1][1];
+  };
+  const declared = new Map();
+  for (const region of catalog) {
+    for (const other of Array.isArray(region.adjacencies) ? region.adjacencies : []) {
+      for (const [from, to] of [[region.id, norm(other)], [norm(other), region.id]]) {
+        if (!declared.has(from)) declared.set(from, new Set());
+        declared.get(from).add(to);
+      }
+    }
+  }
+  const owned = catalog.filter((region) => regionOwnerName(region, overrides));
+  const byOwner = new Map();
+  for (const wild of unruled) {
+    const near = declared.has(wild.id)
+      ? owned.filter((region) => declared.get(wild.id).has(region.id))
+      : owned.filter((region) => touch(wild, region));
+    for (const owner of new Set(near.map((region) => regionOwnerName(region, overrides)))) {
+      if (!byOwner.has(owner)) byOwner.set(owner, []);
+      byOwner.get(owner).push(norm(wild.name) || wild.id);
+    }
+  }
+  if (!byOwner.size) return "";
+  const lines = [...byOwner.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([owner, names]) => {
+      const sorted = [...new Set(names)].sort((a, b) => a.localeCompare(b));
+      const shown = sorted.slice(0, perOwnerCap);
+      return `- ${owner}: ${shown.join(", ")}${sorted.length > shown.length ? `, (+${sorted.length - shown.length} more)` : ""}`;
+    });
+  return [
+    `Land no power rules (${unruled.length} regions), by the powers it borders. Such a region can be settled, `
+      + "taken under a power's protection or subdued: a regionTransfers entry naming it \"region: <name>\" exactly as "
+      + "written here, with no fromCode. Each is listed beside every power it touches:",
+    ...lines,
+  ].join("\n");
+};
+
 export const buildRegionOwnershipText = (regionCatalog, overrides, options = {}) => {
   const catalog = Array.isArray(regionCatalog) ? regionCatalog : [];
   if (catalog.length === 0) {
