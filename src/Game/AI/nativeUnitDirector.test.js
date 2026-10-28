@@ -293,3 +293,33 @@ test("every turn clears the map after its wars and borders are applied, before a
   assert.ok(prune < apply.indexOf("await writeCanonicalTurnState("), "before the write");
   assert.match(apply, /heldBefore: landHolders\(baseWorld\),\s+heldAfter: landHolders\(worldWithImpacts\),/);
 });
+
+// A Game of Thrones campaign (298 AC): 98 events moved a host, a khalasar or a
+// ship, and only 25 moved a counter. The director only looked at events in a
+// modern army's words, so "the khalasar rides west" never reached it.
+const gotEvent = (title, description = "") => ({ title, description, kind: "world", impacts: {} });
+
+test("fantasy and historical movement reaches the unit director", () => {
+  const moving = [
+    "Khal Drogo's Khalasar Rides On West Along the Velvet Road With Daenerys at His Side",
+    "Khal Drogo's Khalasar Moves On to the Next Grazing With Daenerys at His Side",
+    "Mance Rayder's Host Breaks Camp at the Fist of the First Men and Turns West Along the Milkwater",
+    "The Lysene Galley Swift Hesper Clears White Harbor to Search the Stepstones Line",
+    "Balon Greyjoy Launches the Iron Fleet From Pyke to Patrol the Iron Islands' Waters",
+    "Lord Cerwyn's northern levy marches on along the Kingsroad past Last Hearth",
+  ];
+  for (const title of moving) {
+    assert.ok(buildUnitDirectorInput({ events: [gotEvent(title)], world: {} }), title);
+  }
+});
+
+test("everyday words that look like movement do not wake the director", () => {
+  const still = [
+    "Brazil hosts a trade summit and reaches a deal on tariffs",
+    "Winterfell's maester rides out the winter fever in his tower",
+    "Iron Bank factors send the Crown's default account to Braavos by the next ship",
+  ];
+  for (const title of still) {
+    assert.equal(buildUnitDirectorInput({ events: [gotEvent(title)], world: {} }), null, title);
+  }
+});
