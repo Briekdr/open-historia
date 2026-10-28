@@ -333,6 +333,10 @@ const unitSchema = {
       enum: ["holding", "massing", "patrol", "transit", "exercise", "blockade", "withdrawing", "assaulting"],
     },
     note: textSchema("One present-tense sentence on what it is doing and where; shown to the player."),
+    storyVessel: {
+      type: "boolean",
+      description: "Only for a ship that is NOT a warship but carries something the player's story turns on (a cargo, a passenger, a prize), on a candidate marked storyShip. The engine keeps it unlisted and takes it off the map after ten rounds if no arrival removes it first.",
+    },
   },
   required: ["name", "type", "ownerCode", "strength", "composition"],
   additionalProperties: false,

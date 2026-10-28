@@ -323,3 +323,25 @@ test("everyday words that look like movement do not wake the director", () => {
     assert.equal(buildUnitDirectorInput({ events: [gotEvent(title)], world: {} }), null, title);
   }
 });
+
+test("a story ship leaves the map once its ten rounds are up", () => {
+  const ship = { id: "ship-1", name: "Lantern Grace", ownerCode: "House Stark", storyVessel: true, expiresRound: 43 };
+  const kept = pruneWarUnits({ units: [ship], round: 43 });
+  assert.equal(kept.units.length, 1);
+  const gone = pruneWarUnits({ units: [ship], orders: [{ unitId: "ship-1" }], round: 44 });
+  assert.deepEqual(gone.units, []);
+  assert.deepEqual(gone.orders, []);
+  assert.equal(gone.removed[0].reason, "voyage-ended");
+});
+
+test("a player's story ship setting sail reaches the unit director; someone else's merchant does not", () => {
+  const sailing = {
+    title: "Lantern Grace Sails From Pentos With the Stolen Dragon Egg Before Noon",
+    description: "The cog Lantern Grace cleared the outer quay at Pentos with the sealed chest aboard and set her course for White Harbor.",
+    kind: "player",
+    playerRelated: true,
+    impacts: {},
+  };
+  assert.ok(buildUnitDirectorInput({ events: [sailing], world: {} }));
+  assert.equal(buildUnitDirectorInput({ events: [{ ...sailing, playerRelated: false }], world: {} }), null);
+});

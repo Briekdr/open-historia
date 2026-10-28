@@ -161,8 +161,16 @@ const opKey = (op) => {
   return `${kind}|${JSON.stringify(op)}`;
 };
 
+// A ship the player's story follows, sailing, landing or putting in: the hired
+// cog with the stolen egg is no warship, but the player wants to see it go. Only
+// the player's own events: every merchant afloat is not a counter.
+const STORY_VESSEL_PATTERN =
+  /\b(?:ship|cog|vessel|galley|barge|carrack|caravel|longship|boat)s?\b[^.!?]{0,80}\b(?:sail(?:s|ed|ing)?|set(?:s)? sail|clear(?:s|ed|ing)?|puts? (?:in|to sea)|put (?:in|to sea)|dock(?:s|ed)?|land(?:s|ed)?|arriv(?:e|es|ed)|reach(?:es|ed)?|unload(?:s|ed)?)\b/i;
+const storyShipSails = (event) => event?.playerRelated === true && STORY_VESSEL_PATTERN.test(eventText(event));
+
 const hasMilitaryContent = (event) => {
   if (normalizeArray(event?.impacts?.unitOps).length > 0) return true;
+  if (storyShipSails(event)) return true;
   const text = eventText(event);
   const explicitlyMilitary =
     normalizeString(event?.kind).toLowerCase() === "military"
@@ -178,7 +186,7 @@ export const eventNeedsNativeUnitDirector = (event) => {
   if (!event || typeof event !== "object") return false;
   const text = eventText(event);
   return OPERATIONAL_UNIT_DELTA_PATTERN.test(text) || SERVICE_FORMATION_PATTERN.test(text) || RAISED_FORMATION_PATTERN.test(text)
-    || orderedForces(event);
+    || orderedForces(event) || storyShipSails(event);
 };
 
 const makeWorkingUnitMap = (units) =>
@@ -513,8 +521,10 @@ export const landHolders = (world) => new Set(
 //   - Every unit of a power that held land when the turn began and holds none
 //     now: an annexed or conquered country keeps no armies. A power that never
 //     held land (a host, a horde, a company of exiles) is not touched.
+//   - A story ship (storyVessel) whose expiresRound has passed: its voyage is
+//     over even if no event said it arrived.
 // Their standing orders go with them. Pure.
-export const pruneWarUnits = ({ units = [], orders = [], wars = [], heldBefore = new Set(), heldAfter = new Set() } = {}) => {
+export const pruneWarUnits = ({ units = [], orders = [], wars = [], heldBefore = new Set(), heldAfter = new Set(), round = 0 } = {}) => {
   const active = new Set(normalizeArray(wars).filter(isActiveWar).map((war) => normalizeString(war?.id)).filter(Boolean));
   const kept = [];
   const removed = [];
@@ -523,7 +533,10 @@ export const pruneWarUnits = ({ units = [], orders = [], wars = [], heldBefore =
     const owner = normalizeString(unit?.ownerCode).toLowerCase();
     const warOver = Boolean(war) && !active.has(war);
     const fallen = Boolean(owner) && heldBefore.has(owner) && !heldAfter.has(owner);
-    if (warOver || fallen) removed.push({ unit, reason: warOver ? "war-ended" : "lost-all-land" });
+    const voyageOver = unit?.storyVessel === true && Number.isInteger(unit?.expiresRound) && Number(round) > unit.expiresRound;
+    if (warOver) removed.push({ unit, reason: "war-ended" });
+    else if (fallen) removed.push({ unit, reason: "lost-all-land" });
+    else if (voyageOver) removed.push({ unit, reason: "voyage-ended" });
     else kept.push(unit);
   }
   const gone = new Set(removed.map(({ unit }) => normalizeString(unit?.id)));
@@ -569,6 +582,7 @@ const unitDirectorAnalyzerInput = (candidates, units, pendingUnitOrders = [], wa
         existingUnitOps: cloneValue(normalizeArray(event?.impacts?.unitOps)),
         ...(unrepresented.length ? { combatantsWithoutUnits: unrepresented } : {}),
         ...(war?.id ? { warId: normalizeString(war.id) } : {}),
+        ...(storyShipSails(event) ? { storyShip: true } : {}),
       };
     }),
     units: ordered.slice(0, UNIT_DIRECTOR_UNIT_LIMIT).map((unit) => summarizeUnit(unit, orderByUnit.get(unit.id) ?? null)),
