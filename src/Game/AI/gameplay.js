@@ -9002,7 +9002,7 @@ const applySimulationResult = async ({
   // vanished. Only when the skip resolved the queue at all: a scene or a check
   // that leaves the orders planned has not answered them.
   let nextActions = result.clearActions
-    ? settleOrders(normalizeActions(baseActions), freshEvents)
+    ? settleOrders(normalizeActions(baseActions), freshEvents, { round: nextGame.round })
     : normalizeActions(baseActions);
   // An order the skip narrated but never CITED stays queued, because nothing in
   // the answer says it was carried out. The model is told at the top of its next

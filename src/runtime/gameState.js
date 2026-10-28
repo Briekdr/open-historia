@@ -556,6 +556,8 @@ export const normalizeActionEntry = (entry, index = 0) => {
     text: text || rawInput || title,
     title: title || rawInput || text,
     ...(unitRevert ? { unitRevert } : {}),
+    // The round a skip carried the order out in (AI/playerFocus.js settleOrders).
+    ...(Number.isInteger(entry.resolvedRound) ? { resolvedRound: entry.resolvedRound } : {}),
     // Carried over unanswered from the last time skip (AI/playerFocus.js
     // settleOrders): the next skip answers it first.
     ...(entry.overdue === true ? { overdue: true } : {}),
