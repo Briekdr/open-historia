@@ -144,6 +144,9 @@ export const WORLD_DEFAULTS = {
   // lowercased original city name -> new display name. world.markers cities are
   // renamed in place by applyMarkerOps; this is the override layer for the rest.
   cityRenames: {},
+  // AI renames of map regions/provinces (stock regions live in PMTiles level 1):
+  // lowercased original region name or GADM id -> new display name.
+  regionRenames: {},
   // AI changes to a city's POPULATION, same override shape as cityRenames and for
   // the same reason: stock cities live in PMTiles and cannot be edited in place.
   // Lowercased original city name -> number. Applies to authored cities too, so a
@@ -1106,6 +1109,18 @@ const normalizeRegionTransfer = (entry) => {
     regionId,
     regionName: normalizeOptionalString(entry.regionName || entry.name),
     toCode,
+  };
+};
+
+const normalizeRegionRenameOp = (entry) => {
+  if (!entry || typeof entry !== "object") return null;
+  const name = normalizeOptionalString(entry.name || entry.from || entry.regionId || entry.region);
+  const newName = normalizeOptionalString(entry.newName || entry.to);
+  if (!name || !newName) return null;
+  return {
+    name,
+    newName,
+    note: normalizeOptionalString(entry.note),
   };
 };
 
@@ -3542,6 +3557,7 @@ const normalizeEventImpacts = (value, event = null) => {
       projectOps: [],
       regionClaims: [],
       regionControlOps: [],
+      regionRenames: [],
       regionTransfers: [],
       reports: [],
       spyOps: [],
@@ -3562,6 +3578,7 @@ const normalizeEventImpacts = (value, event = null) => {
     projectOps: normalizeArray(value.projectOps).map(normalizeProjectOp).filter(Boolean),
     regionClaims: normalizeArray(value.regionClaims).map(normalizeRegionClaim).filter(Boolean),
     regionControlOps: normalizeArray(value.regionControlOps).map(normalizeRegionControlOp).filter(Boolean),
+    regionRenames: normalizeArray(value.regionRenames).map(normalizeRegionRenameOp).filter(Boolean),
     regionTransfers: normalizeArray(value.regionTransfers).map(normalizeRegionTransfer).filter(Boolean),
     // Documents the event writes or widens (runtime/reports.js).
     reports: normalizeArray(value.reports).map(normalizeReportOp).filter(Boolean),
@@ -4486,6 +4503,11 @@ export const normalizeWorldState = (world) => {
     } : {}),
     cityRenames: Object.fromEntries(
       Object.entries(nextWorld.cityRenames && typeof nextWorld.cityRenames === "object" ? nextWorld.cityRenames : {})
+        .map(([key, value]) => [normalizeString(key).toLowerCase(), normalizeString(value)])
+        .filter(([key, value]) => key && value),
+    ),
+    regionRenames: Object.fromEntries(
+      Object.entries(nextWorld.regionRenames && typeof nextWorld.regionRenames === "object" ? nextWorld.regionRenames : {})
         .map(([key, value]) => [normalizeString(key).toLowerCase(), normalizeString(value)])
         .filter(([key, value]) => key && value),
     ),
@@ -5948,16 +5970,24 @@ export const applyEventImpactsToWorld = ({
         eventId: event.id,
         gameDate: event.date || "",
       });
-      // A rename that matched no existing structure is a STOCK-map city rename (stock
-      // cities live in PMTiles, not world.markers) — record it as an override layer so
-      // the label layer can show the new name (see Cities.jsx / cityRenames).
+      // A rename that matched no existing structure is a STOCK-map city or region rename (stock
+      // cities and regions live in PMTiles, not world.markers) — record it as an override layer so
+      // the label layer and region inspector show the new name (see Cities.jsx and regionNameFixes.js).
       for (const raw of normalizeArray(event.impacts.markerOps)) {
         const op = normalizeMarkerOp(raw);
         if (!op || !op.name) continue;
         const matched = before.some((m) =>
           op.markerId ? m.id === op.markerId : m.name.toLowerCase() === op.name.toLowerCase());
         if (op.op === "rename" && !matched) {
-          nextWorld.cityRenames = { ...(nextWorld.cityRenames || {}), [op.name.toLowerCase()]: op.newName };
+          const rawName = String(op.name).trim();
+          const isRegion = /^region:\s*/i.test(rawName);
+          const cleanName = rawName.replace(/^region:\s*/i, "").trim().toLowerCase();
+          if (isRegion) {
+            nextWorld.regionRenames = { ...(nextWorld.regionRenames || {}), [cleanName]: op.newName };
+          } else {
+            nextWorld.cityRenames = { ...(nextWorld.cityRenames || {}), [cleanName]: op.newName };
+            nextWorld.regionRenames = { ...(nextWorld.regionRenames || {}), [cleanName]: op.newName };
+          }
         }
         // Population is recorded in the override for EVERY city, matched or not.
         // A built marker keeps its own population field, but the map reads the
@@ -5968,6 +5998,17 @@ export const applyEventImpactsToWorld = ({
             ...(nextWorld.cityPopulations || {}),
             [op.name.toLowerCase()]: op.population,
           };
+        }
+      }
+    }
+
+    if (event.impacts.regionRenames?.length) {
+      for (const raw of normalizeArray(event.impacts.regionRenames)) {
+        if (!raw || typeof raw !== "object") continue;
+        const from = normalizeOptionalString(raw.name || raw.from || raw.regionId || raw.region)?.replace(/^region:\s*/i, "")?.trim();
+        const to = normalizeOptionalString(raw.newName || raw.to)?.trim();
+        if (from && to) {
+          nextWorld.regionRenames = { ...(nextWorld.regionRenames || {}), [from.toLowerCase()]: to };
         }
       }
     }

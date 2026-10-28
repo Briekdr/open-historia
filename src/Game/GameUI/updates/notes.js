@@ -53,6 +53,21 @@ import { PAST_UPDATES } from "./notesPast.js";
 // make UPDATES, newest first by date.
 const NEW_UPDATES = [
   {
+    id: "2026-10-region-renames",
+    kind: "minor",
+    date: "2026-10-28",
+    channel: "beta",
+    banners: [
+      {
+        title: "Renaming regions",
+        items: [
+          "Regions and provinces can now be renamed through events, actions and decrees.",
+          "A renamed region shows its new name on the map, on its inspection card, and in country territory lists.",
+        ],
+      },
+    ],
+  },
+  {
     id: "2026-10-zoom-keys",
     kind: "minor",
     date: "2026-10-27",
