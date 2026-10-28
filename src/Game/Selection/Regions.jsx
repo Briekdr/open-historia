@@ -896,7 +896,7 @@ const RegionPopup = () => {
             className="oh-tap-row"
             onClick={() => openListenIn({
                 regionId,
-                regionName: displayRegionName,
+                regionName: NAME_1,
                 polity: isUnclaimed ? "" : displayCountry,
                 polityKey: controllerKey,
             })}
