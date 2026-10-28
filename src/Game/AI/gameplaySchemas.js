@@ -1313,6 +1313,10 @@ export const JUMP_FORWARD_SCHEMA = {
     // (SPY_INTERCEPT_SCHEMA) when it is filed, so a malformed one costs that
     // report and never the turn. The contract a skip is SENT declares the shape
     // in full, and only when an agent is due (foldJumpTool).
+    spiesOnPlayer: {
+      type: "string",
+      description: "Spies; format in prompt. Empty if none.",
+    },
     [AGENT_REPORTS_FIELD]: {
       type: "array",
       description: "The player's agents' reports: one per agent listed under [Agents' Reports], and only when that block is present.",

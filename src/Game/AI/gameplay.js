@@ -2835,6 +2835,14 @@ ${brief}`);
     }
     const covert = normalizeString(variables.covertOperations);
     if (covert) blocks.push(covert);
+    // Who tries to plant an agent in the player is the model's to say, from the world as it stands: "right now it
+    // seems like spys are coming from random countries, instead make it so the ai makes them come from sources that
+    // make sense" (the owner, 2026-10-28). The game rolls only for the polities named here (spycraft.js).
+    const spiedOn = normalizeString(game?.country);
+    if (spiedOn) {
+      blocks.push(`[Who Spies on the Player]
+Write spiesOnPlayer: the polities, by exact name and comma-separated, that would really try to place an agent in ${spiedOn} this period. Choose them as the world stands: enemies and rivals, powers with a real stake in ${spiedOn}'s affairs, a patron keeping watch on a client. A polity with no reason to, no reach, or no intelligence service to speak of sends nobody. An empty string when none would.`);
+    }
   }
 
   try {
@@ -9306,14 +9314,20 @@ const applySimulationResult = async ({
   const espionageIdentityIndex = buildPolityIdentityIndex(worldWithImpacts);
   const canonicalEspionagePolity = (name) => canonicalCampaignPolity(name, worldWithImpacts, espionageIdentityIndex);
   // Worked out against one polity: the player's, and in a shared game each
-  // other person's in turn (resolveEspionage's candidatesFor).
-  const espionageCandidatesAgainst = (playerLedgerPolity) => [...new Set([
-    ...Object.keys(worldWithImpacts.polityOverrides ?? {}),
-    ...Object.keys(worldWithImpacts.intelligence ?? {}),
-    ...Object.values(worldWithImpacts.regionOwnershipOverrides ?? {}),
-    ...normalizeChats(baseChats).flatMap((chat) => chat.countries.map((country) => normalizeString(country.name))),
-    ...normalizeArray(worldWithImpacts.wars).flatMap((war) => [...normalizeArray(war?.sideA), ...normalizeArray(war?.sideB)]),
-    ...normalizeArray(worldWithImpacts.relations).flatMap((relation) => [relation?.a, relation?.b]),
+  // other person's in turn (resolveEspionage's candidatesFor). Who tries is the
+  // model's to say for the player (spiesOnPlayer, "[Who Spies on the Player]"):
+  // only those it named, each at least as keen as a bitter rival. Where it said
+  // nothing (an older prompt, a canned turn), and for the other people of a
+  // shared game, only polities the ledgers set against that person: never every
+  // polity on the map, which sent agents from places with no reason to.
+  const spiesNamed = Array.isArray(result.spiesOnPlayer) ? result.spiesOnPlayer : null;
+  const NAMED_SPY_KEENNESS = 0.5;
+  const espionageCandidatesAgainst = (playerLedgerPolity, named = null) => [...new Set([
+    ...(named ?? [
+      ...normalizeArray(worldWithImpacts.wars).flatMap((war) => [...normalizeArray(war?.sideA), ...normalizeArray(war?.sideB)]),
+      ...normalizeArray(worldWithImpacts.relations).flatMap((relation) => [relation?.a, relation?.b]),
+      ...Object.keys(worldWithImpacts.internationalReputation ?? {}),
+    ]),
   ].map(canonicalEspionagePolity).filter((name) => name && name !== playerLedgerPolity))].map((polity) => {
     let hostility = 0;
     for (const war of normalizeArray(worldWithImpacts.wars)) {
@@ -9335,10 +9349,11 @@ const applySimulationResult = async ({
       }
       if (Number(worldWithImpacts.internationalReputation?.[polity] ?? 50) <= 30) hostility = Math.max(hostility, 0.35);
     }
+    if (named) hostility = Math.max(hostility, NAMED_SPY_KEENNESS);
     return { polity, hostility, hostile: hostility >= 0.75 };
-  });
+  }).filter((candidate) => named || candidate.hostility > 0);
   const espionageCandidatesFor = (person) => espionageCandidatesAgainst(canonicalEspionagePolity(person));
-  const espionageCandidates = espionageCandidatesFor(baseGame.country);
+  const espionageCandidates = espionageCandidatesAgainst(canonicalEspionagePolity(baseGame.country), spiesNamed);
   // With espionage switched off for this game nothing is rolled: the agents
   // already in the world stay where they are, silent, and no new one arrives.
   const espionage = isActiveFeatureEnabled("espionage")
@@ -17913,6 +17928,7 @@ const finishTimelineJump = async ({ context, signal, state }) => {
     agreementUpdates: merged.agreementUpdates,
     puppetUpdates: merged.puppetUpdates,
     frontOrders: merged.frontOrders,
+    spiesOnPlayer: merged.spiesOnPlayer,
     // How long a skip was asked for: what the front engine runs for where the
     // scenario's calendar is not one the game can count days on.
     requestedDays: context.safeDays,
