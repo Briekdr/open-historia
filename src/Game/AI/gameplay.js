@@ -17226,6 +17226,9 @@ const UNIT_DIRECTOR_INSTRUCTION =
   + "A garrison placed, stationed or established at a named place is likewise new: spawn it there with type \"garrison\"; never march an existing field formation in its place. "
   // The Lantern Grace carried a stolen dragon egg and was never on the map
   // (a Game of Thrones save, 298 AC): only warships became counters.
+  // The army of the dead grew with every kill in a Game of Thrones save and its
+  // counters never changed: a host growing was nobody's operation.
+  + "A force that GROWS in an event (recruits arrive, a host swells, the slain rise to join it) gains strength: raise its unit with op strength, and when that unit is already at full strength spawn a second formation of the same power beside it. This holds even when the fighting itself is not part of any war. "
   + "A candidate marked storyShip is the player's own story ship (a hired cog, a courier, a ship carrying a prize), not a warship: when it sets sail, spawn it with storyVessel true, type \"naval\", for the player, where it sails from; move it as later events carry it; remove it when it arrives and unloads. "
   // A player asked for it (2026-09-29), and placement enforces it (militaryPosts.js).
   + "On the power's own land a garrison is placed directly. On another power's land it is placed too, and one of the power's formations holds it: when none stands there, move one there in the same event. "

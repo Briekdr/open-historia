@@ -345,3 +345,16 @@ test("a player's story ship setting sail reaches the unit director; someone else
   assert.ok(buildUnitDirectorInput({ events: [sailing], world: {} }));
   assert.equal(buildUnitDirectorInput({ events: [{ ...sailing, playerRelated: false }], world: {} }), null);
 });
+
+// The army of the dead grows with every kill (the scenario's rule), but the
+// wight counters stayed at 40 and 96 while events said the host passed two
+// hundred: a host growing was not something the director was shown.
+test("a host that grows, or the slain rising to join it, reaches the unit director", () => {
+  for (const title of [
+    "The Dead Overrun Frozen Shore Riders on the Hardhome Headland and the Fallen Rise to Join Them",
+    "Wights at the Haunted Forest's Edge Climb the Hardhome Headland as the Host Grows to Near Two Hundred and Forty",
+    "Mance Rayder's Host Swells at the Fist of the First Men as Its Scouts Test the Passes",
+  ]) {
+    assert.ok(buildUnitDirectorInput({ events: [gotEvent(title)], world: {} }), title);
+  }
+});
