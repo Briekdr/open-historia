@@ -16514,6 +16514,8 @@ const runJumpSegments = async ({ context, onEvents, onProgress, signal, state })
         });
       state.scriptedEventPending = scriptedPlan.pendingState;
       const scriptedBeats = scriptedPlan.eligible;
+      // The language the player reads the game in (promptContext.js "language"): the beats are told in it.
+      const scriptedLanguage = normalizeString(bundle.world?.language || bundle.game?.language) || "English";
       const scriptedPoliticalRequirements = scriptedPoliticalImpactRequirements(scriptedBeats, { world: ledgerWorld });
       const scriptedPoliticalInstruction = buildScriptedPoliticalImpactInstruction(scriptedPoliticalRequirements, { world: ledgerWorld });
       state.structuralScriptedFallbackBlocked = scriptedPoliticalRequirements.length > 0;
@@ -16665,7 +16667,7 @@ const runJumpSegments = async ({ context, onEvents, onProgress, signal, state })
           targetDate,
           segmentTargetDate: segmentTarget,
           priorEvents: state.generatedSoFar,
-        }), buildScriptedEventsInstruction(scriptedBeats), scriptedPoliticalInstruction, WRITING_REMINDER].filter(Boolean).join("\n\n"),
+        }), buildScriptedEventsInstruction(scriptedBeats, { language: scriptedLanguage }), scriptedPoliticalInstruction, WRITING_REMINDER].filter(Boolean).join("\n\n"),
         validatePayload: withReceiptDraft(async (candidate, { attempt = 1, finalAttempt } = {}, draft) => {
           // Shape-of-story problems (event count, stray dates) are STRICT while a
           // retry remains — the model gets the exact error and usually fixes its
@@ -16785,7 +16787,7 @@ const runJumpSegments = async ({ context, onEvents, onProgress, signal, state })
           if (scriptedBeats.length) {
             const stopKey = mode === "auto" ? dateKey(candidate?.stopDate) : null;
             const due = stopKey === null ? scriptedBeats : scriptedBeats.filter((beat) => dateKey(beat.date) <= stopKey);
-            const scripted = ensureScriptedEvents(candidate?.events, due);
+            const scripted = ensureScriptedEvents(candidate?.events, due, { language: scriptedLanguage });
             if (scripted.inserted.length) {
               candidate.events = scripted.events;
               sortTimelineEventsChronologically(candidate);
@@ -16802,7 +16804,7 @@ const runJumpSegments = async ({ context, onEvents, onProgress, signal, state })
               const duePoliticalRequirements = scriptedPoliticalImpactRequirements(due, { world: ledgerWorld });
               for (const requirement of duePoliticalRequirements) {
                 for (const event of normalizeArray(candidate.events)) {
-                  if (beatIsWritten(requirement.beat, [event])) politicalClaimContext.legacyEvents.add(event);
+                  if (beatIsWritten(requirement.beat, [event], { language: scriptedLanguage })) politicalClaimContext.legacyEvents.add(event);
                 }
               }
             }
