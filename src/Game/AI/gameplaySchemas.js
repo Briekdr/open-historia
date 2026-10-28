@@ -333,10 +333,6 @@ const unitSchema = {
       enum: ["holding", "massing", "patrol", "transit", "exercise", "blockade", "withdrawing", "assaulting"],
     },
     note: textSchema("One present-tense sentence on what it is doing and where; shown to the player."),
-    storyVessel: {
-      type: "boolean",
-      description: "Only for a ship that is NOT a warship but carries something the player's story turns on (a cargo, a passenger, a prize), on a candidate marked storyShip. The engine keeps it unlisted and takes it off the map after ten rounds if no arrival removes it first.",
-    },
   },
   required: ["name", "type", "ownerCode", "strength", "composition"],
   additionalProperties: false,
@@ -2688,6 +2684,31 @@ export const TIMELINE_CURATOR_SCHEMA = {
 // The unit director's answer: unit operations to attach to the military events
 // the jump already wrote, keyed by the supplied event index. Native code
 // sanitizes every op before it reaches an event.
+// The unit director alone can mark a spawn as a story ship: the jump never
+// needs it, and the jump's contract is kept small on purpose
+// (projectOpSchema.test.js).
+const directorUnitOpSchema = {
+  ...unitOpSchema,
+  anyOf: unitOpSchema.anyOf.map((branch) => (branch.properties?.op?.enum?.[0] === "spawn"
+    ? {
+      ...branch,
+      properties: {
+        ...branch.properties,
+        unit: {
+          ...unitSchema,
+          properties: {
+            ...unitSchema.properties,
+            storyVessel: {
+              type: "boolean",
+              description: "Only for a ship that is NOT a warship but carries something the player's story turns on (a cargo, a passenger, a prize), on a candidate marked storyShip. The engine keeps it unlisted and takes it off the map after ten rounds if no arrival removes it first.",
+            },
+          },
+        },
+      },
+    }
+    : branch)),
+};
+
 export const UNIT_DIRECTOR_SCHEMA = {
   type: "object",
   description:
@@ -2703,7 +2724,7 @@ export const UNIT_DIRECTOR_SCHEMA = {
           eventIndex: { type: "integer", minimum: 0 },
           unitOps: {
             type: "array",
-            items: unitOpSchema,
+            items: directorUnitOpSchema,
           },
           reason: textSchema("Short reason these operations are needed for map/state continuity."),
         },
