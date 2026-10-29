@@ -531,6 +531,7 @@ export const createGameHost = ({
       return refusal;
     },
     goal: async (connection, { text }, seat) => {
+      if (round.status().phase === "resolving") return "The round is being resolved: set the goal once it has landed.";
       // The game's own rule for a standing goal (runtime/playerGoal.js).
       await store.updateWorld((world) => withPlayerGoal(world, seat.country, text));
       round.touch(seat.country);
@@ -574,6 +575,16 @@ export const createGameHost = ({
       if (!thread && !recipients.length) return "Say it to someone.";
       if (recipients.some((country) => same(country, seat.country))) return "A government does not write to itself.";
       if (recipients.some((country) => !countries.some((known) => same(known, country)))) return "Unknown country.";
+      // A letter to a government the AI plays is part of the week: while one is
+      // being resolved its skip has read the conversations already, so the
+      // letter waits. People write to each other whenever they like.
+      const resolving = round.status().phase === "resolving";
+      const people = seats.humanCountries();
+      const playedByAi = (name) => name && !same(name, seat.country) && !people.some((human) => same(human, name));
+      if (resolving && recipients.some(playedByAi)) return "The round is being resolved: write to the AI's governments once it has landed.";
+      // Dated by the game, as a government's own reply is (chat.jsx `time`):
+      // a letter between people was shown with no date at all.
+      const gameDate = clean((await store.read())?.game?.gameDate);
       let chatId = clean(thread);
       let refusal = "";
       // Everyone at the table: the thread's owner and its members.
@@ -587,6 +598,7 @@ export const createGameHost = ({
         speaker: seat.country,
         code: seat.country,
         text: body,
+        ...(gameDate ? { time: gameDate } : {}),
         createdAt: new Date(now()).toISOString(),
       };
       await store.updateChats((chats) => {
@@ -603,6 +615,10 @@ export const createGameHost = ({
             return null;
           }
           parties = [owner, ...members];
+          if (resolving && parties.some(playedByAi)) {
+            refusal = "The round is being resolved: write to the AI's governments once it has landed.";
+            return null;
+          }
           const next = [...all];
           next[index] = { ...chat, messages: [...list(chat.messages), message] };
           return next;
@@ -621,8 +637,7 @@ export const createGameHost = ({
       // The AI governments in the thread answer (the game's own diplomacy),
       // after the player's view shows what they wrote. A country a person plays
       // answers for itself: a thread between people asks the model nothing.
-      const people = seats.humanCountries();
-      const hasAiGovernment = parties.some((name) => name && !same(name, seat.country) && !people.some((human) => same(human, name)));
+      const hasAiGovernment = parties.some(playedByAi);
       if (hasAiGovernment) {
         pushViews().then(() => replyTo({ chatId, seat: seat.country })).then(() => pushViews())
           .catch((error) => log("warn", "reply failed", { error: String(error?.message || error) }));

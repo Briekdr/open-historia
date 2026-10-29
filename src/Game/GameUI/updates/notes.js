@@ -151,16 +151,23 @@ const NEW_UPDATES = [
   {
     // The time skip was never shown the regions nobody rules, so an order to take the wild land next door could not
     // be carried out; and a week's reason for a change to a country replaced that country's whole description
-    // (Discord spike, 2026-10-28).
+    // (Discord spike, 2026-10-28). Then (2026-10-29): wild land one sea away counts as within reach by ship, a
+    // patrol keeps to its own ground (a fleet was drifting onto the coast), and in a shared game a player's letter
+    // carries the game date, a letter to an AI government waits while a week is played, and each player has an
+    // advisor of their own government who brings them its secrets.
     id: "2026-10-unruled-land",
     kind: "minor",
-    date: "2026-10-28",
+    date: "2026-10-29",
     banners: [
       {
-        title: "Wild land within reach",
+        title: "Wild land and a confidant",
         items: [
-          "On maps with land no country rules, the story now knows which of it lies beside each country, so an order to settle or take the wild land next door can be carried out.",
+          "On maps with land no country rules, the story now knows which of it lies beside each country, or across a strait or a bay from its coast, so an order to settle or take it can be carried out.",
           "A country's description from the scenario now stays as written when the story changes something about it, instead of being replaced by a one-line note.",
+          "Fleets on patrol now stay at sea, and armies on patrol stay on land, instead of drifting onto the coast or into the water.",
+          "In shared games, each player has an advisor from their own government, who brings them in Diplomacy what it learns in secret.",
+          "In shared games, letters between players now show the game date.",
+          "In shared games, letters to countries the AI plays, and new goals, can't be sent while a week is being played: send them once its news is in. Letters between players still go through.",
         ],
       },
     ],

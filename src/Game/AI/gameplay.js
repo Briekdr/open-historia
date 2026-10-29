@@ -233,7 +233,7 @@ import { EVENT_PLACES_RULE, findEventPlace, findEventPlaces, readEventPlace } fr
 import { normalizeEventPlaces } from "../../runtime/eventPlaces.js";
 import { describeTravelPace, eraOf, seaShareOf } from "../../runtime/unitMotion.js";
 import { eraSettingOf } from "../../runtime/warSettings.js";
-import { PLACEMENT_DIRECTIVE, describeApproximatePlacement, describeOtherKind, distanceKm as placementDistanceKm, hashText as placementHash, homeWaters, nearestInteriorPoint, nearestSea, pointInGeometry, regionWithinContainer, resolvePlacement, resolveRegionPlacement, seasForMap } from "./placement.js";
+import { PLACEMENT_DIRECTIVE, describeApproximatePlacement, describeOtherKind, distanceKm as placementDistanceKm, hashText as placementHash, homeWaters, isOpenSea, nearestInteriorPoint, nearestSea, pointInGeometry, regionWithinContainer, resolvePlacement, resolveRegionPlacement, seasForMap } from "./placement.js";
 import { loadWorldCities } from "./worldCities.js";
 import { FOOTPRINT_KM, obstaclesOf, spaceOut } from "../../runtime/featureSpacing.js";
 import { LOOKUP_DIRECTIVE, buildLookupContext, executeLookup, lookupToolsFor, placesNamedIn } from "./lookupTools.js";
@@ -290,6 +290,7 @@ import {
   resolveHelperValues,
 } from "./promptContext.js";
 import { SHARED_WORLD_TASKS } from "./sharedGameDirective.js";
+import { SEAT_ADVICE_FIELD, mergeSeatAdvice, withSeatAdvice } from "./seatAdvice.js";
 import {
   HISTORY_CONSOLIDATION,
   applyHistoryDocumentUpdate,
@@ -3458,6 +3459,10 @@ This live instruction supersedes older frozen country-stat prompts and all earli
       systemPrompt = systemPrompt.replace(`The player is playing as the polity of ${together}.`, `Several people play this game, one polity each: ${polities}.`);
     }
   }
+  // Each player's advisor and their three orders (seatAdvice.js): a time skip
+  // of a game a host shares, one person playing or several.
+  const seatAdviceDirective = JUMP_TASK_KEYS.has(taskKey) ? normalizeString(variables?.seatAdviceDirective) : "";
+  if (seatAdviceDirective) systemPrompt = `${systemPrompt}\n\n${seatAdviceDirective}`;
 
   // The scenario author's priority rules (worldDirection.js), for every task
   // that writes the world or speaks for a polity; a time skip has them, with the
@@ -3657,9 +3662,11 @@ const runJsonTask = async (taskKey, {
     { idleMs, firstByteMs: idleMs ? AI_FIRST_BYTE_TIMEOUT_MS : 0 },
     () => controller.abort(timeoutError),
   );
-  const taskTool = forActiveFeatures(customFullStatSheet
+  const featureTool = forActiveFeatures(customFullStatSheet
     ? getGameplayToolForCustomStatSheet(taskKey, customStatRows, { custom: true })
     : getGameplayToolForStatIndices(taskKey, statIndexRows, { custom: customStatIndices }));
+  // The players' advice, asked of the time skip whose prompt asks for it.
+  const taskTool = JUMP_TASK_KEYS.has(taskKey) && normalizeString(variables?.seatAdviceDirective) ? withSeatAdvice(featureTool) : featureTool;
   // A first reading's sheet can carry the service's rating, in the same request
   // (generateCountryStatSheet rateIntelligence, gameplaySchemas.js
   // withIntelligenceRating).
@@ -3982,7 +3989,7 @@ const runJsonTask = async (taskKey, {
       // second request for a turn already in hand. Before the output-limit
       // check below, so a cut that fell inside a rider is not a lost turn.
       if (!parsed && rawText && JUMP_TASK_KEYS.has(taskKey)) {
-        const rescued = parseWithoutTrailingFields(rawText, [AGENT_REPORTS_FIELD, HISTORY_FIELD]);
+        const rescued = parseWithoutTrailingFields(rawText, [AGENT_REPORTS_FIELD, HISTORY_FIELD, SEAT_ADVICE_FIELD]);
         if (rescued) {
           parsed = rescued.value;
           console.warn(`[ai] task "${taskKey}": the end of the answer could not be read; kept the turn without ${rescued.dropped.join(" and ")}.`);
@@ -8898,6 +8905,20 @@ export const sendAdvisorDraftedMessage = async ({ countryName, text }) => {
   }
 };
 
+// Whether a point is at sea on this game's map, for the patrols that drift
+// between skips (gameState.js advanceStandingOrders): a fleet keeps to the
+// water and an army to the land. null when the map could not be read; the
+// patrols are then drawn as before. Exported for the headless engine's checks.
+export const waterTestFor = async (world) => {
+  try {
+    const gazetteer = buildPlacementGazetteer(await lazyLookupContext({ world })(), world);
+    return (lng, lat) => isOpenSea([lng, lat], gazetteer);
+  } catch (error) {
+    console.warn("[placement] the map could not be read; patrols keep to their rings as drawn.", error);
+    return null;
+  }
+};
+
 // `projects` opts this turn into the Projects & Operations board task. It runs
 // HERE rather than in the caller because the board's whole job is to move with
 // the events, and espionage does not produce its events until partway through
@@ -9291,6 +9312,10 @@ const applySimulationResult = async ({
       // in progress and clears a leftover one, and a scene resolving is this.
       activeInteractive: null,
       actionSuggestions: [],
+      // Each player's advisor and their orders to consider (seatAdvice.js).
+      ...(Array.isArray(result.seatAdvice)
+        ? { seatAdvice: mergeSeatAdvice(baseWorld?.seatAdvice, result.seatAdvice, { people: humanCountriesOf(baseGame), round: nextGame.round }) }
+        : null),
       lastJumpMode: normalizeString(result.mode),
       lastJumpSummary: normalizeString(result.summary),
       lastJumpTargetDate: nextGame.gameDate,
@@ -9448,6 +9473,7 @@ const applySimulationResult = async ({
         toDate: nextGame.gameDate,
         round: nextGame.round,
         movedAt: movedThisTurn,
+        onWater: await waterTestFor(impactedWorld),
       },
     ), result.clearActions ? plannedActionSnapshot : [], { queuedActions: result.clearActions ? plannedActionSnapshot : null }),
     { playerCode: baseGame.country, playerCodes: humanCountriesOf(baseGame) },
@@ -17081,6 +17107,12 @@ const runJumpSegments = async ({ context, onEvents, onProgress, signal, state })
         if (state.folded && segmentGeneration?.source !== "fallback") state.foldedAgentAnswer = payload[AGENT_REPORTS_FIELD];
         delete payload[AGENT_REPORTS_FIELD];
       }
+      // And the players' advice (seatAdvice.js): the last segment's, kept on the
+      // world as the turn is written (applySimulationResult).
+      if (payload && typeof payload === "object" && SEAT_ADVICE_FIELD in payload) {
+        if (segmentGeneration?.source !== "fallback" && Array.isArray(payload[SEAT_ADVICE_FIELD])) state.seatAdvice = payload[SEAT_ADVICE_FIELD];
+        delete payload[SEAT_ADVICE_FIELD];
+      }
       // And the history fold, the same way (judged in foldedTurnReview).
       if (payload && typeof payload === "object" && HISTORY_FIELD in payload) {
         if (state.folded && historyJob && segmentGeneration?.source !== "fallback") state.foldedHistoryAnswer = payload[HISTORY_FIELD];
@@ -18110,6 +18142,7 @@ const finishTimelineJump = async ({ context, signal, state }) => {
     // that period was fought again with (frontOrderFunction.js).
     frontsGiven: normalizeArray(context.variables?.frontsForecast?.given),
     storylineUpdates: merged.storylineUpdates,
+    seatAdvice: state.seatAdvice ?? null,
     breadthRepairContext: selectBreadthRepairContext(state, context),
     generation: state.generation,
     hiddenEvents: state.hiddenEvents,
@@ -20993,7 +21026,7 @@ const idlePulseBackoff = createIdlePulseBackoff();
 // the player deployed a unit, while the model was thinking, and a world built on
 // the stale snapshot would undo it. The caller passes the world as it stands
 // inside the write queue (mutateWorldState).
-const applyIdlePulseUnitOps = (freshWorld, bundle, unitOps) => {
+const applyIdlePulseUnitOps = (freshWorld, bundle, unitOps, { onWater = null } = {}) => {
   const tick = (Number(freshWorld.idlePulseTick) || 0) + 1;
   const gameDate = normalizeString(bundle.game?.gameDate);
   const round = Number(bundle.game?.round) || 0;
@@ -21011,6 +21044,7 @@ const applyIdlePulseUnitOps = (freshWorld, bundle, unitOps) => {
     toDate: gameDate,
     round,
     tick,
+    onWater,
   });
   return enforceUnitVolume(
     { ...drifted, idlePulseTick: tick },
@@ -21143,13 +21177,14 @@ export const maybeSendIdleDiplomacy = async () => {
       }
       try {
         let moved = false;
+        const onWater = await waterTestFor(bundle.world);
         await mutateWorldState((latest) => {
           // Re-checked at the write itself, exactly as the chat half does: a
           // jump that started while the model was thinking owns the world now,
           // and a campaign the player has left is not this pulse's to move.
           if (isSimulationBusy() || leftCampaign(campaign)) return null;
           moved = true;
-          return applyIdlePulseUnitOps(latest, bundle, unitOps);
+          return applyIdlePulseUnitOps(latest, bundle, unitOps, { onWater });
         });
         if (moved && payload.sighting && !isSimulationBusy()) {
           await appendSightingEvent(bundle, payload.sighting, unitOps, campaign);

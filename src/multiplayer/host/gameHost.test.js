@@ -802,6 +802,34 @@ test("orders given while a round's events are read are the next round's; while i
   assert.equal(s.ack(s.guest, id(6)).ok, true);
 });
 
+test("while a round is resolved, letters to the AI's governments and goals wait; people still write to each other, every line dated by the game", async () => {
+  let release;
+  const s = setup({ holdResolve: new Promise((resolve) => { release = resolve; }) });
+  s.host.join(s.hostPlayer);
+  s.host.join(s.guest);
+  await s.request(s.guest, { t: "pick", id: id(1), country: RUSSIA });
+  await s.host.control.start();
+  await s.request(s.hostPlayer, { t: "ready", id: id(2), value: true });
+  await s.request(s.guest, { t: "ready", id: id(3), value: true });
+  assert.equal(s.to(s.guest, "round").at(-1).phase, "resolving");
+  // Estonia is the AI's: a new thread, and the AI's thread the host owns.
+  await s.request(s.guest, { t: "say", id: id(4), thread: null, to: [ESTONIA], text: "Moscow to Tallinn." });
+  assert.match(s.ack(s.guest, id(4)).error, /being resolved/);
+  await s.request(s.hostPlayer, { t: "say", id: id(5), thread: "chat-lv-est", to: [], text: "Riga again." });
+  assert.match(s.ack(s.hostPlayer, id(5)).error, /being resolved/);
+  await s.request(s.guest, { t: "goal", id: id(6), text: "Take Narva" });
+  assert.match(s.ack(s.guest, id(6)).error, /being resolved/);
+  // Latvia is the host's: people write to each other at any time.
+  await s.request(s.guest, { t: "say", id: id(7), thread: null, to: [LATVIA], text: "Moscow to Riga." });
+  assert.equal(s.ack(s.guest, id(7)).ok, true);
+  const thread = s.store.docs.chat.find((chat) => chat.player === RUSSIA);
+  assert.equal(thread.messages[0].time, "2014-04-01");
+  release();
+  await s.clock.flush();
+  await s.request(s.guest, { t: "say", id: id(8), thread: null, to: [ESTONIA], text: "Moscow to Tallinn." });
+  assert.equal(s.ack(s.guest, id(8)).ok, true);
+});
+
 test("an institution's business goes to the host's desk for the asker's seat, and what it made comes back with the ack", async () => {
   const asked = [];
   const s = setup({

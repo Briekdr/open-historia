@@ -33,7 +33,10 @@
 //   seat; other seats get none of them.
 // - The AI's suggested orders are each device's own, asked with that player's
 //   own key and kept on that device (client/seatWrites.js): no view carries any.
+//   The advice the week itself brings each player (world.seatAdvice) is theirs
+//   alone, and so is their advisor's thread of secrets (advisorDesk.js).
 
+import { advisorThreadFor } from "./advisorDesk.js";
 import { normalizeWorldState } from "../../runtime/gameState.js";
 import { normalizeReports } from "../../runtime/reports.js";
 import { visiblePuppetsFor } from "../../runtime/puppets.js";
@@ -235,6 +238,9 @@ const FILTERED_WORLD_KEYS = Object.freeze({
       ? rating
       : Math.max(0, Math.min(100, Math.round(Number(rating) / 10) * 10))])),
   playerGoals: (world, viewer) => Object.fromEntries(Object.entries(isRecord(world.playerGoals) ? world.playerGoals : {})
+    .filter(([country]) => same(country, viewer))),
+  // A player's advisor and the orders they suggest (AI/seatAdvice.js): theirs alone.
+  seatAdvice: (world, viewer) => Object.fromEntries(Object.entries(isRecord(world.seatAdvice) ? world.seatAdvice : {})
     .filter(([country]) => same(country, viewer))),
 
   // Its own government in full; every other only as the public sees it.
@@ -460,11 +466,15 @@ export const projectForViewer = ({ world, game, events, chat, actions, intercept
   const ownOrderIds = new Set(ownActions.map((action) => clean(action?.id)).filter(Boolean));
   const owners = new Map(list(world?.units).map((unit) => [clean(unit?.id), clean(unit?.ownerCode)]));
   const readers = formerNamesOf(game, seat);
+  const seenEvents = projectEvents(events, seat, { ownOrderIds, host, readers, unitOwner: (id) => owners.get(clean(id)) || "" });
+  const shown = new Set(list(seenEvents).map((event) => clean(event?.id)));
   return {
     world: projectWorld(world ?? {}, seat, { host, readers, hiddenEventIds: eventsHiddenFrom(events, readers) }),
     game: copy({ ...(isRecord(game) ? game : {}), country: seat }),
-    events: copy(projectEvents(events, seat, { ownOrderIds, host, readers, unitOwner: (id) => owners.get(clean(id)) || "" })),
-    chat: copy(projectChats(chat, seat, { host })),
+    events: copy(seenEvents),
+    // Their advisor's conversation, with the secrets their government keeps
+    // (advisorDesk.js): made for this view, never stored.
+    chat: copy([...projectChats(chat, seat, { host }), ...[advisorThreadFor({ world, events }, seat, { readers, shown })].filter(Boolean)]),
     actions: copy(ownActions),
     intercepts: same(host, seat) && isRecord(intercepts) ? copy(intercepts) : {},
     colors: copy(isRecord(colors) ? colors : {}),

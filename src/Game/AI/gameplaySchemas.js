@@ -13,6 +13,7 @@ import { extractJsonArray } from "./jsonSalvage.js";
 import { LISTEN_IN_MAX_TRENDS } from "../../runtime/listenIn.js";
 import { WAR_ROOM_ORDERS, WAR_ROOM_STANCES } from "../../runtime/fronts/constants.js";
 import { FRONT_ORDERS_FIELD } from "./nativeFrontLedger.js";
+import { SEAT_ADVICE_ANSWER_SCHEMA, SEAT_ADVICE_FIELD } from "./seatAdvice.js";
 const textSchema = (description) => ({
   type: "string",
   description,
@@ -1317,6 +1318,10 @@ export const JUMP_FORWARD_SCHEMA = {
       type: "string",
       description: "Fronts; format in prompt. Empty if none.",
     },
+    // Each player's advisor and three orders to consider, in a game a host
+    // shares (seatAdvice.js). SENT only then, in full (withSeatAdvice); read
+    // either way, loosely, so a malformed piece of advice never costs the turn.
+    [SEAT_ADVICE_FIELD]: SEAT_ADVICE_ANSWER_SCHEMA,
     // A folded skip's agents' reports (see "The folded time skip" above). Loose
     // here on purpose: each report is checked against the agents' own schema
     // (SPY_INTERCEPT_SCHEMA) when it is filed, so a malformed one costs that
@@ -1361,6 +1366,7 @@ const JUMP_FORWARD_LEAN_SCHEMA = (() => {
     [AGENT_REPORTS_FIELD]: _agentReports,
     [HISTORY_FIELD]: _history,
     [FRONT_ORDERS_FIELD]: _frontOrders,
+    [SEAT_ADVICE_FIELD]: _seatAdvice,
     ...properties
   } = JUMP_FORWARD_SCHEMA.properties;
   return {

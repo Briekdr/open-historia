@@ -503,7 +503,7 @@ const targetOf = (thing, from) => {
 // coast that runs along the map's southern edge stepped out over it (a fantasy
 // scenario's Discord game, 2026-10-26).
 const MAP_EDGE_LAT = 85.0511;
-const isOpenSea = (point, gazetteer) => Math.abs(point[1]) < MAP_EDGE_LAT && !gazetteer.regionAt(point);
+export const isOpenSea = (point, gazetteer) => Math.abs(point[1]) < MAP_EDGE_LAT && !gazetteer.regionAt(point);
 
 // Is this stretch of a region's edge the sea? Step outward from it; on this map
 // the sea is where no land region is (isOpenSea).

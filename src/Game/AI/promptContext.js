@@ -12,7 +12,7 @@ import {
   normalizeEvents,
   normalizeWorldState,
 } from "../../runtime/gameState.js";
-import { buildRegionOwnershipText, buildUnruledBordersText, regionOwnerName } from "./regionVocab.js";
+import { buildRegionOwnershipText, buildUnruledBordersText, regionOwnerName, regionTouchingMap } from "./regionVocab.js";
 import { waterTypeIds } from "../../runtime/regionTypes.js";
 import { isPendingAction, selectFocusPowers } from "./regionFocus.js";
 import { filterChatsVisibleTo } from "./chatVisibility.js";
@@ -27,6 +27,7 @@ import { difficultyPassage } from "../../runtime/difficulty.js";
 import { worldFileUrl } from "../../runtime/worldFiles.js";
 import { hostingSharedGame, humanCountriesOf, sharedGameHostCountry } from "../../runtime/humanPolities.js";
 import { SHARED_WORLD_TASKS, buildSharedGameDirective, joinPolityNames } from "./sharedGameDirective.js";
+import { buildSeatAdviceDirective } from "./seatAdvice.js";
 import { unitsOffBattlefields } from "./frontsGate.js";
 
 const normalizeString = (value) => String(value ?? "").trim();
@@ -1769,9 +1770,16 @@ export const buildWorldSummary = async (bundle, regionCatalog = null, {
   // region's name and owner only, and without its box, adjacencies and type
   // no wild region was anybody's neighbour, so the list was never written
   // (a five-month Discord game, 2026-10-28).
+  // The map's shapes say which regions share a border, the sea's among them:
+  // wild land across a strait from a power is its neighbour by ship. Worked
+  // out only on a map with unruled land.
+  const shapes = conversation ? null : await readJson(JSON_URLS.regionsGeojson, { defaultValue: null, clone: false }).catch(() => null);
   const unruledBorders = conversation
     ? ""
-    : buildUnruledBordersText(await loadScenarioRegionCatalog().catch(() => null) ?? regions, world.regionOwnershipOverrides, { waterTypes: waterTypeIds(world.regionTypes) });
+    : buildUnruledBordersText(await loadScenarioRegionCatalog().catch(() => null) ?? regions, world.regionOwnershipOverrides, {
+      waterTypes: waterTypeIds(world.regionTypes),
+      touching: () => regionTouchingMap(shapes?.features),
+    });
 
   return [
     `Player polity: ${bundle.game.country || "Unknown polity"}${playerTags.length ? ` (${playerTags.join(", ")})` : ""}`,
@@ -2134,6 +2142,11 @@ export const buildPromptContext = async (bundle, {
   if (people.length > 1) {
     result.sharedGameDirective = buildSharedGameDirective(bundle.game);
     result.sharedPolities = people.join("; ");
+  }
+  // A game a host shares: the week brings each player their advisor's three
+  // orders to consider (seatAdvice.js). Only the time skip itself writes them.
+  if (hostingSharedGame() && (taskKey === "jumpForward" || taskKey === "autoJumpForward")) {
+    result.seatAdviceDirective = buildSeatAdviceDirective(humanCountriesOf(bundle.game), bundle.world);
   }
   if (wants("playerPolityRegions")) {
     result.playerPolityRegions = await buildPlayerPolityRegionsText(
