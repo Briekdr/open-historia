@@ -53,6 +53,21 @@ import { PAST_UPDATES } from "./notesPast.js";
 // make UPDATES, newest first by date.
 const NEW_UPDATES = [
   {
+    id: "2026-10-discord-invites",
+    kind: "minor",
+    date: "2026-10-29",
+    banners: [
+      {
+        title: "Invite friends from Discord",
+        items: [
+          "In a shared game, your Discord status shows the game as joinable: invite a friend from Discord and they get a popup in their game asking them to join.",
+          "When someone asks to join your shared game from your Discord profile, you get a popup to accept or decline.",
+          "In the desktop app, with Show what I am playing on Discord switched on.",
+        ],
+      },
+    ],
+  },
+  {
     id: "2026-10-renamed-regions",
     kind: "minor",
     date: "2026-10-28",
