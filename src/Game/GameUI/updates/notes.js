@@ -53,6 +53,21 @@ import { PAST_UPDATES } from "./notesPast.js";
 // make UPDATES, newest first by date.
 const NEW_UPDATES = [
   {
+    id: "2026-10-renamed-regions",
+    kind: "minor",
+    date: "2026-10-28",
+    channel: "beta",
+    banners: [
+      {
+        title: "Renamed regions and a tidier top bar",
+        items: [
+          "A region renamed by an event shows its new name on its place card and in each country's list of territory, for every player in a shared game.",
+          "On a computer, the menu button at the top left is now the same height as the game's name and the Exit Game button beside it.",
+        ],
+      },
+    ],
+  },
+  {
     id: "2026-10-fixes-from-reports",
     kind: "minor",
     date: "2026-10-28",

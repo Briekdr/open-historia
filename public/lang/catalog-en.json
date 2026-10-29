@@ -9369,6 +9369,7 @@
  "Rename region {{value}} to {{to}}",
  "Rename the basemap {{name}} to {{name2}}",
  "Rename {{name}} to {{value}}",
+ "Renamed regions and a tidier top bar",
  "Renamed the region {{formerName}} to {{String}} by hand; it is the same place.",
  "Renamed to {{to}}.",
  "Renames the country everywhere on this map: its regions, claims, colour, flag, tags and cities. The old name is kept as a former name.",

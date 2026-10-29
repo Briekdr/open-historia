@@ -144,6 +144,9 @@ export const WORLD_DEFAULTS = {
   // lowercased original city name -> new display name. world.markers cities are
   // renamed in place by applyMarkerOps; this is the override layer for the rest.
   cityRenames: {},
+  // AI renames of map regions/provinces (stock regions live in PMTiles level 1):
+  // lowercased original region name or GADM id -> new display name.
+  regionRenames: {},
   // AI changes to a city's POPULATION, same override shape as cityRenames and for
   // the same reason: stock cities live in PMTiles and cannot be edited in place.
   // Lowercased original city name -> number. Applies to authored cities too, so a
@@ -4543,6 +4546,11 @@ export const normalizeWorldState = (world) => {
         .map(([key, value]) => [normalizeString(key).toLowerCase(), normalizeString(value)])
         .filter(([key, value]) => key && value),
     ),
+    regionRenames: Object.fromEntries(
+      Object.entries(nextWorld.regionRenames && typeof nextWorld.regionRenames === "object" ? nextWorld.regionRenames : {})
+        .map(([key, value]) => [normalizeString(key).toLowerCase(), normalizeString(value)])
+        .filter(([key, value]) => key && value),
+    ),
     cityPopulations: Object.fromEntries(
       Object.entries(nextWorld.cityPopulations && typeof nextWorld.cityPopulations === "object" ? nextWorld.cityPopulations : {})
         .map(([city, value]) => [normalizeOptionalString(city).toLowerCase(), Number(value)])
@@ -6002,16 +6010,23 @@ export const applyEventImpactsToWorld = ({
         eventId: event.id,
         gameDate: event.date || "",
       });
-      // A rename that matched no existing structure is a STOCK-map city rename (stock
-      // cities live in PMTiles, not world.markers) — record it as an override layer so
-      // the label layer can show the new name (see Cities.jsx / cityRenames).
+      // A rename that matched no existing structure is a STOCK-map city or region rename (stock
+      // cities and regions live in PMTiles, not world.markers) — record it as an override layer so
+      // the label layer and region inspector show the new name (see Cities.jsx and regionNameFixes.js).
       for (const raw of normalizeArray(event.impacts.markerOps)) {
         const op = normalizeMarkerOp(raw);
         if (!op || !op.name) continue;
         const matched = before.some((m) =>
           op.markerId ? m.id === op.markerId : m.name.toLowerCase() === op.name.toLowerCase());
         if (op.op === "rename" && !matched) {
-          nextWorld.cityRenames = { ...(nextWorld.cityRenames || {}), [op.name.toLowerCase()]: op.newName };
+          const rawName = String(op.name).trim();
+          const isRegion = /^region:\s*/i.test(rawName);
+          const cleanName = rawName.replace(/^region:\s*/i, "").trim().toLowerCase();
+          if (isRegion) {
+            nextWorld.regionRenames = { ...(nextWorld.regionRenames || {}), [cleanName]: op.newName };
+          } else {
+            nextWorld.cityRenames = { ...(nextWorld.cityRenames || {}), [cleanName]: op.newName };
+          }
         }
         // Population is recorded in the override for EVERY city, matched or not.
         // A built marker keeps its own population field, but the map reads the
