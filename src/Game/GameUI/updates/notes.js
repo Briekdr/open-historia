@@ -53,6 +53,20 @@ import { PAST_UPDATES } from "./notesPast.js";
 // make UPDATES, newest first by date.
 const NEW_UPDATES = [
   {
+    id: "2026-10-community-dates",
+    kind: "minor",
+    date: "2026-10-29",
+    banners: [
+      {
+        title: "Find scenarios by date",
+        items: [
+          "The Community tab's start and end date filters now find scenarios by the date they begin. Before, any date range showed nothing.",
+          "Set only a start or only an end to see everything after or before it; scenarios set before the common era count too.",
+        ],
+      },
+    ],
+  },
+  {
     id: "2026-10-discord-invites",
     kind: "minor",
     date: "2026-10-29",
