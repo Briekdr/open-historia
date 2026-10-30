@@ -103,10 +103,14 @@ const NEW_UPDATES = [
     channel: "beta",
     banners: [
       {
-        title: "Renamed regions and a tidier top bar",
+        title: "Renamed regions and group diplomacy",
         items: [
           "A region renamed by an event shows its new name on its place card and in each country's list of territory, for every player in a shared game.",
           "On a computer, the menu button at the top left is now the same height as the game's name and the Exit Game button beside it.",
+          "Add countries directly into existing diplomatic conversations with the + Add Country button in the header.",
+          "Rename diplomatic conversations and group channels with the new title edit button.",
+          "Tag specific countries in group conversations using @Country chips so only those leaders reply to your message.",
+          "Diplomatic leaders now respond with natural depth and substance rather than clipped single-sentence answers.",
         ],
       },
     ],
