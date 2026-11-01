@@ -72,6 +72,27 @@ const createdChatSchema = {
   additionalProperties: false,
 };
 
+// A time skip's letter that offers the player peace carries its terms
+// (Game/AI/warAndPeace.js offerPeace): only in the skip's own outreach, where
+// the [War Weariness, Peace and Alliances] block teaches it. Flat, each field
+// a line, as the jump's size guard asks (projectOpSchema.test.js).
+const peaceOfferSchema = {
+  type: "object",
+  description: "Only in a letter offering the player peace: its terms.",
+  properties: {
+    territory: { type: "string", enum: ["as held", "restored"] },
+    reparationsPayer: textSchema("Who pays; empty for nobody."),
+    reparationsPercent: { type: "number", description: "% of the payer's GDP a year." },
+    reparationsYears: { type: "integer" },
+  },
+  required: ["territory"],
+  additionalProperties: false,
+};
+const outreachChatSchema = {
+  ...createdChatSchema,
+  properties: { ...createdChatSchema.properties, peaceOffer: peaceOfferSchema },
+};
+
 // Field descriptions are kept to a line. The jump's schema rides on every
 // request and a test holds it to a size (projectOpSchema.test.js); the long form
 // of every lever is in the actions reference and the directives the jump is
@@ -1281,7 +1302,13 @@ export const JUMP_FORWARD_SCHEMA = {
     diplomaticOutreach: {
       type: "array",
       description: "Independent outreach to the player; empty when none.",
-      items: createdChatSchema,
+      items: outreachChatSchema,
+    },
+    // The peaces two countries nobody plays made (peacePrompt.js
+    // PEACE_TREATIES_FIELD), a line each, read by peaceTerms.js readTreatyLines.
+    peaceTreaties: {
+      type: "string",
+      description: "Peace between countries nobody plays; format in prompt. Empty if none.",
     },
     // The canonical ledgers (nativeWarLedger.js, nativeDiplomaticDirector.js)
     // travel as compact text lines rather than nested objects: a large nested
@@ -1900,7 +1927,7 @@ const chatActionSchema = {
       enum: ["send_message", "add_reaction", "rename_chat", "add_member", "remove_member", "create_poll", "add_poll_option", "poll_vote", ...INSTITUTION_CHAT_ACTION_KINDS],
     },
     actorName: nonEmptyTextSchema("The AI participant acting, by exact display name. NEVER a human-controlled one."),
-    content: textSchema("send_message: spoken message only, in the actor's own voice, written TO the others (never the player's words, never addressed to the actor's own government, capital or leader). Provide a natural, substantive diplomatic reply with realistic depth (typically 2-4 sentences explaining position, leverage, or conditions); avoid clipped robotic one-liners. actorName already identifies the speaker; never prefix content with the polity name plus a colon or dash."),
+    content: textSchema("send_message: spoken message only, in the actor's own voice, written TO the others (never the player's words, never addressed to the actor's own government, capital or leader). Match the length and tone of what it answers. actorName already identifies the speaker; never prefix content with the polity name plus a colon or dash."),
     targetEntryId: textSchema("add_reaction: the id of the message reacted to, copied from the transcript."),
     emoji: textSchema("add_reaction: one emoji."),
     title: textSchema("rename_chat: the new title."),
@@ -1950,6 +1977,9 @@ export const CHAT_ACTIONS_SCHEMA = {
       items: chatActionSchema,
     },
     memorySummary: textSchema("The thread's rolling memory, rewritten: what has been agreed, threatened, offered and left unresolved. Two or three sentences."),
+    // What a government at war with the player decides of peace, where a [Peace]
+    // block asks for it (AI/warStatsPrompt.js describePeaceTalk).
+    peaceAnswers: textSchema("Only where a [Peace] block asks: each government's decision on peace, a line each. Empty otherwise."),
     lifecycleResponsesJson: textSchema(`Institution invitation/application decisions as JSON array text. Each object: {actorName, caseId, decision, reason?, terms?}. decision is ${INSTITUTION_LIFECYCLE_DECISIONS.slice(0, -1).join(", ")}, or ${INSTITUTION_LIFECYCLE_DECISIONS.at(-1)}. Use [] when this is not a lifecycle negotiation.`),
   },
   required: ["actions"],
@@ -4468,6 +4498,8 @@ const normalizeChatActionsShape = (value) => {
   if (Array.isArray(lifecycleAlias)) candidate.lifecycleResponsesJson = JSON.stringify(lifecycleAlias);
   else if (candidate.lifecycleResponsesJson === undefined && typeof lifecycleAlias === "string") candidate.lifecycleResponsesJson = lifecycleAlias;
   delete candidate.lifecycleResponses;
+  // Decisions on peace written as a list rather than lines are the same lines.
+  if (Array.isArray(candidate.peaceAnswers)) candidate.peaceAnswers = candidate.peaceAnswers.map((line) => String(line ?? "").trim()).filter(Boolean).join("\n");
 
   return candidate;
 };
@@ -4653,6 +4685,19 @@ export const normalizeGameplayPayload = (taskKey, value) => {
 
   if (Array.isArray(candidate.events)) candidate.events = candidate.events.map(normalizeEventShape);
   if (Array.isArray(candidate.diplomaticOutreach)) candidate.diplomaticOutreach = normalizeChatList(candidate.diplomaticOutreach);
+  // A letter offering peace is the skip's own outreach (peacePrompt.js). One
+  // written into an event's createdChats instead is moved there, with the event
+  // it belongs to, rather than costing the turn a retry.
+  if (Array.isArray(candidate.events)) {
+    const letters = [];
+    candidate.events = candidate.events.map((event) => {
+      const chats = event?.impacts?.createdChats;
+      if (!Array.isArray(chats) || !chats.some((chat) => isPlainRecord(chat?.peaceOffer))) return event;
+      letters.push(...chats.filter((chat) => isPlainRecord(chat?.peaceOffer)).map((chat) => ({ ...chat, ...(typeof event.id === "string" && event.id ? { linkedEventId: event.id } : {}) })));
+      return { ...event, impacts: { ...event.impacts, createdChats: chats.filter((chat) => !isPlainRecord(chat?.peaceOffer)) } };
+    });
+    if (letters.length) candidate.diplomaticOutreach = [...(Array.isArray(candidate.diplomaticOutreach) ? candidate.diplomaticOutreach : []), ...normalizeChatList(letters)];
+  }
   return candidate;
 };
 
